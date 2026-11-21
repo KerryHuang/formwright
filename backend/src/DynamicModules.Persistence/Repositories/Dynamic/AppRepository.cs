@@ -41,6 +41,9 @@ public class AppRepository(DynamicDbContext db) : IAppRepository
     public void AddIntegration(AppIntegration integration) => db.Set<AppIntegration>().Add(integration);
 
     public void AddBaseline(AppBaseline baseline) => db.Set<AppBaseline>().Add(baseline);
+
+    public Task<AppBaseline?> GetBaselineAsync(long appId, CancellationToken ct) =>
+        db.Set<AppBaseline>().AsNoTracking().FirstOrDefaultAsync(x => x.AppId == appId, ct);
 }
 
 public class AppPackageRepository(DynamicDbContext db) : IAppPackageRepository

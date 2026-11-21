@@ -156,6 +156,7 @@ public static class DependencyInjection
         services.AddScoped<Dynamic.AttachmentService.AttachmentUploadGate>();
         services.AddScoped<Dynamic.AttachmentService.AttachmentUploadTracker>();
         services.AddScoped<Dynamic.AppService.AppExporter>();
+        services.AddScoped<Dynamic.AppService.Upgrade.AppUpgradePreviewer>();
         services.AddScoped<Dynamic.DemoService.DemoPreflight>();
         services.AddScoped<Dynamic.DemoService.DemoStructure>();
         services.AddScoped<Dynamic.DeleteService.DeletePlanner>();

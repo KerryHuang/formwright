@@ -1,0 +1,381 @@
+using System.Reflection;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using DynamicModules.Application.Dynamic.AppService.Data;
+using DynamicModules.Application.Dynamic.PermissionService.Data;
+using DynamicModules.Application.Dynamic.TemplateService;
+using DynamicModules.Application.Dynamic.TemplateService.Data;
+using DynamicModules.Domain.Entities.Dynamic;
+using DynamicModules.Domain.ValueObjects;
+
+namespace DynamicModules.Application.Dynamic.AppService.Upgrade;
+
+/// <summary>
+/// 一個比對項目（套件更新設計 §6.2）。Props 的鍵是屬性名，多語屬性每個語系一個鍵（<c>name|en-US</c>），值已正規化。
+/// Parent 是它所屬的上層項目（欄位屬於區塊、區塊屬於模組）；上層在現況不存在時，這一項隨上層一起處理、不另外列。
+/// Refs 是項目內容裡出現的代號（給相依判斷用，§6.5）。
+/// </summary>
+public sealed record UpgradeItem(string Id, string Section, string? Module, I18nText? Label, IReadOnlyDictionary<string, JsonNode?> Props)
+{
+    public string? Parent { get; init; }
+    public IReadOnlySet<string> Refs { get; init; } = new HashSet<string>();
+    /// <summary>權限類項目（模組權限、欄位例外、選項範圍）：既有物件上的只列出（Q5），新物件的算附帶權限（Q12）。</summary>
+    public bool IsPermission { get; init; }
+    /// <summary>附帶權限掛在哪個項目上（權限類才有）。</summary>
+    public string? Owner { get; init; }
+    public long? GroupId { get; init; }
+}
+
+/// <summary>
+/// 把一份 <see cref="AppPackageData"/> 換成比對項目（§6.2）。基準、新版、現況都走這一份，所以正規化只有一處。
+/// 群組代號一律換成客戶群組 id（§6.2.1）：<paramref name="groupOf"/> 回 null 的（略過或沒對應）不列入；
+/// 多個代號對到同一個客戶群組時照開啟的合併規則合成一筆。<paramref name="bound"/> 判斷欄位、區塊、選項有沒有對照列，
+/// 沒有的是客戶新增（§6.3），不進項目、只算數量。
+/// </summary>
+public static class UpgradeItems
+{
+    /// <summary>
+    /// 明文「不比對」的屬性與理由（§13、§18 覆蓋率測試）：record 其他的公開屬性一律自動進比對，新屬性不會被漏掉。
+    /// 鍵是 record 名稱，值是屬性名（C# 名稱）。
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> NotCompared =
+        new Dictionary<string, IReadOnlyDictionary<string, string>>
+        {
+            [nameof(AppPackageData)] = Reasons(
+                ("Format", "格式名稱固定"), ("FormatVersion", "讀成同一份物件後才比，格式版號不是內容（§13）"),
+                ("Manifest", "名稱、圖示另成應用程式資訊項目；版號、依賴、vendor 另外檢查（§7、§8.2）"),
+                ("Groups", "群組另成群組段，只看新代號（§6.2）"), ("Modules", "逐模組展開"), ("FieldAccess", "展開成欄位例外項目"),
+                ("OptionScopes", "展開成選項範圍項目"), ("Reports", "逐份展開"), ("Dashboards", "保留 section，只能是空陣列"),
+                ("Workflows", "展開成狀態機、狀態、轉移"), ("Conversions", "逐個展開"), ("Events", "逐個展開"), ("PrintTemplates", "逐個展開"),
+                ("Checks", "逐個展開"), ("Ledgers", "逐個展開"), ("Integrations", "逐個展開"), ("Contributions", "展開成貢獻、區塊、欄位、權限"),
+                ("TaskRules", "逐個展開"), ("ApprovalFlows", "逐個展開")),
+            [nameof(AppManifest)] = Reasons(
+                ("Id", "識別"), ("Version", "版號判斷（§7.2）"), ("Description", "只在開啟前的清單顯示，開啟後不存"),
+                ("Vendor", "只顯示，不同時預覽提醒（§7.1）"), ("Requires", "前置條件，在 §8.2 檢查"), ("Kind", "開啟後不能改")),
+            [nameof(TemplateModule)] = Reasons(
+                ("Code", "識別"), ("Key", "模組 key 開啟時可改，之後不能改"), ("Blocks", "逐區塊展開"), ("Rules", "另成規則組項目（Q7）"),
+                ("Views", "逐檢視展開"), ("Permissions", "展開成模組權限項目")),
+            [nameof(TemplateBlock)] = Reasons(("Code", "識別"), ("Fields", "逐欄位展開；欄位所在區塊與排序不比（T7）")),
+            [nameof(TemplateField)] = Reasons(("Code", "識別"), ("Options", "逐選項展開；選項排序不比（T7）")),
+            [nameof(TemplateOption)] = Reasons(("Code", "識別")),
+            [nameof(TemplateView)] = Reasons(),
+            [nameof(TemplatePermission)] = Reasons(("Group", "換成客戶群組 id 當識別（§6.2.1）")),
+            [nameof(AppFieldAccess)] = Reasons(("Field", "識別"), ("Group", "換成客戶群組 id 當識別（§6.2.1）")),
+            [nameof(AppOptionScope)] = Reasons(("Option", "識別")),
+            [nameof(AppPackageReport)] = Reasons(("Code", "識別")),
+            [nameof(AppWorkflow)] = Reasons(("Module", "識別"), ("States", "逐狀態展開"), ("Transitions", "逐轉移展開")),
+            [nameof(AppWorkflowState)] = Reasons(("Option", "識別")),
+            [nameof(AppWorkflowTransition)] = Reasons(("From", "識別"), ("To", "識別")),
+            [nameof(AppConversion)] = Reasons(("Code", "識別")),
+            [nameof(AppEvent)] = Reasons(("Code", "識別")),
+            [nameof(AppCheck)] = Reasons(("Code", "識別")),
+            [nameof(AppPrintTemplate)] = Reasons(("Code", "識別")),
+            [nameof(AppTaskRule)] = Reasons(("Code", "識別")),
+            [nameof(AppApprovalFlow)] = Reasons(("Code", "識別")),
+            [nameof(AppLedger)] = Reasons(("Module", "識別")),
+            [nameof(AppIntegrationDecl)] = Reasons(("Code", "識別")),
+            [nameof(AppContribution)] = Reasons(
+                ("Master", "識別"), ("Module", "識別"), ("Fields", "逐欄位展開"), ("Permissions", "展開成權限項目"), ("FieldAccess", "展開成欄位例外項目")),
+        };
+
+    /// <summary>只在套件有寫時才比的屬性：省略代表「用建立當時的系統預設」（例如區塊欄數取政策預設），現況一定有值，不算客戶改。</summary>
+    public static readonly IReadOnlySet<string> DeclaredOnly = new HashSet<string> { "columns" };
+
+    private static IReadOnlyDictionary<string, string> Reasons(params (string Name, string Why)[] items) =>
+        items.ToDictionary(x => x.Name, x => x.Why);
+
+    /// <param name="moduleKind">模組代號 → 種類；主檔的模組權限是範圍，一般模組是七軸（兩者都照同樣規則合併）。</param>
+    public static Dictionary<string, UpgradeItem> Extract(AppPackageData p, Func<string, long?> groupOf, Func<string, bool> bound)
+    {
+        var items = new Dictionary<string, UpgradeItem>(StringComparer.Ordinal);
+        void Add(UpgradeItem item) => items[item.Id] = item;
+
+        Add(new UpgradeItem("app", "app", null, p.Manifest.Name, Merge(
+            I18n("name", p.Manifest.Name), Single("icon", p.Manifest.Icon))));
+
+        // 跨記錄檢查用到的欄位，建檢查時系統自動開「可篩選」（CheckIndexer）：分組、彙總、上限欄位沒有可排序的索引就開，where 的一定開
+        var indexed = new HashSet<string>(StringComparer.Ordinal);
+        var filtered = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var check in p.Checks.Concat(p.Integrations.SelectMany(i => i.Checks)))
+        {
+            indexed.UnionWith(check.GroupBy);
+            if (check.Field is { } cf) indexed.Add(cf);
+            if (check.Assert.Limit.Field is { } lf && check.Assert.Limit.Via is null) indexed.Add(lf);
+            if (check.Where is { } where) filtered.UnionWith(RefsOf(where));
+        }
+
+        foreach (var m in p.Modules)
+        {
+            var moduleId = $"module:{m.Code}";
+            var moduleProps = Generic(m);
+            // 主檔模組沒寫 extensible 等於可擴充（匯出照這個預設寫出 true）
+            if (p.Manifest.IsMaster && !moduleProps.ContainsKey("extensible")) moduleProps["extensible"] = JsonValue.Create(true);
+            Add(new UpgradeItem(moduleId, "modules", m.Code, m.Name, moduleProps));
+            AddBlocks(m.Code, m.Blocks, moduleId);
+            if (m.Rules.Count > 0)
+                Add(new UpgradeItem($"rules:{m.Code}", "rules", m.Code, m.Name, Single("rules", m.Rules)) { Parent = moduleId, Refs = RefsOf(m.Rules) });
+            foreach (var v in m.Views.GroupBy(v => v.Name.Resolve(I18nText.FallbackLocale)).Select(g => g.First()))
+            {
+                var name = v.Name.Resolve(I18nText.FallbackLocale);
+                var props = Generic(v);
+                props.Remove($"name|{I18nText.FallbackLocale}");
+                Add(new UpgradeItem($"view:{m.Code}:{name}", "views", m.Code, v.Name, props) { Parent = moduleId, Refs = RefsOf(v) });
+            }
+            AddPermissions(m.Code, moduleId, m.Permissions);
+        }
+
+        foreach (var g in p.FieldAccess.Select(a => (a, Group: groupOf(a.Group))).Where(x => x.Group is not null)
+                     .GroupBy(x => (x.a.Field, x.Group!.Value)))
+        {
+            // 多個套件群組對到同一個客戶群組：取最嚴，隱藏優先於唯讀（同 AppOpener.RecordGrantsAsync）
+            var access = g.Any(x => x.a.Access == FieldAccess.Hidden) ? FieldAccess.Hidden : FieldAccess.ReadOnly;
+            Add(FieldAccessItem(g.Key.Field, g.Key.Value, access));
+        }
+        foreach (var s in p.OptionScopes)
+        {
+            var groups = GroupSet(s.Groups, groupOf);
+            var module = ModuleOf(s.Option);
+            Add(new UpgradeItem($"optionScope:{s.Option}", "optionScopes", module, null, Single("groups", groups))
+                { IsPermission = true, Owner = $"option:{s.Option}" });
+        }
+
+        foreach (var r in p.Reports)
+        {
+            var props = Generic(r with { ShareWith = [] });
+            props["shareWith"] = Normalize(JsonSerializer.SerializeToNode(GroupSet(r.ShareWith, groupOf)));
+            Add(new UpgradeItem($"report:{r.Code}", "reports", r.Definition.MainModule, new I18nText([KeyValuePair.Create(I18nText.FallbackLocale, r.Name)]), props)
+                { Refs = RefsOf(r.Definition) });
+        }
+
+        foreach (var w in p.Workflows)
+        {
+            var workflowId = $"workflow:{w.Module}";
+            Add(new UpgradeItem(workflowId, "workflows", w.Module, null, Generic(w)) { Parent = $"module:{w.Module}", Refs = RefsOf(w.Module, w.StatusField, w.Initial) });
+            // editable 只有 true 有意義（匯出把 false 寫成省略）
+            foreach (var s in w.States)
+                Add(new UpgradeItem($"state:{w.Module}.{s.Option}", "workflows", w.Module, null, Generic(s with { Editable = s.Editable == true ? true : null }))
+                    { Parent = workflowId, Refs = RefsOf(w.Module, s.Option) });
+            foreach (var t in w.Transitions)
+            {
+                // 群組全部略過的轉移，開啟時不會建立（同 AppFlowInstaller），所以也不列
+                var transitionGroups = GroupSet(t.Groups, groupOf);
+                if (t.Groups.Count > 0 && transitionGroups.Count == 0) continue;
+                // 不需簽核等於沒有 approval；noMatch 只有 direct 有意義，block 是預設
+                var approval = t.Approval is { Required: true } a ? new AppTransitionApproval(true, a.NoMatch == "direct" ? "direct" : null) : null;
+                var props = Generic(t with { Groups = [], Approval = approval });
+                props["groups"] = Normalize(JsonSerializer.SerializeToNode(transitionGroups));
+                Add(new UpgradeItem($"transition:{w.Module}:{t.From}>{t.To}", "workflows", w.Module, null, props)
+                    { Parent = workflowId, Refs = RefsOf(w.Module, t.From, t.To) });
+            }
+        }
+
+        foreach (var c in p.Conversions) Add(Coded("conversions", "conversion", c.Code, c.Source, c.Name, c));
+        foreach (var e in p.Events) Add(Coded("events", "event", e.Code, e.Source, e.Name, e));
+        foreach (var c in p.Checks) Add(Coded("checks", "check", c.Code, c.Module, c.Name, c));
+        foreach (var t in p.PrintTemplates) Add(Coded("printTemplates", "printTemplate", t.Code, t.Module, t.Name, t));
+        // 任務規則的 repeat 省略等於 once（匯出寫出 null）
+        foreach (var t in p.TaskRules) Add(Coded("taskRules", "taskRule", t.Code, t.Module, t.Name, t with { Repeat = t.Repeat ?? AppTaskRule.Once }));
+        foreach (var f in p.ApprovalFlows)
+        {
+            var item = Coded("approvalFlows", "approvalFlow", f.Code, f.Module, f.Name, f);
+            // 關卡與備援的群組代號換成客戶群組 id（§6.2.1 第 4 點）
+            Add(item with { Props = item.Props.ToDictionary(x => x.Key, x => MapGroups(x.Value, groupOf)) });
+        }
+        foreach (var l in p.Ledgers)
+            Add(new UpgradeItem($"ledger:{l.Module}", "ledgers", l.Module, null, Generic(l)) { Parent = $"module:{l.Module}", Refs = RefsOf(l) });
+        foreach (var i in p.Integrations)
+            Add(new UpgradeItem($"integration:{i.Code}", "integrations", null, i.Name, Generic(i)) { Refs = RefsOf(i) });
+
+        foreach (var c in p.Contributions)
+        {
+            var symbol = $"{c.Master}/{c.Module}";
+            var contributionId = $"contribution:{symbol}";
+            var contributionProps = Generic(c);
+            // 只授予權限、沒有欄位的貢獻：區塊只是佔位（匯出時寫 main 與應用程式名稱），不比
+            if (c.Fields.Count == 0) contributionProps.Remove("block");
+            Add(new UpgradeItem(contributionId, "contributions", symbol, c.Block.Name, contributionProps));
+            AddBlocks(symbol, [new TemplateBlock(c.Block.Code, c.Block.Name, false, c.Fields)], contributionId, contribution: true);
+            AddPermissions(symbol, contributionId, c.Permissions);
+            foreach (var g in c.FieldAccess.Select(a => (a, Group: groupOf(a.Group))).Where(x => x.Group is not null)
+                         .GroupBy(x => (x.a.Field, x.Group!.Value)))
+                Add(FieldAccessItem(g.Key.Field, g.Key.Value, g.Any(x => x.a.Access == FieldAccess.Hidden) ? FieldAccess.Hidden : FieldAccess.ReadOnly));
+        }
+        return items;
+
+        void AddBlocks(string module, List<TemplateBlock> blocks, string moduleId, bool contribution = false)
+        {
+            foreach (var b in blocks)
+            {
+                var blockName = $"{module}.{b.Code}";
+                var blockId = $"block:{blockName}";
+                // 貢獻的區塊本身就是貢獻項目（名稱在貢獻上比），不另列
+                if (!contribution && bound(blockName)) Add(new UpgradeItem(blockId, "blocks", module, b.Label, Generic(b)) { Parent = moduleId });
+                foreach (var f in b.Fields)
+                {
+                    var fieldName = $"{module}.{f.Code}";
+                    if (!bound(fieldName)) continue;
+                    var fieldId = $"field:{fieldName}";
+                    var props = Merge(I18n("label", f.Label), Single("type", f.Type), Single("active", f.Active ?? true), ConfigProps(f.Config, f.Type));
+                    if (filtered.Contains(fieldName) || (indexed.Contains(fieldName) && !props.ContainsKey("config.isSortable")))
+                        props["config.isFilterable"] = JsonValue.Create(true);
+                    Add(new UpgradeItem(fieldId, "fields", module, f.Label, props)
+                        { Parent = contribution ? moduleId : blockId, Refs = RefsOf(f.Config) });
+                    foreach (var o in f.Options.Where(o => bound($"{module}.{o.Code}")))
+                        Add(new UpgradeItem($"option:{module}.{o.Code}", "options", module, o.Label, Generic(o)) { Parent = fieldId });
+                }
+            }
+        }
+
+        void AddPermissions(string module, string ownerId, List<TemplatePermission> permissions)
+        {
+            foreach (var g in permissions.Select(x => (x, Group: groupOf(x.Group))).Where(x => x.Group is not null).GroupBy(x => x.Group!.Value))
+            {
+                // 同一個客戶群組：動作取聯集、範圍取最寬（同 MasterGrants.GrantAsync）
+                var privileges = g.Select(x => x.x.Privileges).Aggregate((a, b) => new PrivilegesDto(
+                    a.Read || b.Read, a.Add || b.Add, a.Edit || b.Edit, a.Delete || b.Delete,
+                    a.PrintExport || b.PrintExport, a.Pricing || b.Pricing, a.Approve || b.Approve));
+                var scope = g.Max(x => x.x.Scope ?? DataScope.All);
+                Add(new UpgradeItem($"permission:{module}:{g.Key}", "permissions", module, null,
+                    Merge(Single("privileges", privileges), Single("scope", scope))) { IsPermission = true, Owner = ownerId, GroupId = g.Key });
+            }
+        }
+
+        static UpgradeItem FieldAccessItem(string field, long group, FieldAccess access) =>
+            new($"fieldAccess:{field}:{group}", "fieldAccess", ModuleOf(field), null, Single("access", access))
+                { IsPermission = true, Owner = $"field:{field}", GroupId = group };
+    }
+
+    private static UpgradeItem Coded(string section, string prefix, string code, string module, I18nText? name, object value) =>
+        new($"{prefix}:{code}", section, module, name, Generic(value)) { Refs = RefsOf(value) };
+
+    private static string ModuleOf(string qualified) => qualified[..Math.Max(0, qualified.LastIndexOf('.'))];
+
+    private static List<long> GroupSet(IEnumerable<string> codes, Func<string, long?> groupOf) =>
+        codes.Select(groupOf).Where(g => g is not null).Select(g => g!.Value).Distinct().Order().ToList();
+
+    /// <summary>簽核流程裡 groups、candidateGroups 的代號換成客戶群組 id；對不上的拿掉。</summary>
+    private static JsonNode? MapGroups(JsonNode? node, Func<string, long?> groupOf)
+    {
+        switch (node)
+        {
+            case JsonObject o:
+                var result = new JsonObject();
+                foreach (var (k, v) in o)
+                    result[k] = k is "groups" or "candidateGroups" && v is JsonArray a
+                        ? Normalize(JsonSerializer.SerializeToNode(GroupSet(a.Select(x => x?.GetValue<string>() ?? ""), groupOf)))
+                        : MapGroups(v, groupOf);
+                // 群組全部略過的群組來源等於沒有（開啟時不寫，匯出也不帶）
+                return result["source"]?.ToString() == "group" && Normalize(result["groups"]) is null ? null : result;
+            case JsonArray arr:
+                return new JsonArray(arr.Select(x => MapGroups(x, groupOf)).ToArray());
+            default:
+                return node?.DeepClone();
+        }
+    }
+
+    /// <summary>
+    /// 欄位設定的每個鍵是一個屬性（§6.2「config 的每個鍵」），值正規化；缺漏與 null、空陣列視為相同。
+    /// 去掉預設值：FieldConfig 的布林旗標預設都是 false（沒有預設 true 的），匯出會寫出 false、原文多半省略，所以 false 當成缺漏。
+    /// </summary>
+    private static Dictionary<string, JsonNode?> ConfigProps(JsonElement config, FieldType type)
+    {
+        var result = new Dictionary<string, JsonNode?>();
+        if (config.ValueKind != JsonValueKind.Object) return result;
+        foreach (var p in config.EnumerateObject())
+            if (p.Value.ValueKind != JsonValueKind.False && Normalize(JsonNode.Parse(p.Value.GetRawText())) is { } v) result[$"config.{p.Name}"] = v;
+        // 彙總的結果型別與小數位由來源欄位推導，存檔時系統補上（來源欄位本身的設定照比）
+        if (type == FieldType.Rollup) { result.Remove("config.resultType"); result.Remove("config.scale"); }
+        // 明細關聯（relation: detail）一定必填、刪單頭連帶刪除，存檔時系統補上；原文多半不寫，這兩個值不算差異
+        if (result.GetValueOrDefault("config.relation")?.ToString() == "detail")
+        {
+            if (result.GetValueOrDefault("config.required")?.ToString() == "true") result.Remove("config.required");
+            if (result.GetValueOrDefault("config.onDelete")?.ToString() == "cascade") result.Remove("config.onDelete");
+        }
+        return result;
+    }
+
+    /// <summary>record 的公開屬性逐一成為比對屬性（扣掉 <see cref="NotCompared"/>）；多語屬性每個語系一個屬性。</summary>
+    internal static Dictionary<string, JsonNode?> Generic(object value)
+    {
+        var skip = NotCompared.GetValueOrDefault(value.GetType().Name) ?? new Dictionary<string, string>();
+        var result = new Dictionary<string, JsonNode?>();
+        foreach (var prop in ComparedProperties(value.GetType()).Where(p => !skip.ContainsKey(p.Name)))
+        {
+            var name = JsonNamingPolicy.CamelCase.ConvertName(prop.Name);
+            var v = prop.GetValue(value);
+            if (v is I18nText text) foreach (var (k, x) in I18n(name, text)) result[k] = x;
+            else if (Normalize(JsonSerializer.SerializeToNode(v, prop.PropertyType, TemplateJson.Options)) is { } node) result[name] = node;
+        }
+        return result;
+    }
+
+    /// <summary>覆蓋率測試也用這一份：record 的公開實例屬性（不含編譯器產生的 EqualityContract）。</summary>
+    public static IEnumerable<PropertyInfo> ComparedProperties(Type type) =>
+        type.GetProperties(BindingFlags.Public | BindingFlags.Instance).Where(p => p.Name != "EqualityContract" && p.GetIndexParameters().Length == 0)
+            .GroupBy(p => p.Name).Select(g => g.First());
+
+    private static Dictionary<string, JsonNode?> I18n(string name, I18nText? text)
+    {
+        var result = new Dictionary<string, JsonNode?>();
+        if (text is null) return result;
+        foreach (var (locale, value) in text.Values.Where(v => !string.IsNullOrEmpty(v.Value))) result[$"{name}|{locale}"] = JsonValue.Create(value);
+        return result;
+    }
+
+    private static Dictionary<string, JsonNode?> Single(string name, object? value)
+    {
+        var node = value is null ? null : Normalize(JsonSerializer.SerializeToNode(value, value.GetType(), TemplateJson.Options));
+        return node is null ? [] : new Dictionary<string, JsonNode?> { [name] = node };
+    }
+
+    private static Dictionary<string, JsonNode?> Merge(params Dictionary<string, JsonNode?>[] parts)
+    {
+        var result = new Dictionary<string, JsonNode?>();
+        foreach (var part in parts) foreach (var (k, v) in part) result[k] = v;
+        return result;
+    }
+
+    /// <summary>null、缺漏、空陣列、空物件視為相同（一律變 null）；物件的鍵排序，比較時不受寫法順序影響。</summary>
+    public static JsonNode? Normalize(JsonNode? node)
+    {
+        switch (node)
+        {
+            case null: return null;
+            case JsonObject o:
+                var result = new JsonObject();
+                foreach (var (k, v) in o.OrderBy(x => x.Key, StringComparer.Ordinal))
+                    if (Normalize(v) is { } n) result[k] = n;
+                return result.Count == 0 ? null : result;
+            case JsonArray a:
+                if (a.Count == 0) return null;
+                return new JsonArray(a.Select(x => Normalize(x) ?? JsonValue.Create((string?)null)).ToArray());
+            case JsonValue v when v.GetValueKind() == JsonValueKind.Null: return null;
+            default: return node.DeepClone();
+        }
+    }
+
+    public static bool Same(JsonNode? a, JsonNode? b) => JsonNode.DeepEquals(a, b);
+
+    /// <summary>內容裡出現的所有字串（含物件鍵值），給相依判斷比對新項目的代號用。</summary>
+    private static HashSet<string> RefsOf(params object?[] values)
+    {
+        var refs = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var v in values) Collect(v is JsonElement e ? JsonNode.Parse(e.GetRawText()) : JsonSerializer.SerializeToNode(v, TemplateJson.Options), refs);
+        return refs;
+
+        static void Collect(JsonNode? node, HashSet<string> refs)
+        {
+            switch (node)
+            {
+                case JsonObject o:
+                    // { source／module／mainModule: m, field: f } 這類成對的寫法也記成限定名 m.f
+                    var module = (o["source"] ?? o["module"] ?? o["mainModule"]) is JsonValue mv && mv.GetValueKind() == JsonValueKind.String ? mv.GetValue<string>() : null;
+                    if (module is not null && o["field"] is JsonValue fv && fv.GetValueKind() == JsonValueKind.String) refs.Add($"{module}.{fv.GetValue<string>()}");
+                    foreach (var (_, v) in o) Collect(v, refs);
+                    break;
+                case JsonArray a: foreach (var x in a) Collect(x, refs); break;
+                case JsonValue v when v.GetValueKind() == JsonValueKind.String: refs.Add(v.GetValue<string>()); break;
+            }
+        }
+    }
+}

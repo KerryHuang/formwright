@@ -46,6 +46,10 @@ public class AppsController(IMediator mediator) : ControllerBase
     [HttpGet("apps/{key}")]
     public async Task<IActionResult> Get(string key) => (await mediator.Send(new GetAppRequest(key))).ToActionResult(this);
 
+    [HttpPost("apps/{key}/upgrade/preview")]
+    public async Task<IActionResult> UpgradePreview(string key, UpgradeBody? body) =>
+        (await mediator.Send(new PreviewAppUpgradeRequest(key, body ?? new UpgradeBody(null, null)))).ToActionResult(this);
+
     [HttpPost("apps/{key}/close")]
     public async Task<IActionResult> Close(string key, CloseBody? body) =>
         (await mediator.Send(new CloseAppRequest(key, body?.Cascade ?? false))).ToActionResult(this);

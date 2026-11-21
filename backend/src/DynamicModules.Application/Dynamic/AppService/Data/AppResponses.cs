@@ -14,6 +14,8 @@ public record AppPackageSummary(
 {
     public bool Merged { get; init; }
     public List<string> Warnings { get; init; } = [];
+    /// <summary>已開啟或已關閉、且它自己或用到的共用主檔有候選新版時有值（套件更新設計 §8.5）。</summary>
+    public AppUpgradeHint? Upgrade { get; init; }
 }
 
 public record AppModuleResponse(string Code, string Key, long Id, I18nText Name, string Status);
@@ -30,6 +32,8 @@ public record AppResponse(
     public string Kind { get; init; } = AppManifest.AppKindName;
     /// <summary>只在開啟回應有：開啟時被略過的群組由備援頂替的每一個來源（簽核設計 §14.4）；同樣的內容也逐條列在 Warnings。</summary>
     public IReadOnlyList<AppApprovalFlowCodec.Substitution> ApprovalSubstitutions { get; init; } = [];
+    /// <summary>只在 GET apps/{key} 有：同套件清單的 upgrade（套件更新設計 §8.5）。</summary>
+    public AppUpgradeHint? Upgrade { get; init; }
 }
 
 /// <summary>
@@ -95,6 +99,9 @@ public static class AppMessages
     public const string MasterManaged = "這是共用主檔，由使用它的應用程式管理，不能直接開啟、關閉或重新開啟";
     public const string MasterNotAvailable = "masterNotAvailable";
     public const string MasterInUse = "共用主檔還有應用程式在使用，不能刪除";
+    public const string UpgradeUpToDate = "已是最新";
+    public const string UpgradeNoCandidate = "沒有可用的新版";
+    public const string UpgradeDowngrade = "新版的版號比目前的小，不支援降版";
 
     public static string FlowCodeTaken(string code) => $"approvalFlows.{code}: 流程代碼已被使用";
 

@@ -28,6 +28,8 @@ public sealed partial class AppExporter(
     public sealed record Exported(AppPackageData Package, List<string> Warnings, List<string>? Errors = null)
     {
         public List<string> Errors { get; init; } = Errors ?? [];
+        /// <summary>匯出用的群組代號 → 群組 id；比對模式把現況的權限換回客戶群組（套件更新設計 §6.2.1）。</summary>
+        public IReadOnlyDictionary<string, long> GroupIds { get; init; } = new Dictionary<string, long>();
     }
 
     /// <summary>
@@ -39,7 +41,10 @@ public sealed partial class AppExporter(
         App Master, string MemberCode, Module Source, string Symbol, TemplateModule Module, AppReportCodec.Names Names,
         Dictionary<long, string> OwnFields, Dictionary<long, string> OwnBlocks);
 
-    public async Task<Exported> ExportAsync(App app, CancellationToken ct)
+    /// <param name="compare">
+    /// 比對模式（套件更新設計 §6.1，T4）：升級預覽的現況 C。一般應用程式也帶停用欄位（停用是「啟用狀態」這個屬性，不是刪除）。
+    /// </param>
+    public async Task<Exported> ExportAsync(App app, CancellationToken ct, bool compare = false)
     {
         var isMaster = app.Kind == AppKind.Master;
         var all = await modules.ListAsync(ct);
@@ -102,7 +107,7 @@ public sealed partial class AppExporter(
         }
         var codes = ExportCodeBook(members, codeOfModule, bindings, excludedFields);
         var exported = await templates.ExportMembersAsync(members, m => codeOfModule[m.Id], RefTarget, ct, codes,
-            includeInactive: isMaster, external: masterNames);
+            includeInactive: isMaster || compare, external: masterNames);
         warnings.AddRange(exported.Warnings);
         var names = masterNames is null ? exported.Names : AppReportCodec.Names.Or(exported.Names, masterNames);
 
@@ -238,7 +243,7 @@ public sealed partial class AppExporter(
             groups, moduleList, fieldAccess, optionScopes, reportList, null, workflows, conversionList, eventList, printList,
             checkList, ledgerList, IntegrationDeclarations.Parse(app.IntegrationsJson), contributions, taskRuleList, approvalList);
         // groups 在上面各步驟用到才加進 codeOfGroup，最後才組出來
-        return new Exported(package, warnings, approvalErrors);
+        return new Exported(package, warnings, approvalErrors) { GroupIds = codeOfGroup.ToDictionary(g => g.Value, g => g.Key) };
     }
 
     /// <summary>
