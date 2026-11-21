@@ -498,11 +498,15 @@ public class BackupTests
 
     // ── 新鮮度 ─────────────────────────────
 
-    /// <summary>E8：上次成功 27 小時前 → 警告、值 27。</summary>
+    /// <summary>
+    /// E8：上次成功 27 小時前 → 警告、值 27。起點故意帶不到 1 微秒的零頭（Linux 的時鐘精度是 100 奈秒、macOS 是 1 微秒）：
+    /// 檢查的「現在」截到微秒，快照時間若不截，差一點點不滿 27 小時就變 26（CI 曾經紅過）。
+    /// </summary>
     [Fact]
     public async Task Freshness_27HoursAfterSuccess_Warning()
     {
         using var app = new BackupApp();
+        app.Time.Advance(TimeSpan.FromTicks(TimeSpan.TicksPerMicrosecond - app.Time.GetUtcNow().Ticks % TimeSpan.TicksPerMicrosecond + 3));
         await Worker(app).TickAsync(CancellationToken.None);
         app.Time.Advance(TimeSpan.FromHours(27));
         var result = await RunFreshness(app);

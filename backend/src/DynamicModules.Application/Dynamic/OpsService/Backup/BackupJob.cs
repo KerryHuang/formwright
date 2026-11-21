@@ -21,7 +21,7 @@ internal sealed class BackupJob(
     IServiceProvider sp, IServiceScopeFactory scopes, IBackupStore store, IAttachmentStore attachments, IOpsEnvironment environment,
     TimeProvider time, BackupLimits limits, string owner, ILogger logger)
 {
-    private DateTime Now => time.GetUtcNow().UtcDateTime;
+    private DateTime Now => Common.StorageTime.ToMicroseconds(time.GetUtcNow().UtcDateTime);
 
     private static string PoolPath(string id) => $"{BackupRetention.PoolPrefix}{id[..2]}/{id[2..4]}/{id}";
 
