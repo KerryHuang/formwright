@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace DynamicModules.Persistence.Postgres.Migrations
 {
     [DbContext(typeof(DynamicDbContext))]
-    [Migration("20261121155122_BackupRuns")]
+    [Migration("20261121163806_BackupRuns")]
     partial class BackupRuns
     {
         /// <inheritdoc />
@@ -1292,6 +1292,12 @@ namespace DynamicModules.Persistence.Postgres.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("text")
                         .UseCollation("C");
+
+                    b.Property<long?>("ProgressDone")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("ProgressTotal")
+                        .HasColumnType("bigint");
 
                     b.Property<string>("Provider")
                         .IsRequired()

@@ -42,6 +42,8 @@ namespace DynamicModules.Persistence.Migrations
                     NewAttachmentBytes = table.Column<long>(type: "INTEGER", nullable: true),
                     TotalAttachmentBytes = table.Column<long>(type: "INTEGER", nullable: true),
                     SkippedAttachments = table.Column<long>(type: "INTEGER", nullable: true),
+                    ProgressTotal = table.Column<long>(type: "INTEGER", nullable: true),
+                    ProgressDone = table.Column<long>(type: "INTEGER", nullable: true),
                     ErrorCode = table.Column<string>(type: "TEXT", maxLength: 32, nullable: true),
                     ErrorDetail = table.Column<string>(type: "TEXT", maxLength: 1000, nullable: true),
                     PruneError = table.Column<string>(type: "TEXT", maxLength: 1000, nullable: true),

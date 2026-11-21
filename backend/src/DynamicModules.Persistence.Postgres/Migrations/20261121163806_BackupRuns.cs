@@ -43,6 +43,8 @@ namespace DynamicModules.Persistence.Postgres.Migrations
                     NewAttachmentBytes = table.Column<long>(type: "bigint", nullable: true),
                     TotalAttachmentBytes = table.Column<long>(type: "bigint", nullable: true),
                     SkippedAttachments = table.Column<long>(type: "bigint", nullable: true),
+                    ProgressTotal = table.Column<long>(type: "bigint", nullable: true),
+                    ProgressDone = table.Column<long>(type: "bigint", nullable: true),
                     ErrorCode = table.Column<string>(type: "text", maxLength: 32, nullable: true, collation: "C"),
                     ErrorDetail = table.Column<string>(type: "text", maxLength: 1000, nullable: true, collation: "C"),
                     PruneError = table.Column<string>(type: "text", maxLength: 1000, nullable: true, collation: "C"),
