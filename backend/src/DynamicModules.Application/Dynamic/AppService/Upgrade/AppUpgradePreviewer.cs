@@ -326,21 +326,45 @@ public sealed class AppUpgradePreviewer(
             results.Add((item, r));
             counts[r.Category] = counts.GetValueOrDefault(r.Category) + 1;
         }
+        // 開啟時排除、被新版移進新區塊的欄位（複核 N1）：套用新區塊時不建（審查 S3），所以另列成可勾項目、預設不勾，
+        // 被引用時依賴照一般規則指向它；它本身依賴所在的新區塊
+        var listedIds = results.Select(x => x.Item.Id).ToHashSet(StringComparer.Ordinal);
+        var promoted = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var sub in subsumedNew.Where(x => x.Section == "fields" && excluded.Contains(x.Id)))
+        {
+            if (ListedAncestor(sub) is not { } top || !listedIds.Contains(top) || N[top].Section != "blocks") continue;
+            if (UpgradeClassifier.Classify(B.GetValueOrDefault(sub.Id), sub, null, hasBaseline, true) is not { } r) continue;
+            results.Add((sub, r));
+            counts[r.Category] = counts.GetValueOrDefault(r.Category) + 1;
+            promoted.Add(sub.Id);
+        }
+        results.Sort((x, y) => StringComparer.Ordinal.Compare(x.Item.Id, y.Item.Id));
+        listedIds.UnionWith(promoted);
         counts["customerAdded"] = customerAdded;
 
         // 相依（§6.5）：引用到「現況還不存在、這次列出」的項目。新區塊、新模組底下的項目不另列，
-        // 被引用時依賴指向列出的那個上層（審查 M2）；開啟時排除的欄位套用時不建，不當依賴
-        var listedIds = results.Select(x => x.Item.Id).ToHashSet(StringComparer.Ordinal);
+        // 被引用時依賴指向列出的那個上層（審查 M2）；它們引用別的新項目時，也算在那個上層頭上（複核 N1：同區塊的公式）
         var missing = results.Where(x => !C.ContainsKey(x.Item.Id) && N.ContainsKey(x.Item.Id)).Select(x => (Target: x.Item, Listed: x.Item.Id)).ToList();
-        foreach (var sub in subsumedNew.Where(x => !excluded.Contains(x.Id)))
-            if (ListedAncestor(sub) is { } top && listedIds.Contains(top)) missing.Add((sub, top));
-        List<string> DependsOn(UpgradeItem item) => missing
-            .Where(m => m.Listed != item.Id && m.Target.Id != item.Id && UpgradeItems.References(item, m.Target)).Select(m => m.Listed).Distinct().ToList();
+        var hidden = subsumedNew.Where(x => !promoted.Contains(x.Id)).Select(x => (Item: x, Top: ListedAncestor(x))).ToList();
+        foreach (var (sub, top) in hidden)
+            if (top is not null && listedIds.Contains(top)) missing.Add((sub, top));
+        List<string> DependsOn(UpgradeItem item)
+        {
+            var sources = hidden.Where(h => h.Top == item.Id).Select(h => h.Item).Prepend(item).ToList();
+            var deps = missing.Where(m => m.Listed != item.Id && sources.Any(s => m.Target.Id != s.Id && UpgradeItems.References(s, m.Target)))
+                .Select(m => m.Listed).Distinct().ToList();
+            if (promoted.Contains(item.Id) && ListedAncestor(item) is { } block && !deps.Contains(block)) deps.Insert(0, block);
+            return deps;
+        }
+        // 最近的「另列出來」的上層：排除欄位另列後，它底下的選項指向它；否則是最上層那個存在與否不同的上層
         string? ListedAncestor(UpgradeItem item)
         {
             string? top = null;
             for (var parent = item.Parent; parent is not null; parent = (N.GetValueOrDefault(parent) ?? C.GetValueOrDefault(parent))?.Parent)
+            {
+                if (promoted.Contains(parent)) return parent;
                 if (N.ContainsKey(parent) != C.ContainsKey(parent)) top = parent;
+            }
             return top;
         }
 
@@ -350,6 +374,19 @@ public sealed class AppUpgradePreviewer(
             N.ContainsKey(x.Item.Id) ? DependsOn(N[x.Item.Id]) : [], x.Result.Properties,
             C.ContainsKey(x.Item.Id) || !N.ContainsKey(x.Item.Id) ? [] : Attached(x.Item.Id, N, groupNames))
             { AffectedRecords = affected.TryGetValue(x.Item.Id, out var a) ? a : null }).ToList();
+        // 預設勾選要能直接套用：依賴另列的排除欄位（預設不勾）的項目，連同依賴它們的，預設也不勾，由管理員決定
+        var off = new HashSet<string>(promoted, StringComparer.Ordinal);
+        for (var changed = off.Count > 0; changed;)
+        {
+            changed = false;
+            for (var k = 0; k < items.Count; k++)
+                if (items[k].DefaultSelected && items[k].DependsOn.Any(off.Contains))
+                {
+                    items[k] = items[k] with { DefaultSelected = false };
+                    off.Add(items[k].Id);
+                    changed = true;
+                }
+        }
 
         var tokenPart = string.Join("\n", baselineRow?.PackageJson ?? "", candidate.Original ?? JsonSerializer.Serialize(n, TemplateJson.Options),
             JsonSerializer.Serialize(C.OrderBy(x => x.Key, StringComparer.Ordinal).Select(x => new { x.Key, x.Value.Props })));

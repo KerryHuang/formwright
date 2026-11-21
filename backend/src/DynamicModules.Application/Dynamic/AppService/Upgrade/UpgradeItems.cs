@@ -414,7 +414,7 @@ public static class UpgradeItems
 
     private static readonly string[] RefPrefixes = ["field:", "block:", "opt_"];
 
-    private static readonly System.Text.RegularExpressions.Regex Placeholder = new(@"\{([A-Za-z0-9_./-]+)\}");
+    private static readonly System.Text.RegularExpressions.Regex Placeholder = new(@"\{\s*([A-Za-z0-9_./-]+)\s*\}");
 
     /// <summary>內容裡出現的所有字串（含物件鍵值）與字串裡的 {代號}，給相依判斷比對新項目的代號用。</summary>
     private static HashSet<string> RefsOf(params object?[] values)
