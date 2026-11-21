@@ -126,9 +126,10 @@ public sealed class BackupWorker(
         BackupRunFinish finish;
         await using var scope = scopes.CreateAsyncScope();
         var store = scope.ServiceProvider.GetRequiredService<IBackupStore>();
+        _localRoot = store.LocalRoot;
         try
         {
-            var job = new BackupJob(scope.ServiceProvider, scopes, store, attachments, environment, time, _limits, owner, logger);
+            var job = new BackupJob(scope.ServiceProvider, scopes, store, attachments, environment, time, _limits, owner, logger, Summary);
             finish = await job.ExecuteAsync(run, locationId, progress, work.Token);
         }
         catch (Exception) when (lost.IsCancellationRequested)
@@ -182,12 +183,22 @@ public sealed class BackupWorker(
     private BackupRunFinish Failed(string code, Exception e, string? detail = null) =>
         new(BackupRunStatus.Failed, Now, ErrorCode: code, ErrorDetail: Summary(detail ?? $"{e.GetType().Name}: {e.Message}"));
 
-    /// <summary>錯誤摘要：遮掉像密碼、權杖的片段，截到 1000 字（§10.1、E9）。</summary>
-    internal static string Summary(string text)
+    /// <summary>錯誤摘要裡代替備份位置路徑的字樣（M3）。</summary>
+    public const string RootPlaceholder = "<Backup:Root>";
+
+    /// <summary>
+    /// 錯誤摘要（errorDetail、pruneError 的唯一出口）：備份位置的路徑換成 <see cref="RootPlaceholder"/>（雲端版不得讓客戶管理員看到廠商主機路徑，
+    /// Q12、審查 M3；地端照樣從 displayLocation 看得到），遮掉像密碼、權杖的片段，截到 1000 字（§10.1、E9）。
+    /// </summary>
+    internal string Summary(string text)
     {
+        foreach (var root in new[] { settings.Root, _localRoot }.OfType<string>().Distinct().OrderByDescending(r => r.Length))
+            text = text.Replace(root.TrimEnd('/', '\\'), RootPlaceholder, StringComparison.OrdinalIgnoreCase);
         var masked = SensitiveTextMask.Apply(text) ?? "";
         return masked.Length > BackupRun.ErrorDetailMax ? masked[..BackupRun.ErrorDetailMax] : masked;
     }
+
+    private string? _localRoot;
 
     private void TryClearStaging(IBackupStore store, string runKey)
     {
