@@ -1,7 +1,10 @@
 using System.Globalization;
 using System.Text.Json;
 using DynamicModules.Application.Common;
+using DynamicModules.Application.Common.Security;
 using DynamicModules.Application.Common.Time;
+using DynamicModules.Application.Dynamic.ApprovalService;
+using DynamicModules.Application.Dynamic.McpService;
 using DynamicModules.Application.Dynamic.RecordService;
 using DynamicModules.Domain.Conditions;
 using DynamicModules.Domain.Entities.Dynamic;
@@ -20,9 +23,10 @@ public sealed record GroupOutcome(string? Violation, ServiceResult? Failure, dec
 /// <summary>
 /// 跨記錄驗證的求值核心（設計 §5.2），寫入後的 CheckStage 與設計器的試跑共用同一份。
 /// 狀態是否符合 where 用記憶體內的條件求值；聚合走 SQL（組鍵與 where 同一套參數化轉換）。
+/// MCP 通道上，訊息的 <c>{value}</c>、<c>{limit}</c> 取自使用者看不到的欄位（含「不提供給 AI」）時換成「…」（票 #87，MCP 設計 §5.5）。
 /// </summary>
 public class CheckEvaluator(IRecordRepository records, IModuleRepository modules, FieldTypeRegistry registry, IBusinessTime time,
-    RequestLocale locale)
+    RequestLocale locale, IRequestChannel channel, ICurrentUser user, ApprovalHiddenFields hiddenFields)
 {
     public const string NoLimit = "找不到上限";
     public const string Incomplete = "跨記錄驗證的索引不完整，請重新儲存這個檢查以重建索引";
@@ -85,7 +89,35 @@ public class CheckEvaluator(IRecordRepository records, IModuleRepository modules
         var limit = await LimitAsync(def.Assert.Limit, group.Source, ct);
         if (limit is null) return new GroupOutcome($"{NoLimit}（{message}）", null, value, null);
         if (Holds(def.Assert.Op, value, limit.Value)) return new GroupOutcome(null, null, value, limit);
-        return new GroupOutcome(message.Replace("{value}", Format(value)).Replace("{limit}", Format(limit.Value)), null, value, limit);
+        var (valueHidden, limitHidden) = await HiddenSourcesAsync(p, message, ct);
+        return new GroupOutcome(message.Replace("{value}", valueHidden ? McpAuditSummary.Elided : Format(value))
+            .Replace("{limit}", limitHidden ? McpAuditSummary.Elided : Format(limit.Value)), null, value, limit);
+    }
+
+    /// <summary>
+    /// 只在 MCP 通道判斷：彙總用到的欄位（加總對象、條件、組鍵）有任一看不到，<c>{value}</c> 就不給；上限讀自看不到的欄位
+    /// （本筆的上限欄位、參照欄位、或被參照記錄的上限欄位）時 <c>{limit}</c> 不給。看不到的欄位沿用權限解析（<see cref="ApprovalHiddenFields"/>，
+    /// MCP 通道已併入「不提供給 AI」與依賴它的公式、彙總）；讀不到權限輸入或找不到上限來源模組一律不給（fail closed）。
+    /// </summary>
+    private async Task<(bool Value, bool Limit)> HiddenSourcesAsync(Prepared p, string message, CancellationToken ct)
+    {
+        if (channel.Channel != RequestChannel.Mcp) return (false, false);
+        var def = p.Check.Definition;
+        var wantValue = message.Contains("{value}");
+        var wantLimit = message.Contains("{limit}") && def.Assert.Limit.Const is null;
+        if (!wantValue && !wantLimit) return (false, false);
+
+        var hidden = await hiddenFields.ForUserAsync(p.Module, user.UserId, ct);
+        var valueHidden = wantValue && (hidden is null || CheckIndexer.IndexedFieldIds(def).Overlaps(hidden));
+        if (!wantLimit) return (valueHidden, false);
+
+        var limit = def.Assert.Limit;
+        if (hidden is null || limit.Field is not { } lf) return (valueHidden, true);
+        if (limit.Via is not { } via) return (valueHidden, hidden.Contains(lf));
+        if (hidden.Contains(via)) return (valueHidden, true);
+        var target = await modules.GetByFieldIdAsync(lf, ct);
+        var targetHidden = target is null ? null : await hiddenFields.ForUserAsync(target, user.UserId, ct);
+        return (valueHidden, targetHidden is null || targetHidden.Contains(lf));
     }
 
     private async Task<decimal?> LimitAsync(CheckLimit limit, IReadOnlyDictionary<string, JsonElement?> source, CancellationToken ct)
