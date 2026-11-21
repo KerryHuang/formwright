@@ -322,6 +322,44 @@ public class BackupTests
         app.Logs.Entries.Should().Contain(e => e.Level == LogLevel.Warning && e.Message.Contains("Backup:Root"));
     }
 
+    /// <summary>
+    /// 複核 N1：新安裝、位置整個寫不進去（唯讀目錄）。執行器不排；新鮮度嚴重 destinationUnwritable、畫面不是「準備中」、立即備份 409；
+    /// 改好權限後下一輪照常第一次，探測檔不留。
+    /// </summary>
+    [Fact]
+    public async Task FreshInstall_RootUnwritable_CriticalEverywhere()
+    {
+        if (OperatingSystem.IsWindows() || Environment.UserName == "root") return;
+        using var app = new BackupApp();
+        Directory.CreateDirectory(app.Root);
+        File.SetUnixFileMode(app.Root, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        try
+        {
+            await Worker(app).TickAsync(CancellationToken.None);
+            (await Runs(app)).Should().BeEmpty();
+
+            var result = await RunFreshness(app);
+            result.Status.Should().Be(HealthStatus.Critical);
+            result.MessageCode.Should().Be("destinationUnwritable");
+
+            var overview = await app.AsUser().GetFromJsonAsync<JsonElement>($"{Base}/backups");
+            overview.GetProperty("manualDisabledReason").GetString().Should().Be("notConfigured");
+            overview.GetProperty("locationStatus").GetString().Should().Be("destinationUnwritable");
+
+            var post = await Request(app);
+            post.StatusCode.Should().Be(HttpStatusCode.Conflict);
+            (await post.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString().Should().Be("backupNotConfigured");
+        }
+        finally
+        {
+            File.SetUnixFileMode(app.Root, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        (await RunFreshness(app)).MessageCode.Should().Be("firstBackupPending", "權限好了、執行器還沒跑第一輪");
+        Directory.GetFiles(app.Root).Should().BeEmpty("探測檔寫完就刪");
+        await Worker(app).TickAsync(CancellationToken.None);
+        (await Runs(app)).Single().Status.Should().Be(BackupRunStatus.Succeeded);
+    }
+
     /// <summary>L2、L3：標記檔和已採用的位置不同（換了位置、或另一台指向別處）→ 不備份、新鮮度嚴重；刪掉標記檔就換新位置、重新第一次。</summary>
     [Fact]
     public async Task MarkerMismatch_Stops_DeletingMarkerAdoptsNewLocation()
