@@ -1,10 +1,15 @@
+using System.Text.Json;
 using DynamicModules.Application.Dynamic.AppService.Data;
 using DynamicModules.Application.Dynamic.TemplateService;
 using DynamicModules.Domain.Repositories.Dynamic;
 
 namespace DynamicModules.Application.Dynamic.AppService;
 
-public record SourcedPackage(AppPackageData Package, string Source);
+/// <summary>
+/// Original 是開啟時存成升級基準的原文（套件更新設計 §5.2）：內建的是目錄檔、匯入的是收到的原文；
+/// v1 範本檔例外，是升級後的 v2 序列化結果。只有 <see cref="AppPackageSource"/> 找出來的才有。
+/// </summary>
+public record SourcedPackage(AppPackageData Package, string Source, string? Original = null);
 
 /// <summary>可用的應用程式套件：內建（AppCatalog）與匯入的。匯入的原文每次讀取才升級成 v2，不回寫。</summary>
 public sealed class AppPackageSource(AppCatalog catalog, TemplateCatalog templates, IAppPackageRepository imported)
@@ -18,11 +23,15 @@ public sealed class AppPackageSource(AppCatalog catalog, TemplateCatalog templat
     public async Task<SourcedPackage?> FindAsync(string id, CancellationToken ct)
     {
         var builtIn = catalog.BuiltIns.FirstOrDefault(p => p.Manifest.Id == id);
-        if (builtIn is { Manifest.IsMaster: false }) return new(builtIn, BuiltIn);
-        if (await imported.GetByKeyAsync(id, ct) is { } row && (await ReadAsync(row.Json, ct)).Package is { } package
-            && (builtIn is null || package.Manifest.IsMaster))
-            return new(package, Imported);
-        return builtIn is null ? null : new(builtIn, BuiltIn);
+        if (builtIn is { Manifest.IsMaster: false }) return new(builtIn, BuiltIn, catalog.OriginalOf(id));
+        if (await imported.GetByKeyAsync(id, ct) is { } row)
+        {
+            var parsed = AppJson.Parse(row.Json);
+            if ((await ReadAsync(parsed, ct)).Package is { } package && (builtIn is null || package.Manifest.IsMaster))
+                // v1 升級時跨應用程式引用依「當下已知的套件」解析，同一份原文日後可能讀出不同結果，所以存升級後的 v2（§5.2）
+                return new(package, Imported, parsed.V1 is null ? row.Json : JsonSerializer.Serialize(package, TemplateJson.Options));
+        }
+        return builtIn is null ? null : new(builtIn, BuiltIn, catalog.OriginalOf(id));
     }
 
     /// <summary>內建在前、各自依 id 排序；匯入的壞資料略過。內建主檔有合併過的匯入版時以匯入的取代，同一個 id 只列一次。</summary>
