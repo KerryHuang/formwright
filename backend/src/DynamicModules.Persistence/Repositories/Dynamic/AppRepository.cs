@@ -42,6 +42,8 @@ public class AppRepository(DynamicDbContext db) : IAppRepository
 
     public void AddBaseline(AppBaseline baseline) => db.Set<AppBaseline>().Add(baseline);
 
+    public void UpdateBaseline(AppBaseline baseline) => db.Set<AppBaseline>().Update(baseline);
+
     public Task<AppBaseline?> GetBaselineAsync(long appId, CancellationToken ct) =>
         db.Set<AppBaseline>().AsNoTracking().FirstOrDefaultAsync(x => x.AppId == appId, ct);
 }

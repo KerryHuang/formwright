@@ -415,8 +415,21 @@ public sealed class TemplateInstantiator(
     private static ServiceResult Invalid(string key, string message) =>
         ServiceResult.Invalid(new Dictionary<string, string[]> { [key] = [message] });
 
+    /// <summary>
+    /// 升級套用（套件更新設計 §9.1）：既有物件的設定（欄位 config、規則、檢視條件）換成 id 時用同一份對照，不另寫一套代號解析。
+    /// seeds 是既有的欄位、選項、模組；blocks 是既有的區塊（「模組代號.區塊代號」→ id）。
+    /// </summary>
+    internal static IdMap MapFor(TemplatePackage p, IReadOnlyDictionary<string, string>? externalModules, InstantiationSeeds seeds,
+        IReadOnlyDictionary<string, long> blocks)
+    {
+        var map = new IdMap(p, externalModules);
+        map.Seed(seeds);
+        foreach (var (k, v) in blocks) map.Blocks[k] = v;
+        return map;
+    }
+
     /// <summary>範本代號對剛配發的 id；欄位一律用限定名，選項、區塊用「模組代號.代號」（選項代號在模組內唯一）。</summary>
-    private sealed class IdMap(TemplatePackage p, IReadOnlyDictionary<string, string>? externalModules)
+    internal sealed class IdMap(TemplatePackage p, IReadOnlyDictionary<string, string>? externalModules)
     {
         private readonly Dictionary<string, TemplateField> _templateFields = TemplateGraph.AllFields(p);
 

@@ -107,6 +107,8 @@ public static class AuditActions
         new("theme.update", Design, W),
         // 應用程式套件
         new("app.open", App, H),
+        new("app.upgrade", App, H),
+        new("app.upgrade.items", App, H),
         new("app.import", App, H),
         new("app.delete", App, H),
         new("app.close", App, W),

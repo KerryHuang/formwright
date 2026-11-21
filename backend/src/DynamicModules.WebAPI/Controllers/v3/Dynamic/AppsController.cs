@@ -50,6 +50,11 @@ public class AppsController(IMediator mediator) : ControllerBase
     public async Task<IActionResult> UpgradePreview(string key, UpgradeBody? body) =>
         (await mediator.Send(new PreviewAppUpgradeRequest(key, body ?? new UpgradeBody(null, null)))).ToActionResult(this);
 
+    /// <summary>套用升級（套件更新設計 §8.3）：token 和現在重算的不同回 409；勾了不能套用的或相依沒勾回 400。</summary>
+    [HttpPost("apps/{key}/upgrade")]
+    public async Task<IActionResult> Upgrade(string key, UpgradeApplyBody body) =>
+        (await mediator.Send(new ApplyAppUpgradeRequest(key, body))).ToActionResult(this);
+
     [HttpPost("apps/{key}/close")]
     public async Task<IActionResult> Close(string key, CloseBody? body) =>
         (await mediator.Send(new CloseAppRequest(key, body?.Cascade ?? false))).ToActionResult(this);
