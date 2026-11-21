@@ -113,3 +113,22 @@ export function confirmCounts(items: UpgradeItem[], selected: Set<string>): { by
   }
   return { byCategory, overwrite: byCategory.both ?? 0, total };
 }
+
+/**
+ * 400 from apply (design §8.3): one line per error key, the item part shown with its label.
+ * Keys are `items.<id>`, `<id>.<detail>` or `<id>`; ids contain dots, so the longest listed id that prefixes the key wins.
+ */
+export function applyErrorLines(
+  errors: Record<string, string[]> | undefined, items: UpgradeItem[], labelOf: (i: UpgradeItem) => string,
+): { label: string; messages: string[] }[] {
+  const ids = [...items].sort((a, b) => b.id.length - a.id.length);
+  const byId = new Map(ids.map((i) => [i.id, i]));
+  // 訊息裡的項目識別（例如「要一起套用：field:customer.tier」）也換成名稱
+  const pattern = ids.length ? new RegExp(ids.map((i) => i.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g') : null;
+  const named = (m: string) => (pattern ? m.replace(pattern, (id) => labelOf(byId.get(id)!)) : m);
+  return Object.entries(errors ?? {}).map(([key, messages]) => {
+    const bare = key.startsWith('items.') ? key.slice(6) : key;
+    const hit = ids.find((i) => bare === i.id || bare.startsWith(`${i.id}.`));
+    return { label: hit ? labelOf(hit) : bare, messages: messages.map(named) };
+  });
+}

@@ -1,6 +1,7 @@
 import axios, { AxiosError } from 'axios';
 import { currentLocale, tFor } from 'src/i18n/translate';
 import type { BlockingOption, BlockingRef, DeleteCheck } from 'src/domain/dynamic/types';
+import type { UpgradePreview } from 'src/services/api/dynamic-api';
 import { recordFailedRequest } from 'src/services/ops/last-failure';
 
 export interface ApiError {
@@ -18,6 +19,8 @@ export interface ApiError {
   blockingOptions?: BlockingOption[];
   /** 409 on module/field/block delete: why it is blocked, or the fresh check when the confirmed purge count is stale. */
   deleteCheck?: DeleteCheck;
+  /** 409 upgradeBlocked on apply: the fresh preview (blockers included) to redraw the update page with. */
+  upgradePreview?: UpgradePreview;
   /** 後端的 X-Request-Id（沒有標頭時取主體的 traceId）；5xx 的 message 尾端附前 8 碼當錯誤代碼。 */
   requestId?: string;
 }
@@ -80,6 +83,7 @@ export function toApiError(e: unknown): ApiError {
   if (status === 409 && data?.blockers && data.purge)
     return { ...base, deleteCheck: { canDelete: !!data.canDelete, blockers: data.blockers, purge: data.purge } };
   if (status === 409 && data?.blockingOptions) return { ...base, blockingOptions: data.blockingOptions };
+  if (status === 409 && data?.code === 'upgradeBlocked') return { ...base, upgradePreview: data as unknown as UpgradePreview };
   return status === 409 && data?.references ? { ...base, references: data.references, total: data.total } : base;
 }
 

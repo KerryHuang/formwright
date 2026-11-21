@@ -60,8 +60,10 @@ public sealed class AppUpgrader(
         var built = await previewer.BuildAsync(key, new UpgradeBody(body.GroupMap, body.ModuleKeys), ct);
         if (built.Failure is { } failure) return failure;
         var (app, preview, mine) = (built.App!, built.Preview!, built.Mine);
-        if (body.Token != preview.Token) return ServiceResult.Conflict(AppMessages.UpgradeStale);
-        if (!preview.CanApply || mine?.Context is null || built.Candidate is null) return ServiceResult.ConflictWith(AppMessages.UpgradeBlocked, preview);
+        // 409 帶代碼讓畫面分辨（§8.3）：token 不符才重新預覽；擋下的附預覽重畫；其他 409（設計器指令）只顯示訊息
+        if (body.Token != preview.Token) return ServiceResult.Conflict(AppMessages.UpgradeStale, AppMessages.UpgradeStaleCode);
+        if (!preview.CanApply || mine?.Context is null || built.Candidate is null)
+            return ServiceResult.ConflictWith(AppMessages.UpgradeBlocked, preview, AppMessages.UpgradeBlockedCode);
 
         // 勾選的驗證（§8.3、§6.5）：不在清單、不能套用、相依沒勾 → 400
         var listed = mine.Items.ToDictionary(i => i.Id);

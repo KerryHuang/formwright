@@ -79,6 +79,14 @@ describe('http', () => {
     expect(toApiError({ code: 'ERR_NETWORK', message: 'Network Error' })).toEqual({ status: 0, code: 'network', message: '網路連線失敗，請檢查網路後再試' });
   });
 
+  it('keeps the attached preview on a blocked upgrade apply (409 upgradeBlocked) and only the code on a stale one', () => {
+    const preview = { message: 'blocked', code: 'upgradeBlocked', canApply: false, blockers: [{ code: 'secondBatch' }], items: [] };
+    expect(toApiError({ response: { status: 409, data: preview } }))
+      .toEqual({ status: 409, message: 'blocked', code: 'upgradeBlocked', upgradePreview: preview });
+    expect(toApiError({ response: { status: 409, data: { message: 'stale', code: 'upgradeStale' } } }))
+      .toEqual({ status: 409, message: 'stale', code: 'upgradeStale' });
+  });
+
   it('uses ProblemDetails title as the message for 500 and error-less 400', () => {
     expect(toApiError({ response: { status: 500, data: { title: 'An error occurred', status: 500 } } }))
       .toEqual({ status: 500, message: 'An error occurred' });

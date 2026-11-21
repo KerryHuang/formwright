@@ -65,8 +65,8 @@ public sealed class ServiceResult
     public static ServiceResult Stale() => Conflict(MessageRef.Of(MessageText.Stale), "stale");
 
     /// <summary>409 並帶額外資料；WebAPI 把 data 的屬性展開到 message 旁邊。</summary>
-    public static ServiceResult ConflictWith(MessageRef? message, object data) =>
-        new() { IsConflict = true, MessageSource = message, Data = data };
+    public static ServiceResult ConflictWith(MessageRef? message, object data, string? code = null) =>
+        new() { IsConflict = true, MessageSource = message, Data = data, Code = code };
 
     public static ServiceResult Unprocessable(MessageRef? message) => new() { IsUnprocessable = true, MessageSource = message };
 
