@@ -100,6 +100,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 | `Attachments__MaxBytes`、`Attachments__MaxFilesPerField`、`Attachments__AllowedExtensions__0`… | 附件政策在這個環境的出廠值，見下方「附件設定與政策出廠值」 |
 | `Ops__Edition` | 版別，`Cloud` 或 `OnPrem`（區分大小寫，其他值記 Warning 並當 `OnPrem`）；顯示在系統管理員的 ops info。⚠️ 雲端主機填錯（例如 `cloud`）會被當成地端版，備份狀態會把備份路徑顯示給客戶管理員 |
 | `Backup__Root` | 產品內備份的位置（本機目錄）；沒設就不備份。見下方「產品內備份」 |
+| `Backup__PgDumpPath` | 只在 `Postgres` 用：`pg_dump` 的路徑，`pg_restore` 要在同一個目錄；沒設就找 `PATH`。客戶用 `Dockerfile` 已裝好並設成 `/usr/lib/postgresql/16/bin/pg_dump` |
 | `Ops__TrustIncomingTraceParent` | 預設 `false`：忽略外來的 `traceparent`，request id 由伺服器產生；放在自家反向代理後面、要串接上游 trace 時才設 `true` |
 | `Ops__Scheduler__Enabled` | 背景排程器（通知維護等），預設 `true`；設 `false` 整個不跑。多實例時同一工作靠資料表租約只跑一份，也可以只讓其中一台開著；實例之間的時鐘誤差由 5 分鐘租約吸收，主機請開 NTP 校時 |
 | `Sqlite__MmapSizeMb` | SQLite 每條連線的記憶體對映大小，單位 MB，預設 `0`（關閉）；也可寫在 `appsettings.json` 的 `Sqlite:MmapSizeMb` |
@@ -138,7 +139,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 
 ## 產品內備份
 
-設了 `Backup__Root` 就每天自動備份一份（政策「每天幾點自動備份」，營運時區，出廠 02:00），系統管理員也可以按「立即備份」。一份備份含資料庫快照與附件，不含登入金鑰（設計見[備份設計](superpowers/specs/2026-11-21-backup-design.md)）。bk1a 只支援 SQLite；PostgreSQL 設了也不備份，維運監控的「備份」顯示「這種資料庫還不支援產品內備份」。
+設了 `Backup__Root` 就每天自動備份一份（政策「每天幾點自動備份」，營運時區，出廠 02:00），系統管理員也可以按「立即備份」。一份備份含資料庫快照與附件，不含登入金鑰（設計見[備份設計](superpowers/specs/2026-11-21-backup-design.md)）。SQLite 的快照是 `database.sqlite`，PostgreSQL 是 `pg_dump` 產生的 `database.pgdump`（custom 格式）。
 
 - **放另一顆磁碟或另一個 volume**：備份位置不能和資料庫目錄、附件根目錄、金鑰目錄、站台的 `wwwroot` 相同或互相包含（不分大小寫），否則啟動記 Warning、不備份、「備份」檢查判嚴重。Docker 部署要另掛一個 volume，例如 `-v formwright-backup:/backup -e Backup__Root=/backup`。
 - **多台部署**：每台的 `Backup__Root` 要指到同一個共享掛載（同一份備份只會有一台在做），或只讓其中一台開背景工作（`Ops__Scheduler__Enabled=true`），其他台設 `false`。背景工作關閉的那台不做備份。
@@ -146,6 +147,11 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 - **保留**：排程備份留最新 7 份、立即備份留 7 天（政策設定可改），最新一份成功的永遠不刪；清掉的備份記在稽核（`backup.prune`）。位置空間不夠時備份失敗、不寫任何檔。
 - 備份目錄權限：目錄 0700、檔案 0600（作業系統不支援時記一次 Warning）。
 - **部署與重啟**：重啟會中斷執行中的備份，記成「中斷」並在下一輪自動重試（同一時段最多 3 次）。部署前先確認沒有執行中的備份（`GET /api/v3/dynamic/system/ops/backups` 的 `current`；監控頁的「備份」分頁隨 bk1c 上線）。
+- **PostgreSQL 的 `pg_dump`**：
+  - 站台主機（或容器）要有 PostgreSQL 用戶端，主版本不小於資料庫伺服器（新版用戶端能備舊版伺服器）。找不到是 `pgDumpMissing`，版本太舊是 `pgDumpVersion`，訊息帶兩個版本。
+  - 連線沿用 `ConnectionStrings__Dynamic`：主機、埠、資料庫、帳號以環境變數交給 `pg_dump`，密碼寫進只有站台帳號讀得到的暫存檔、用完即刪，不出現在命令列或 log。
+  - SSL：`SSL Mode` 照同名對應；`Trust Server Certificate=true` 只能配 `SSL Mode=Require`（不驗憑證）；`VerifyCA` 要設 `Root Certificate`；不支援 `SSL Password`。對不上時是 `pgDumpConfig`，訊息寫出是哪個設定。
+- **PostgreSQL 部署前**：先確認沒有執行中的備份（同上）。`pg_dump` 不擋一般寫入，但會擋住新版啟動時的 migration（DDL 要等它的鎖）：排程備份避開備份時段部署即可；立即備份任何時刻都可能在跑，有的話等它結束再部署，否則新版會卡在啟動。站台關閉或備份逾時時，產品會結束整個 `pg_dump` 程序。
 
 ### 從備份還原（SQLite）
 
@@ -158,6 +164,24 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 5. 啟動。
    - 原本的金鑰目錄還在（同一台主機、只是資料庫壞了）：保留金鑰目錄，不必重新登入、也不必重填密碼。
    - 金鑰目錄也沒了（換主機、整顆磁碟壞）：所有人要重新登入，系統管理員要到「寄信設定」重填密碼。
+
+### 從備份還原（PostgreSQL）
+
+還原到一個**新的空資料庫**，確認沒問題再把站台切過去；原本的資料庫留到確認完再刪。用的 PostgreSQL 用戶端主版本不小於備份時的伺服器。
+
+1. 停站台（多台部署時全部停）。
+2. 選一份 `sets/<名稱>/`，確認它不比要啟動的版本新（同 SQLite 第 2 步）；`manifest.json` 的 `provider` 要是 `postgres`。
+3. 用站台的資料庫帳號建一個空資料庫，再還原進去：
+
+   ```bash
+   createdb -h <主機> -U <站台帳號> -T template0 <新資料庫>
+   pg_restore -h <主機> -U <站台帳號> --no-owner --no-privileges --exit-on-error --dbname=<新資料庫> <Backup__Root>/sets/<名稱>/database.pgdump
+   ```
+
+   - 帳號沒有建庫權限時，請資料庫管理員建好 `<新資料庫>` 並把擁有者設成站台帳號。
+   - 確認：`psql -h <主機> -U <站台帳號> -d <新資料庫> -c 'SELECT max("MigrationId") FROM "__EFMigrationsHistory"'` 的結果等於 `manifest.json` 的 `migrationId`。
+4. 把 `<Backup__Root>/attachments/` 整個複製到附件根目錄（同 SQLite 第 4 步）。
+5. 把 `ConnectionStrings__Dynamic` 的 `Database` 改成 `<新資料庫>`，啟動。金鑰目錄的處理同 SQLite 第 5 步。
 
 ## 本機試跑容器
 
