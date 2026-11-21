@@ -1,0 +1,20 @@
+{
+  "BackupInProgress": {
+    "zh-TW": "備份進行中，請等這一份完成後再試",
+    "en-US": "A backup is in progress. Try again after it finishes",
+    "th": "กำลังสำรองข้อมูลอยู่ โปรดลองอีกครั้งหลังจากเสร็จสิ้น",
+    "vi": "Đang sao lưu, vui lòng thử lại sau khi hoàn tất"
+  },
+  "BackupNotConfigured": {
+    "zh-TW": "備份位置沒設定或目前無法使用，請先看維運監控的「備份」檢查",
+    "en-US": "The backup location is not set or cannot be used right now. Check the Backup item in Operations monitoring first",
+    "th": "ยังไม่ได้ตั้งค่าตำแหน่งสำรองข้อมูลหรือใช้งานไม่ได้ในขณะนี้ โปรดตรวจสอบรายการสำรองข้อมูลในการตรวจสอบระบบก่อน",
+    "vi": "Chưa đặt vị trí sao lưu hoặc hiện không dùng được, vui lòng xem mục Sao lưu trong giám sát vận hành trước"
+  },
+  "BackupLocationPending": {
+    "zh-TW": "備份位置還在準備中（伺服器啟動後一分鐘內），請稍後再試",
+    "en-US": "The backup location is still being set up (within a minute after the server starts). Try again shortly",
+    "th": "ตำแหน่งสำรองข้อมูลยังเตรียมไม่เสร็จ (ภายในหนึ่งนาทีหลังเซิร์ฟเวอร์เริ่มทำงาน) โปรดลองอีกครั้งในอีกสักครู่",
+    "vi": "Vị trí sao lưu vẫn đang được chuẩn bị (trong vòng một phút sau khi máy chủ khởi động), vui lòng thử lại sau"
+  }
+}
