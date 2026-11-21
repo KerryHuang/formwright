@@ -483,13 +483,37 @@ public sealed class AppUpgrader(
         var v = current is null ? incoming : Merge(current, incoming, Applied(item));
         long Field(string code) => map.Fields[TemplateGraph.Qualify(module, code)];
         JsonElement? filter = v.Filter is { ValueKind: JsonValueKind.Object } raw
-            ? JsonSerializer.SerializeToElement(map.Condition(module, JsonNode.Parse(raw.GetRawText()))) : null;
+            ? JsonSerializer.SerializeToElement(map.Condition(module, CustomerOptionValues(module, JsonNode.Parse(raw.GetRawText()), n, s))) : null;
         var columns = v.Columns.Select(Field).ToList();
         var sort = v.Sort.Select(x => new ViewSort(Field(x.Field), x.Order)).ToList();
         if (current is null)
             return Fail(await sender.Send(new CreateViewRequest(s.Modules[module].Key, v.Name, Shared: true, columns, filter, sort, v.IsDefault), ct), item.Id);
         var existing = (await views.ListByScopeAsync(s.Modules[module].Id, null, ct)).First(x => x.NameI18n.Resolve(I18nText.FallbackLocale) == name);
         return Fail(await sender.Send(new UpdateViewRequest(existing.Id, v.Name, columns, filter, sort, v.IsDefault), ct), item.Id);
+    }
+
+    /// <summary>
+    /// 客戶保留的條件用了客戶自己加的下拉欄位（新版沒有這個欄位）：選項值 opt_&lt;代號&gt; 先換回 opt_&lt;id&gt;。
+    /// IdMap 只認新版裡的下拉欄位，不先換的話條件值會原樣留著、被檢視驗證擋下。
+    /// </summary>
+    private static JsonNode? CustomerOptionValues(string module, JsonNode? node, AppPackageData n, State s)
+    {
+        if (node is not JsonObject obj) return node;
+        if (obj.Count == 1 && obj.First() is { Key: "all" or "any", Value: JsonArray children } group)
+            return new JsonObject { [group.Key] = new JsonArray(children.Select(c => CustomerOptionValues(module, c?.DeepClone(), n, s)).ToArray()) };
+        if (obj["field"] is not JsonValue fv || !fv.TryGetValue<string>(out var code) || FieldOf(n, $"{module}.{code}") is not null
+            || !s.Fields.TryGetValue($"{module}.{code}", out var fieldId)
+            || s.Loaded[module].Blocks.SelectMany(b => b.Fields).FirstOrDefault(f => f.Id == fieldId) is not { Type: FieldType.Enum or FieldType.MultiEnum })
+            return obj;
+        JsonNode? Convert(JsonNode? value) => value switch
+        {
+            JsonArray array => new JsonArray(array.Select(e => Convert(e)).ToArray()),
+            JsonValue x when x.TryGetValue<string>(out var text) && text.StartsWith("opt_", StringComparison.Ordinal)
+                && s.Options.TryGetValue($"{module}.{text["opt_".Length..]}", out var id) => JsonValue.Create($"opt_{id}"),
+            _ => value?.DeepClone()
+        };
+        obj["value"] = Convert(obj["value"]);
+        return obj;
     }
 
     private async Task<ServiceResult?> AttachPermissionsAsync(

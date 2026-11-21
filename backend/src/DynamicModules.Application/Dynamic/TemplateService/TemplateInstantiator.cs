@@ -132,43 +132,41 @@ public sealed class TemplateInstantiator(
             }
         }
 
-        // 3b. 貢獻欄位：非計算欄位先建，公式依彼此的引用排序；接回的孤兒欄位改回啟用、不另建
+        // 3b. 貢獻欄位：所有貢獻的非計算欄位先建，公式依彼此的引用排序（跨貢獻：升級時同一模組的新欄位分在不同區塊、公式互相引用）；
+        //     接回的孤兒欄位改回啟用、不另建
         var reattachedBlocks = new Dictionary<string, long>();
-        foreach (var c in contributions)
+        foreach (var (c, f) in ContributionOrder(contributions))
         {
-            var host = (await modules.GetByKeyAsync(c.ModuleKey, includeChildren: true, ct))!;
-            foreach (var f in ContributionOrder(c))
+            var name = TemplateGraph.Qualify(c.Prefix, f.Code);
+            long fieldId;
+            if (c.ReattachFields.TryGetValue(f.Code, out var existingId))
             {
-                var name = TemplateGraph.Qualify(c.Prefix, f.Code);
-                long fieldId;
-                if (c.ReattachFields.TryGetValue(f.Code, out var existingId))
-                {
-                    var existing = host.Blocks.SelectMany(b => b.Fields).Single(x => x.Id == existingId);
-                    existing.Status = FieldStatus.Active;
-                    existing.StampModified(user.UserId, time.Now);
-                    host.TouchVersion(user.UserId, time.Now);
-                    await uow.CommitAsync(ct);
-                    fieldId = existing.Id;
-                    map.FieldKeys[name] = existing.Key;
-                    reattachedBlocks[name] = existing.BlockId;
-                }
-                else
-                {
-                    var r = await sender.Send(new AddFieldRequest(c.ModuleKey, map.Blocks[$"{c.Prefix}.{c.BlockCode}"], f.Type, f.Label,
-                        map.Config(c.Prefix, f, withDefaults: false), MasterBase: c.MasterBase), ct);
-                    if ((failed = Fail(r, c.Prefix, $"contributions.{name}.")) is not null) return failed;
-                    var field = (FieldResponse)r.Data!;
-                    fieldId = field.Id;
-                    map.FieldKeys[name] = field.Key;
-                }
-                map.Fields[name] = fieldId;
-                foreach (var option in f.Options)
-                {
-                    if (c.ReattachOptions.TryGetValue(option.Code, out var optionId)) { map.Options[$"{c.Prefix}.{option.Code}"] = optionId; continue; }
-                    var added = await sender.Send(new AddOptionRequest(fieldId, option.Label, option.Color), ct);
-                    if ((failed = Fail(added, c.Prefix, $"contributions.{name}.")) is not null) return failed;
-                    map.Options[$"{c.Prefix}.{option.Code}"] = ((OptionResponse)added.Data!).Id;
-                }
+                var host = (await modules.GetByKeyAsync(c.ModuleKey, includeChildren: true, ct))!;
+                var existing = host.Blocks.SelectMany(b => b.Fields).Single(x => x.Id == existingId);
+                existing.Status = FieldStatus.Active;
+                existing.StampModified(user.UserId, time.Now);
+                host.TouchVersion(user.UserId, time.Now);
+                await uow.CommitAsync(ct);
+                fieldId = existing.Id;
+                map.FieldKeys[name] = existing.Key;
+                reattachedBlocks[name] = existing.BlockId;
+            }
+            else
+            {
+                var r = await sender.Send(new AddFieldRequest(c.ModuleKey, map.Blocks[$"{c.Prefix}.{c.BlockCode}"], f.Type, f.Label,
+                    map.Config(c.Prefix, f, withDefaults: false), MasterBase: c.MasterBase), ct);
+                if ((failed = Fail(r, c.Prefix, $"contributions.{name}.")) is not null) return failed;
+                var field = (FieldResponse)r.Data!;
+                fieldId = field.Id;
+                map.FieldKeys[name] = field.Key;
+            }
+            map.Fields[name] = fieldId;
+            foreach (var option in f.Options)
+            {
+                if (c.ReattachOptions.TryGetValue(option.Code, out var optionId)) { map.Options[$"{c.Prefix}.{option.Code}"] = optionId; continue; }
+                var added = await sender.Send(new AddOptionRequest(fieldId, option.Label, option.Color), ct);
+                if ((failed = Fail(added, c.Prefix, $"contributions.{name}.")) is not null) return failed;
+                map.Options[$"{c.Prefix}.{option.Code}"] = ((OptionResponse)added.Data!).Id;
             }
         }
 
@@ -375,23 +373,29 @@ public sealed class TemplateInstantiator(
 
     private static bool IsComputed(TemplateField f) => f.Type is FieldType.Formula or FieldType.Rollup;
 
-    /// <summary>貢獻欄位的建立順序：非計算欄位照宣告，公式排在它引用的貢獻公式之後（貢獻不收彙總，循環時照宣告順序）。</summary>
-    private static IEnumerable<TemplateField> ContributionOrder(ContributionInput c)
+    /// <summary>
+    /// 貢獻欄位的建立順序：所有貢獻的非計算欄位照宣告，公式排在它引用的貢獻公式之後；引用以「貢獻前綴.代號」比，
+    /// 跨貢獻也成立（貢獻不收彙總，循環時照宣告順序）。
+    /// </summary>
+    private static IEnumerable<(ContributionInput C, TemplateField F)> ContributionOrder(IReadOnlyList<ContributionInput> contributions)
     {
-        var plain = c.Fields.Where(f => !IsComputed(f)).ToList();
-        var formulas = c.Fields.Where(IsComputed).ToList();
-        var codes = formulas.Select(f => f.Code).ToHashSet();
+        var all = contributions.SelectMany(c => c.Fields.Select(f => (C: c, F: f))).ToList();
+        var formulas = all.Where(x => IsComputed(x.F)).ToList();
+        string Name((ContributionInput C, TemplateField F) x) => TemplateGraph.Qualify(x.C.Prefix, x.F.Code);
+        var names = formulas.Select(Name).ToHashSet();
         var done = new HashSet<string>();
-        var ordered = new List<TemplateField>();
+        var ordered = new List<(ContributionInput C, TemplateField F)>();
         while (formulas.Count > 0)
         {
-            var next = formulas.FirstOrDefault(f => TemplateGraph.FormulaOf(f) is not { } formula
-                || TemplateGraph.FormulaCodes(formula).All(code => !codes.Contains(code) || done.Contains(code) || code == f.Code)) ?? formulas[0];
+            var next = formulas.FirstOrDefault(x => TemplateGraph.FormulaOf(x.F) is not { } formula
+                || TemplateGraph.FormulaCodes(formula).Select(code => TemplateGraph.Qualify(x.C.Prefix, code))
+                    .All(q => !names.Contains(q) || done.Contains(q) || q == Name(x)));
+            if (next.F is null) next = formulas[0];
             ordered.Add(next);
-            done.Add(next.Code);
+            done.Add(Name(next));
             formulas.Remove(next);
         }
-        return plain.Concat(ordered);
+        return all.Where(x => !IsComputed(x.F)).Concat(ordered);
     }
 
     private static bool HasDefaults(TemplateField f) =>
