@@ -321,6 +321,7 @@ Application 定 `IBackupStore`：
 | PostgreSQL、bk1b 還沒合併 | 未設定 | — | `providerUnsupported` |
 | 位置不合法（§7.4） | 嚴重 | — | `locationInvalid` |
 | 標記檔和目前採用的位置不同（§7.4） | 嚴重 | — | `locationMismatch` |
+| 新安裝、位置寫不進去（§7.4） | 嚴重 | — | `destinationUnwritable` |
 | 從沒成功過、也沒失敗過，等待未滿警告門檻 | 等待中（不開事件） | 從目前位置第一筆 `QueuedUtc` 起算的時數 | `firstBackupPending` |
 | 從沒成功過、也沒失敗過，等待已達警告門檻 | 依門檻（警告或嚴重） | 同上 | `firstBackupPending` |
 | 從沒成功過、已失敗過 | 嚴重 | — | `neverSucceeded` |
@@ -509,7 +510,7 @@ bk1 驗收時兩種資料庫各演練一次（§22 D1、D2）。
 `shared/i18n/<code>/ui.json` 四語要加的鍵分兩段：
 
 - **bk1a 加**：
-  - `ops.health.message.{lastRunFailed,neverSucceeded,locationInvalid,locationMismatch,firstBackupPending,providerUnsupported}`。理由：bk1a 合併後健康卡就會出現這些代碼，`HealthCheckCard.vue:22` 的 `labelOr` 找不到鍵時會顯示原始代碼。
+  - `ops.health.message.{lastRunFailed,neverSucceeded,locationInvalid,locationMismatch,destinationUnwritable,firstBackupPending,providerUnsupported}`。理由：bk1a 合併後健康卡就會出現這些代碼，`HealthCheckCard.vue:22` 的 `labelOr` 找不到鍵時會顯示原始代碼。
   - 三條政策的名稱與說明。
   - 單位 `ops.unit.hourOfDay`（§13.1）與政策頁的時刻顯示。
   - 兩個稽核動作名稱。
@@ -523,7 +524,7 @@ bk1 驗收時兩種資料庫各演練一次（§22 D1、D2）。
 |---|---|
 | 成功路徑 | `Dockerfile.demo` 設 `Backup__Root=/app/backups`；站台每次喚醒時資料回到映像狀態、沒有任何備份紀錄，不論喚醒時刻，執行器都立刻跑「第一次」（§6.2），1 分鐘內就有一筆成功 |
 | 被擋 | 「立即備份」停用並寫「Demo 站不開放立即備份」，API 回 403（比照寄信設定的測試信，§3） |
-| 失敗分支 | 公開 Demo 不示範；本機走查用故障注入示範：把 `Backup__Root` 設成唯讀目錄 → `destinationUnwritable`、監控頁嚴重 `neverSucceeded`；改回可寫後按立即備份 → 成功、事件結案 |
+| 失敗分支 | 公開 Demo 不示範；本機走查用故障注入示範：把 `Backup__Root` 設成唯讀目錄：新安裝時監控頁嚴重 `destinationUnwritable`、不排備份；已備份過的站台這一份 `failed`／`destinationUnwritable`、監控頁警告 `lastRunFailed`；改回可寫後按立即備份 → 成功、事件結案 |
 | 清孤兒附件被擋 | 本機走查：備份執行中按「清孤兒附件」→ 409 |
 | 未設定 | 公開 Demo 不示範；本機走查不設 `Backup__Root` |
 
@@ -709,7 +710,7 @@ bk1 驗收時兩種資料庫各演練一次（§22 D1、D2）。
 | # | Given | When | Then |
 |---|---|---|---|
 | E1 | 目的地剩餘空間小於預估 | 備份 | `failed`／`destinationFull`；沒有寫出任何檔案；新鮮度至少警告 `lastRunFailed`；照 O2 規則寄告警信 |
-| E2 | 目的地沒有寫入權限 | 備份 | `failed`／`destinationUnwritable` |
+| E2 | 目的地沒有寫入權限 | 備份 | 已採用過位置：`failed`／`destinationUnwritable`；新安裝：不排、新鮮度嚴重 `destinationUnwritable` |
 | E3 | 故障注入：寫完後改壞備份檔 | 驗證 | `failed`／`verifyFailed`；暫存刪掉、`sets/` 沒有這份 |
 | E4 | E1 之後修好空間 | 立即備份 | 成功；新鮮度事件結案 |
 | E5 | 從沒成功過、第一份失敗 | 檢查 | 嚴重 `neverSucceeded` |
