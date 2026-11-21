@@ -191,6 +191,52 @@ public class BackupTests
         File.Exists(Path.Combine(app.Root, "attachments", id[..2], id[2..4], id)).Should().BeFalse();
     }
 
+    /// <summary>包住假時鐘，等穩定的計時器（到期時間＝SettleMax）一掛上就通知測試；心跳與續鎖是 60 秒，不會混淆。</summary>
+    private sealed class SettleWatchClock(ManualClock inner, TimeSpan settleMax) : TimeProvider
+    {
+        public TaskCompletionSource SettleTimerCreated { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public override DateTimeOffset GetUtcNow() => inner.GetUtcNow();
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = inner.CreateTimer(callback, state, dueTime, period);
+            if (dueTime == settleMax) SettleTimerCreated.TrySetResult();
+            return timer;
+        }
+    }
+
+    /// <summary>A6：NAS 時鐘快 10 分鐘（附件寫入時間在未來）：不因時間被濾掉；等穩定最多 5 分鐘（假時鐘），之後照常複製。</summary>
+    [Fact]
+    public async Task AttachmentClockAhead10Min_NotFiltered_WaitsAtMost5Min_ThenCopied()
+    {
+        using var app = new BackupApp();
+        var id = await Attach(app, "nas");
+        var manual = new ManualClock(app.Time.GetUtcNow());
+        var clock = new SettleWatchClock(manual, BackupLimits.Default.SettleMax);
+        File.SetLastWriteTimeUtc(Path.Combine(app.AttachmentRoot, id[..2], id[2..4], id), manual.GetUtcNow().UtcDateTime.AddMinutes(10));
+        var s = app.Services;
+        var worker = new BackupWorker(s.GetRequiredService<IServiceScopeFactory>(), s.GetRequiredService<BackupSettings>(), clock,
+            s.GetRequiredService<OpsInstance>(), s.GetRequiredService<HealthCheckEngine>(), s.GetRequiredService<CachedSystemPolicy>(),
+            s.GetRequiredService<IOpsEnvironment>(), s.GetRequiredService<IAttachmentStore>(), s.GetRequiredService<ILogger<BackupWorker>>(), BackupLimits.Default);
+
+        var tick = worker.TickAsync(CancellationToken.None);
+        await Within(clock.SettleTimerCreated.Task);   // 等穩定的計時器掛上：等 5 分鐘，不是 12 分鐘
+        var run = (await Runs(app)).Single();
+
+        await AdvanceMinutes(app, manual, 4, run.Id);
+        tick.IsCompleted.Should().BeFalse("還沒等滿 5 分鐘");
+        Sets(app).Should().BeEmpty();
+
+        await AdvanceMinutes(app, manual, 1, run.Id);   // 等滿 5 分鐘（不是等到 12 分鐘）
+        await Within(tick);
+        run = (await Runs(app)).Single();
+        run.Status.Should().Be(BackupRunStatus.Succeeded, run.ErrorDetail);
+        run.AttachmentCount.Should().Be(1);
+        run.NewAttachmentCount.Should().Be(1);
+        run.SkippedAttachments.Should().Be(0);
+        (await File.ReadAllTextAsync(Path.Combine(app.Root, "sets", run.SetName!, "attachments.txt"))).Should().Be($"{id}\t3\n");
+        File.Exists(Path.Combine(app.Root, "attachments", id[..2], id[2..4], id)).Should().BeTrue();
+    }
+
     /// <summary>每次開檔讀附件時順便動一下檔案（模擬上傳中）。</summary>
     private sealed class ChangingStore(IAttachmentStore inner, Action onOpen) : IAttachmentStore
     {

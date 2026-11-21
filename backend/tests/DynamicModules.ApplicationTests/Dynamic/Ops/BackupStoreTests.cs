@@ -146,6 +146,39 @@ public sealed class BackupStoreTests : IDisposable
         File.GetUnixFileMode(Path.Combine(_root, "attachments", "ab", "x")).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }
 
+    /// <summary>
+    /// L4：NAS 掛載點不支援 chmod → 發佈成功、只記一次 Warning。CI（Linux）上造不出真的 chmod 失敗，
+    /// 改在暫存目錄放兩個懸空的符號連結：<c>SetUnixFileMode</c> 跟著連結找不到目標，丟出和 CIFS／NFS 拒絕 chmod 同一條 catch 的 IOException。
+    /// </summary>
+    [Fact]
+    public async Task ChmodFails_PublishSucceeds_WarnsOnce()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var logger = new CollectingLogger();
+        var store = new LocalDirectoryBackupStore(_root, logger);
+        var staging = store.PrepareStaging("run1");
+        File.WriteAllText(Path.Combine(staging, "database.sqlite"), "db");
+        File.CreateSymbolicLink(Path.Combine(staging, "dangling-1"), Path.Combine(_root, "missing-1"));
+        File.CreateSymbolicLink(Path.Combine(staging, "dangling-2"), Path.Combine(_root, "missing-2"));
+
+        await store.PublishAsync("run1", "set-a", Ct);
+
+        File.Exists(Path.Combine(_root, "sets", "set-a", "database.sqlite")).Should().BeTrue();
+        Directory.Exists(staging).Should().BeFalse();
+        logger.Warnings.Should().ContainSingle("兩個檔案都 chmod 失敗，但同一個儲存只記一次").Which.Should().Contain(_root);
+    }
+
+    private sealed class CollectingLogger : Microsoft.Extensions.Logging.ILogger<LocalDirectoryBackupStore>
+    {
+        public List<string> Warnings { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == Microsoft.Extensions.Logging.LogLevel.Warning) Warnings.Add(formatter(state, exception));
+        }
+    }
+
     // ── 位置檢查（E6、E6b） ─────────────────────────────────────────
 
     private const string Content = "/srv/fw";
