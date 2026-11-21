@@ -238,7 +238,7 @@ public class AttachmentApiTests : IDisposable
         var id = await UploadOk(w);
 
         var res = await Download(_app.AsUser("sales01"), w, id);
-        res.StatusCode.Should().BeOneOf(HttpStatusCode.Forbidden, HttpStatusCode.NotFound);
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound); // 看不到這筆就和不存在相同
         (await Download(_app.AsUser(null), w, id)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
@@ -448,9 +448,9 @@ public class AttachmentApiTests : IDisposable
     [Fact]
     public async Task Upload_WithoutEditPermission_RejectedBeforeTheBodyIsRead()
     {
-        var w = await MakeWorld(grant: false); // 業務群組沒有這個模組的任何權限
+        var w = await MakeWorld(grant: false); // 業務群組沒有這個模組的任何權限：看不到這筆，和不存在相同（#15）
         var (res, _) = await UploadProbe(_app.AsUser("sales01"), w);
-        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound);
         _app.BodyBytesRead.Should().BeLessThan(ProbeSize / 4);
     }
 

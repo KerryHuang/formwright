@@ -21,16 +21,13 @@ public class DeleteRecordHandler(
 {
     public async Task<ServiceResult> Handle(DeleteRecordRequest request, CancellationToken ct)
     {
-        var record = await records.GetAsync(request.Id, ct);
-        if (record is null) return ServiceResult.NotFound(RecordMapper.RecordNotFound);
-        var module = await modules.GetByIdAsync(record.ModuleId, includeChildren: true, ct);
-        if (module is null) return ServiceResult.NotFound(RecordMapper.ModuleNotFound);
-        if (ModuleRelations.IsDetail(module)) return ServiceResult.NotFound(RecordMapper.RecordNotFound);
+        // 看不到這筆（也沒有刪除權限）就和不存在相同（#15）；看得到之後才回 Closed 的 409、缺權限的 403
+        if (await RecordReadGate.ForActionAsync(request.Id, PermissionAction.Delete, records, modules, guard, ct) is not { } gate)
+            return RecordReadGate.NotFound();
+        var (record, module, access) = gate;
         if (await ModuleGate.RejectUnwritableAsync(module, guard, ct) is { } blocked) return blocked;
-        var access = await guard.AuthorizeAsync(module, PermissionAction.Delete, ct);
         if (access.Permissions is not { } perms) return access.Denied!;
-        if (perms.OwnerUserIds is not null && !perms.OwnerUserIds.Contains(record.OwnerUserId))
-            return ServiceResult.NotFound(RecordMapper.RecordNotFound);
+        if (!RecordReadGate.InScope(perms, record.OwnerUserId)) return RecordReadGate.NotFound();
         if (await ledgerGate.RejectWriteAsync(module, ct) is { } ledgerLocked) return ledgerLocked;
         if (await approvalGate.RejectAsync(module, record, RecordValueProcessor.Parse(record.ValuesJson), null, true, ct) is { } approvalBlocked)
             return approvalBlocked;

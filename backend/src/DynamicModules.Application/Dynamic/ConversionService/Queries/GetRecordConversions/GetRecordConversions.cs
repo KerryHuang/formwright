@@ -23,14 +23,9 @@ public class GetRecordConversionsHandler(
 
     public async Task<ServiceResult> Handle(GetRecordConversionsRequest request, CancellationToken ct)
     {
-        var record = await records.GetAsync(request.RecordId, ct);
-        if (record is null) return ServiceResult.NotFound(RecordMapper.RecordNotFound);
-        var source = await modules.GetByIdAsync(record.ModuleId, includeChildren: true, ct);
-        if (!source.IsReadable() || ModuleRelations.IsDetail(source)) return ServiceResult.NotFound(RecordMapper.ModuleNotFound);
-        var access = await guard.AuthorizeAsync(source, PermissionAction.Read, ct);
-        if (access.Permissions is not { } perms) return access.Denied!;
-        if (perms.OwnerUserIds is not null && !perms.OwnerUserIds.Contains(record.OwnerUserId))
-            return ServiceResult.NotFound(RecordMapper.RecordNotFound);
+        // 看不到這筆就和不存在相同（#15）
+        if (await RecordReadGate.ReadAsync(request.RecordId, records, modules, guard, ct) is not { } seen) return RecordReadGate.NotFound();
+        var (record, source, perms) = seen;
 
         var sourceValues = RecordValueProcessor.Parse(record.ValuesJson);
         var result = new List<ConversionAvailability>();

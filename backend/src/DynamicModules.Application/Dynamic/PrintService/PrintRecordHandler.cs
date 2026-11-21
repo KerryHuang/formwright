@@ -27,10 +27,8 @@ public class PrintRecordHandler(
 {
     public async Task<ServiceResult> Handle(PrintRecordRequest request, CancellationToken ct)
     {
-        var record = await records.GetAsync(request.RecordId, ct);
-        if (record is null) return ServiceResult.NotFound(RecordMapper.RecordNotFound);
-        var module = await modules.GetByIdAsync(record.ModuleId, includeChildren: true, ct);
-        if (!module.IsReadable() || ModuleRelations.IsDetail(module)) return ServiceResult.NotFound(RecordMapper.RecordNotFound);
+        if (await RecordReadGate.LoadAsync(request.RecordId, records, modules, ct) is not { } loaded) return RecordReadGate.NotFound();
+        var (record, module) = loaded;
         // Read 與 PrintExport 缺一不可（被撤銷 Read 就不能靠列印取得資料）；兩者的資料範圍可能不同（共用主檔逐動作範圍），要同時符合
         var perms = await NormalPathAsync(module!, record, ct);
         var granted = perms.Permissions is null;
@@ -100,8 +98,9 @@ public class PrintRecordHandler(
 
     private async Task<(EffectivePermissions? Permissions, ServiceResult? Denied)> NormalPathAsync(Module module, Record record, CancellationToken ct)
     {
-        var access = await guard.AuthorizeAsync(module, PermissionAction.Read, ct);
-        if (access.Permissions is not { } readPerms) return (null, access.Denied!);
+        // 沒有 Read 或範圍外：看不到這筆，和不存在相同（#15）；看得到但沒有列印權限才回 403
+        var readPerms = (await guard.AuthorizeAsync(module, PermissionAction.Read, ct)).Permissions;
+        if (readPerms is null || !RecordReadGate.InScope(readPerms, record.OwnerUserId)) return (null, RecordReadGate.NotFound());
         var printAccess = await guard.AuthorizeAsync(module, PermissionAction.PrintExport, ct);
         if (printAccess.Permissions is not { } printPerms) return (null, printAccess.Denied!);
         var perms = readPerms.Within(printPerms);

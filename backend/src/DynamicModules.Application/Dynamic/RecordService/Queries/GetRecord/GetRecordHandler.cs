@@ -17,11 +17,9 @@ public class GetRecordHandler(IModuleRepository modules, IRecordRepository recor
 {
     public async Task<ServiceResult> Handle(GetRecordRequest request, CancellationToken ct)
     {
-        var record = await records.GetAsync(request.Id, ct);
-        if (record is null) return ServiceResult.NotFound(RecordMapper.RecordNotFound);
-        var module = await modules.GetByIdAsync(record.ModuleId, includeChildren: true, ct);
-        if (!module.IsReadable()) return ServiceResult.NotFound(RecordMapper.ModuleNotFound);
-        if (ModuleRelations.IsDetail(module)) return ServiceResult.NotFound(RecordMapper.RecordNotFound);
+        // 不存在、模組 Draft／Inactive、是明細：回同一個 404（#15）
+        if (await RecordReadGate.LoadAsync(request.Id, records, modules, ct) is not { } loaded) return RecordReadGate.NotFound();
+        var (record, module) = loaded;
         var access = await guard.AuthorizeAsync(module, PermissionAction.Read, ct);
         var p = access.Permissions;
         var outOfScope = p?.OwnerUserIds is { } owners && !owners.Contains(record.OwnerUserId);

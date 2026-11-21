@@ -125,7 +125,7 @@ public class ApprovalGrantPrintTests : ApprovalTestBase
     }
 
     [Fact]
-    public async Task Print_AfterTaskEnds_403()
+    public async Task Print_AfterTaskEnds_404()
     {
         await Rig();
         var (po, id) = await Pending();
@@ -134,13 +134,13 @@ public class ApprovalGrantPrintTests : ApprovalTestBase
         var task = TasksOf(id).Single(t => t.AssigneeUserId == "fin1");
         (await Send(new ApproveTaskRequest(task.Id, Inst(id).RowVersion, null, null))).IsSuccess.Should().BeTrue();   // 或簽：同關另一份任務一起收回
 
-        (await Print("fin1", po)).IsForbidden.Should().BeTrue();
-        (await Print("fin2", po)).IsForbidden.Should().BeTrue();
+        (await Print("fin1", po)).IsNotFound.Should().BeTrue();
+        (await Print("fin2", po)).IsNotFound.Should().BeTrue();
         (await Templates("fin2", po)).IsForbidden.Should().BeTrue();
     }
 
     [Fact]
-    public async Task Print_AfterTransfer_OldAssignee403()
+    public async Task Print_AfterTransfer_OldAssignee404()
     {
         await Rig();
         var (po, id) = await Pending();
@@ -148,7 +148,7 @@ public class ApprovalGrantPrintTests : ApprovalTestBase
         var task = TasksOf(id).Single(t => t.AssigneeUserId == "fin1");
         (await Send(new TransferTaskRequest(task.Id, Inst(id).RowVersion, "emp1", null))).IsSuccess.Should().BeTrue();
 
-        (await Print("fin1", po)).IsForbidden.Should().BeTrue();
+        (await Print("fin1", po)).IsNotFound.Should().BeTrue();
         (await Templates("fin1", po)).IsForbidden.Should().BeTrue();
         (await Print("emp1", po)).IsSuccess.Should().BeTrue();
     }
@@ -163,14 +163,14 @@ public class ApprovalGrantPrintTests : ApprovalTestBase
 
         (await Print("fin1", po)).IsSuccess.Should().BeTrue();   // 本人
         (await Print("emp2", po)).IsSuccess.Should().BeTrue();   // 代理人
-        (await Print("emp1", po)).IsForbidden.Should().BeTrue();
+        (await Print("emp1", po)).IsNotFound.Should().BeTrue();
     }
 
     private async Task AssertNoPrint(long po, params string[] users)
     {
         foreach (var u in users)
         {
-            (await Print(u, po)).IsForbidden.Should().BeTrue($"{u} print");
+            (await Print(u, po)).IsNotFound.Should().BeTrue($"{u} print");
             (await Templates(u, po)).IsForbidden.Should().BeTrue($"{u} templates");
         }
     }
@@ -285,14 +285,14 @@ public class ApprovalGrantPrintTests : ApprovalTestBase
     }
 
     [Fact]
-    public async Task Print_OtherRecordSameModule_403()
+    public async Task Print_OtherRecordSameModule_Rejected()
     {
         await Rig();
         await Pending();
         As("buyer1");
         var other = await NewPo(_r, price: 100);
 
-        (await Print("fin1", other.Id)).IsForbidden.Should().BeTrue();
+        (await Print("fin1", other.Id)).IsNotFound.Should().BeTrue();
         (await Templates("fin1", other.Id)).IsForbidden.Should().BeTrue();
     }
 
@@ -332,7 +332,7 @@ public class ApprovalGrantPrintTests : ApprovalTestBase
 
         res.IsSuccess.Should().BeTrue(Dump(res));
         Html(res).Should().Contain(MemoText).And.Contain("30,000").And.Contain("單價4321");
-        (await Print("emp1", po)).IsForbidden.Should().BeTrue();   // 沒有任何權限、也不是可動作者
+        (await Print("emp1", po)).IsNotFound.Should().BeTrue();   // 沒有任何權限、也不是可動作者：和不存在相同（#15）
         ((List<PrintTemplateOption>)(await Templates("buyer1", null)).Data!).Should().ContainSingle();
     }
 }

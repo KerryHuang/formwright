@@ -164,8 +164,8 @@ public class InventoryPoApprovalScenarioTests(DemoGeneratedFixture fx)
         printed.IsSuccess.Should().BeTrue(printed.Message);
         ((PrintedDocument)printed.Data!).Html.Should().Contain("採購單").And.Contain("含稅總計");
 
-        // 同一個人對已簽完的單據：任務已結束，臨時讀取收回
-        (await fx.As("manager01", new PrintRecordRequest(done.Record.Id, "inv-po-sheet", "zh-TW"))).IsForbidden.Should().BeTrue();
+        // 同一個人對已簽完的單據：任務已結束，臨時讀取收回；看不到這筆就和不存在相同（#15）
+        (await fx.As("manager01", new PrintRecordRequest(done.Record.Id, "inv-po-sheet", "zh-TW"))).IsNotFound.Should().BeTrue();
     }
 
     private async Task<List<ApprovalAction>> ActionsOf(long instanceId) =>

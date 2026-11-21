@@ -48,15 +48,13 @@ public sealed class AttachmentUploadGate(
 {
     public async Task<(ServiceResult? Rejected, UploadTarget? Target)> CheckAsync(long recordId, long fieldId, CancellationToken ct)
     {
-        var record = await records.GetAsync(recordId, ct);
-        if (record is null) return (ServiceResult.NotFound(RecordMapper.RecordNotFound), null);
-        var module = await modules.GetByIdAsync(record.ModuleId, includeChildren: true, ct);
-        if (module is null || ModuleRelations.IsDetail(module)) return (ServiceResult.NotFound(RecordMapper.RecordNotFound), null);
+        // 看不到這筆（也沒有修改權限）就和不存在相同（#15）；看得到之後才回 Closed 的 409、缺修改權限的 403
+        if (await RecordReadGate.ForActionAsync(recordId, PermissionAction.Edit, records, modules, guard, ct) is not { } gate)
+            return (RecordReadGate.NotFound(), null);
+        var (record, module, access) = gate;
         if (await ModuleGate.RejectUnwritableAsync(module, guard, ct) is { } blocked) return (blocked, null);
-        var access = await guard.AuthorizeAsync(module, PermissionAction.Edit, ct);
         if (access.Permissions is not { } perms) return (access.Denied!, null);
-        if (perms.OwnerUserIds is not null && !perms.OwnerUserIds.Contains(record.OwnerUserId))
-            return (ServiceResult.NotFound(RecordMapper.RecordNotFound), null);
+        if (!RecordReadGate.InScope(perms, record.OwnerUserId)) return (RecordReadGate.NotFound(), null);
 
         var field = module.Blocks.SelectMany(b => b.Fields)
             .FirstOrDefault(f => f.Id == fieldId && f.Status == FieldStatus.Active && f.Type == FieldType.Attachment);

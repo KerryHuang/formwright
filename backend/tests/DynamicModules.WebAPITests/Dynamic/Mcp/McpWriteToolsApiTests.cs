@@ -654,6 +654,25 @@ public class McpWriteToolsApiTests : IAsyncLifetime
         res.GetRawText().Should().NotContain(StageCode).And.NotContain("總部單據");
     }
 
+    /// <summary>沒有任何權限的人送出（含預覽）：和記錄不存在回同一個錯誤碼與訊息，不洩漏記錄存在（#15）。</summary>
+    [Fact]
+    public async Task Submit_NoPermission_SameErrorAsMissingRecord()
+    {
+        var created = await JsonOf(await _admin.PostAsJsonAsync($"{Base}/modules/{_module}/records",
+            new { values = new Dictionary<string, object> { [_titleKey] = "沒授權的單" } }));
+        var id = created.GetProperty("id").GetInt64();
+        EnsureUser(_app, "sales01", u => (u.IsDemoAccount, u.MustChangePassword) = (false, false));
+        await using var salesMcp = await ConnectAsync(_app, IssueToken(_app, "sales01", WriteScopes).Raw);
+
+        foreach (var previewOnly in new[] { true, false })
+        {
+            var hidden = await Call("submit_approval", new { recordId = id, to = 1, previewOnly, rowVersion = "x", idempotencyKey = NewIdem() }, salesMcp);
+            var missing = await Call("submit_approval", new { recordId = 999_999_999, to = 1, previewOnly, rowVersion = "x", idempotencyKey = NewIdem() }, salesMcp);
+            Code(hidden).Should().Be(McpErrorCodes.NotFound, hidden.GetRawText());
+            hidden.GetProperty("error").GetRawText().Should().Be(missing.GetProperty("error").GetRawText());
+        }
+    }
+
     [Fact]
     public async Task Submit_NoPreviewInResult()
     {
