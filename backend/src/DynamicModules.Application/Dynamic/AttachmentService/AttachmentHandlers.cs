@@ -6,6 +6,7 @@ using DynamicModules.Application.Common.Time;
 using DynamicModules.Application.Dynamic.ApprovalService;
 using DynamicModules.Application.Dynamic.EventService;
 using DynamicModules.Application.Dynamic.LedgerService;
+using DynamicModules.Application.Dynamic.OpsService.Backup;
 using DynamicModules.Application.Dynamic.PolicyService;
 using DynamicModules.Application.Dynamic.RecordService;
 using DynamicModules.Application.Dynamic.RecordService.Data;
@@ -16,6 +17,8 @@ using DynamicModules.Domain.Policies;
 using DynamicModules.Domain.Repositories.Dynamic;
 using DynamicModules.Domain.Rules;
 using MediatR;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace DynamicModules.Application.Dynamic.AttachmentService;
 
@@ -201,10 +204,19 @@ public sealed class DownloadAttachmentHandler(
 }
 
 public sealed class SweepAttachmentsHandler(
-    IModuleRepository modules, IRecordRepository records, ITaskRepository tasks, IAttachmentStore store, IPolicyReader policies)
+    IModuleRepository modules, IRecordRepository records, ITaskRepository tasks, IAttachmentStore store, IPolicyReader policies,
+    IServiceScopeFactory scopes, TimeProvider time, ILogger<SweepAttachmentsHandler> logger)
     : IRequestHandler<SweepAttachmentsRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(SweepAttachmentsRequest request, CancellationToken ct)
+    {
+        // 和備份互斥（備份設計 §5.5、T30）：備份持有 attachments 鎖時回 409，不清；清的過程中鎖由自己的計時續住
+        await using var lease = await OpsLockLease.TryAcquireAsync(scopes, OpsLock.Attachments, $"sweep-{Guid.NewGuid():N}", time, BackupLimits.Default, logger, ct);
+        if (lease is null) return ServiceResult.Conflict(MessageRef.Of(MessageText.BackupInProgress), "backupInProgress");
+        return await SweepAsync(request, ct);
+    }
+
+    private async Task<ServiceResult> SweepAsync(SweepAttachmentsRequest request, CancellationToken ct)
     {
         // 被參照＝任何記錄（含軟刪除，還原後要用）目前的值裡列出，或是未撤回的任務留言的附件。
         // 永久清除的記錄、撤回的留言、刪掉的任務不在名單內，它們的檔案就成了孤兒。

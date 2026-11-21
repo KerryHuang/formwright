@@ -2,6 +2,7 @@ using DynamicModules.Application.Dynamic.MailService;
 using DynamicModules.Application.Dynamic.OpsService;
 using DynamicModules.Application.Dynamic.OpsService.Alerts;
 using DynamicModules.Application.Dynamic.OpsService.Audit;
+using DynamicModules.Application.Dynamic.OpsService.Backup;
 using DynamicModules.Application.Dynamic.OpsService.Monitor;
 using System.Text.Json;
 using System.Security.Claims;
@@ -35,6 +36,21 @@ public class OpsController(IMediator mediator) : ControllerBase
     public async Task<IActionResult> AuditDetail(long id) => (await mediator.Send(new GetAuditRequest(id))).ToActionResult(this);
 
     /// <summary>監控總覽（維運設計 §17.5）：整體狀態、各檢查、未結事件數、需要處理清單、排程器、告警通道（o2c 前一律未設定）。</summary>
+    // 產品內備份（備份設計 §11）：沒有刪除、下載、改位置的 API
+    [HttpGet("system/ops/backups")]
+    public async Task<IActionResult> Backups([FromQuery] long? cursor) => (await mediator.Send(new GetBackupsRequest(cursor))).ToActionResult(this);
+
+    [HttpGet("system/ops/backups/{id:long}")]
+    public async Task<IActionResult> Backup(long id) => (await mediator.Send(new GetBackupRunRequest(id))).ToActionResult(this);
+
+    /// <summary>立即備份：排進佇列就回 202 與那一筆，執行器下一輪領走。</summary>
+    [HttpPost("system/ops/backups")]
+    public async Task<IActionResult> RequestBackup()
+    {
+        var result = await mediator.Send(new RequestBackupRequest());
+        return result.IsSuccess ? Accepted(result.Data) : result.ToActionResult(this);
+    }
+
     [HttpGet("system/ops/overview")]
     public async Task<IActionResult> Overview() => (await mediator.Send(new GetOpsOverviewRequest())).ToActionResult(this);
 

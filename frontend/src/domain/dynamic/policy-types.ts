@@ -84,7 +84,10 @@ export function policyValueText(meta: PolicyMeta, v: PolicyValue, t: Translate, 
     case 'recipients': return joinList((v as string[]).map((i) => (meta.dynamicRecipients?.includes(i) ? t(dynamicRecipientKey(i))
       : names ? names.get(i) ?? t('policies.recipients.missing') : i)));
     default:
-      return meta.unit === 'bytes' ? `${v} (${t('policies.bytesHint', { size: formatBytes(Number(v)) })})` : String(v);
+      if (meta.unit === 'bytes') return `${v} (${t('policies.bytesHint', { size: formatBytes(Number(v)) })})`;
+      // 一天中的整點（備份時段）：2 → 「2（02:00 開始）」
+      if (meta.unit === 'hourOfDay') return `${v} (${t('policies.hourOfDayHint', { time: `${String(Number(v)).padStart(2, '0')}:00` })})`;
+      return String(v);
   }
 }
 

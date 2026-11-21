@@ -145,9 +145,25 @@ if (keysDirectory is not null)
     builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(keysDirectory));
 else if (databaseProvider == DatabaseProvider.Postgres)
     startupWarnings.Add("Database:Provider=Postgres 沒有設定 DataProtection:KeysDirectory，登入金鑰不落地，站台重開後要重新登入；正式環境請設定");
-// storage.diskFree 要量的本機目錄：資料庫檔目錄、附件根目錄、金鑰目錄（PostgreSQL 沒有資料庫檔目錄；§17.2.4）
+// 產品內備份（備份設計 §7.4、§13.2）：Backup:Root 沒設就不備份；和資料庫、附件、金鑰、wwwroot 重疊的位置不收（記 Warning、新鮮度判嚴重）
+var (backupSettings, backupWarning) = DynamicModules.Application.Dynamic.OpsService.Backup.BackupSettings.Create(builder.Configuration["Backup:Root"],
+    builder.Environment.ContentRootPath, [databaseDirectory, attachmentSettings.Root, keysDirectory, Path.Combine(builder.Environment.ContentRootPath, "wwwroot")]);
+if (backupWarning is not null) startupWarnings.Add(backupWarning);
+builder.Services.AddSingleton(backupSettings);
+if (backupSettings.Root is { } backupRoot)
+{
+    builder.Services.AddSingleton<DynamicModules.Application.Dynamic.OpsService.Backup.IBackupStore>(sp =>
+        new LocalDirectoryBackupStore(backupRoot, sp.GetRequiredService<ILogger<LocalDirectoryBackupStore>>()));
+    // 雲端版的備份應放在隔離儲存（T13）；bk1 只有本機目錄，只提示、不擋
+    if (builder.Configuration["Ops:Edition"] == "Cloud" && !backupSettings.Invalid)
+        startupWarnings.Add("Ops:Edition=Cloud 但備份位置是本機目錄（不是隔離儲存）；雲端隔離儲存上線前，O4–O6 不得開工");
+}
+builder.Services.AddSingleton<DynamicModules.Application.Dynamic.OpsService.Backup.BackupWorker>();
+builder.Services.AddHostedService<BackupHostedService>();
+// storage.diskFree 要量的本機目錄：資料庫檔目錄、附件根目錄、金鑰目錄、備份位置（PostgreSQL 沒有資料庫檔目錄；§17.2.4、備份設計 §20 第 11 點）
 builder.Services.AddSingleton(new DynamicModules.Application.Dynamic.OpsService.Health.OpsStoragePaths(
-    new[] { databaseDirectory, attachmentSettings.Root, keysDirectory }.OfType<string>().Distinct(StringComparer.Ordinal).ToList()));
+    new[] { databaseDirectory, attachmentSettings.Root, keysDirectory, backupSettings.Invalid ? null : backupSettings.Root }
+        .OfType<string>().Distinct(StringComparer.Ordinal).ToList()));
 builder.Services.AddControllers().AddJsonOptions(o =>
 {
     o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;

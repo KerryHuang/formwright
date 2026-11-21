@@ -58,7 +58,7 @@ function onDynamic(item: string, on: boolean) {
 function onRecipientFilter(v: string, update: (fn: () => void) => void) {
   update(() => { recipientFilter.value = v; });
 }
-const hint = computed(() => props.meta.kind === 'integer' && props.meta.unit === 'bytes'
+const hint = computed(() => props.meta.kind === 'integer' && (props.meta.unit === 'bytes' || props.meta.unit === 'hourOfDay')
   ? policyValueText(props.meta, Number(text.value) || 0, t) : undefined);
 </script>
 

@@ -191,6 +191,9 @@ public static class DependencyInjection
         services.AddScoped<Dynamic.OpsService.Incidents.SecurityIncidents>();
         services.AddSingleton<Dynamic.OpsService.Health.HealthCheckEngine>();
         services.AddSingleton<Dynamic.OpsService.Health.OpsWatchdog>();
+        // 產品內備份（備份設計 §6）：部署設定 Backup:Root 由 WebAPI 註冊；沒註冊＝沒設位置。執行器與儲存在 WebAPI
+        services.TryAddSingleton(Dynamic.OpsService.Backup.BackupSettings.None);
+        services.AddScoped<Dynamic.OpsService.Backup.BackupLocator>();
         services.AddSingleton<Dynamic.OpsService.Monitor.HealthRunGate>();
         services.AddScoped<Dynamic.OpsService.Monitor.OpsMonitorReader>();
         services.AddSingleton<Dynamic.OpsService.Health.IHealthProbe, Dynamic.OpsService.Health.DatabaseWritableProbe>();
