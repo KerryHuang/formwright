@@ -135,7 +135,13 @@ const reopen = (key: string) => reopenApp.mutate(key, {
         <q-item v-for="p in packages.data.value" :key="p.id" data-testid="app-row">
           <q-item-section avatar><q-icon :name="p.icon || 'inventory_2'" /></q-item-section>
           <q-item-section>
-            <q-item-label>{{ name(p.name) }} <span class="text-caption text-muted">v{{ p.version }}</span></q-item-label>
+            <q-item-label>
+              {{ name(p.name) }} <span class="text-caption text-muted">v{{ p.version }}</span>
+              <q-badge v-if="p.upgrade" color="warning" class="q-ml-xs" data-testid="app-upgrade-badge">
+                {{ p.upgrade.toVersion ? t('apps.upgrade.badge', { version: p.upgrade.toVersion }) : t('apps.upgrade.masterBadge') }}
+                <q-tooltip v-if="p.status === 'Closed'">{{ t('apps.upgrade.reopenFirst') }}</q-tooltip>
+              </q-badge>
+            </q-item-label>
             <q-item-label v-if="p.description" caption>{{ name(p.description) }}</q-item-label>
             <q-item-label caption>
               {{ t('apps.modules', { n: p.modules.length }) }}
@@ -146,13 +152,15 @@ const reopen = (key: string) => reopenApp.mutate(key, {
             </q-item-label>
           </q-item-section>
           <q-item-section side>
-            <div class="row items-center q-gutter-sm no-wrap">
+            <div class="row items-center justify-end q-gutter-sm">
               <q-badge :color="statusColor(p.status)" :outline="!p.status" data-testid="app-status">
                 {{ t(`apps.status.${p.status ?? 'none'}`) }}
               </q-badge>
               <q-btn v-if="canWrite && !p.status" color="primary" dense no-caps :label="t('apps.open')" data-testid="app-open" @click="startOpen(p)" />
               <q-btn v-if="canWrite && p.status === 'Open' && appByKey.get(p.id)" outline dense no-caps :label="t('apps.close')" data-testid="app-close" @click="closing = appByKey.get(p.id)!" />
               <q-btn v-if="canWrite && p.status === 'Closed'" color="primary" dense no-caps :label="t('apps.reopen')" data-testid="app-reopen" @click="reopen(p.id)" />
+              <q-btn v-if="canWrite && p.status === 'Open' && p.upgrade" outline color="primary" dense no-caps :label="t('apps.upgrade.open')"
+                :to="`/system/apps/${encodeURIComponent(p.id)}/upgrade`" data-testid="app-upgrade" />
             </div>
           </q-item-section>
         </q-item>
