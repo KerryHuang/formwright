@@ -2,8 +2,8 @@
 
 > 2026-11-21｜平台共用能力（非應用程式）｜前置：[應用程式套件](2026-11-06-app-package-design.md)（§4.9 版本、§6.2 開啟、§12 決策 3 與 15）、[共用主檔](2026-11-10-shared-master-design.md)（§9 匯入主檔的合併）、[語系包與自訂語系](2026-11-17-language-packs-design.md)（§10.5、§18 第 7 點）、[名稱欄位多語](2026-11-21-name-i18n-design.md)（§8 套件格式 9、§8.1 `excludeFromAi`）
 > 狀態：主控撰寫（2026-11-21），這次只寫設計、不改程式。依使用者 2026-11-21 裁決：會改變使用者操作的小題照推薦先定，寫成「主控暫定，待使用者確認」；技術類主控直接定。
-> 修訂：2026-11-21 同家審查（必修 1–6 全收，建議 14 條的處置見交付說明）後改版；同日再依 2026-11-19 平台分流（使用者 11-20 確認：A 區照推薦、B 區全部確認）的 pkg1 各題與使用者 11-21 新裁決（Q3、Q7、Q9）改版，各 Q 的裁決狀態見 §19.1。2026-11-22 主控起草 pkg1d 第二批細節（§9.6，新增 Q13–Q25、T29–T42、A16 改寫與 A25–A50），未經審查。
-> 標記：「（使用者裁決）」是使用者已拍板的；「（Q#）」是行為類，各題的裁決狀態（使用者裁決、分流已確認、顧問拍板待確認）標在 §19.1；「（T#）」是技術類，主控已定、可推翻，彙整在 §19.2。
+> 修訂：2026-11-21 同家審查（必修 1–6 全收，建議 14 條的處置見交付說明）後改版；同日再依 2026-11-19 平台分流（使用者 11-20 確認：A 區照推薦、B 區全部確認）的 pkg1 各題與使用者 11-21 新裁決（Q3、Q7、Q9）改版，各 Q 的裁決狀態見 §19.1。2026-11-22 主控起草 pkg1d 第二批細節（§9.6，新增 Q13–Q25、T29–T42、A16 改寫與 A25–A50）；同日經顧問分流（lifecycle:domain-advisor：Q1、Q10、Q13–Q25 顧問定案，新增漏題 Q26、Q27，技術漏洞 L2–L6）與設計技術審查（必修 D1–D11、建議 S1–S17）後改版，新增 T43–T57 與 A51–A71。
+> 標記：「（使用者裁決）」是使用者已拍板的；「（Q#）」是行為類，各題的裁決狀態（使用者裁決、分流已確認、顧問拍板待確認、顧問定案待事後確認、主控暫定待確認）標在 §19.1；「（T#）」是技術類，主控已定、可推翻，彙整在 §19.2。
 
 ## 1. 目的
 
@@ -249,6 +249,7 @@ pkg1 做一個**升級預覽與逐項套用**的入口：
 - 畫面勾一個項目時自動一起勾它依賴的項目（並提示「一起套用：…」）；取消依賴項目時，依賴它的也一起取消。
 - 後端再驗一次：勾了的項目依賴沒勾、或「客戶已刪除」且沒勾回的項目 → 400，列出缺的項目。驗證不只做在前端（鐵則 5）。
 - 開啟時排除、被新版移進新區塊的欄位另列成可勾項目（§8.4），被檢視、規則、公式、模組標題引用時照這裡的規則：沒勾回 400，不會套用到一半才因找不到欄位失敗（複核 N1）。
+- pkg1d 補的相依規則（物件依賴自己所在的新模組、需簽核轉移依賴新流程、流程依賴目標與退回狀態、列印範本的明細迴圈、主檔符號換算）見 §9.6.1（T43）。
 
 ## 7. 新版的來源與版號
 
@@ -366,7 +367,7 @@ pkg1c 實作補記（2026-11-22）：
 - `reason`：不能勾或要說明時的**原因代碼**，由前端翻譯（`apps.upgrade.reason.<code>`），能照一般規則勾時是 null。代碼：`customerOnly`（只有客戶改）、`removedInNew`（新版移除）、`typeChanged`（欄位型別不同）、`kindChanged`（模組種類或擴充宿主不同）、`referenceChanged`（參照對象或關聯方式不同）、`existingPermission`（既有物件的權限修改，Q5）、`notYetSupported`（第二批項目，pkg1d 之前不能套用，§15）、`affectsData`（既有欄位這次會改成必填、有記錄沒填值，§6.4）、`unmatched`（現況有對照列、比對模式卻表達不了，§6.1）。pkg1d 新增的代碼與資訊型的 `impacts` 見 §9.6.4。§6.4 寫的原因文字是畫面上翻譯後的樣子，不在 API 裡。
 - `affectedRecords`：只在 `reason` 是 `affectsData` 時有值，是沒填值的記錄數；只有「必填」這次真的會寫入（不是客戶改成非必填而保留）時才判斷（審查 M4）。
 - `dependsOn`：引用到的「現況還沒有、這次列出」的項目。引用的對象是新區塊、新模組底下的項目時（它們不另列），指向列出的那個區塊或模組；模組項目看標題欄位與標題樣板，規則看 target 的 `field:`／`block:` 與條件值的 `opt_` 去掉前綴後的代號（審查 M2）。開啟時排除、被新版移進新區塊的欄位，套用新區塊時預設不建（審查 S3），所以另列成 `excludedAtOpen` 項目、預設不勾，`dependsOn` 帶它所在的新區塊；引用它的項目依賴它本身，依賴它的項目（連同再依賴這些的）也預設不勾，預設勾選才能直接套用。新區塊、新模組底下不另列的項目引用別的新項目時，算在列出的上層頭上（例如同一個新區塊裡的公式引用這類欄位，新區塊就依賴它）（複核 N1）。
-- `attachedPermissions`：新模組、新欄位、新選項、新貢獻附帶的權限（Q12），每條 `{ groupId, groupName, effect, grants, scope }`（`scope` 只有模組權限有，是資料範圍）；選了「建立新群組」的代號，`groupId` 是**負數暫代 id**（這次預覽裡將新建的群組，同一次預覽內每個代號固定一個），`groupName` 是套件裡的群組名稱。負數 id 只給畫面顯示，套用時不得送回、也不能拿去查群組；`effect` 是動作或限制（`hidden`、`readOnly`、`visible`、`read`、`edit`…，含資料範圍），`grants` 為 true 表示給權類。和 `defaultSelected` 一樣只在後端算，畫面的「給權」標示照它顯示。
+- `attachedPermissions`：新模組、新欄位、新選項、新貢獻附帶的權限（Q12），以及新轉移可推進的群組（pkg1d，T57），每條 `{ groupId, groupName, effect, grants, scope }`（`scope` 只有模組權限有，是資料範圍）；選了「建立新群組」的代號，`groupId` 是**負數暫代 id**（這次預覽裡將新建的群組，同一次預覽內每個代號固定一個），`groupName` 是套件裡的群組名稱。負數 id 只給畫面顯示，套用時不得送回、也不能拿去查群組；`effect` 是動作或限制（`hidden`、`readOnly`、`visible`、`read`、`edit`…，含資料範圍），`grants` 為 true 表示給權類。和 `defaultSelected` 一樣只在後端算，畫面的「給權」標示照它顯示。
 - `category`：`newOnly`、`customerOnly`、`both`、`added`、`customerDeleted`、`removedInNew`、`excludedAtOpen`、`skippedBefore`、`noBaseline`、`unmatched`。
 - `label` 給畫面顯示，取新版的值，沒有新版（新版移除）取現況的。
 - 值一律原樣回（字串、數字、物件），由前端格式化；`config` 的鍵用欄位設定畫面的名稱顯示（i18n 鍵 `apps.upgrade.prop.<name>`）。
@@ -393,8 +394,9 @@ pkg1c 實作補記（2026-11-22）：
    - **主檔模組與貢獻**（新貢獻、新貢獻欄位）：不用 `SaveModulePermissions`（它會把差異記成 `Manual` 來源，`MasterGrants.SaveAsync`；手動來源永遠計入，應用程式關閉後寫入權限收不回來）。改成 `MasterGrants.GrantAsync(GrantSource.Master 或 App, appId, …)` 寫本應用程式名下的來源記錄；新增的貢獻欄位標「限定可見」並補本應用程式的 `FieldGrant` 列（同 `AppOpener.RecordGrantsAsync`）；最後重算受影響模組的有效值（`MasterLifecycle.RecomputeAsync`）。
    - 合併規則照 §6.2.1：模組權限動作取聯集、範圍取最寬；欄位例外取最嚴；選項範圍取聯集。
 8. 報表、狀態機、轉換、列印範本、分錄、事件、檢查、簽核流程、任務規則（套件設計 §6.2 第 7 步之後的順序，`AppFlowInstaller` 的順序；pkg1d 的細化見 §9.6.1，貢獻改在第 5 步和欄位一起建）。
-9. 整合：換宣告、補列，交易提交後跑調和（同開啟：調和失敗只回報，不讓套用失敗）。
-10. `App` 的名稱、圖示、`PackageVersion`、`FormatVersion`，`TouchRowVersion`；基準整列換成新版（§9.2）；升級的是主檔時改寫合併副本（§7.1）。
+9. 整合：改已安裝的項目、登記 `ItemsJson`、換宣告、補列（§9.6.2 整合）；這一步不調和。
+10. `App` 的名稱、圖示、`PackageVersion`、`FormatVersion`，`TouchRowVersion`；基準整列換成新版（§9.2）；升級的是主檔時改寫合併副本（§7.1）；`CommitAsync`。
+11. 調和（T52，設計審查 D9）：在同一個交易內、第 10 步最後一次 `CommitAsync` 之後，才呼叫 `ReconcileAsync(only: …)`，只調和這次動到的整合；主檔與應用程式都套完後才調和，之後不再修改任何已追蹤的實體。調和失敗只進 warnings，不讓套用失敗（同開啟）。理由：`EnsureInSavepointAsync` 要開 savepoint，`EfWorkSavepoints` 在交易外直接丟例外，所以不能放進 `AfterCommitActions`；savepoint 回滾會清掉 change tracker，調和若排在第 10 步之前，一失敗回滾，第 10 步對已追蹤實體的修改就不會寫進資料庫，結果是套用成功、內容換新，版號與基準卻沒換，下次預覽冒出一堆假差異（開啟也是同樣的做法，`OpenApp.cs:194-196`）。
 
 每一步呼叫既有的設計器指令，所以現有驗證照跑（公式能不能解析、規則條件、報表定義、簽核流程定義）。失敗時回應帶失敗的項目識別與原因。
 
@@ -436,17 +438,35 @@ pkg1c 實作補記（2026-11-22）：
 
 ### 9.6 pkg1d 第二批細節（2026-11-22 起草）
 
-> 主控起草，還沒審查。現況盤點基準 main 24220771。會改變使用者操作的題照推薦寫，標「待使用者確認」，完整題目在 §19.1 的 Q13–Q25；技術類標「主控已定，可推翻」，彙整在 §19.2 的 T29–T42。§4 已定決定與 Q1–Q12 不動。
+> 主控起草，2026-11-22 經顧問分流與設計技術審查後改版。現況盤點基準 main 24220771。會改變使用者操作的題：Q13–Q25 顧問定案、待使用者事後確認，Q26、Q27 照推薦寫、待使用者確認，完整題目在 §19.1；技術類標「主控已定，可推翻」，彙整在 §19.2 的 T29–T57。§4 已定決定與 Q1–Q12 的裁決不動。
 
 #### 9.6.1 共同做法
 
-- **比對不改**：識別、屬性、分類照 pkg1b 已上線的比對引擎（`UpgradeItems.Extract`、§6.2 的表）。物件型項目仍比頂層屬性：事件的 `effects`、簽核流程的 `stages`、轉換的 `header`／`lines`、任務規則的 `tasks`、列印範本的 `body` 各算一個屬性。pkg1d 只補「套用」與「能不能套」。
-- **修改＝以現況為底、換掉要寫的屬性，再整份存**（T29，主控已定，可推翻）：各 `Update*` 指令都收整份定義，所以照 pkg1c 的 `AppUpgrader.Merge`，以比對模式匯出的現況（C）為底，把「只有新版改」與勾選後的衝突屬性換成新版（N），再把代號換成 id（`AppEffectsCodec`、`AppPrintCodec`、`AppTaskRuleCodec`、`AppApprovalFlowCodec` 的 `ToInput`），以 Key 送 `Update*`。客戶改的屬性保留，例如客戶停用了事件（`active` 是只有客戶改），新版改了它的效果，套用後效果換新、仍是停用。
-- **新增的物件**（T30，主控已定，可推翻）：組一份只含勾選新物件的子套件，交給 `AppFlowInstaller.InstallAsync`／`InstallTaskRulesAsync`，代號對照用套用當下的現況（同 pkg1c 的 `TemplateInstantiator.MapFor`）。`AppFlowInstaller` 加嚴格模式：開啟時「引用被排除的欄位，已略過並警告」的地方，升級改回 400 並帶項目識別。相依驗證（§6.5）已保證引用的東西存在或一起勾，走到略過就是程式錯，不能默默少裝一項。新模組底下的狀態機、分錄（`Parent` 是模組，預覽不另列）隨新模組一起裝，不再擋 `secondBatch`（§9.5 之前的 `Subsumed` 擋法拿掉）。
-- **預覽先跑設計器的守衛**（T32，主控已定，可推翻）：套用時才 409 會讓整批回滾，管理員只看到一行錯誤。所以凡是設計器指令會擋的情況（簽核中、鎖定狀態有記錄、分錄已有記錄、檢查回填超過上限、被用過的流程改目標、優先序重複），預覽用**同一份判斷**先算，把該項標成無法套用並給原因代碼（§9.6.4）。守衛的判斷抽成可唯讀呼叫的函式，設計器入口與預覽共用，不在 pkg1 另寫一套（同 T27 的做法）。
+- **比對的分類不改，相依規則補強**（T43，主控已定，可推翻；設計審查 D4、S11、S15）：識別、屬性、分類照 pkg1b 已上線的比對引擎（`UpgradeItems.Extract`、§6.2 的表）。物件型項目仍比頂層屬性：事件的 `effects`、轉換的 `header`／`lines`、任務規則的 `tasks`、列印範本的 `body` 各算一個屬性；唯一的例外是簽核流程的 `stages` 依 Q27 拆成兩個屬性（§9.6.2 簽核流程）。現有的 `UpgradeItems.References` 抓不到下列引用，§6.5 的相依驗證因此有缺口，pkg1d1 補上：
+  1. Coded 類物件（轉換、事件、檢查、列印範本、任務規則、簽核流程）與報表，依賴**自己所在的新模組**。`References` 對模組類目標有 `item.Module != target.Module` 的排除（`UpgradeItems.cs:409`），這幾類的 `Module` 就是所屬模組，結果新模組上的新流程、新列印範本不依賴那個新模組，管理員取消勾模組時前端不會連帶取消，套用到一半才 400。pkg1c 已上線的新報表（`Module` 等於 `mainModule`）是同一個根因，一起修。
+  2. 需簽核的轉移依賴（同模組、`to` 相同）的新簽核流程。轉移的 Refs 只有模組與起訖狀態，依賴要從流程的（模組、`to`）反查。
+  3. 簽核流程依賴 `state:<模組>.<to>` 與 `state:<模組>.<rejectTo>`。流程的 Refs 目前只有裸選項代號，選項已存在、狀態是這次新加的時候對不上。
+  4. 列印範本依賴 `{{#each 明細模組}}` 的模組，以及迴圈裡的明細欄位（限定名用明細模組，不是範本所在的模組）。現在的 `Placeholder` 規則吃不到 `#each`。
+  5. 應用程式項目引用主檔欄位時寫主檔符號（`partner/partner.fax`），主檔項目的識別卻是 `field:partner.fax`。`References` 先把主檔符號換成 `master:<主檔 id>/field:<模組>.<欄位>` 再比（T37）。
+
+  規則寧寬勿漏：寬鬆最多多連勾幾項，漏掉就會套到一半失敗（§6.5）。
+- **修改＝以現況為底、換掉要寫的屬性，再整份存**（T29，主控已定，可推翻）：各 `Update*` 指令都收整份定義，所以照 pkg1c 的 `AppUpgrader.Merge`，以比對模式匯出的現況（C）為底，把「只有新版改」與勾選後的衝突屬性換成新版（N），再把代號換成 id（`AppEffectsCodec`、`AppPrintCodec`、`AppTaskRuleCodec`、`AppApprovalFlowCodec` 的 `ToInput`，以及轉換的 `AppFlowInstaller.ConversionInputOf`；後者目前是 private，改 internal 讓修改路徑共用，審查 S9），以 Key 送 `Update*`。客戶改的屬性保留，例如客戶停用了事件（`active` 是只有客戶改），新版改了它的效果，套用後效果換新、仍是停用。
+- **群組代號先換成 id 再合併**（T44，主控已定，可推翻；審查 D3）：C 是比對模式匯出，群組代號是客戶群組的 Key（`AppExporter.GroupCode`）；N 的群組代號是套件代號，要經群組對應才換得成 id。兩套代號只要有一個字串相同、指向的群組不同，在 JSON 層合併後用同一份代號表 `ToInput` 就會解析錯。例子：套件的 `sales` 對到客戶群組 7（Key 是 `crm-sales`），客戶另有一個 Key 為 `sales` 的群組 9；合併後的簽核人或推轉移的群組被換成群組 9，屬於權限錯誤。所以合併前 C 經群組 Key、N 經 `GroupMapJson`＋這次的 `groupMap` 各自換成客戶群組 id，合併在 id 層做，再交給 codec（`ToInput` 改收已解析的群組 id，或收兩份「代號 → id」表，實作者定）。狀態機更直接：以資料庫現有的 `Workflow`（本來就是 id）為底，只把勾選的新版狀態與轉移換成 id 加進去或改掉。
+- **新增的物件**（T30，主控已定，可推翻）：組一份只含勾選新物件的子套件（`Reports` 設成 `[]`，報表仍走 pkg1c 的 `SaveReportsAsync`），交給 `AppFlowInstaller` 的逐階段入口（T45）與 `InstallTaskRulesAsync`。代號對照用套用當下的現況（同 pkg1c 的 `TemplateInstantiator.MapFor`；`IdMap` 的 `Fields`、`Options`、`Modules`、`Blocks` 轉成 `AppFlowInstaller` 要的 `TemplateIdMap`，`ModuleKeys` 併入主檔符號與外部模組）。新模組底下的狀態機、分錄（`Parent` 是模組，預覽不另列）隨新模組一起裝，不再擋 `secondBatch`（§9.5 之前的 `Subsumed` 擋法拿掉）。
+- **`AppFlowInstaller` 拆成逐階段入口，加嚴格模式**（T45，主控已定，可推翻；審查 D2、S8）：`InstallAsync` 是單一入口，從狀態機兩趟一路跑到列印範本，中間沒有切點；升級卻要讓新物件和既有物件的修改交錯：新簽核流程的目標是既有狀態機上這次新加的狀態，要等那份狀態機存好；既有轉移改成需簽核，要等新流程建好；既有事件改成沖銷新分錄，要等分錄建好。所以拆成 internal 的逐階段入口（狀態機第一趟、分錄、事件、檢查、簽核流程、狀態機第二趟、轉換、列印範本），開啟照舊依序全部呼叫，升級照 T31 的順序在每個階段之間插入修改。嚴格模式以參數傳進各階段：開啟時「引用被排除的欄位，已略過並警告」的地方，升級改回 400 並帶項目識別。T43 補齊相依後，走到這裡就是程式錯，嚴格模式是最後一道防線，不能默默少裝一項。範圍只限這類「引用找不到」：`TransitionSkipped`（新轉移的群組全部對到略過、整條不建）照舊只給 warning，那是 fail closed 的正常結果。
+- **預覽先跑設計器的守衛**（T32，主控已定，可推翻）：套用時才被擋會讓整批回滾，管理員只看到一行錯誤。所以凡是設計器指令會擋的情況（簽核中、簽核鎖定狀態有記錄、分錄已有記錄、檢查回填超過上限、被用過的流程改目標、優先序重複、狀態機整份驗證不過），預覽用**同一份判斷**先算，把該項標成無法套用並給原因代碼（§9.6.4）。守衛的判斷抽成可唯讀呼叫的函式，設計器入口與預覽共用，不在 pkg1 另寫一套（同 T27 的做法）。這些守衛在設計器擋下時，有的回 409（`PendingApprovalGuard`、`LockedDataGuard`、`ledgerLocked`、`backfillLimit`），有的回 400（`CheckRetargetAsync`、`PriorityTakenAsync`、狀態機的整份驗證），本設計統稱「設計器指令會擋」（審查 S17）。
+- **預覽守衛的判斷基準與限制**（T46，主控已定，可推翻；審查 D5、S6）：
+  1. 逐項判斷：守衛收的是整份候選物件，例如 `RejectWorkflowChangeAsync`、`RejectUnlockAsync` 收整份候選 `Workflow`、只回一個結果，看不出是哪一項造成的。預覽對每一項以「現況加上這一項」組成候選，跑同一份守衛，結果歸給這一項。管理員勾了多項、各自都可以、合起來才違規的情況，由套用時的守衛兜底：回 409，訊息前面加當時正在套用的項目識別，整批回滾（已知限制，§22.2）。
+  2. 一般唯讀狀態的解鎖是**升級專用規則**：`LockedDataGuard` 只看簽核鎖定狀態（`ApprovalTopology.LockedStates`），設計器隨時可以把一般 `ReadOnly` 狀態改成可改。升級把「唯讀改成可改、有記錄停在那裡」也標 `unlocksRecords`（Q14），比設計器嚴（顧問分流 Q14：可逆、照 pkg1-3）。這條在預覽另寫，不是共用的設計器守衛；§18 的「設計器照樣擋」防回歸測試對它不適用。
+  3. `CheckIndexer.PrepareAsync` 會寫資料（直接把欄位設成可篩選、回填索引，`CheckIndexer.cs:52`），不能在預覽呼叫。拆成純判斷（哪些欄位要開可篩選、要回填幾筆、會不會超過 `check.maxBackfillRecords`）與寫入兩段，預覽只呼叫前者。`PriorityTakenAsync` 目前是 private，改 internal 或抽出；`CheckRetargetAsync` 已是 public。
+  4. 成本：`LockedDataGuard` 每次讀整個模組的記錄；預覽逐項判斷時按模組快取讀到的記錄與狀態，同一次預覽只讀一次。
+  5. 預覽沒涵蓋、套用時才失敗的：`CheckIndexer` 回填時遇到加總欄位精度不符，套用時回 409（`NotExactMessage`）；預覽不試算，列為已知限制（§22.2）。
+- **狀態機的整份驗證**（T47，主控已定，可推翻；顧問分流 L4、審查 S7）：`SaveWorkflow` 除了兩個 409 守衛，還有回 400 的驗證：轉移重複、群組不存在、需簽核的拓撲（`ApprovalConstraints.Validate`，例如「進入簽核鎖定狀態一律要簽」）、事件把狀態推進到需簽核轉移（`ApprovalEventCrossCheck`），以及政策的狀態與轉移數上限（`PrecheckAsync` 只驗新版本身，客戶自己加過狀態時，合併後才超過）。T32 原本只涵蓋會 409 的守衛，這些 400 要到套用才出現。預覽以「現況加上這一項」的合併後狀態機跑同一份驗證（抽成唯讀函式，設計器共用），不通過就標 `workflowInvalid`，`detail` 附違規的轉移或驗證訊息。
 - **失敗**：同 §9.1，第一個失敗就停、整批回滾。修改的錯誤鍵前面加項目識別（pkg1c 的 `Fail`）；新物件沿用 `AppFlowInstaller` 的前綴（`<模組代號>.workflow.…`、`events.<代號>.…`、`approvalFlows.<代號>.…`）。
 - **權限**：這些設計器指令都要設計器 Edit，主檔成員模組另要系統管理員（`MasterDesignerBehavior`）；事件勾了 `allowHiddenSource` 要權限設定（`HiddenSourceGate`）。升級本來就要系統管理員＋設計器 Edit＋權限設定（§12），不另加。
-- **順序**（T31，主控已定，可推翻）：§9.1 第 8 步細化成「狀態機第一趟（轉移不帶需簽核）→ 分錄 → 事件（沖銷別人的排在被沖銷的之後，`InDependencyOrder`）→ 檢查 → 簽核流程 → 狀態機第二趟（帶需簽核）→ 轉換 → 列印範本 → 報表 → 任務規則」，同 `AppFlowInstaller`。**貢獻移到第 5 步**，和欄位一起建，讓轉換、報表、任務規則引用得到新貢獻欄位；整合仍在第 9 步。
+- **順序**（T31，主控已定，可推翻；審查 D1、D2）：§9.1 第 8 步細化成「狀態機第一趟 → 分錄 → 事件（沖銷別人的排在被沖銷的之後，`InDependencyOrder`）→ 檢查 → 簽核流程 → 狀態機第二趟 → 轉換 → 列印範本 → 報表 → 任務規則」，同 `AppFlowInstaller`；每個階段**先新增、再修改**，讓修改引用得到同階段的新物件（例如既有事件改成沖銷這次新增的事件）。
+  - 狀態機第一趟**保留現況每條轉移的需簽核原樣**。只有「這次才加上需簽核、而目標上的簽核流程也是這次才新建」的轉移，第一趟先不帶需簽核，等簽核流程那一階段建好，第二趟補上；目標上已經有流程的，第一趟就直接帶。沒有這種轉移的模組不跑第二趟。照抄開啟「第一趟一律不帶需簽核」不行：開啟時整份狀態機都是新的，升級的第一趟卻是以現況為底，拿掉既有轉移的需簽核，有簽核中的單時 `PendingApprovalGuard.RejectWorkflowChangeAsync` 回 409，有記錄停在鎖定狀態時 `LockedDataGuard.RejectUnlockAsync` 也回 409；Demo、進銷存這類有簽核資料的客戶，任何一項狀態機修改都會整批回滾。
+  - **貢獻移到第 5 步**，和欄位一起建，讓轉換、報表、任務規則引用得到新貢獻欄位；整合仍在第 9 步，調和移到最後（第 11 步，T52）。
 
 #### 9.6.2 逐類規則
 
@@ -454,107 +474,121 @@ pkg1c 實作補記（2026-11-22）：
 
 **狀態機**（模組一份；比對項目分成狀態機本身 `workflow:<模組>`、狀態 `state:<模組>.<選項>`、轉移 `transition:<模組>:<起>><訖>`）
 
-- 粒度：狀態機本身比狀態欄位與初始狀態；狀態比唯讀、簽核可編輯；轉移比群組與需簽核。套用時把勾選的狀態、轉移合進現況的狀態機，一個模組只送一次 `SaveWorkflowRequest`（建立與更新同一個指令，以模組 key 為參數）；有需簽核的轉移時照開啟分兩趟。
-- 新增：新狀態依賴它的選項（選項是新版新增時一起勾）；新轉移依賴起訖狀態（pkg1b 已補）。新轉移的群組照群組對應換；全部對到略過的整條不建、記 warning，同開啟的 fail closed（`AppFlowInstaller.TransitionSkipped`）。
+- 粒度：狀態機本身比狀態欄位與初始狀態；狀態比唯讀、簽核可編輯；轉移比群組與需簽核。套用時以資料庫現有的 `Workflow` 為底，把勾選的狀態、轉移換成 id 合進去（T44），一個模組每一趟只送一次 `SaveWorkflowRequest`（建立與更新同一個指令，以模組 key 為參數）；第一趟保留現況的需簽核，需要第二趟的情況見 §9.6.1 順序。
+- 新增：新狀態依賴它的選項（選項是新版新增時一起勾）；新轉移依賴起訖狀態（pkg1b 已補）；需簽核的新轉移另依賴目標上的新流程（T43 第 2 點）。新轉移的群組照群組對應換，並在預覽列成 `attachedPermissions`：推轉移是給權類，標「給權」，比照 Q12（T57，顧問分流 L3、Q15 附條件）。群組全部對到略過的整條不建、記 warning，同開啟的 fail closed（`AppFlowInstaller.TransitionSkipped`）。
 - 修改：初始狀態照一般規則，只影響之後新增的記錄。
 - 狀態欄位不同 → 無法套用（`statusFieldChanged`，比照欄位型別；換狀態欄位等於換掉整個流程，簽核守衛也會擋）。
-- 新版移除的狀態與轉移只列出、不刪（Q4）；因為套用一律以現況為底，`PendingApprovalGuard` 要求「進行中實例用到的狀態、轉移仍在」自然成立。新版把狀態改名（移除舊選項＋新增新選項）時，記錄留在舊狀態（**Q13，待使用者確認**）。
-- 狀態從唯讀改成可改、而有記錄停在那裡 → 無法套用（`unlocksRecords`）；從可改改成唯讀可以套，預覽註明筆數（**Q14，待使用者確認**）。簽核鎖定狀態被解鎖由 `LockedDataGuard` 判斷，同一個原因代碼。
-- 既有轉移的群組修改 → 只列出、不能勾（`transitionGroups`，**Q15，待使用者確認**）。
-- 既有轉移加上需簽核 → 可以套，目標狀態要有流程（`ApprovalConstraints`），新流程是新版新增時列進 `dependsOn`。取消需簽核而有簽核中的單 → 無法套用（`approvalInFlight`）；沒有簽核中、但會解鎖有記錄的鎖定狀態 → `unlocksRecords`（**Q16，待使用者確認**）。
+- 新版移除的狀態與轉移只列出、不刪（Q4）；因為套用一律以現況為底，`PendingApprovalGuard` 要求「進行中實例用到的狀態、轉移仍在」自然成立。新版把狀態改名（移除舊選項＋新增新選項）時，記錄留在舊狀態（**Q13**）。
+- 新版的其他項目把引用從被移除的狀態改到新狀態（例如連動事件原本在「已作廢」觸發，新版改在「已取消」觸發），照一般規則分類、預設勾；那一項的 `impacts` 帶 `stateReferenceMoved`（`detail` 附舊、新狀態），被移除的狀態那一項帶 `retiredStateReachable`，提示「建議到狀態機設計器拿掉進入它的轉移」（**Q26，待使用者確認**）。判斷方式：B 引用的狀態有一個在 N 被移除，而 N 在同一個屬性改引用同模組這次新增的狀態。
+- 狀態從唯讀改成可改、而有記錄停在那裡 → 無法套用（`unlocksRecords`，附 `affectedRecords`）；從可改改成唯讀可以套，預覽註明筆數（`impacts: recordsInState`，**Q14**）。一般唯讀的解鎖是升級專用規則、設計器不擋；簽核鎖定狀態被解鎖由共用的 `LockedDataGuard` 判斷，同一個原因代碼（T46 第 2 點）。
+- 既有轉移的群組修改 → 只列出、不能勾（`transitionGroups`，**Q15**）。
+- 既有轉移**加上**需簽核 → 可以套，目標狀態要有流程（`ApprovalConstraints`），新流程是新版新增時列進 `dependsOn`。加上之後，目標狀態和沿一般轉移走得到的下游狀態立刻變成簽核鎖定（簽核設計 §9.3：看狀態，不看實例），已停在那裡的記錄跟著被鎖，所以照 Q14「改成唯讀可以套」處理：可以勾，`impacts: recordsInState` 註明會被鎖的筆數。另外，客戶自己加過、進入同一個鎖定狀態的一般轉移，會讓合併後的狀態機過不了「進入鎖定狀態一律要簽」，預覽的整份驗證標 `workflowInvalid`、附那條轉移（T47）（**Q16**）。
+- 既有轉移**取消**需簽核：有簽核中的單 → 無法套用（`approvalInFlight`，附簽核中張數）；沒有簽核中、但目標狀態或它的下游有記錄（取消後會被解鎖）→ `unlocksRecords`（附筆數）；鎖定狀態上沒有記錄時可以勾（**Q16**）。
 
 **簽核流程**（`approvalFlow:<Key>`，Key 全站唯一）
 
-- 新增：`CreateApprovalFlowRequest`，依（模組、目標、優先序）排序建立（同開啟）；略過的群組照 `AppApprovalFlowCodec.Substitutions` 由流程備援或政策預設頂替，warnings 列出（§22.1 最後一點在這裡做完：B、N 比對前也先套同一份頂替，§6.2.1 第 4 點，T42）。
-- 修改：`UpdateApprovalFlowRequest`（只帶 Key）。目前版本被用過且定義有變時，指令自己產生新版本；進行中的單照原版本走完（§9.4，簽核設計 §4.4）。預覽在項目上加 `impacts: inFlightApprovals`（附張數）。
-- 被用過的流程新版改了目標狀態 → 無法套用（`flowInUse`，指令會 400）。新流程的（模組、目標、優先序）已被客戶自建的流程佔用 → 無法套用（`priorityTaken`），提示到設計器調整優先序再重新預覽（**Q17，待使用者確認**）。
+- 新增：`CreateApprovalFlowRequest`，依（模組、目標、優先序）排序建立（同開啟）；略過的群組照 `AppApprovalFlowCodec.Substitutions` 由流程備援或政策預設頂替，warnings 列出（§22.1 最後一點在這裡做完：B、N 比對前也先套同一份頂替，§6.2.1 第 4 點，T42）。新增的流程不受下面「簽核人」那條限制：沒有既有授權可衝突，同 Q5 的新模組。
+- 修改：`UpdateApprovalFlowRequest`（只帶 Key），合併在群組 id 層做（T44）。目前版本被用過且定義有變時，指令自己產生新版本；進行中的單照原版本走完（§9.4，簽核設計 §4.4）。預覽在項目上加 `impacts: inFlightApprovals`（附張數）。
+- **簽核人**（**Q27，待使用者確認**）：比對把 `stages` 拆成兩個屬性：`stages`（每關去掉 `approvers` 後的內容：名稱、條件、模式、可編輯欄位、時限、`onEmpty`）與 `approvers`（每關的 `approvers`，加上流程層的 `fallbackApprovers`；群組先經 §6.2.1 正規化與 T42 的備援頂替）。`approvers` 有「只有新版改」「兩邊都改」「上次略過」的差異時，整項無法套用（`approverGroups`），原因「簽核人是你的內控決定，請到簽核流程設計器調整」；只改關卡名稱、條件等其他內容照一般規則可勾。`approvers` 只有客戶改時保留客戶的：套用時依關卡代號逐關把 N 的其他內容配上 C 的簽核人。關卡增減會讓 `approvers` 的結構跟著不同，因此一併無法套用。這條要動比對引擎的手工比對清單（`UpgradeItems.HandCompared` 的簽核流程），覆蓋率測試與 U1 照跑。
+- 被用過的流程新版改了目標狀態 → 無法套用（`flowInUse`，設計器指令會擋）。
+- 優先序（T50，主控已定，可推翻；審查 S4）：新流程的（模組、目標、優先序）已被客戶自建的流程佔用 → 無法套用（`priorityTaken`），提示到設計器調整優先序再重新預覽（**Q17**）。既有流程的優先序修改同樣以「現況加上這一項」判斷，撞到現況其他流程就 `priorityTaken`。同一份新版裡兩個流程互換優先序（例如進銷存的 `inv-po-large` 與 `inv-po-medium`），逐筆 Update 一定先撞唯一性檢查，兩項各自判斷都會撞，都標 `priorityTaken`。不用暫時的優先序自動互換：那要多一套只為升級存在的寫入路徑，互換期間的中間狀態也要再過一次驗證；管理員到設計器互換一次就好。
 - 新版移除的流程只列出；客戶要淘汰就自己停用（被用過的流程不能刪，只能停用）。
-- 相依：流程依賴目標狀態、退回狀態（選項代號）、條件與可編輯欄位引用的欄位；需簽核轉移依賴目標上的流程。
+- 相依：流程依賴目標狀態與退回狀態（`state:<模組>.<to>`、`state:<模組>.<rejectTo>`，T43 第 3 點）、條件與可編輯欄位引用的欄位；需簽核轉移依賴目標上的流程（T43 第 2 點）。
 
 **單據轉換**（`conversion:<Key>`）
 
-- 新增 `CreateConversionRequest`；修改 `UpdateConversionRequest`（Key、來源與目標模組不能改；新版改了來源或目標 → 無法套用 `kindChanged`）。
-- 轉換只影響之後的轉換：已轉出的單據沒有關聯表，追溯欄位在目標單據上，已轉量由 `ConversionLedger` 即時算。所以名稱、啟用、可轉狀態、帶值欄位、固定值照一般規則套。
-- **數量對應或明細追溯欄位改了、而且已經有轉出的單據**（目標模組裡追溯欄位有值的記錄）→ 無法套用（`conversionInUse`）：剩餘量會改用新的欄位即時重算，已部分轉出的單可能算出錯的剩餘量（**Q18，待使用者確認**）。
+- 新增 `CreateConversionRequest`；修改 `UpdateConversionRequest`（Key、來源與目標模組不能改；新版改了來源或目標 → 無法套用 `kindChanged`）。兩者都經 `ConversionInputOf`（T29）。
+- 轉換只影響之後的轉換：已轉出的單據沒有關聯表，已轉量由 `ConversionLedger` 即時算：從目標表頭的追溯欄位找起（`TargetsOfAsync` 用 `Header.SourceFieldId`），再找目標明細，加總 `Quantity.To`；`Quantity.From` 決定剩餘量。所以名稱、啟用、可轉狀態、帶值欄位（`header.copy`、`lines.copy`）、固定值（`header.set`）照一般規則套。
+- **追溯或數量欄位改了、而且已經有轉出的單據** → 無法套用（`conversionInUse`，附筆數）（**Q18**）。觸發條件（T48，主控已定，可推翻；審查 D7）：N 與 C 的 `header.sourceField`、`lines.sourceModule`、`lines.targetModule`、`lines.sourceLineField`、`lines.quantity.from`、`lines.quantity.to` 任一個不同（含 `lines` 整個新增或拿掉），而且目標模組已有記錄的表頭追溯欄位（現況的 `header.sourceField`）有值。只改表頭追溯欄位也算：舊的已轉單據會全部找不到，剩餘量回到全額，可能重複出貨。比對引擎把 `header`、`lines` 各當一個屬性，所以這裡要往下比子欄位，不能只看屬性的分類：同一個 `header` 屬性的差異，只改 `copy` 可以套，改到 `sourceField` 就不能。計數只數表頭，判斷有沒有轉出過已經夠用（手動填了參照的單也算進去，偏保守）。原因文字寫明「到設計器手動改一樣會重算剩餘量」：第一張單轉出後這一項就永遠不能勾，管理員要知道換到設計器改也有同樣的影響（顧問分流 Q18 附註）。
 - 相依：來源與目標的欄位、可轉狀態的選項。
 
 **連動事件**（`event:<Key>`）
 
 - 新增 `CreateEventRequest`（沖銷別的事件的排在後面）；修改 `UpdateEventRequest`（Key、來源模組不能改）。
 - 只影響之後的寫入，不回頭補做（事件設計 §10.5）：新版加的效果，已記帳的來源不會補記。
-- **新版拿掉了這個事件已觸發過的效果代號**（`Dynamic_EventFact` 有這個事件、這個效果代號的事實）→ 無法套用（`firedEffect`）：效果代號是冪等鍵，換代號等於新效果，同一張單再觸發時會再記一次帳（**Q19，待使用者確認**）。只加效果、改既有效果的內容可以套。
+- **新版拿掉了這個事件已觸發過的效果代號**（`Dynamic_EventFact` 有這個事件、這個效果代號的事實）→ 無法套用（`firedEffect`）：效果代號是冪等鍵，換代號等於新效果，同一張單再觸發時會再記一次帳（**Q19**）。只有 create、reverse 效果會留事實，update 效果不受影響。只加效果、改既有效果的欄位對應或條件可以套。
+- `firedEffect` 的判斷與範圍（T49，主控已定，可推翻；審查 S5）：`IEventRepository` 現有的事實查詢都要帶 `sourceRecordId`，新增一個「依（事件 Key、效果代號）查有沒有事實」的查詢，查到一筆即可。同一個效果代號換了 `kind` 或 `target`（目標模組），而那個代號已有事實，也標 `firedEffect`：舊事實指向的是當時效果寫到的目標記錄，換了種類或目標，之後沖銷、再觸發時對不上。
 - 相依：事件依賴來源與目標模組、欄位、觸發狀態；沖銷效果依賴 `ofEvent` 的事件與它目標的分錄設定。
 
 **跨記錄檢查**（`check:<Key>`）
 
-- 新增 `CreateCheckRequest`、修改 `UpdateCheckRequest`（Key、模組不能改）。兩者都會讓 `CheckIndexer` 自動開「可篩選」並回填索引，notice 併進 warnings。
-- 只檢查之後的寫入，不重掃既有記錄；檢查改嚴後，不符的舊記錄要等下次寫入同一組時才被擋（**Q20，待使用者確認**）。
-- 需要回填索引、而模組記錄數超過政策 `check.maxBackfillRecords` → 無法套用（`backfillLimit`，指令會 409；上限是既有政策，不另設）。
+- 新增 `CreateCheckRequest`、修改 `UpdateCheckRequest`（Key、模組不能改）。兩者都會讓 `CheckIndexer` 自動開「可篩選」並回填索引，notice 併進 warnings；預覽只呼叫拆出來的純判斷，不寫資料（T46 第 3 點），可篩選的變化列成 `impacts: autoFilterable`。
+- 只檢查之後的寫入，不重掃既有記錄；檢查改嚴後，不符的舊記錄要等下次寫入同一組時才被擋（**Q20**）。
+- 需要回填索引、而模組記錄數超過政策 `check.maxBackfillRecords` → 無法套用（`backfillLimit`，設計器指令會擋，回 409；上限是既有政策，不另設）。
 - 相依：分組、加總、上限、`where` 引用的欄位。
 
 **分錄**（`ledger:<模組>`，這裡的分錄是「不可修改分錄」設定，事件設計 §6，不是會計傳票）
 
 - 新增或修改都是 `SaveLedgerRequest`（建立與更新同一個，以模組 key 為參數）。
+- 新模組的分錄設定隨模組一起裝、不另列，引用它的項目依賴的是 `module:<代號>`；既有模組這次新設分錄，才另列 `ledger:<模組>`（A35）。
 - 既有分錄設定的沖銷欄位、取負、互換改了，而模組已有記錄 → 無法套用（`ledgerLocked`，指令本來就擋「分錄已有記錄，沖銷設定不能再修改」；理由是舊分錄的沖銷要用當時的設定才能精確抵銷）。
-- 新版把**已有記錄**的既有模組設成分錄 → 無法套用（`ledgerFreeze`，附筆數）：升級不替管理員按 `confirmFreeze`，要到設計器自己確認（**Q21，待使用者確認**）。沒有記錄時照一般規則套。
-- 相依：沖銷欄位、取負與互換的欄位；模組不能有狀態機（指令驗證）。
+- 新版把**已有記錄**的既有模組設成分錄 → 無法套用（`ledgerFreeze`，附筆數）：升級不替管理員按 `confirmFreeze`，要到設計器自己確認（**Q21**）。沒有記錄時照一般規則套。
+- 相依：沖銷欄位、取負與互換的欄位；有狀態機的模組不能設成分錄（`LedgerValidator.cs:21`，指令驗證）。
 
 **列印範本**（`printTemplate:<Key>`，Key 在模組內唯一）
 
 - 新增 `CreatePrintTemplateRequest`、修改 `UpdatePrintTemplateRequest`（模組＋Key）；本文經 `AppPrintCodec` 把欄位代號換成 id。範本沒有版本歷史，套用就是覆寫本文。
-- 本文是一個屬性：客戶改過、新版也改 → 兩邊都改、預設不勾，三份本文用「檢視」對話框看（§10.3）；勾了就以新版本文取代，啟用狀態、名稱裡客戶改的語系保留（**Q22，待使用者確認**）。
+- 本文是一個屬性：客戶改過、新版也改 → 兩邊都改、預設不勾，三份本文用「檢視」對話框看（§10.3）；勾了就以新版本文取代，啟用狀態、名稱裡客戶改的語系保留（**Q22**）。舊本文可從稽核的逐項舊新值找回（pkg1-8）。
 - 本文引用的欄位被客戶刪了：相依驗證會要求勾回那個欄位（客戶已刪除項目），不勾回 400；不走開啟時「印空白並警告」的路。
-- 相依：本文的 `{{欄位}}` 與 `{{#each 明細模組}}`。
+- 相依：本文的 `{{欄位}}`、`{{#each 明細模組}}` 的模組與迴圈裡的明細欄位（T43 第 4 點）；範本所在的新模組（T43 第 1 點）。
 
 **任務規則**（`taskRule:<Key>`，Key 全站唯一）
 
 - 新增 `CreateTaskRuleRequest`，帶 `AppId` 為本應用程式（關閉時停止觸發，同開啟）；修改 `UpdateTaskRuleRequest`（模組＋Key，`AppId` 不動）。
-- 規則只影響之後的觸發；已產生的任務不改。未完成、沒手動改過的任務，下次來源記錄寫入時照任務設計 §5.5 用規則**現在**的定義同步，所以新版改了偏移天數或負責人欄位，會在之後的同步生效；手動改過的不動。`once` 的觸發紀錄（`TaskRuleRun`）跟著 Key，已觸發過的記錄不會因為更新再觸發。新版從規則拿掉的任務項目，已產生的那批任務保留（**Q23，待使用者確認**）。
+- 規則只影響之後的觸發；已產生的任務不改。未完成、沒手動改過的任務，下次來源記錄寫入時照任務設計 §5.5 用規則**現在**的定義同步，所以新版改了偏移天數或負責人欄位，會在之後的同步生效；手動改過的不動。`once` 的觸發紀錄（`TaskRuleRun`）跟著 Key，已觸發過的記錄不會因為更新再觸發。新版從規則拿掉的任務項目，已產生的那批任務保留（**Q23**）。
 - 規則所在模組沒啟用任務：同開啟，自動啟用並警告，預覽先列 `impacts: enablesTasks`。
 - 自動暫停的規則更新後仍暫停（指令本來就不解除），預覽不另處理。
-- 相依：觸發欄位與值（選項）、負責人與到期日欄位、條件引用的欄位。
+- **掛在主檔模組上的任務規則**（T54，主控已定，可推翻；審查 D11）：任務規則的 `Module` 可以是主檔符號（`AppTaskRule` 允許），`IsSecondBatch` 以 `Module` 含 `/` 判斷，會把它們一直擋到 pkg1d2，而 pkg1d2 刪掉 `SecondBatch` 後又會沒人設計、沒人驗就放行。所以歸 pkg1d1：`/` 規則只套在欄位、區塊、選項、貢獻與權限類項目，不套在 Coded 類 section（轉換、事件、檢查、列印範本、任務規則、簽核流程）。新增走 `InstallTaskRulesAsync`（本來就支援主檔符號），修改走 `UpdateTaskRuleRequest`（主檔成員模組要系統管理員，升級本來就要）；驗收 A62。轉換、事件、檢查的 `Module` 是來源模組，目標寫主檔符號時本來就不受 `/` 規則影響，一併寫進 A62 的反向格。
+- 相依：觸發欄位與值（選項）、負責人與到期日欄位、條件引用的欄位；引用主檔欄位時照 T43 第 5 點換算。
 
 **貢獻**（`contribution:<主檔>/<模組>` 加它底下的欄位、選項、權限項目；對照列的名稱含 `/`）
 
 - 新增貢獻、既有貢獻區塊裡的新欄位：照 pkg1c 新欄位的做法，交 `TemplateInstantiator` 的 `ContributionInput`，`Prefix` 是主檔符號、`ReattachBlockId` 是貢獻區塊（新貢獻就新建區塊），寫 `AppField`／`AppBlock`／`AppOption` 對照列。貢獻欄位本來就不得必填（套件驗證）。
 - 修改：一般的 `UpdateField`／`UpdateBlock`／`UpdateOption`（目標是主檔成員模組，`MasterDesignerBehavior` 要系統管理員）。
 - 權限照 Q12 與 §9.1 第 7 步：寫本應用程式名下的來源記錄、補 `FieldGrant`、最後 `MasterLifecycle.RecomputeAsync`；既有貢獻的權限修改只列出。
-- 貢獻只能引用主檔的基本欄位；引用的是主檔新版才有的欄位時，依賴主檔段的那一項（§9.6.3）。
+- 貢獻只能引用主檔的基本欄位；引用的是主檔新版才有的欄位時，依賴主檔段的那一項（§9.6.3，T43 第 5 點）。
 - 新版移除的貢獻欄位只列出（Q4）；主檔資料上的值保留。
 
 **整合**（`integration:<code>`，比整份宣告的頂層屬性）
 
-- 現況 C 的整合取保存的宣告（`App.IntegrationsJson`），客戶在設計器改了整合安裝出來的欄位、事件、檢查，比對看不出來。所以預覽另看 `AppIntegration` 的狀態：整合是 `Blocked`（`itemConflict`、`itemMissing`、`unbound` 等），或安裝出來的項目和保存的宣告不一致 → 無法套用（`integrationConflict`），提示照整合設計 §5.4 先還原、retry（**Q24，待使用者確認**）。
-- 可以套時（T40，主控已定，可推翻）：
-  - 整合 `Active`（已安裝）：先把已安裝的項目改成新宣告，事件、檢查走 `UpdateEventRequest`／`UpdateCheckRequest`，新欄位走 `AddFieldRequest`，新事件、新檢查走 `Create*`；新版從宣告拿掉的項目只列出、不刪（Q4），從 `ItemsJson` 移除登記，之後不再受調和管。然後換 `IntegrationsJson` 那一筆、補 `AppIntegration` 列，交易提交後跑調和（同開啟：調和失敗只進 warnings）。不先改安裝項目、只換宣告的話，調和會把每一項判成 `itemConflict`。
-  - 整合 `Waiting`、`Disabled`（夥伴沒開或管理員停用）：只換宣告，之後安裝時照新宣告。
-- 相依：擁有者自己的模組與欄位；夥伴的符號（`<應用程式 id>/…`）不在本應用程式的比對項目裡，夥伴要先有新版才有的模組時由 §8.2 的 `requiresUpdate` 擋。
+- 現況 C 的整合取保存的宣告（`App.IntegrationsJson`），客戶在設計器改了整合安裝出來的欄位、事件、檢查，比對看不出來。所以預覽另看 `AppIntegration`：整合是 `Blocked`（`itemConflict`、`itemMissing`、`unbound` 等），或安裝出來的項目和保存的宣告不一致 → 無法套用（`integrationConflict`），提示照整合設計 §5.4 先還原、retry（**Q24**）。「一致」的判斷從 `IntegrationReconciler` 抽出唯讀的一致性比對（`EnsureAsync` 比對的那一段，不建不改），調和與預覽共用。
+- **夥伴缺新版才有的模組**（T51，主控已定，可推翻；審查 D8）：整合的夥伴（`with`）不在 `requires` 裡（`RequiresOf` 只收 apps、entities、masters），§8.2 的 `requiresUpdate` 擋不到；不擋的話，套用後調和判成 `unbound`、整合被擋下，只留一行警告。所以預覽用新宣告跑 `IntegrationWorld.LoadAsync`：夥伴應用程式已開啟、但新宣告引用的夥伴模組或欄位解析不到 → 無法套用（`integrationUnbound`，`detail` 是夥伴應用程式 id），提示先更新夥伴。夥伴沒開時不判斷，照下面「沒安裝過」只換宣告。
+- 可以套時（T40，主控已定，可推翻；審查 D8、S12），分支看整合**有沒有安裝過**（`AppIntegration.Installed`），不只看狀態：
+  - **已安裝**（不論 `Active`、`Disabled`、`Suspended`、`Held`）：先把已安裝的項目改成新宣告。既有事件、檢查走 `UpdateEventRequest`／`UpdateCheckRequest`；既有整合欄位的標籤等屬性走 `UpdateField`（`EnsureAsync` 只比型別與參照對象，其他屬性改了不會判衝突）；新欄位走 `AddFieldRequest`，新事件、新檢查走 `Create*`，**新建的每一項登記進 `ItemsJson`**：沒登記的話，調和看到登記裡沒有、資料庫裡卻已有的事件或檢查會判 `codeConflict`，沒登記的欄位會先找不到、再因 `allowCreate: false` 判 `itemMissing`。新版從宣告拿掉的項目只列出、不刪（Q4），從 `ItemsJson` 移除登記，之後不再受調和管。`SuspendedActive` 等暫停語意照舊，升級不改整合的開關。然後換 `IntegrationsJson` 那一筆、補 `AppIntegration` 列。只換宣告、不改安裝項目的話，之後一恢復，調和會把定義不同的判 `itemConflict`、新欄位判 `itemMissing`，整合被擋下、項目全部停用；以 MES 的 `stockOut` 來說，出貨就不再扣庫存。
+  - **沒安裝過**（例如夥伴一直沒開）：只換宣告，之後安裝時照新宣告。
+  - 調和不在這一步：§9.1 第 11 步在同一個交易、最後一次 `CommitAsync` 之後才跑（T52）。
+- 相依：擁有者自己的模組與欄位；夥伴的符號（`<應用程式 id>/…`）不在本應用程式的比對項目裡，由上面的 `integrationUnbound` 判斷。
 
 #### 9.6.3 共用主檔一起更新（Q10、Q25）
 
 - **預覽**：pkg1b 已回 `masters`（每份主檔自己的 `groups`、`items`、`counts`）。主檔套件只收群組、模組、欄位例外、報表（不帶流程），所以主檔的項目全部屬於第一批的種類，套用沿用 pkg1c 的程式，以主檔自己的基準、群組對應、現況跑一次（T36，主控已定，可推翻）。主檔模組的權限：新模組寫 `GrantSource.Master` 來源記錄，既有的只列出（§6.2）。
-- **body**：預覽與套用的 body 加 `masterGroupMap: { 主檔 id: { 代號: choice } }`，形狀同 `groupMap`，規則同 T26（只能改新代號、失效的、略過過而新物件用得到的）；目前程式比主檔時固定帶空對應（`new UpgradeBody(null, null)`），只能用建議。套用 body 的 `masters: { 主檔 id: [項目識別] }`（`UpgradeApplyBody.Masters` 欄位已在，pkg1c 沒讀）照 §8.3 的勾選驗證，錯誤鍵 `masters.<主檔 id>.items.<項目識別>`（T35，主控已定，可推翻）。
+- **候選新版不帶客戶自己加的欄位**（T53，主控已定，可推翻；審查 D10）：主檔已開啟時再匯入，存下的合併副本是資料庫匯出（`fromDb`），客戶在設計器自己加的主檔欄位沒有對照列，匯出時代號是 `f_<id>`。`MasterCandidateAsync` 把「內建新版合併舊副本」當成新版 N，這些欄位就跟著進了 N；C 用對照列過濾、不收它們，B 是開啟當時的原文、也沒有，於是被分類成 `added`、預設勾，pkg1d2 開放主檔套用後會照 N 再建一份重複欄位（pkg1b、pkg1c 只在預覽多一列假的「新增」，還沒寫進資料庫）。所以算候選新版時，副本裡不在主檔對照列的比對代號（`f_`／`b_`／`o_` 開頭的，或主檔 bindings 裡沒有的）不進 N。這條是讀程式推出來的、未實測，**實作者先寫失敗測試確認**（A68），確認後再改 `AppUpgradePreviewer.MasterCandidateAsync`。
+- **body**：預覽與套用的 body 加 `masterGroupMap: { 主檔 id: { 代號: choice } }`，形狀同 `groupMap`，規則同 T26（只能改新代號、失效的、略過過而新物件用得到的）；目前程式比主檔時固定帶空對應（`new UpgradeBody(null, null)`），只能用建議。套用 body 的 `masters: { 主檔 id: [項目識別] }`（`UpgradeApplyBody.Masters` 欄位已在，pkg1c 沒讀）照 §8.3 的勾選驗證（T35，主控已定，可推翻）：主檔 id 不在這次預覽的 `masters` → 400，鍵 `masters.<主檔 id>`；項目不在清單、不能套用、缺相依 → 400，鍵 `masters.<主檔 id>.items.<項目識別>`（A69）。
 - **token**：pkg1b 起已涵蓋每份列出的主檔（`tokenParts`），pkg1d 再把 `masterGroupMap` 加進雜湊。A3b（甲在進銷存頁套了往來對象，乙用 CRM 頁的舊 token）因此回 409 `upgradeStale`，乙重新預覽後主檔段不再出現。
-- **跨份相依**（T37，主控已定，可推翻）：應用程式的項目引用主檔新版才有的欄位、選項（例如新報表用到往來對象新增的「傳真」），`dependsOn` 寫 `master:<主檔 id>/<項目識別>`，前端照樣連勾，後端照樣驗。
+- **跨份相依**（T37，主控已定，可推翻）：應用程式的項目引用主檔新版才有的欄位、選項（例如新報表用到往來對象新增的「傳真」），`dependsOn` 寫 `master:<主檔 id>/<項目識別>`，前端照樣連勾，後端照樣驗。應用程式這邊引用主檔欄位寫主檔符號，`References` 照 T43 第 5 點換算後再對。
+- **被依賴、但上次略過的主檔項目**（T56，主控已定，可推翻；顧問分流 L2、Q25 附條件）：主檔前進到 1.1.0 時略過了「傳真」，之後進銷存新版的報表用到傳真，主檔卻沒有新版，`masters` 段不出現，相依永遠滿足不了；到設計器手補只得 `f_<id>`，代號對不上。所以應用程式的項目依賴的主檔項目若在主檔基準的 `SkippedJson` 裡、客戶值也沒改（仍算「上次略過」），即使主檔沒有新版，也把**那幾項**列進 `masters`（`fromVersion` 等於 `toVersion`），標「上次略過」、預設不勾，連勾照一般相依。套用時只寫勾的那幾項，主檔的版號與基準原文不變，`SkippedJson` 拿掉這次勾回的（A71）。`requires.apps` 跨應用程式也有同樣的卡死，pkg1d 不做，見 §22.2。
 - **主檔之間**：主檔也可以依賴主檔（聯絡人依賴往來對象）。兩份都有新版時，依 `requires.masters` 排序，被依賴的先套（§9.1 第 1–2 步）。
-- **主檔一律隨這次套用前進**（**Q25，待使用者確認**）：列在 `masters` 的主檔，套用時版號、基準一起換成新版，沒勾的項目記進主檔基準的 `SkippedJson`，下次標「上次略過」（同 §9.2）。不提供「這次只更新應用程式、主檔先不動」。
-- **基準與合併副本**（T38，主控已定，可推翻）：主檔基準整列換新（`GroupMapJson` 補這次的主檔群組對應）。以內建新版升級、而客戶有再匯入的合併副本時，`Dynamic_AppPackage` 那份副本改寫成「內建新版合併舊副本」（§7.1；pkg1b、pkg1c 只在預覽算這份，還沒寫回），基準存同一份序列化文字，兩邊相同才不會下次比出假差異（同 §5.2 v1 範本檔的例外理由）。
-- **只有主檔有新版**：應用程式自己的 `items` 為空，套用只動主檔；應用程式的版號、基準、略過紀錄不變。
+- **主檔一律隨這次套用前進**（**Q25**）：列在 `masters`、有新版的主檔，套用時版號、基準一起換成新版，沒勾的項目記進主檔基準的 `SkippedJson`，下次標「上次略過」（同 §9.2）。不提供「這次只更新應用程式、主檔先不動」。
+- **基準與合併副本**（T38，主控已定，可推翻）：主檔基準整列換新（`GroupMapJson` 補這次的主檔群組對應）。以內建新版升級、而客戶有再匯入的合併副本時，`Dynamic_AppPackage` 那份副本改寫成「內建新版合併舊副本」（§7.1；pkg1b、pkg1c 只在預覽算這份，還沒寫回；舊副本裡沒有對照列的代號照 T53 不併入），基準存同一份序列化文字，兩邊相同才不會下次比出假差異（同 §5.2 v1 範本檔的例外理由）。這裡存的是定義層的合併，不是再匯入時 `MergeAsync` 那種資料庫匯出（`fromDb`）（審查 S16）：資料庫匯出帶著客戶在設計器的修改，存成基準會讓客戶的修改變成「原廠給的」（B＝C），下次新版改到同一處時被分類成「只有新版改」、預設勾，蓋掉客戶的修改；副本用來在刪除後重新自動開啟，客戶的設計器修改那時本來就不在了，定義層合併就夠。
+- **只有主檔有新版**（T55，主控已定，可推翻；審查 S10、S13、S14）：應用程式自己的 `items` 為空，套用只動主檔；應用程式的版號、基準、略過紀錄不變。現在的程式做不到：`BuildAsync` 對主檔 key 回 `MasterManaged`，而 `ApplyAsync` 在 `mine.Context` 為 null（應用程式自己沒有新版）時直接擋下（`AppUpgrader.cs:65`）。所以 `ApplyAsync` 拆成以比對結果（Comparison）為參數的核心，應用程式與每份主檔各呼叫一次，應用程式沒有新版就跳過應用程式那一次。預覽的 `canApply` 只看主檔段與共同的 blockers；套用回 200 與 `AppResponse`（A70）。
 - **`masterPending` 拿掉的條件**：pkg1d 處理主檔的那一段（§9.6.7 的 pkg1d2）合併時刪掉 `masterPending` 與它的翻譯鍵；同時 `SecondBatch` 集合清空，`secondBatch` blocker 與 `notYetSupported` 原因代碼一起刪（T39，主控已定，可推翻）。
-- 稽核：主檔一份一筆 `app.upgrade`（目標是主檔），和應用程式那筆同一個 `RequestId`。
+- **稽核**：主檔一份一筆 `app.upgrade`（目標是主檔，手動 `auditLog.Add`），和應用程式那筆同一個 `RequestId`。只有主檔有新版時，外層那筆 `app.upgrade`（目標是應用程式）照寫：摘要的 from 等於 to、套用項目數只算主檔的，逐項明細為空、指向主檔那幾筆（T55）。
 
 #### 9.6.4 預覽回應的增補
 
-- **新的原因代碼**（`reason`，不能勾）：`statusFieldChanged`、`unlocksRecords`（附 `affectedRecords`）、`transitionGroups`、`approvalInFlight`（附 `affectedRecords` 為簽核中張數）、`flowInUse`、`priorityTaken`、`conversionInUse`（附筆數）、`firedEffect`、`backfillLimit`、`ledgerLocked`、`ledgerFreeze`（附筆數）、`integrationConflict`。`affectedRecords` 從「只在 `affectsData`」放寬成「這幾個代碼也帶」。
-- **新的 `impacts`**（不擋、只說明，T34，主控已定，可推翻）：`[{ code, count? }]`，畫面在項目下方一行字。代碼：`recordsInState`（新版移除或改成唯讀的狀態上有 N 筆記錄）、`inFlightApprovals`（套用會產生新版本，N 張簽核中的單照原版本走完）、`futureOnly`（事件、檢查、轉換、任務規則只影響之後）、`enablesTasks`（會自動啟用模組的任務）、`autoFilterable`（檢查會自動開欄位的可篩選）。
+- **新的原因代碼**（`reason`，不能勾）：`statusFieldChanged`、`unlocksRecords`（附 `affectedRecords`）、`transitionGroups`、`approvalInFlight`（附 `affectedRecords` 為簽核中張數）、`flowInUse`、`priorityTaken`、`approverGroups`（Q27）、`workflowInvalid`（附 `detail`，T47）、`conversionInUse`（附筆數）、`firedEffect`、`backfillLimit`、`ledgerLocked`、`ledgerFreeze`（附筆數）、`integrationConflict`、`integrationUnbound`（附 `detail`，T51）。`affectedRecords` 從「只在 `affectsData`」放寬成「這幾個代碼也帶」；項目加選填的 `detail`（字串或物件，給原因文字代入）。
+- **新的 `impacts`**（不擋、只說明，T34，主控已定，可推翻）：`[{ code, count?, detail? }]`，畫面在項目下方一行字。代碼：`recordsInState`（新版移除、改成唯讀、或加上需簽核而變成鎖定的狀態上有 N 筆記錄）、`inFlightApprovals`（套用會產生新版本，N 張簽核中的單照原版本走完）、`futureOnly`（事件、檢查、轉換、任務規則只影響之後）、`enablesTasks`（會自動啟用模組的任務）、`autoFilterable`（檢查會自動開欄位的可篩選）、`stateReferenceMoved`（這一項改看新狀態，`detail` 附舊、新狀態，Q26）、`retiredStateReachable`（新版移除的狀態仍可進入，Q26）。
 - §8.1 的 `blockers` 在 pkg1d2 合併後只剩 `closed`、`exportFailed`、`invalidPackage`、`requiresUpdate`、`requiresApp`、`hostTaken`。
 
 #### 9.6.5 Demo 種子（§11.2 增補）
 
 Demo 推導的舊版 CRM 另外推導幾處（§11.1 的做法，JSON 文字層，避開既有斷言與被引用的代號；實際代號由實作者 grep 後定）：
 
-- pkg1d1：列印範本「報價單」本文少一行（只有新版改，示範長值的「檢視」）；一條任務規則的名稱換成舊名（只有新版改）；一條既有轉移在舊版少一個群組（新版多給群組，示範 `transitionGroups` 只列出不能勾）；簽核流程一個關卡的名稱換成舊名（只有新版改；Demo 若有簽核中的單，示範 `inFlightApprovals`）。
+- pkg1d1：列印範本「報價單」本文少一行（只有新版改，示範長值的「檢視」）；一條任務規則的名稱換成舊名（只有新版改）；一條既有轉移在舊版少一個群組（新版多給群組，示範 `transitionGroups` 只列出不能勾）；簽核流程一個關卡的名稱換成舊名（只有新版改，Q27 下仍可勾）。
+  - 拿掉轉移的那個群組時，要避開 Demo 劇本裡用那個群組推那條轉移的步驟：Demo 開的是舊版，舊版那條轉移沒有這個群組，劇本推不動就整個產生失敗（審查 S2）。
+  - **簽核中**：Demo 現有的 CRM 設計案都已簽完（`DesignCaseScenario.cs:44-47` 送簽後隔天同意），沒有簽核中的單，`inFlightApprovals` 示範不出來。pkg1d1 在 `DesignCaseScenario` 加一筆送簽、未核的設計案（相對天數，簽核人照既有劇本的群組），讓簽核流程那一項註明「1 張簽核中的單照原版本走完」。加之前 grep 設計案筆數、簽核收件匣筆數的既有斷言（`CrmDesignCaseAppTests`、Demo 的簽核情境測試），一起調整。
 - pkg1d2：共用主檔「往來對象」也以推導舊版自動開啟（版號減一、一個基本欄位的泰文標籤換舊），CRM 與進銷存的更新頁都出現同一段主檔；CRM 貢獻欄位的一個泰文標籤換舊（貢獻的只有新版改）。主檔推導要 `AppOpener` 的內部入口也收主檔文字（§11.1 那個入口目前只給 CRM）。
+- **既有斷言會跟著變**（審查 S2）：`DemoStructureTests.cs:90` 的 `preview.Items.Should().HaveCount(5, …)` 在 pkg1d1 起會變多（列印範本、任務規則、轉移、簽核流程各一項），pkg1d2 再加主檔與貢獻；`:93` 斷言進銷存預覽回 409「已是最新」，pkg1d2 推導主檔舊版後，進銷存用到的往來對象有新版，預覽會照常回（只含 `masters`），這條要改成斷言「進銷存自己的 `items` 為空、`masters` 有往來對象」。兩段各自在同一個 commit 改斷言，不放寬成「至少 N 項」。
 
 示範路徑見 §11.2 表格新增的列。
 
@@ -574,20 +608,30 @@ Demo 推導的舊版 CRM 另外推導幾處（§11.1 的做法，JSON 文字層�
   6. 開關組合：夥伴沒開時整合只換宣告，之後開啟照新宣告安裝；主檔被多個應用程式共用時，誰先套都可以，套完其他頁不再列（Q10、A3b）。只開一個應用程式時照常可用。
   7. 會計影響：升級不產生傳票、不重算已過帳的記錄；分錄（不可修改分錄）設定見上。
   8. 對照一般 ERP：見上四點。
-  9. 核心能力：全部沿用既有設計器指令與守衛，沒有替應用程式開後門；新增的只有「守衛的唯讀判斷」，給設計器與預覽共用。
+  9. 核心能力：全部沿用既有設計器指令與守衛，沒有替應用程式開後門；新增的是「守衛的唯讀判斷」（設計器與預覽共用），以及兩條比設計器嚴、只在升級用的規則：一般唯讀狀態的解鎖（Q14）、既有簽核流程的簽核人只列出（Q27）。
+- **簽核人屬於內部控制**：SAP、Odoo 的核准層級與核准人由客戶依組織設定，原廠範本只給起點；本設計對既有流程的簽核人只列出、不代改（Q27），和既有權限只列出（Q5）、既有轉移的群組只列出（Q15）同一個原則。
 
 #### 9.6.7 切段建議
 
-整個 pkg1d 估超過一個實作者 20 萬 token（pkg1c 只做第一批，`AppUpgrader` 就 744 行；第二批多了九類指令、預覽守衛、整合的安裝項目改寫、主檔的第二條管線、畫面的主檔勾選），建議拆兩段，依序做（共用 `AppUpgrader.cs`、`AppUpgradePreviewer.cs`，不平行）：
+整個 pkg1d 估超過一個實作者 20 萬 token（pkg1c 只做第一批，`AppUpgrader` 就 744 行；第二批多了九類指令、預覽守衛、整合的安裝項目改寫、主檔的第二條管線、畫面的主檔勾選），建議拆兩段，依序做（共用 `AppUpgrader.cs`、`AppUpgradePreviewer.cs`、`UpgradeItems.cs`，不平行）：
 
-| 段 | 內容 | 共用檔 | 依賴 | 估計 |
-|---|---|---|---|---|
-| pkg1d1 | 單據流程類：狀態機（狀態、轉移、需簽核兩趟）、簽核流程（含 `Substitutions` 正規化，T42）、轉換、事件、檢查、分錄、列印範本、任務規則；新模組底下的這些隨模組一起裝；預覽守衛（T32）、新原因代碼與 `impacts`；Demo 推導的 CRM 列印範本、任務規則、轉移群組、簽核關卡；手冊 | `AppUpgrader.cs`（建議另拆 `AppFlowUpgrader.cs`）、`AppUpgradePreviewer.cs`、`UpgradeClassifier.cs`、`AppFlowInstaller.cs`（嚴格模式）、`PendingApprovalGuard.cs`／`LockedDataGuard.cs`／`LedgerHandlers.cs`／`CheckIndexer.cs`（抽唯讀判斷）、`UpgradeResponses.cs`、更新頁、`ui.json` 四語、`DemoOldCrm.cs` | pkg1c | 約 18 萬 |
-| pkg1d2 | 貢獻、整合、共用主檔一起更新：`masters`／`masterGroupMap` body、主檔套用管線、跨份相依、主檔之間排序、合併副本改寫（T38）、拿掉 `masterPending`／`secondBatch`／`notYetSupported`；更新頁主檔段的勾選與群組對應；Demo 推導主檔舊版；手冊 | `AppUpgrader.cs`、`AppUpgradePreviewer.cs`、`UpgradeResponses.cs`、`IntegrationReconciler.cs`（只讀狀態，不改調和規則）、`AppPackageSource.cs`／`ImportAppPackage.cs`（副本寫回）、`OpenApp.cs`（主檔內部入口）、更新頁、`ui.json`、Demo | pkg1d1 | 約 16 萬 |
+| 段 | 內容 | 依賴 | 估計 |
+|---|---|---|---|
+| pkg1d1 | 單據流程類的套用與預覽守衛、相依規則補強、Demo 流程類示範（細項見下） | pkg1c | 約 21 萬 |
+| pkg1d2 | 貢獻、整合、共用主檔一起更新（細項見下） | pkg1d1 | 約 18 萬 |
 
-- pkg1d1 合併、pkg1d2 未合併期間：`SecondBatch` 只剩 `contributions`、`integrations` 與主檔符號，`masterPending` 照擋（A16 改寫版）。內建套件在這段期間若要升版，只改第一批與 pkg1d1 的種類即可。
+**pkg1d1 內容**：狀態機（狀態、轉移、需簽核兩趟，T31、T44）、簽核流程（含 `Substitutions` 正規化 T42、簽核人拆屬性 Q27、優先序 T50）、轉換（T48）、事件（T49）、檢查、分錄、列印範本、任務規則（含主檔模組上的，T54）；新模組底下的這些隨模組一起裝；`AppFlowInstaller` 拆逐階段入口與嚴格模式（T45）；相依規則補強，含 pkg1c 新報表依賴新模組（T43）；預覽守衛、逐項判斷基準與狀態機整份驗證（T32、T46、T47）；新原因代碼與 `impacts`（含 Q26）；新轉移的附帶權限（T57）；Demo 推導的 CRM 列印範本、任務規則、轉移群組、簽核關卡與一筆簽核中的設計案；`DemoStructureTests` 的斷言；手冊。
+
+**pkg1d1 共用檔**：`AppUpgrader.cs`（建議另拆 `AppFlowUpgrader.cs`）、`AppUpgradePreviewer.cs`、`UpgradeItems.cs`（相依規則、簽核流程的手工比對）、`UpgradeClassifier.cs`、`AppFlowInstaller.cs`（逐階段入口、嚴格模式、`ConversionInputOf` 改 internal）、`AppApprovalFlowCodec.cs`（收群組 id）、`PendingApprovalGuard.cs`／`LockedDataGuard.cs`／`LedgerHandlers.cs`／`CheckIndexer.cs`／`ApprovalFlowHandlers.cs`／`SaveWorkflowHandler.cs`（抽唯讀判斷）、`IEventRepository` 與實作（依事件與效果代號查事實）、`UpgradeResponses.cs`、更新頁、`ui.json` 四語、`DemoOldCrm.cs`、`DesignCaseScenario.cs`、`DemoStructureTests.cs`。
+
+**pkg1d2 內容**：貢獻、整合（`Installed` 分支、`ItemsJson` 登記、`integrationUnbound`，T40、T51）、調和移到最後（T52）、共用主檔一起更新：`masters`／`masterGroupMap` body、主檔套用管線與只有主檔有新版的路徑（T36、T55）、候選新版不帶客戶欄位（T53）、跨份相依與上次略過的被依賴項目（T37、T56）、主檔之間排序、合併副本改寫（T38）、拿掉 `masterPending`／`secondBatch`／`notYetSupported`；更新頁主檔段的勾選與群組對應；Demo 推導主檔舊版與 `DemoStructureTests.cs:93` 的斷言；手冊。
+
+**pkg1d2 共用檔**：`AppUpgrader.cs`（`ApplyAsync` 拆成以 Comparison 為參數的核心）、`AppUpgradePreviewer.cs`（`MasterCandidateAsync`）、`UpgradeResponses.cs`、`IntegrationReconciler.cs`（抽唯讀的一致性比對、新項目登記 `ItemsJson`；調和規則本身不改）、`AppPackageSource.cs`／`ImportAppPackage.cs`（副本寫回）、`OpenApp.cs`（主檔內部入口）、更新頁、`ui.json`、Demo。
+
+- pkg1d1 合併、pkg1d2 未合併期間：`SecondBatch` 只剩 `contributions`、`integrations` 與主檔符號（`/` 規則只套非 Coded 類，T54），`masterPending` 照擋（A16 改寫版）。內建套件在這段期間若要升版，只改第一批與 pkg1d1 的種類即可。
+- pkg1d1 的估計逼近一個實作者的上限。實作者開工時若判斷會超過，再拆成 pkg1d1a（狀態機、簽核流程、預覽守衛與整份驗證、相依規則）與 pkg1d1b（轉換、事件、檢查、分錄、列印範本、任務規則、Demo），依序做，同時改本表與 §15。
 - 兩段都沒有 migration（`SkippedJson` 等都在 pkg1a 的表裡）。
-- pkg1d1 動到簽核、分錄、檢查的守衛檔，排程時避開同時在改這些檔的段（簽核流程圖 fg 系列、s2e 系列），誰後合併誰 rebase。
+- pkg1d1 動到簽核、分錄、檢查、狀態機的守衛檔，排程時避開同時在改這些檔的段（簽核流程圖 fg 系列、s2e 系列），誰後合併誰 rebase；s2e-a 若先合併，pkg1d1 要補 §22.2 的「取消類」狀態旗標。
 
 ## 10. 畫面
 
@@ -605,7 +649,7 @@ Demo 推導的舊版 CRM 另外推導幾處（§11.1 的做法，JSON 文字層�
 2. **擋下時**：列出 `blockers`，套用鈕停用。
 3. **群組**：列出 `groups` 的每個代號（新版多的、對照失效的、略過過而新物件用得到的），每個代號一個下拉：「對應現有群組」（再選哪一個）、「建立新群組」、「略過」，預設是建議值。改了就重新預覽（帶 `groupMap`）。要有「權限設定」權才能改（分流 pkg1-4、2026-11-19 技術決定 14）；系統管理員本來就有（手冊 §18「誰能做」），所以實際上能進這頁的人都能改。已經對應好的代號不列、不能改（T26）。這和開啟對話框「只顯示建議、不能改」不同，開啟對話框要不要跟著開放另開票，不在 pkg1。
 4. **篩選**：分類晶片（只有新版改、兩邊都改、新版新增、客戶已刪除、上次略過、只有客戶改、新版移除、無法套用），附數量；預設顯示可勾的五類。
-5. **清單**：依模組分組（應用程式資訊、群組與權限、報表、流程類各一組），每一列是勾選框、項目名稱與種類（欄位、選項…）、分類標籤、「一起套用：…」提示。新模組、新欄位、新選項、新貢獻那一列另寫出**附帶權限**（Q12），每條一個小標籤，寫客戶群組名稱加效果，例如「業務：隱藏」「業務：唯讀」「業務：可編輯」「業務：可看見」；新模組的權限多時摺成「附帶權限 N 條」，展開逐條列。**給權類**（讓某群組多看得到、多做得到的：可看見、可讀、可新增、可編輯、可刪除、擴大資料範圍）的標籤用醒目色並加「給權」字樣，限制類（隱藏、唯讀、選項只限某些群組）用一般色，一眼分得出放寬與收緊。略過的群組不列（不會給權）。390 寬時標籤換行排在名稱下方。展開看屬性：每個屬性一列，原值、新版、目前三欄；只有新版改的列不顯示「目前」欄重複的值。
+5. **清單**：依模組分組（應用程式資訊、群組與權限、報表、流程類各一組），每一列是勾選框、項目名稱與種類（欄位、選項…）、分類標籤、「一起套用：…」提示。新模組、新欄位、新選項、新貢獻、新轉移那一列另寫出**附帶權限**（Q12；新轉移的群組是「業務：可推進」這類給權，pkg1d 顧問分流 L3），每條一個小標籤，寫客戶群組名稱加效果，例如「業務：隱藏」「業務：唯讀」「業務：可編輯」「業務：可看見」；新模組的權限多時摺成「附帶權限 N 條」，展開逐條列。**給權類**（讓某群組多看得到、多做得到的：可看見、可讀、可新增、可編輯、可刪除、擴大資料範圍）的標籤用醒目色並加「給權」字樣，限制類（隱藏、唯讀、選項只限某些群組）用一般色，一眼分得出放寬與收緊。略過的群組不列（不會給權）。390 寬時標籤換行排在名稱下方。展開看屬性：每個屬性一列，原值、新版、目前三欄；只有新版改的列不顯示「目前」欄重複的值。
 6. **共用主檔**：有一起更新的主檔時，另一段「共用主檔『往來對象』1.0.1 → 1.1.0」，同樣的清單。
 7. **底部固定列**：「已選 12 項」「套用」。按「套用」跳確認對話框，列出各分類的勾選數，「兩邊都改」有勾時加一行「會以新版的值取代你改過的內容：N 項」。
 8. **結果**：成功顯示「已更新到 1.4.0」與 warnings（不自動消失），回應用程式頁；409 token 過期時提示「內容已變更」並重新預覽。
@@ -661,7 +705,7 @@ Demo 產生器開啟「CRM 與銷售」時，不開目錄裡那份，改開一�
 | 被擋：內容已變更 | pkg1c | 兩個分頁開同一個更新頁，一邊套用後，另一邊按套用顯示「內容已變更，請重新預覽」 |
 | 成功路徑（流程類） | pkg1d1 | 更新頁看到列印範本「報價單」、一條任務規則、一個簽核關卡名稱都是「只有新版改」、預設勾；本文用「檢視」看全文；套用後列印出來多那一行，任務規則與關卡名稱換新（§9.6.5） |
 | 被擋：既有轉移的群組 | pkg1d1 | 那條轉移列在「無法套用」，原因指向狀態機設計器（Q15） |
-| 簽核中照原版本 | pkg1d1 | Demo 有簽核中的單時，簽核流程那一項註明「N 張簽核中的單照原版本走完」；套用後那張單照舊關卡走完 |
+| 簽核中照原版本 | pkg1d1 | pkg1d1 在 Demo 加一筆送簽未核的設計案（§9.6.5）；簽核流程那一項註明「1 張簽核中的單照原版本走完」；套用後那張單照舊關卡名稱走完，之後送簽的用新名稱 |
 | 成功路徑（主檔） | pkg1d2 | CRM 更新頁下方的「共用主檔『往來對象』」段列出泰文標籤（只有新版改）、預設勾；CRM 貢獻欄位的泰文標籤也是只有新版改；套用後主檔版號換新 |
 | 被擋：主檔在別頁已套用 | pkg1d2 | 進銷存與 CRM 的更新頁都開著，在進銷存頁套用後，CRM 頁按套用顯示「內容已變更」，重新預覽後主檔段消失（A3b） |
 
@@ -718,8 +762,8 @@ Demo 產生器開啟「CRM 與銷售」時，不開目錄裡那份，改開一�
 | pkg1a | 基準表與寫入：`AppBaseline` 實體與設定、`AppCatalog` 保留原文、`AppOpener` 寫基準（含自動開啟的主檔）、群組對應、排除欄位、略過紀錄欄（`SkippedJson`，先建欄、pkg1c 才寫）、刪除 cascade；沒有畫面 | 有：`AppBaselines`（SQLite＋PostgreSQL） | `DynamicDbContext`、`AppConfigurations.cs`、兩份 model snapshot、`App.cs`、`OpenApp.cs`、`AppCatalog.cs`、DI | 無 |
 | pkg1b | 比對引擎與唯讀預覽：比對項目與正規化（全部 section）、比對模式匯出、預覽 API、`upgrade` 提示欄位、應用程式頁標籤、更新頁（唯讀，套用鈕先不出現）、候選來源函式（§7.1）、Demo 推導舊版與客戶修改（§11.1）、手冊 | 無 | `AppExporter.cs`、`AppResponses.cs`、`AppsController.cs`、`AppPackageSource.cs`、`OpenApp.cs`（內部入口）、`AppsPage.vue`、路由、`ui.json` 四語、DI、Demo 產生器（`DemoStructure.cs`） | pkg1a |
 | pkg1c | 套用（第一批）：應用程式資訊、模組（含新模組）、區塊、欄位、選項、規則組、共用檢視、群組、權限三類、報表；token、相依驗證、基準更新、稽核（含逐項舊新值）、略過紀錄與「上次略過」、預覽改群組對應、「下載目前設計」按鈕、匯入新版（§7.3）、更新頁的勾選與套用、Demo 的套用示範（§11.2）、手冊 | 無 | `ImportAppPackage.cs`、`AppsController.cs`、更新頁、`ui.json`、`AppMessages` | pkg1b |
-| pkg1d1 | 套用（第二批之一）：狀態機、簽核流程、轉換、事件、檢查、分錄、列印範本、任務規則；預覽守衛與新原因代碼（§9.6） | 無 | 見 §9.6.7 | pkg1c |
-| pkg1d2 | 套用（第二批之二）：貢獻、整合、共用主檔一起更新（Q10、Q25），拿掉 `secondBatch`／`masterPending`（§9.6.3） | 無 | 見 §9.6.7 | pkg1d1 |
+| pkg1d1 | 套用（第二批之一）：狀態機、簽核流程、轉換、事件、檢查、分錄、列印範本、任務規則（含主檔模組上的）；`AppFlowInstaller` 逐階段入口；相依規則補強；預覽守衛、狀態機整份驗證與新原因代碼（§9.6） | 無 | 見 §9.6.7 | pkg1c |
+| pkg1d2 | 套用（第二批之二）：貢獻、整合、調和移到最後、共用主檔一起更新（Q10、Q25；含只有主檔有新版、上次略過的被依賴項目），拿掉 `secondBatch`／`masterPending`（§9.6.3） | 無 | 見 §9.6.7 | pkg1d1 |
 
 - 分流 pkg1-8 原本把「下載目前設計」與稽核明細放在 pkg1d；本設計的套用在 pkg1c 就上線，所以兩者提前到 pkg1c，套用第一天就有。
 - pkg1a 要最先、盡早合併：越早上線，越多應用程式有基準。它很小，不必等後面的段設計審完。
@@ -816,7 +860,7 @@ Demo 產生器開啟「CRM 與銷售」時，不開目錄裡那份，改開一�
 | A20 | 比對模式匯出整份失敗（例如啟用中的簽核流程表達不了） | 預覽 | `canApply` false，`blockers` 帶匯出錯誤，不是 500 |
 | A21 | 套用第 5 個項目時設計器指令回失敗 | 套用 | 回失敗與該項目識別；前 4 項也沒留下 |
 
-pkg1d 的案例（§9.6；A25–A41 屬 pkg1d1，A42–A50 屬 pkg1d2）：
+pkg1d 的案例（§9.6；A25–A41、A51–A65 屬 pkg1d1，A42–A50、A66–A71 屬 pkg1d2）：
 
 | # | Given | When | Then |
 |---|---|---|---|
@@ -824,28 +868,49 @@ pkg1d 的案例（§9.6；A25–A41 屬 pkg1d1，A42–A50 屬 pkg1d2）：
 | A26 | 新版移除「已作廢」狀態與它的轉移，現況 5 筆記錄在「已作廢」 | 預覽後套用其他項目 | 狀態與轉移 `removedInNew`、不能勾，狀態那一項 `impacts` 有 `recordsInState` 5；套用後狀態與轉移仍在、記錄狀態不變（Q13） |
 | A27 | 新版把「已確認」從唯讀改成可改，現況 12 筆在「已確認」 | 預覽 | `unlocksRecords`、`affectedRecords` 12、不能勾；同條件但沒有記錄時可以勾，套用後不再唯讀（Q14） |
 | A28 | 新版在既有轉移多給「倉管」群組 | 預覽 | 列出、`transitionGroups`、不能勾（Q15） |
-| A29 | 新版取消既有轉移的需簽核，有 2 張單簽核中 | 預覽；兩張簽完後再預覽 | 先是 `approvalInFlight`、`affectedRecords` 2、不能勾；簽完後可以勾（Q16） |
+| A29 | 新版取消既有轉移的需簽核，有 2 張單簽核中 | 預覽；兩張簽完後再預覽；把那兩筆記錄移出目標狀態（及它的下游）後再預覽 | 先是 `approvalInFlight`、`affectedRecords` 2、不能勾；簽完後記錄停在目標狀態（簽核鎖定），變成 `unlocksRecords`、`affectedRecords` 2、仍不能勾；目標狀態與下游都沒有記錄時可以勾，套用後轉移不再需簽核（Q16） |
 | A30 | 新版改了簽核流程的關卡，有 1 張單簽核中 | 預覽後套用 | 可以勾，`impacts` 有 `inFlightApprovals` 1；套用後流程多一個版本，那張單照原版本走完（同 A18） |
 | A31 | 被用過的簽核流程，新版改了目標狀態 | 預覽 | `flowInUse`、不能勾 |
 | A32 | 新版新增簽核流程，（模組、目標、優先序）和客戶自建的流程相同 | 預覽 | `priorityTaken`、不能勾；客戶改了自己流程的優先序後重新預覽，可以勾（Q17） |
 | A33 | 新版改了轉換的帶值欄位；另一個轉換改了數量對應，已有 3 張轉出 | 預覽後套用前者 | 前者可以勾，套用後之後的轉換帶新欄位、已轉出的單不變；後者 `conversionInUse`、`affectedRecords` 3、不能勾（Q18） |
 | A34 | 新版在事件加一個效果；另一個事件把已觸發過的效果代號 `stockIn` 換成 `stockInV2` | 預覽後套用前者 | 前者可以勾，套用後只有之後的寫入觸發新效果，已記帳的來源不補做；後者 `firedEffect`、不能勾（Q19） |
-| A35 | 新版新增分錄模組與沖銷它的事件 | 只勾事件套用 | 400，列出缺的分錄項目 |
+| A35 | 新版新增一個分錄模組與沖銷它的事件；另一格：新版把既有、沒有記錄的模組新設成分錄，並新增沖銷它的事件 | 兩格都只勾事件套用 | 前者 400，缺的是 `module:<新模組>`（新模組的分錄設定隨模組一起、不另列）；後者 400，缺的是 `ledger:<既有模組>` |
 | A36 | 新版把檢查上限從 100 改 50，既有一組合計 80 | 套用；再改那一組的一筆記錄 | 套用成功、既有記錄不動；之後的寫入被檢查擋下（Q20） |
 | A37 | 新版的檢查引用一個要回填索引的欄位，模組記錄數超過 `check.maxBackfillRecords` | 預覽 | `backfillLimit`、不能勾 |
 | A38 | 不可修改分錄已有記錄，新版改了取負的欄位；另一個有記錄的模組新版設成分錄 | 預覽 | 前者 `ledgerLocked`、後者 `ledgerFreeze`（附筆數），都不能勾；後者沒有記錄時可以勾（Q21） |
 | A39 | 客戶改過列印範本本文，新版也改 | 預覽後勾選套用 | `both`、預設不勾，三份本文可在「檢視」看；勾了套用後本文是新版的，客戶停用的狀態保留（Q22） |
 | A40 | 新版把任務的到期偏移從 3 天改 5 天；有一筆未完成、沒手動改過的任務與一筆手動改過的 | 套用後改來源記錄 | 未改過的那筆同步成 5 天，手動改過的不動；`once` 已觸發過的記錄不再觸發（Q23） |
-| A41 | 新版新增模組，帶狀態機、分錄設定與事件；另一條新任務規則掛在沒啟用任務的既有模組 | 預覽後套用 | 新模組的狀態機、分錄、事件都裝好，沒有 `secondBatch`；任務規則那一項 `impacts` 有 `enablesTasks`，套用後模組啟用任務、`warnings` 說明 |
+| A41 | 新版新增兩個模組：一個帶狀態機與簽核流程，另一個是分錄模組（有狀態機的模組不能設成分錄，`LedgerValidator.cs:21`），帶從前者觸發、寫進後者的事件；另一條新任務規則掛在沒啟用任務的既有模組 | 預覽後套用 | 兩個新模組的狀態機、簽核流程、分錄設定、事件都裝好，沒有 `secondBatch`；任務規則那一項 `impacts` 有 `enablesTasks`，套用後模組啟用任務、`warnings` 說明 |
 | A42 | CRM 新版在往來對象的既有貢獻區塊加一個欄位、改既有貢獻欄位的泰文標籤 | 預覽後套用 | 前者 `added`、後者 `newOnly`；套用後新欄位在 CRM 的貢獻區塊，對照列名 `partner/partner.<代號>`，附帶權限照 U28 |
-| A43 | 進銷存開著，MES 新版在整合 `stockOut` 加一個檢查，客戶沒改整合 | 預覽後套用 | `newOnly`；套用後檢查建立、整合仍是 `Active`、宣告換成新版 |
+| A43 | 進銷存開著，MES 新版在整合 `stockOut` 加一個檢查，客戶沒改整合 | 預覽後套用 | `newOnly`；套用後檢查建立並登記在 `ItemsJson`，調和後整合仍是 `Active`（沒有 `codeConflict`）、宣告換成新版 |
 | A44 | 客戶改過整合 `stockOut` 安裝出來的事件（整合 `Blocked: itemConflict`） | 預覽 | `integrationConflict`、不能勾（Q24） |
-| A45 | 進銷存沒開（整合 `Waiting`），MES 新版改了整合 | 套用，再開啟進銷存 | 套用只換宣告；開啟進銷存後照新宣告安裝 |
+| A45 | 進銷存沒開過（整合沒安裝過，`Waiting`），MES 新版改了整合 | 套用，再開啟進銷存 | 套用只換宣告；開啟進銷存後照新宣告安裝 |
 | A46 | 往來對象 1.0.1 → 1.1.0 多一個基本欄位，CRM 本身沒有新版 | CRM 更新頁預覽後套用主檔段 | 預覽只有 `masters`；套用後主檔版號 1.1.0、主檔基準換新、`SkippedJson` 記沒勾的；CRM 的版號與基準不變；進銷存的更新頁不再列往來對象 |
 | A47 | CRM 新版的新報表用到往來對象新版的「傳真」 | 只勾報表套用 | 400，缺的是 `master:partner/field:partner.fax`；兩個都勾則成功 |
 | A48 | 往來對象新版多一個群組代號 | 預覽 body 帶 `masterGroupMap` 對應到既有群組；另一次把已對應的主檔代號改對應 | 前者套用後主檔基準的 `GroupMapJson` 補上；後者 400 |
 | A49 | 往來對象有再匯入的合併副本，以內建新版升級 | 套用；刪除用它的應用程式與主檔後再開啟 CRM | 套用後 `Dynamic_AppPackage` 的副本是「內建新版合併舊副本」、版號新版，基準是同一份文字；重新開啟後客戶補的欄位還在 |
 | A50 | 聯絡人（依賴往來對象）與往來對象都有新版，聯絡人的新欄位引用往來對象的新欄位 | 預覽後套用兩段 | 往來對象先套；聯絡人的那一項 `dependsOn` 指向往來對象的項目，套用成功 |
+| A51 | 進銷存採購單的狀態機有需簽核的轉移，1 張單簽核中、3 筆停在簽核鎖定狀態；新版在這份狀態機加一個狀態與一條一般轉移 | 預覽後套用 | 可以勾、套用成功；既有轉移的需簽核原樣保留，簽核中的單照常簽完，鎖定的 3 筆仍鎖定（第一趟不拿掉需簽核，T31） |
+| A52 | 新版同時：在既有狀態機加狀態「待覆核」與進入它的需簽核轉移、新增以「待覆核」為目標的簽核流程；既有事件改成沖銷這次新增的分錄模組 | 預覽後套用 | 依賴連勾；套用成功，順序是狀態機第一趟（轉移先不帶需簽核）→ 分錄 → 事件（新增後修改）→ 簽核流程 → 第二趟補需簽核；沒有 400、409（T31、T45） |
+| A53 | 套件群組 `sales` 對到客戶群組「業務部」（Key `crm-sales`），客戶另有一個 Key 為 `sales` 的群組「外部業務」；新版改了既有簽核流程的關卡名稱、在既有狀態機加一條給 `sales` 的新轉移 | 套用 | 簽核流程的簽核人仍是「業務部」，新轉移的群組是「業務部」，「外部業務」沒有拿到任何權限（T44） |
+| A54 | 新版新增模組 `complaint`（客訴單），帶它的列印範本（含 `{{#each complaint-line}}` 與明細欄位）、簽核流程與進入流程目標的需簽核轉移 | 預覽；只勾列印範本與簽核流程套用；只勾需簽核轉移、不勾流程套用 | 列印範本與流程的 `dependsOn` 有 `module:complaint`，範本另依賴明細模組與明細欄位；前兩次套用 400 缺 `module:complaint`；後一次 400 缺那個簽核流程（T43） |
+| A55 | 新版新增模組與以它為 `mainModule` 的新報表（pkg1c 已上線的種類） | 只勾報表套用 | 400，缺 `module:<新模組>`（T43 第 1 點，pkg1c 的同一個漏洞） |
+| A56 | 新版讓「報價單 草稿 → 已送出」需要簽核（新版也新增以「已送出」為目標的流程），現況 15 張在「已送出」；另一格：客戶自己加過「已退回 → 已送出」的一般轉移 | 預覽後套用前者；預覽後者 | 前者可以勾，`impacts` 有 `recordsInState` 15，套用後那 15 張變成簽核鎖定、之後送出的要簽；後者 `workflowInvalid`、`detail` 附「已退回 → 已送出」、不能勾（Q16、T47） |
+| A57 | 兩項各自判斷都可以勾、合起來才違反狀態機守衛（實作者以測試替身構造） | 兩項都勾套用 | 409，訊息前面有觸發時正在套用的項目識別；整批回滾，基準與版號不變（T46 第 1 點，已知限制） |
+| A58 | 新版新增一個檢查，會讓某欄位自動開可篩選並回填索引 | 預覽；之後讀那個欄位的設定 | 預覽那一項 `impacts` 有 `autoFilterable`；預覽後欄位的可篩選仍是關的、索引沒有回填（預覽不寫資料，T46 第 3 點）；套用後才打開 |
+| A59 | 「訂單 → 出貨單」已有 3 張轉出；新版只改了表頭追溯欄位（`header.sourceField`）；另一個轉換只改了表頭帶值欄位（`header.copy`） | 預覽 | 前者 `conversionInUse`、`affectedRecords` 3、不能勾；後者可以勾（同一個 `header` 屬性，往下比子欄位，T48） |
+| A60 | 入庫事件的效果 `stockIn` 已有事實；新版保留代號 `stockIn`、把它的目標模組換掉 | 預覽 | `firedEffect`、不能勾；同一事件只改那個效果的欄位對應時可以勾（T49） |
+| A61 | 進銷存新版把簽核流程 `inv-po-large` 與 `inv-po-medium` 的優先序互換 | 預覽 | 兩項都 `priorityTaken`、不能勾；管理員在設計器互換後重新預覽，兩項的優先序差異消失（T50） |
+| A62 | CRM 新版在往來對象（主檔模組）上新增一條任務規則、改既有一條的偏移天數；另一格：新版改了目標寫主檔符號的轉換 | pkg1d1 合併後預覽與套用 | 任務規則兩項都沒有 `notYetSupported`、可以套，套用後新規則建好、既有規則換新；轉換那一項同樣可以套（T54） |
+| A63 | 進銷存新版把出貨單「已作廢」改成「已取消」（移除 `void`、新增 `cancelled`），連動事件「作廢時把庫存加回」改在「已取消」觸發，客戶沒改那個事件 | 預覽後套用預設勾選 | 事件那一項 `newOnly`、預設勾，`impacts` 有 `stateReferenceMoved`（`void` → `cancelled`）；「已作廢」那一項 `removedInNew`，`impacts` 有 `retiredStateReachable`；套用後兩個狀態都在，事件只在「已取消」觸發（Q26） |
+| A64 | CRM 新版把「設計案主管確認」第一關的簽核人從「業務主管」改成「業務主管或資深業務」；另一個流程只改了關卡名稱；第三個流程客戶自己改過簽核人、新版只改關卡名稱 | 預覽後套用可勾的 | 第一個 `approverGroups`、不能勾；第二個 `newOnly`、可以勾；第三個可以勾，套用後關卡名稱換新、簽核人仍是客戶改的（Q27） |
+| A65 | 新版在既有狀態機新增「已出貨 → 已退回」轉移，給 `warehouse`（對到客戶的「倉管」）；另一條新轉移的群組全部對到略過 | 預覽後套用 | 前者 `attachedPermissions` 有「倉管」、`grants` 為 true，畫面標「給權」；後者不建、`warnings` 說明，不是 400（T57、T45 嚴格模式範圍） |
+| A66 | MES 的整合 `stockOut` 已安裝，管理員之後停用（`Disabled`）；新版改了它安裝的檢查並新增一個事件；另一格是 `Suspended`；第三格：進銷存已開，新版宣告引用進銷存 1.3.0 才有的模組，客戶是 1.2.0 | 前兩格套用後恢復整合；第三格預覽 | 前兩格套用時已改安裝項目、新事件登記在 `ItemsJson`，恢復後調和通過、整合 `Active`，沒有 `itemConflict`、`itemMissing`；第三格 `integrationUnbound`、`detail` 是 `inventory`、不能勾（T40、T51） |
+| A67 | 新版改了整合，套用時調和失敗（測試替身讓 `EnsureAsync` 回衝突） | 套用 | 200，`warnings` 帶調和的失敗；`App.PackageVersion`、基準原文、`SkippedJson` 都已換成新版（調和在最後一次 `CommitAsync` 之後，T52） |
+| A68 | 往來對象已開啟；客戶在設計器加了主檔欄位「統編備註」，再匯入主檔；之後內建往來對象出新版 | 先寫失敗測試確認現況會列出；再預覽、套用 | 修正前預覽把「統編備註」列成 `added`（失敗測試）；修正後預覽不列那個欄位，套用後主檔只有一個「統編備註」、沒有重複欄位（T53） |
+| A69 | 往來對象在 CRM 更新頁的 `masters` 段 | 套用 body 的 `masters` 帶一個不在預覽裡的主檔 id；帶主檔裡不能套用的項目；帶缺相依的主檔項目 | 三次都 400，鍵依序是 `masters.<主檔 id>`、`masters.partner.items.<項目識別>`（不能套用）、`masters.partner.items.<項目識別>`（列出缺的項目）（T35） |
+| A70 | CRM 自己沒有新版，往來對象有新版 | 預覽；套用主檔段；查稽核 | 預覽 `canApply` true、CRM 的 `items` 為空、`fromVersion` 等於 `toVersion`；套用 200 回 `AppResponse`；稽核有兩筆 `app.upgrade`，同一個 `RequestId`：CRM 那筆 from 等於 to、套用數只算主檔，主檔那筆帶主檔的版號與逐項明細（T55） |
+| A71 | 往來對象 1.0.1 → 1.1.0 時略過了「傳真」（`SkippedJson` 有它，客戶沒再動）；之後進銷存新版的新報表用到傳真，往來對象沒有新版 | 預覽；只勾報表套用；兩個都勾套用 | `masters` 列出往來對象，只有「傳真」一項、`skippedBefore`、`fromVersion` 等於 `toVersion`；只勾報表 400 缺 `master:partner/field:partner.fax`；兩個都勾成功，往來對象的版號與基準原文不變，`SkippedJson` 不再有傳真（T56） |
 
 ### 17.3 匯入新版
 
@@ -879,17 +944,17 @@ pkg1d 的案例（§9.6；A25–A41 屬 pkg1d1，A42–A50 屬 pkg1d2）：
 - **匯入**：I1–I4；舊格式行為不變的既有測試照過。
 - **既有測試**：`AppCatalogChecks`、開啟與匯出的往返測試（`AppV3Tests` 一類）、共用主檔合併測試都要照過；Demo 改了 CRM 的開啟方式，改前 grep 以 CRM 欄位、報表為斷言的測試（`CrmDesignCaseAppTests`、`DemoReportsTests` 等）。
 - **前端 vitest**：分類晶片篩選、相依自動勾選、確認對話框的數字、token 過期重新預覽。
-- **pkg1d**：每個新原因代碼至少一格「預覽標無法套用」加一格「條件不成立時可以套」（A26–A38、A44）；守衛的唯讀判斷和設計器入口共用，各補一格「設計器照樣 409」防回歸；整合 `Active`、`Waiting` 兩條路（A43、A45）；主檔並行（A3b，`Category=Postgres` 雙跑）與合併副本往返（A49）；U1 對第二批（含簽核備援頂替，T42）照跑。
+- **pkg1d**：每個新原因代碼至少一格「預覽標無法套用」加一格「條件不成立時可以套」（A26–A38、A44、A56、A59–A61、A64、A66）；守衛的唯讀判斷和設計器入口共用，各補一格「設計器照樣擋」防回歸，但一般唯讀狀態的解鎖是升級專用規則（T46 第 2 點），這一格改成「設計器照樣允許」；預覽不寫資料（A58）；組合違規的 409 回滾（A57）；狀態機第一趟不動既有需簽核（A51）、逐階段交錯（A52）；群組代號撞名（A53）；相依規則補強（A54、A55）；整合已安裝與沒安裝過兩條路（A43、A45、A66）、調和失敗不吞掉版號與基準（A67）；主檔並行（A3b，`Category=Postgres` 雙跑）、合併副本往返（A49）、客戶欄位不重建（A68，先寫失敗測試）、`masters` body 驗證（A69）、只有主檔有新版（A70）、上次略過的被依賴項目（A71）；U1 對第二批（含簽核備援頂替 T42、簽核流程拆成 `stages` 與 `approvers` 兩個屬性 Q27）照跑，覆蓋率測試跟著改手工比對清單。
 - **畫面**：四種寬度不橫向捲動；Demo 冒煙走 §11.2。
 
 ## 19. 待確認清單
 
 ### 19.1 行為類（裁決狀態逐題標明）
 
-狀態用語：「使用者裁決」是使用者拍板的；「已確認（分流）」是 2026-11-19 平台分流的顧問裁決，使用者 2026-11-20 整區確認；「顧問拍板，待使用者確認」是這輪顧問分流的結果，還沒經使用者確認。題目內容（例子、推薦、代價）保留，方便確認時直接看。
+狀態用語：「使用者裁決」是使用者拍板的；「已確認（分流）」是 2026-11-19 平台分流的顧問裁決，使用者 2026-11-20 整區確認；「顧問拍板，待使用者確認」是這輪顧問分流的結果，還沒經使用者確認；「顧問定案（2026-11-22 pkg1d 顧問分流），待使用者事後確認」是 pkg1d 顧問分流（lifecycle:domain-advisor）依既有裁決與設計推得出結論的題，先照它做，使用者事後確認；「主控照顧問推薦暫定，待使用者確認」是分流找出的漏題，照推薦寫入。題目內容（例子、推薦、代價）保留，方便確認時直接看。
 
 - **Q1 客戶刪掉、新版仍有的項目：標「客戶已刪除」、預設不勾。**
-  - 狀態：顧問拍板，待使用者確認。
+  - 狀態：顧問定案（2026-11-22 pkg1d 顧問分流），待使用者事後確認。依據：使用者 11-17 裁決「客戶改過的預設不覆蓋」；刪除就是客戶改過；只影響預設勾選。
   - 例子：客戶覺得 CRM 用不到「傳真」欄位，把它刪了；新版 1.4.0 還有「傳真」。更新頁這一項標「客戶已刪除」，不勾。
   - 推薦：預設不勾，想要回來的自己勾。代價：新版若修了這個欄位，客戶不會自動拿到，要自己勾。
   - 替代：當成新版新增、預設勾。代價：客戶刪過的欄位每次更新都被加回來，違反「客戶改過的預設不覆蓋」。
@@ -939,7 +1004,7 @@ pkg1d 的案例（§9.6；A25–A41 屬 pkg1d1，A42–A50 屬 pkg1d2）：
   - 替代：格式加 `manifest.origin`（發行者代碼）並比對。代價：格式升版；發行者代碼沒有簽章，擋不了刻意偽造，只是多一個欄位。
   - 選錯的代價：小，之後要加簽章或發行者代碼再升格式即可。
 - **Q10 共用主檔的新版：跟著使用它的應用程式的更新頁一起列出、一起套用。**
-  - 狀態：顧問拍板，待使用者確認。
+  - 狀態：顧問定案（2026-11-22 pkg1d 顧問分流），待使用者事後確認。依據：平台先例：共用主檔不在應用程式清單，由使用它的應用程式自動開關（手冊 §18「誰能做」）；pkg1b 已照此上線（直接預覽主檔回 `MasterManaged`）。
   - 背景：共用主檔不在應用程式清單裡（手冊 §18「誰能做」第 3 點），由使用它的應用程式自動開啟。
   - 例子：「往來對象」1.0.1 → 1.1.0 多了「傳真」欄位。CRM 的更新頁多一段「共用主檔『往來對象』1.0.1 → 1.1.0」；CRM 本身沒有新版時，CRM 卡片也顯示「共用主檔有新版」。進銷存也用往來對象，從進銷存的更新頁也看得到同一段，誰先套用都可以，套完另一頁就不再列。
   - 推薦：如上。代價：同一份主檔出現在多個更新頁。
@@ -953,74 +1018,105 @@ pkg1d 的案例（§9.6；A25–A41 屬 pkg1d1，A42–A50 屬 pkg1d2）：
   - 例子：新版在既有的「報價單」加「成本價」欄位，套件同時寫「業務」群組看不到它：欄位和這條隱藏一起建，預覽那一列標「業務：隱藏」。CRM 新版在往來對象的貢獻上加「信用額度」欄位、給「業務」可編輯：一起套，預覽標「業務：可編輯（給權）」；記在 CRM 名下，CRM 關閉後這條編輯權不再生效。
   - 落點：§6.2 說明、§8.4 `attachedPermissions`、§9.1 第 7 步、§10.2 第 5 點、U27、U28。
 
-以下 Q13–Q25 是 pkg1d 起草時新增（2026-11-22），狀態一律「主控暫定，待使用者確認」；落點在 §9.6。
+以下 Q13–Q27 是 pkg1d 新增（2026-11-22），落點在 §9.6。Q13–Q25 經 pkg1d 顧問分流定案（Q16 修正後定案），待使用者事後確認；Q26、Q27 是分流找出的漏題，照推薦寫入，待使用者確認。
 
 - **Q13 新版移除或改名的狀態，仍有記錄停在那裡：舊狀態與它的轉移保留、只列出；新狀態照加；記錄不搬。**
+  - 狀態：顧問定案（2026-11-22 pkg1d 顧問分流），待使用者事後確認。依據：「只新增不刪除」（11-17）與 Q4（pkg1-漏4）；不搬記錄才不繞過轉移、事件、事實鎖。衍生漏題 Q26。
   - 例子：進銷存 1.3.0 把出貨單的「已作廢」改名成「已取消」（套件裡是拿掉選項 `void`、新增 `cancelled`）。客戶有 5 張單在「已作廢」。更新頁列「已作廢」為「新版已不再提供」，註明「目前 5 筆記錄在這個狀態」；「已取消」與它的轉移是新版新增、預設勾。套用後兩個狀態都在，5 張單仍是「已作廢」，要不要改成「已取消」由客戶自己走轉移或手動處理。
   - 推薦：如上。代價：狀態機多一個原廠已淘汰的狀態，報表與檢視要客戶自己整理。
   - 替代 A：預覽提供「舊狀態 → 新狀態」對應，套用時批次改記錄的狀態。代價：繞過轉移、事件、簽核與事實鎖，等於升級在改客戶的資料，違反只新增不刪除的精神。
   - 替代 B：有記錄停在被移除的狀態就整個擋下。代價：客戶升不了級，只能先手動清空那個狀態。
   - 選錯的代價：小。之後要加對應工具不影響既有資料。
 - **Q14 既有狀態的唯讀（或簽核鎖定）改變：解鎖而有記錄停在那裡的不能套；改成唯讀可以套，預覽註明筆數。**
+  - 狀態：顧問定案（2026-11-22 pkg1d 顧問分流），待使用者事後確認。依據：簽核鎖定的部分本來就是設計器守衛 `LockedDataGuard`（簽核設計使用者裁決 8）；一般唯讀狀態設計器不擋，升級比設計器嚴（Likely），沿用 pkg1-3；可逆（T46 第 2 點）。
   - 例子：新版把採購單的「已核准」從唯讀改成可改，客戶有 12 張單在「已核准」。這一項不能勾，原因「會讓 12 筆已鎖定的記錄變成可修改，請在設計器手動處理」。反過來新版把「已出貨」改成唯讀：可以勾，註明「目前 8 筆記錄在這個狀態，套用後不能再改」。
   - 推薦：如上。理由：解鎖會讓已核准、已過帳的值變得可改，和簽核設計的「整批解鎖守衛」（使用者裁決 8）同一個考量，也同 pkg1-3「會影響既有資料的修改列出但不能勾」。
   - 替代：兩個方向都照一般規則套。代價：原廠一次更新就把客戶已鎖定的單據全部解開。
   - 選錯的代價：小，只影響能不能勾。
 - **Q15 既有轉移的群組修改：比照 Q5 只列出、不能勾；新轉移的群組照群組對應一起套。**
+  - 狀態：顧問定案（2026-11-22 pkg1d 顧問分流），待使用者事後確認。依據：既有轉移的群組只列出（Q5、pkg1-4）；新轉移照群組對應建（Q12 新物件附帶權限含給權類）。附條件：新轉移的群組在預覽列為附帶權限，給權類標「給權」（§8.4、§10.2 第 5 點，T57）。
   - 例子：新版讓「倉管」也能把出貨單從「草稿」推到「已出貨」。客戶的這條轉移已存在：更新頁列出、不能勾，提示到狀態機設計器自己加。新版新增的「已出貨 → 已退回」轉移給「倉管」：照群組對應一起建。
   - 推薦：如上。理由：誰能推進單據是授權決定，和 Q5「既有授權是客戶的決定」同理。
   - 替代：當成一般屬性，只有新版改就預設勾。代價：原廠更新可能在客戶不察覺時放寬誰能確認訂單、核准付款。
   - 選錯的代價：小。
-- **Q16 既有轉移的「需簽核」改變：加上需簽核可以套；取消需簽核而有簽核中的單，或會解鎖有記錄的鎖定狀態，不能套。**
-  - 例子：新版讓「報價單 草稿 → 已送出」需要簽核：可以勾，套用後之後送出的報價單要簽核，已經在「已送出」的不受影響。新版取消「採購單 草稿 → 已核准」的需簽核，而有 2 張正在簽：不能勾，原因「2 張單正在簽核，等簽完再更新」。
-  - 推薦：如上。理由：進行中的實例要靠這條轉移完成（簽核設計 §8.6），設計器本來就會擋；預覽先擋，比套用時整批回滾清楚。
+- **Q16 既有轉移的「需簽核」改變：加上需簽核可以套，目標與下游狀態的既有記錄會一起被鎖、預覽註明筆數，合併後的狀態機驗證不過時不能套；取消需簽核而有簽核中的單，或會解鎖有記錄的鎖定狀態，不能套。**
+  - 狀態：顧問修正後定案（2026-11-22 pkg1d 顧問分流），待使用者事後確認。修正：加上需簽核後，目標狀態和沿一般轉移走得到的下游狀態立刻變成簽核鎖定（簽核設計 §9.3：看狀態，不看實例），已停在那裡的記錄會被鎖。所以照 Q14「改成唯讀可以套」處理：可以勾，預覽在 `impacts` 註明筆數（`recordsInState`）。另外，加需簽核會觸發「進入鎖定狀態一律要簽」：客戶自己加過、進入同一狀態的一般轉移會讓 `SaveWorkflow` 回 400，所以預覽先跑合併後狀態機的驗證（T47），不通過就標無法套用（`workflowInvalid`）。
+  - 例子：新版讓「報價單 草稿 → 已送出」需要簽核：可以勾，註明「目前 15 張已在『已送出』的報價單會一起被鎖」；套用後那 15 張不能再改，之後送出的報價單要簽核。客戶自己加過「已退回 → 已送出」的一般轉移時：不能勾，原因指出那條轉移，請先到狀態機設計器處理。新版取消「採購單 草稿 → 已核准」的需簽核，而有 2 張正在簽：不能勾，原因「2 張單正在簽核，等簽完再更新」；簽完後那 2 張停在鎖定的「已核准」，取消會把它們解鎖，仍不能勾（`unlocksRecords`）。
+  - 推薦：如上。理由：進行中的實例要靠這條轉移完成（簽核設計 §8.6），設計器本來就會擋；預覽先擋，比套用時整批回滾清楚。加上需簽核和「改成唯讀」同一方向（收緊），照 Q14 可以套。
   - 替代：取消需簽核時順便終止進行中的實例。代價：簽到一半的單被升級中斷，簽核人白做。
   - 選錯的代價：小。
 - **Q17 簽核流程：進行中照原版本（§9.4）；被用過的流程改目標狀態不能套；新流程的優先序被客戶自建的流程佔用時不能套，請客戶先調整優先序。**
+  - 狀態：顧問定案（2026-11-22 pkg1d 顧問分流），待使用者事後確認。依據：設計器守衛 `ApprovalFlowHandlers.cs` 的 `CheckRetargetAsync`（:84）、`PriorityTakenAsync`（:62、:105）與簽核設計 §4.4；自動重排優先序等於改簽核路線。既有流程的優先序修改與互換照同一條判斷（T50）。
   - 例子：客戶自己在「報價單 → 已送出」上建了一個優先序 1 的流程，新版也新增一個優先序 1 的。新流程那一項不能勾，原因「優先序 1 已被你的流程『主管快簽』使用，請到設計器調整後重新預覽」。
   - 推薦：如上。理由：同一目標上誰先比對會決定單據走哪個流程，自動改優先序等於替客戶改簽核路線。
   - 替代：自動把新流程排到最後（優先序取現有最大值加一）。代價：原廠預期的路線順序被改，新流程可能永遠比對不到；客戶不知道。
   - 選錯的代價：小。
-- **Q18 單據轉換：只影響之後的轉換；數量對應或明細追溯欄位改了、而已經有轉出的單據時不能套。**
+- **Q18 單據轉換：只影響之後的轉換；追溯欄位（表頭或明細）或數量對應改了、而已經有轉出的單據時不能套。**
+  - 狀態：顧問定案（2026-11-22 pkg1d 顧問分流），待使用者事後確認。依據：pkg1-3 與 ERP 資料模型 §3.4 原則 1（已轉量即時算）。附註：第一張單轉出後這一項永遠不能勾，原因文字寫明到設計器手動改一樣會重算剩餘量。觸發條件依設計審查補上表頭追溯欄位（T48）。
   - 例子：新版把「訂單 → 出貨單」的轉換多帶一個「送貨地址」：照套，之後的出貨單會帶，已開的不變。新版把數量對應從「訂購量 → 出貨量」改成「未出貨量 → 出貨量」，而已有 3 張出貨單是從訂單轉出的：不能勾，原因「已有 3 張單據由這個轉換產生，改數量對應會讓剩餘量算錯，請在設計器手動處理」。
   - 推薦：如上。理由：已轉量由下游單據即時推算（ERP 資料模型 §3.4 原則 1），改了數量欄位，部分轉出的訂單剩餘量會被重算成另一個數字。
   - 替代：照套，預覽只提示。代價：可能重複出貨或擋下合法的出貨。
   - 選錯的代價：中。剩餘量算錯會直接影響出貨與開票。
 - **Q19 連動事件：只影響之後的寫入、不補記帳；新版拿掉已觸發過的效果代號時不能套。**
+  - 狀態：顧問定案（2026-11-22 pkg1d 顧問分流），待使用者事後確認。依據：pkg1-3 與事件設計 §10.5、§4.4（效果代號是冪等鍵）；只有 create、reverse 效果有事實，update 效果不受影響。
   - 例子：進銷存新版把入庫事件的效果代號 `stockIn` 改成 `stockInV2`。已入庫過的進貨單若之後再觸發一次，系統會當成新效果再入庫一次。所以這一項不能勾，原因「這個事件已觸發過效果『入庫』，換效果代號會讓同一張單重複記帳」。新版只是在事件多加一個效果：可以勾，已記帳的單不補做。
   - 推薦：如上，和事件設計 §10.5「修改既有效果的代號時禁用輸入框」一致。
   - 替代：照套，預覽警告。代價：重複入庫、重複扣庫存。
   - 選錯的代價：中。
 - **Q20 跨記錄檢查改嚴：照套，不重掃既有記錄；預覽註明「只檢查之後的寫入」。**
+  - 狀態：顧問定案（2026-11-22 pkg1d 顧問分流），待使用者事後確認。依據：事件設計 §5.4、§16.3 第 2 點：設計器改檢查也不回掃，一致。
   - 例子：新版把「同一客戶未收款合計不得超過信用額度」的上限欄位換成更嚴的。已經超過的客戶不會被標出來，下次替那位客戶新增或修改單據時才被擋。
   - 推薦：如上，和事件設計 §5.4「新增檢查不回頭掃描」一致。代價：客戶套用後才在日常操作撞到。
   - 替代：預覽試跑檢查（`ScanCheck`），列出不符的組數，有不符就不能勾。代價：大模組試跑慢；而且舊資料不符是業務事實，擋下升級也解決不了。
   - 選錯的代價：小，之後可以加「試跑」按鈕只顯示不擋。
 - **Q21 新版把已有記錄的模組設成不可修改分錄：不能套，請管理員到設計器自己確認；沒有記錄時照套。**
+  - 狀態：顧問定案（2026-11-22 pkg1d 顧問分流），待使用者事後確認。依據：事件設計 §10.1 要求 `confirmFreeze`；使用者 11-08 裁決 3：分錄有記錄後不能取消；不可逆的動作不由預設勾的項目代按。
   - 例子：新版把進銷存的「庫存異動」設成分錄（之後只能沖銷不能改），客戶已有 300 筆。這一項不能勾，原因「這個模組已有 300 筆記錄，設為分錄後會立刻變成不可修改、不可刪除，請到設計器確認」。
   - 推薦：如上。理由：設計器要求這一步明確確認（事件設計 §10.1 的 `confirmFreeze`），而且設了就不能取消（§10.2），不該由升級的一個勾選代替。
   - 替代：可以勾，確認對話框多一行「N 筆記錄會變成不可修改」。代價：一個預設勾的項目就能永久凍結客戶的資料。
   - 選錯的代價：中，設了不能取消。
 - **Q22 列印範本：照一般三方比對；兩邊都改時預設不勾，勾了就以新版本文取代。**
+  - 狀態：顧問定案（2026-11-22 pkg1d 顧問分流），待使用者事後確認。依據：pkg1-2（兩邊都改可勾、預設不勾）；舊本文可從稽核的逐項舊新值找回（pkg1-8）。
   - 例子：客戶把報價單範本的頁尾改成自己的匯款資訊，新版也改了表頭版面。這一項是「兩邊都改」、預設不勾，按「檢視」看原值、新版、目前三份本文。勾了就以新版取代，客戶要把匯款資訊補回去。
   - 推薦：如上，和其他物件一致。
   - 替代：兩邊都改時另存一份「（新版）」範本，客戶自己挑。代價：範本代碼要另取，清單越來越長，下次升級又多一份要比。
   - 選錯的代價：小。
 - **Q23 任務規則：只影響之後的觸發；已產生、未完成、沒手動改過的任務，之後照新定義同步；已觸發過的記錄不重新觸發。**
+  - 狀態：顧問定案（2026-11-22 pkg1d 顧問分流），待使用者事後確認。依據：任務設計 §5.5 使用者裁決「未完成的跟著變、手動改過的不動」；拿掉的任務項目不刪。
   - 例子：新版把「設計案確認後 3 天內回電」改成 5 天。已產生的任務在下次設計案被修改時，到期日改成 5 天後；業務手動改過到期日的那筆不動；已觸發過的設計案不會再產生一批。
   - 推薦：如上，沿用任務設計 §5.5「同步用規則現在的定義」。
   - 替代：已產生的任務一律不再同步，只有新觸發的用新定義。代價：要改同步的既有規則，同一個規則有兩套行為。
   - 選錯的代價：小。
 - **Q24 整合：客戶改過整合安裝出來的欄位、事件、檢查（整合被擋下）時不能套，先照整合頁的指引還原或重試；沒改過的照新宣告更新已安裝的項目。**
+  - 狀態：顧問定案（2026-11-22 pkg1d 顧問分流），待使用者事後確認。依據：整合設計 §5.4「不提供用宣告覆寫的捷徑」與決策 19。
   - 例子：MES 新版在「出貨扣庫存」整合加一個檢查。整合正常：可以勾，套用後檢查建好、整合照常。客戶之前改過整合的扣庫存事件，整合顯示「已擋下：定義被修改」：這一項不能勾，原因「整合目前被擋下，請先依整合頁還原後重試」。
   - 推薦：如上，和整合設計 §5.4「不提供用宣告覆寫的捷徑」一致。
   - 替代：勾了就用新宣告覆寫客戶改過的項目。代價：靜默蓋掉客戶修改，整合設計刻意不做的事。
   - 選錯的代價：小。
 - **Q25 共用主檔在更新頁列出時，套用就一起前進（版號、基準換新，沒勾的記成上次略過），不提供「這次只更新應用程式、主檔先不動」。**
+  - 狀態：顧問定案（2026-11-22 pkg1d 顧問分流），待使用者事後確認。依據：Q3 使用者裁決（基準整份換新、略過另記）。附條件：被依賴、但上次略過的主檔項目照 §9.6.3（T56）列出可勾回；跨應用程式的同類卡死見 §22.2（顧問分流 L2）。
   - 例子：CRM 1.4.0 與往來對象 1.1.0 一起列在 CRM 的更新頁。管理員只勾了 CRM 的項目、主檔段全部不勾：套用後往來對象也是 1.1.0，主檔的那幾項下次標「上次略過」。
   - 推薦：如上，和 §9.2「基準整份換新，不論勾了哪些」一致。代價：主檔的版號前進了，但內容可能一項都沒套。
   - 替代：主檔段可以整段勾掉，主檔留在舊版、下次仍列。代價：應用程式新版若依賴主檔新版的欄位，要多一層「主檔不前進時哪些應用程式項目不能套」的判斷；同一份主檔在多個應用程式頁的狀態更難解釋。
   - 選錯的代價：小。
+
+- **Q26 新版的其他項目把引用從被移除的狀態改到新狀態：照一般規則預設勾，項目下方說明舊狀態仍可進入、之後不再觸發這裡。**
+  - 狀態：主控照顧問推薦暫定（2026-11-22 pkg1d 顧問分流的漏題），待使用者確認。
+  - 例子：進銷存出貨單的「已作廢」改名「已取消」；系統照 Q13 保留舊狀態與進入它的轉移，記錄不搬。新版的「作廢時把庫存加回」連動事件改在「已取消」觸發，這類修改算「只有新版改」、預設勾。套用後使用者照習慣轉到舊的「已作廢」，庫存不會加回。
+  - 推薦：照一般規則預設勾；項目下方寫「新版改看『已取消』，舊狀態『已作廢』仍可進入，之後不再觸發這裡」（`impacts: stateReferenceMoved`）；被移除的狀態那一列提示「建議到狀態機設計器拿掉進入它的轉移」（`retiredStateReachable`）。代價：管理員沒照提示做，舊狀態仍可用、連動失效。
+  - 替代 1：這類項目預設不勾。代價：拿不到新版的修正，而舊事件只看舊狀態，兩邊都缺。
+  - 替代 2：套用時一起停用進入舊狀態的轉移（「新版移除的轉移」可勾成停用）。代價：推翻 Q4，多一層停用的相依檢查。
+  - 選錯的代價：中。連動失效會讓庫存這類數字靜默出錯；但提示寫在預覽上，之後改成替代 2 也不影響既有資料。
+  - 落點：§9.6.2 狀態機、§9.6.4、A63。
+- **Q27 既有簽核流程的簽核人（含備援）被新版改了：整項不能套，請到簽核流程設計器調整；只改關卡名稱、條件等其他內容照常可勾。**
+  - 狀態：主控照顧問推薦暫定（2026-11-22 pkg1d 顧問分流的漏題），待使用者確認。
+  - 例子：CRM 新版把「設計案主管確認」第一關的簽核人從「業務主管」改成「業務主管或資深業務」。初稿把整份關卡清單當一般屬性：客戶沒改就預設勾。但既有轉移的群組（Q15）、既有權限（Q5）都是「只列出、不能勾」，因為授權是客戶的決定，簽核人也是。
+  - 推薦：任一關的簽核人或流程的備援簽核人不同（只有新版改、兩邊都改），整項標無法套用（`approverGroups`），原因「簽核人是你的內控決定，請到簽核流程設計器調整」；只改關卡名稱、條件照常可勾。新增的流程不受限制。代價：比對要把關卡拆成簽核人與其他內容兩部分（§9.6.2）；原廠修正簽核人的錯送不到客戶，要客戶自己改。
+  - 替代 1：照一般屬性預設勾，預覽標「改變簽核人」。代價：原廠更新可能在客戶沒注意時放寬誰能核准。
+  - 替代 2：整份關卡清單一律只列出。代價：連關卡名稱的翻譯修正都送不到；§9.6.5 的 Demo「關卡名稱換舊」要改。
+  - 提醒：既有報表的分享群組在 pkg1c 已照一般屬性上線，也是授權；採推薦的話，另開票讓報表分享比照（§22.2）。
+  - 選錯的代價：小，只影響能不能勾。
+  - 落點：§9.6.2 簽核流程、§9.6.4、§9.6.6、A64。
 
 ### 19.2 技術類（主控已定，可推翻）
 
@@ -1052,20 +1148,35 @@ pkg1d 的案例（§9.6；A25–A41 屬 pkg1d1，A42–A50 屬 pkg1d2）：
 - **T26** 預覽能改的群組對應只限新代號、失效的、略過過的；已對應且有效的不能改，避免改了之後既有模組的權限比對全部變成假差異（§8.1、§10.2）。
 - **T27** 「會不會影響既有資料」的分類只寫一份，與 mcp3 共用（§6.4）。
 - **T28** 附帶權限由後端算成 `attachedPermissions`（含 `grants` 旗標），畫面只照它顯示；給權類一律寫本應用程式名下的來源記錄（§6.2、§8.4、§9.1）。
-- **T29** 第二批既有物件的修改：以現況為底合併要寫的頂層屬性，再整份以 Key 送 `Update*`；狀態機以模組為單位合併狀態與轉移，一次 `SaveWorkflow`，有需簽核時分兩趟（§9.6.1）。
-- **T30** 第二批新物件組子套件交 `AppFlowInstaller`，加嚴格模式：引用找不到回 400 帶項目識別、不略過；新模組底下的狀態機、分錄隨模組裝（§9.6.1）。
-- **T31** §9.1 第 8 步的細化順序同 `AppFlowInstaller`；貢獻移到第 5 步（§9.6.1）。
-- **T32** 預覽先跑設計器的守衛，判斷抽成唯讀函式由設計器與預覽共用，套用時會 409 的先標無法套用（§9.6.1）。
-- **T33** 新原因代碼 `statusFieldChanged`、`unlocksRecords`、`transitionGroups`、`approvalInFlight`、`flowInUse`、`priorityTaken`、`conversionInUse`、`firedEffect`、`backfillLimit`、`ledgerLocked`、`ledgerFreeze`、`integrationConflict`；`affectedRecords` 放寬到這幾個代碼（§9.6.4）。
-- **T34** 資訊型 `impacts`（不擋）：`recordsInState`、`inFlightApprovals`、`futureOnly`、`enablesTasks`、`autoFilterable`（§9.6.4）。
-- **T35** 預覽與套用 body 加 `masterGroupMap`，套用讀 `masters`；錯誤鍵 `masters.<主檔 id>.items.<項目識別>`；token 涵蓋 `masterGroupMap`（§9.6.3）。
-- **T36** 主檔的套用沿用第一批程式，以主檔自己的基準、群組對應、現況各跑一次；主檔之間依 `requires.masters` 排序（§9.6.3）。
-- **T37** 跨份相依寫 `master:<主檔 id>/<項目識別>`，前後端照一般相依處理（§9.6.3）。
-- **T38** 主檔以內建新版升級後改寫 `Dynamic_AppPackage` 的合併副本，基準存同一份序列化文字（§7.1、§9.6.3）。
-- **T39** pkg1d1 合併時 `SecondBatch` 拿掉 d1 的種類；pkg1d2 合併時刪 `SecondBatch`、`secondBatch`、`masterPending`、`notYetSupported` 與翻譯鍵（§9.6.3）。
-- **T40** 整合：`Active` 時先把已安裝項目改成新宣告再換宣告、提交後調和；`Waiting`、`Disabled` 只換宣告；調和狀態不正常或安裝項目和宣告不一致時 `integrationConflict`（§9.6.2）。
+- **T29** 第二批既有物件的修改：以現況為底合併要寫的頂層屬性，再整份以 Key 送 `Update*`；codec 含 `ConversionInputOf`（改 internal）；狀態機以資料庫的 `Workflow` 為底合併狀態與轉移，一個模組每一趟一次 `SaveWorkflow`（§9.6.1）。
+- **T30** 第二批新物件組子套件（`Reports` 為 `[]`）交 `AppFlowInstaller` 的逐階段入口（T45）與 `InstallTaskRulesAsync`；新模組底下的狀態機、分錄隨模組裝（§9.6.1）。
+- **T31** §9.1 第 8 步的細化順序同 `AppFlowInstaller`，每階段先新增、再修改；狀態機第一趟保留現況的需簽核，只有「這次才加需簽核、目標流程也這次才建」的轉移留到第二趟；貢獻移到第 5 步（§9.6.1，設計審查 D1、D2）。
+- **T32** 預覽先跑設計器的守衛，判斷抽成唯讀函式由設計器與預覽共用，設計器指令會擋（409 或 400）的先標無法套用（§9.6.1，審查 D5、S17）。
+- **T33** 新原因代碼 `statusFieldChanged`、`unlocksRecords`、`transitionGroups`、`approvalInFlight`、`flowInUse`、`priorityTaken`、`approverGroups`、`workflowInvalid`、`conversionInUse`、`firedEffect`、`backfillLimit`、`ledgerLocked`、`ledgerFreeze`、`integrationConflict`、`integrationUnbound`；`affectedRecords` 放寬到這幾個代碼；項目加選填 `detail`（§9.6.4）。
+- **T34** 資訊型 `impacts`（不擋）：`recordsInState`、`inFlightApprovals`、`futureOnly`、`enablesTasks`、`autoFilterable`、`stateReferenceMoved`、`retiredStateReachable`，形狀 `{ code, count?, detail? }`（§9.6.4）。
+- **T35** 預覽與套用 body 加 `masterGroupMap`，套用讀 `masters`；錯誤鍵 `masters.<主檔 id>`（不在預覽裡）與 `masters.<主檔 id>.items.<項目識別>`；token 涵蓋 `masterGroupMap`（§9.6.3）。
+- **T36** 主檔的套用沿用第一批程式，以主檔自己的基準、群組對應、現況各跑一次（`ApplyAsync` 拆成以 Comparison 為參數的核心，T55）；主檔之間依 `requires.masters` 排序（§9.6.3）。
+- **T37** 跨份相依寫 `master:<主檔 id>/<項目識別>`，`References` 先把主檔符號換成這個識別（T43 第 5 點），前後端照一般相依處理（§9.6.3）。
+- **T38** 主檔以內建新版升級後改寫 `Dynamic_AppPackage` 的合併副本（定義層的「內建新版合併舊副本」，不是 `fromDb` 匯出，理由見 §9.6.3），基準存同一份序列化文字（§7.1、§9.6.3，審查 S16）。
+- **T39** pkg1d1 合併時 `SecondBatch` 拿掉 d1 的種類，`/` 規則不再套 Coded 類（T54）；pkg1d2 合併時刪 `SecondBatch`、`secondBatch`、`masterPending`、`notYetSupported` 與翻譯鍵（§9.6.3）。
+- **T40** 整合：分支看 `AppIntegration.Installed`：已安裝（`Active`、`Disabled`、`Suspended`、`Held`）先把安裝項目改成新宣告、新建的登記進 `ItemsJson`，再換宣告；沒安裝過只換宣告；調和狀態不正常或安裝項目和宣告不一致時 `integrationConflict`，一致性比對從 `IntegrationReconciler` 抽唯讀函式共用（§9.6.2，審查 D8、S12）。
 - **T41** 貢獻：新的走 `ContributionInput`（`Prefix` 主檔符號），既有的走一般 `UpdateField`／`UpdateBlock`／`UpdateOption`，權限照 Q12（§9.6.2）。
 - **T42** 簽核流程的群組正規化在 B、N 也套 `AppApprovalFlowCodec.Substitutions`，和現況一致（§6.2.1 第 4 點、§22.1 最後一點，§9.6.2）。
+- **T43** 相依規則補強：Coded 類與報表依賴自己所在的新模組（含 pkg1c 新報表）；需簽核轉移依賴目標上的新流程；流程依賴 `state:<模組>.<to>`／`<rejectTo>`；列印範本依賴 `#each` 的明細模組與明細欄位；主檔符號換成 `master:` 識別再比（§9.6.1，審查 D4、S11、S15）。
+- **T44** 合併前把 C、N 的群組代號各自換成客戶群組 id，在 id 層合併再交 codec；狀態機以資料庫的 `Workflow` 為底（§9.6.1，審查 D3）。
+- **T45** `AppFlowInstaller` 拆成 internal 的逐階段入口，開啟依序全呼叫、升級在階段之間插入修改；嚴格模式以參數傳入，只把「引用找不到」改成 400，`TransitionSkipped` 照舊 warning（§9.6.1，審查 D2、S8）。
+- **T46** 預覽守衛逐項以「現況加上這一項」判斷，組合才違規的由套用時 409（帶項目識別）兜底；一般唯讀解鎖是升級專用規則；`CheckIndexer` 拆純判斷與寫入；`LockedDataGuard` 按模組快取；精度不符列已知限制（§9.6.1，審查 D5、S6）。
+- **T47** 預覽以合併後的狀態機跑 `SaveWorkflow` 的 400 驗證（拓撲、事件交叉檢查、政策數量上限），不通過標 `workflowInvalid`（§9.6.1，顧問分流 L4、審查 S7）。
+- **T48** `conversionInUse` 的觸發看 `header.sourceField` 與 `lines` 的追溯、數量子欄位，往下比子欄位；計數只數表頭（§9.6.2，審查 D7）。
+- **T49** `firedEffect` 新增「依（事件 Key、效果代號）查事實」的查詢；同代號換 `kind` 或 `target` 而已有事實也擋（§9.6.2，審查 S5）。
+- **T50** 簽核流程的優先序：既有流程的修改也以「現況加上這一項」判斷 `priorityTaken`；互換優先序不自動用暫時值（§9.6.2，審查 S4）。
+- **T51** 整合預覽用新宣告跑 `IntegrationWorld.LoadAsync`，夥伴已開啟卻解析不到時 `integrationUnbound`（§9.6.2，審查 D8）。
+- **T52** 調和在同一個交易、最後一次 `CommitAsync` 之後才跑（§9.1 第 11 步），之後不改已追蹤的實體（審查 D9）。
+- **T53** 主檔候選新版不收副本裡沒有對照列的代號（`f_`／`b_`／`o_`），實作者先寫失敗測試確認（§9.6.3，審查 D10）。
+- **T54** 主檔模組上的 Coded 類物件（任務規則等）歸 pkg1d1：`IsSecondBatch` 的 `/` 規則不套 Coded 類（§9.6.2，審查 D11）。
+- **T55** 只有主檔有新版時：`ApplyAsync` 拆成以 Comparison 為參數的核心，應用程式沒有新版就跳過；外層稽核 from 等於 to、只算主檔項目（§9.6.3，審查 S10、S13、S14）。
+- **T56** 應用程式依賴的主檔項目在主檔基準的 `SkippedJson` 裡、客戶值沒改時，主檔沒有新版也把那幾項列進 `masters`（標上次略過，版號、基準原文不動）（§9.6.3，顧問分流 L2）。
+- **T57** 新轉移可推進的群組列進 `attachedPermissions`（給權類），比照 Q12（§9.6.2、§8.4、§10.2，顧問分流 L3）。
 
 ## 20. 宗旨檢查（formwright-purpose-check）
 
@@ -1081,14 +1192,14 @@ pkg1d 的案例（§9.6；A25–A41 屬 pkg1d1，A42–A50 屬 pkg1d2）：
 
 **pkg1d 第二批（§9.6，2026-11-22 自查）**：
 
-1. **機制還是政策**：通過。逐類套用與「不能套」的判斷都來自既有設計器守衛（T32）與資料完整性（已觸發的效果代號、已有記錄的分錄、簽核中的轉移），不是各客戶不同的業務政策；用到的數字只有既有政策 `check.maxBackfillRecords` 與 `approval.defaultFallbackApprovers`，沒有新上限、天數或預設值。
+1. **機制還是政策**：通過。逐類套用與「不能套」的判斷大多來自既有設計器守衛（T32、T47）與資料完整性（已觸發的效果代號、已有記錄的分錄、簽核中的轉移、已轉出的單據）；比設計器嚴的兩條是升級專用的平台規則：一般唯讀狀態的解鎖（Q14，資料完整性）、既有簽核流程的簽核人只列出（Q27，安全檢查）。都不是各客戶不同的業務政策；用到的數字只有既有政策 `check.maxBackfillRecords` 與 `approval.defaultFallbackApprovers`，沒有新上限、天數或預設值。
 2. **寫死掃描**：設計階段不適用；新增的寫死項目列在 §21。
 3. **單一來源**：通過。守衛的判斷抽成一份唯讀函式，設計器入口與預覽共用（T32）；`applicable`、`impacts` 只在後端算。
 4. **兩個應用程式**：通過。狀態機、簽核流程、轉換、列印範本、貢獻：CRM 與進銷存都有；事件、檢查、分錄：進銷存與生產管理都有；任務規則：CRM 有，任何套件都能帶（任務設計 §5.8）；整合：目前只有生產管理帶一個，但它是平台既有的通用格式（整合設計），升級路徑不看是哪個整合。
 5. **空系統**：通過。沒有任何應用程式時沒有更新頁；主檔段只在用到它的應用程式有新版或主檔有新版時出現。
 6. **套件只用定義組成**：通過。新物件走開啟同一條 `AppFlowInstaller`，修改走設計器指令，沒有替特定應用程式寫分支；Demo 的舊版仍由目錄版推導。
 7. **ERP 對照**：通過，見 §9.6.6。
-8. **fail closed、驗證不只在前端、沒有執行期 DDL**：通過。新轉移的群組全略過時不建；既有轉移的群組、既有權限只列出；客戶改過的整合不覆寫；相依、守衛、token 都在後端驗；沒有 migration。
+8. **fail closed、驗證不只在前端、沒有執行期 DDL**：通過。新轉移的群組全略過時不建；既有轉移的群組、既有簽核流程的簽核人、既有權限只列出；群組代號在 id 層合併，不會因代號撞名給錯群組（T44）；客戶改過的整合不覆寫；相依、守衛、token 都在後端驗；沒有 migration。
 9. **不限產業**：通過。例子用了出貨、採購、報價、設計案，服務業（設計案、客服）與貿易商（進銷存）都適用；理由不假設製造流程。
 
 ## 21. 可寫死清單
@@ -1107,15 +1218,19 @@ pkg1d 的案例（§9.6；A25–A41 屬 pkg1d1，A42–A50 屬 pkg1d2）：
 | 套件文字只要求繁中 | `zh-TW` | 套件格式規則（p3 判斷 12） |
 | 版號格式 | 三段數字 | 格式守衛（沿用套件設計 §4.3） |
 | 狀態欄位不同不能套（`statusFieldChanged`） | — | 資料完整性守衛（pkg1d） |
-| 解鎖有記錄的唯讀或簽核鎖定狀態不能套（`unlocksRecords`） | — | 資料完整性守衛（沿用簽核設計整批解鎖守衛；Q14 待確認） |
-| 既有轉移的群組只列出（`transitionGroups`） | — | 安全檢查（Q15 待確認） |
+| 解鎖有記錄的簽核鎖定狀態不能套（`unlocksRecords`） | — | 資料完整性守衛（沿用簽核設計整批解鎖守衛） |
+| 解鎖有記錄的一般唯讀狀態不能套（`unlocksRecords`） | — | 資料完整性（升級專用、比設計器嚴；Q14 待事後確認） |
+| 合併後的狀態機驗證不過不能套（`workflowInvalid`） | — | 資料完整性守衛（沿用 `SaveWorkflow` 驗證） |
+| 既有轉移的群組只列出（`transitionGroups`） | — | 安全檢查（Q15 待事後確認） |
 | 簽核中的轉移不能取消需簽核（`approvalInFlight`） | — | 資料完整性守衛（沿用 `PendingApprovalGuard`） |
-| 被用過的簽核流程不能改目標、優先序不能重複 | — | 資料完整性守衛（沿用簽核流程指令） |
-| 已有轉出單據的轉換不改數量對應與追溯欄位（`conversionInUse`） | — | 資料完整性守衛（Q18 待確認） |
-| 已觸發的效果代號不能換（`firedEffect`） | — | 資料完整性守衛（事件冪等鍵；Q19 待確認） |
-| 已有記錄的分錄不改沖銷設定；有記錄的模組不代為設成分錄 | — | 資料完整性守衛（沿用分錄指令；Q21 待確認） |
+| 被用過的簽核流程不能改目標、優先序不能重複（含互換） | — | 資料完整性守衛（沿用簽核流程指令） |
+| 既有簽核流程的簽核人只列出（`approverGroups`） | — | 安全檢查（升級專用；Q27 待確認） |
+| 已有轉出單據的轉換不改數量對應與追溯欄位（表頭或明細，`conversionInUse`） | — | 資料完整性守衛（Q18 待事後確認） |
+| 已觸發的效果代號不能換（`firedEffect`） | — | 資料完整性守衛（事件冪等鍵；Q19 待事後確認） |
+| 已有記錄的分錄不改沖銷設定；有記錄的模組不代為設成分錄 | — | 資料完整性守衛（沿用分錄指令；Q21 待事後確認） |
 | 檢查回填上限 | 政策 `check.maxBackfillRecords` | 既有政策，可設定 |
-| 客戶改過的整合項目不覆寫（`integrationConflict`） | — | 資料完整性（沿用整合設計 §5.4；Q24 待確認） |
+| 客戶改過的整合項目不覆寫（`integrationConflict`） | — | 資料完整性（沿用整合設計 §5.4；Q24 待事後確認） |
+| 夥伴解析不到新宣告的引用時不能套（`integrationUnbound`） | — | 資料完整性守衛（沿用調和的 `unbound`） |
 
 ## 22. 留給實作者
 
@@ -1144,12 +1259,15 @@ pkg1d 的案例（§9.6；A25–A41 屬 pkg1d1，A42–A50 屬 pkg1d2）：
 - `extensible` 不比對的理由改寫（複核 R2）：S17 之後「現況匯出也取自候選新版」不成立；結論不變（不存資料庫），程式註解與 §6.2 理由一併改。
 - 簽核關卡 `Substitutions` 的完整備援放 pkg1d（pkg1d1 處理，T42）。
 
-### 22.2 pkg1d 留給實作者（2026-11-22 起草）
+### 22.2 pkg1d 留給實作者（2026-11-22 起草，同日依顧問分流與設計審查改版）
 
-- 各守衛抽成唯讀判斷的確切拆法（`PendingApprovalGuard`、`LockedDataGuard`、`LedgerHandlers`、`CheckIndexer`、簽核流程的 `CheckRetargetAsync`／`PriorityTakenAsync`）；原則是設計器與預覽呼叫同一份，不複製條件（T32）。
-- `AppFlowInstaller` 嚴格模式的介面（參數或另一個入口）。
-- 整合「安裝項目和宣告一致」的判斷：沿用調和的 `EnsureAsync` 比對邏輯，不另寫一份（T40）。
-- `conversionInUse` 的計數方式：目標模組裡表頭追溯欄位有值的未刪除記錄數；明細追溯另算時以實測為準。
-- `firedEffect` 的判斷：`Dynamic_EventFact` 依（事件 Key、效果代號）查有沒有事實，查一筆即可。
-- Demo 推導的列印範本、任務規則、轉移群組、簽核關卡、主檔欄位的實際代號，改前 grep 既有斷言（§9.6.5）。
+- 各守衛抽成唯讀判斷的確切拆法（`PendingApprovalGuard`、`LockedDataGuard`、`LedgerHandlers`、`CheckIndexer`、簽核流程的 `CheckRetargetAsync`／`PriorityTakenAsync`、`SaveWorkflowHandler` 的 400 驗證）；原則是設計器與預覽呼叫同一份，不複製條件（T32、T46、T47）。`AppFlowInstaller` 嚴格模式的介面已定為傳進各階段入口的參數（T45）。
+- 整合「安裝項目和宣告一致」的判斷：從調和的 `EnsureAsync` 比對邏輯抽成唯讀函式，不另寫一份（T40）。
+- `conversionInUse` 的計數：目標模組裡表頭追溯欄位有值的未刪除記錄數；觸發條件見 T48。
+- `firedEffect` 的判斷：`Dynamic_EventFact` 依（事件 Key、效果代號）查有沒有事實，查一筆即可；新增的查詢見 T49。
+- Demo 推導的列印範本、任務規則、轉移群組、簽核關卡、主檔欄位的實際代號，與新增的簽核中設計案，改前 grep 既有斷言（§9.6.5）。
 - §8.3 的 `UpgradeApplyBody.Masters` 已存在、`masterGroupMap` 要新增；前端更新頁主檔段的勾選與群組下拉沿用應用程式那一段的元件。
+- **已知限制，寫進手冊**：多項組合起來才違反守衛時，套用回 409、整批回滾（T46 第 1 點）；檢查回填遇到加總欄位精度不符，套用時才 409（T46 第 5 點）。
+- **s2e-a 的「取消類」狀態旗標**（顧問分流 L5）：`Workflow.cs` 的 `WorkflowState` 目前只有 `ReadOnly`、`Editable`。s2e-a 補 `cancelled` 這類旗標後，狀態的比對要多比這個屬性（覆蓋率測試會擋）；而狀態上有記錄時改這個旗標會改變已轉量，歸「會影響既有資料」、不能勾。誰後合併誰補：pkg1d1 先合併，就寫進 s2e-a 的設計；s2e-a 先合併，pkg1d1 一起做。
+- **跨應用程式的「上次略過」卡死**（顧問分流 L2）：T56 只處理主檔。A 應用程式新版引用 B 應用程式上次略過的項目時（`requires.apps`），B 沒有新版、更新頁顯示「已是最新」，A 的相依永遠滿足不了。pkg1d 不做；開 backlog 票，候選解法是 B 的更新頁在同版號時也能只套上次略過的項目，這會改「已是最新」的行為，屬行為題，要另問使用者。
+- **既有報表的分享群組比照 Q27**：報表分享也是授權，pkg1c 照一般屬性上線（只有新版改就預設勾）。Q27 若照推薦確認，開 backlog 票讓既有報表的分享群組也改成只列出；Q27 改採替代 1 就不必。
