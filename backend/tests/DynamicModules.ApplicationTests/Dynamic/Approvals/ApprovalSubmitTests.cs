@@ -149,12 +149,12 @@ public class ApprovalSubmitTests : ApprovalTestBase
     }
 
     [Fact]
-    public async Task Submit_NoEditPermission_403()
+    public async Task Submit_NoPermissionAtAll_IsNotFound()
     {
         var r = await Scenario3();
         var po = await NewPo(r, price: 50000);
-        As("sales01");   // 示範帳號，對這個模組沒有任何權限
-        (await Submit(po.Id, r.Confirmed)).IsForbidden.Should().BeTrue();
+        As("sales01");   // 示範帳號，對這個模組沒有任何權限：看不到這筆，和不存在一樣回 404（#15）
+        (await Submit(po.Id, r.Confirmed)).IsNotFound.Should().BeTrue();
     }
 
     [Fact]
