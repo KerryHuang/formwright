@@ -138,9 +138,10 @@ public sealed class AppUpgrader(
             foreach (var b in m.Blocks)
             {
                 var blockName = $"{m.Code}.{b.Code}";
-                // 新區塊帶出它底下現況沒有的欄位，開啟時排除的不建（審查 S3）
+                // 新區塊帶出它底下現況沒有的欄位；開啟時排除的另列在預覽上，有勾才建（審查 S3、複核 N1）
                 var fresh = newBlocks.ContainsKey(blockName)
-                    ? b.Fields.Where(f => !state.Fields.ContainsKey($"{m.Code}.{f.Code}") && !excluded.Contains($"{m.Code}.{f.Code}")).ToList()
+                    ? b.Fields.Where(f => !state.Fields.ContainsKey($"{m.Code}.{f.Code}")
+                        && (!excluded.Contains($"{m.Code}.{f.Code}") || selected.Contains($"field:{m.Code}.{f.Code}"))).ToList()
                     : b.Fields.Where(f => selected.Contains($"field:{m.Code}.{f.Code}") && !ctx.C.ContainsKey($"field:{m.Code}.{f.Code}")).ToList();
                 if (fresh.Count == 0) continue;
                 // 新版的區塊在現況可能不在（客戶刪了或換了），欄位就放進模組的第一個區塊
@@ -233,7 +234,12 @@ public sealed class AppUpgrader(
                     if (merged.TitleField is not null && titleField is null)
                         return ServiceResult.Invalid(new Dictionary<string, string[]> { [$"{item.Id}.titleField"] = [AppMessages.UpgradeTitleFieldMissing(merged.TitleField)] });
                     if (merged.TitleTemplate is not null && titleTemplate is null)
-                        return ServiceResult.Invalid(new Dictionary<string, string[]> { [$"{item.Id}.titleTemplate"] = [AppMessages.UpgradeTitleFieldMissing(merged.TitleTemplate)] });
+                    {
+                        // 訊息只帶對不上的那個代號（複核 S-b）；樣板解析不了才帶整串
+                        var absent = Domain.Modules.TitleTemplate.Tokens(merged.TitleTemplate)
+                            .FirstOrDefault(code => !map.Fields.ContainsKey(TemplateGraph.Qualify(merged.Code, code))) ?? merged.TitleTemplate;
+                        return ServiceResult.Invalid(new Dictionary<string, string[]> { [$"{item.Id}.titleTemplate"] = [AppMessages.UpgradeTitleFieldMissing(absent)] });
+                    }
                     if ((failed = Fail(await sender.Send(new UpdateModuleRequest(state.Modules[merged.Code].Key, merged.Name, merged.Icon, merged.Section,
                             titleField, titleTemplate, merged.TasksEnabled), ct), item.Id)) is not null) return failed;
                     break;

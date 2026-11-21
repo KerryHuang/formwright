@@ -648,6 +648,110 @@ public class AppUpgradeApplyCaseTests : IDisposable
         Query((db, b) => (b.Fields.ContainsKey("customer.discount"), b.Fields.ContainsKey("customer.phone"))).Should().Be((true, false));
     }
 
+    /// <summary>
+    /// N1：開啟時排除的欄位被新版移到新區塊，又被檢視、規則、同區塊公式、模組標題引用。預覽把它另列（excludedAtOpen、預設不勾、依賴新區塊），
+    /// 引用它的項目依賴它；沒勾它 → 400 帶依賴（不是 500）；勾了 → 欄位建出來，引用指到它。
+    /// </summary>
+    [Theory]
+    [InlineData("view", false)]
+    [InlineData("view", true)]
+    [InlineData("rule", false)]
+    [InlineData("rule", true)]
+    [InlineData("formula", false)]
+    [InlineData("formula", true)]
+    [InlineData("titleField", false)]
+    [InlineData("titleField", true)]
+    [InlineData("titleTemplate", false)]
+    [InlineData("titleTemplate", true)]
+    public async Task NewBlock_ReferencedFieldExcludedAtOpen_IsListedAndChecked_N1(string @case, bool tickField)
+    {
+        var formula = @case == "formula";
+        // 標題欄位只能是文字，用另加的 nick；公式要數字，用另加的 tier
+        var code = formula ? "tier" : @case == "titleField" ? "nick" : "phone";
+        JsonNode? Extra() => formula ? Tier() : @case == "titleField" ? Nick() : null;
+        var v1 = V1();
+        if (Extra() is { } added) FieldsOf(v1, "customer").Add(added);
+        (await Import(v1)).StatusCode.Should().Be(HttpStatusCode.Created);
+        var open = await _admin.PostAsJsonAsync($"{Apps}/packages/{Key}/open", new
+        {
+            excludeFields = new[] { $"customer.{code}" },
+            groupMap = new Dictionary<string, object> { ["sales"] = new { mode = "create" }, ["salesLead"] = new { mode = "create" } }
+        });
+        open.StatusCode.Should().Be(HttpStatusCode.Created, await open.Content.ReadAsStringAsync());
+        await NewVersionAsync(p =>
+        {
+            var module = ModuleNode(p, "customer");
+            if (Extra() is { } again) FieldsOf(p, "customer").Add(again);
+            var moved = FieldNode(p, "customer", code);
+            FieldsOf(p, "customer").Remove(moved);
+            var extra = ExtraBlock();
+            extra["fields"]!.AsArray().Add(moved);
+            module["blocks"]!.AsArray().Add(extra);
+            switch (@case)
+            {
+                case "view":
+                    moved["config"]!["isSortable"] = true;
+                    module["views"]![0]!["sort"] = JsonNode.Parse("""[ { "field": "phone", "order": "asc" } ]""");
+                    break;
+                case "rule": module["rules"]!.AsArray().Add(RuleOn("field:phone", "opt_lead")); break;
+                case "formula":
+                    extra["fields"]!.AsArray().Add(JsonNode.Parse("""
+                        { "code": "net", "type": "formula", "label": { "zh-TW": "淨額" }, "config": { "formula": "{tier} * 2", "resultType": "number", "scale": 0 } }
+                        """));
+                    break;
+                case "titleField": module["titleField"] = "nick"; break;
+                case "titleTemplate": module["titleTemplate"] = "{name}-{ phone }"; break;
+            }
+        });
+        var (field, block) = ($"field:customer.{code}", "block:customer.extra");
+        var dependent = @case switch
+        {
+            "view" => "view:customer:全部客戶", "rule" => "rules:customer", "formula" => block, _ => "module:customer"
+        };
+
+        var preview = await PreviewAsync();
+        var listed = Item(preview, field);
+        listed.GetProperty("category").GetString().Should().Be("excludedAtOpen", @case);
+        listed.GetProperty("defaultSelected").GetBoolean().Should().BeFalse();
+        listed.GetProperty("applicable").GetBoolean().Should().BeTrue();
+        listed.GetProperty("dependsOn").EnumerateArray().Select(d => d.GetString()).Should().Contain(block);
+        var dep = Item(preview, dependent);
+        dep.GetProperty("dependsOn").EnumerateArray().Select(d => d.GetString()).Should().Contain(field, @case);
+        dep.GetProperty("defaultSelected").GetBoolean().Should().BeFalse("預設勾選要能直接套用");
+
+        var picked = new[] { block, dependent }.Concat(tickField ? [field] : Array.Empty<string>()).Distinct().ToArray();
+        var res = await ApplyAsync(Token(preview), picked);
+        var body = await res.Content.ReadAsStringAsync();
+        if (!tickField)
+        {
+            res.StatusCode.Should().Be(HttpStatusCode.BadRequest, $"{@case}: {body}");
+            body.Should().Contain(field);
+            Query((db, _) => db.Set<App>().Single(a => a.Key == Key).PackageVersion).Should().Be("1.0.0");
+            return;
+        }
+        res.StatusCode.Should().Be(HttpStatusCode.OK, $"{@case}: {body}");
+        var (id, moduleId) = Query((db, b) => (b.Fields[$"customer.{code}"], db.Set<Module>().Single(m => m.Key == "crm-customer").Id));
+        switch (@case)
+        {
+            case "view":
+                Query((db, _) => db.Set<ListView>().Single(v => v.ModuleId == moduleId && v.OwnerUserId == null).Sort.Single().Field).Should().Be(id);
+                break;
+            case "rule":
+                Query((db, _) => db.Set<Rule>().Where(r => r.ModuleId == moduleId).AsEnumerable().SelectMany(r => r.Targets).ToList())
+                    .Should().Contain($"field:{id}");
+                break;
+            case "formula":
+                Query((db, b) => FieldOf(db, b, "customer.net").Config.Formula).Should().Contain($"{{{id}}}");
+                break;
+            case "titleField":
+                Query((db, _) => db.Set<Module>().Single(m => m.Id == moduleId).TitleFieldId).Should().Be(id);
+                break;
+            case "titleTemplate":
+                Query((db, _) => db.Set<Module>().Single(m => m.Id == moduleId).TitleTemplate).Should().Contain($"{{{id}}}");
+                break;
+        }
+    }
+
     /// <summary>A7：不是系統管理員套用 → 403，什麼都沒改。</summary>
     [Fact]
     public async Task NotSystemAdmin_CannotApply_A7()
