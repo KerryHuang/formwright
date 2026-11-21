@@ -131,15 +131,15 @@ public class EffectsDefinitionApiTests : IClassFixture<TestApp>
     }
 
     [Fact]
-    public async Task Reverse_is_forbidden_without_add_permission_and_404_for_unknown_records()
+    public async Task Reverse_is_404_for_users_who_cannot_see_the_record_like_unknown_records()
     {
         var (m, title, qty, _) = await LedgerModuleAsync(grant: false);
         var id = (await JsonOf(await _admin.PostAsJsonAsync($"{Base}/modules/{m}/records",
             new { values = new Dictionary<string, object> { [title] = "a", [qty] = 1 } }))).GetProperty("id").GetInt64();
 
-        // 模組沒授權給業務群組：sales01 沒有任何權限
+        // 模組沒授權給業務群組：sales01 沒有任何權限，看不到這筆就和不存在相同（#15）；有 Read 沒 Add 的 403 見 InventoryAppTests
         var outsider = _app.AsUser("sales01");
-        (await outsider.PostAsJsonAsync($"{Base}/records/{id}/reverse", new { })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await outsider.PostAsJsonAsync($"{Base}/records/{id}/reverse", new { })).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await _admin.PostAsJsonAsync($"{Base}/records/999999999/reverse", new { })).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 

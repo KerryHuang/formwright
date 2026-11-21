@@ -323,10 +323,9 @@ public class ConversionTests : ConversionTestBase
         var c = await BuildChain("a");
         await DefineOk(c, "a-to");
         var (src, lines) = await NewSource(c, ("螺絲", 10, 5));
-        As("sales01"); // 沒有任何模組權限
+        As("sales01"); // 沒有任何模組權限：看不到來源就和不存在相同（#15）
         var r = await Convert(c, src, "a-to", (lines[0], 1));
-        r.IsSuccess.Should().BeFalse();
-        (r.IsNotFound || r.IsForbidden).Should().BeTrue();
+        r.IsNotFound.Should().BeTrue();
     }
 
     [Fact]

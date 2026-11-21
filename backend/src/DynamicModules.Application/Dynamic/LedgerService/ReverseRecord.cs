@@ -33,18 +33,13 @@ public class ReverseRecordHandler(
 
     public async Task<ServiceResult> Handle(ReverseRecordRequest request, CancellationToken ct)
     {
-        var record = await records.GetAsync(request.Id, ct);
-        if (record is null || record.DeleteFlag) return ServiceResult.NotFound(RecordMapper.RecordNotFound);
-        var module = await modules.GetByIdAsync(record.ModuleId, includeChildren: true, ct);
-        if (module is null) return ServiceResult.NotFound(RecordMapper.ModuleNotFound);
+        // 看不到這筆就和不存在相同（#15）；「不是分錄」的 409 在看得到之後才回，不洩漏 id 屬於哪種模組
+        if (await RecordReadGate.ReadAsync(request.Id, records, modules, guard, ct) is not { } seen) return RecordReadGate.NotFound();
+        var (record, module, perms) = seen;
         var ledger = await ledgers.GetByModuleAsync(module.Id, ct);
         if (ledger is null) return ServiceResult.Conflict(NotLedger);
         if (await ModuleGate.RejectUnwritableAsync(module, guard, ct) is { } blocked) return blocked;
 
-        var read = await guard.AuthorizeAsync(module, PermissionAction.Read, ct);
-        if (read.Permissions is not { } perms) return read.Denied!;
-        if (perms.OwnerUserIds is not null && !perms.OwnerUserIds.Contains(record.OwnerUserId))
-            return ServiceResult.NotFound(RecordMapper.RecordNotFound);
         var add = await guard.AuthorizeAsync(module, PermissionAction.Add, ct);
         if (add.Permissions is null) return add.Denied!;
 

@@ -26,16 +26,13 @@ public class GetConversionInputsHandler(
     {
         var conversion = await conversions.GetByKeyAsync(request.ConversionKey, ct);
         if (conversion is not { Active: true }) return ServiceResult.NotFound(ConvertRecordHandler.NotFound);
-        var record = await records.GetAsync(request.RecordId, ct);
-        if (record is null || record.ModuleId != conversion.SourceModuleId) return ServiceResult.NotFound(RecordMapper.RecordNotFound);
-        var source = await modules.GetByIdAsync(conversion.SourceModuleId, includeChildren: true, ct);
+        // 看不到這筆、或它不屬於這個轉換的來源模組，一律和不存在相同（#15），不能拿轉換代碼探測 id 屬於哪個模組
+        if (await RecordReadGate.ReadAsync(request.RecordId, records, modules, guard, ct) is not { } seen
+            || seen.Record.ModuleId != conversion.SourceModuleId) return RecordReadGate.NotFound();
+        var (record, source, perms) = seen;
         var target = await modules.GetByIdAsync(conversion.TargetModuleId, includeChildren: true, ct);
-        if (!source.IsReadable() || !target.IsReadable()) return ServiceResult.NotFound(RecordMapper.ModuleNotFound);
+        if (!target.IsReadable()) return ServiceResult.NotFound(RecordMapper.ModuleNotFound);
 
-        var access = await guard.AuthorizeAsync(source, PermissionAction.Read, ct);
-        if (access.Permissions is not { } perms) return access.Denied!;
-        if (perms.OwnerUserIds is not null && !perms.OwnerUserIds.Contains(record.OwnerUserId))
-            return ServiceResult.NotFound(RecordMapper.RecordNotFound);
         var addAccess = await guard.AuthorizeAsync(target, PermissionAction.Add, ct);
         if (addAccess.Permissions is not { } addPerms) return addAccess.Denied!;
 

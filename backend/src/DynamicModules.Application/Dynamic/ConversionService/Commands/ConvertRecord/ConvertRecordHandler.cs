@@ -37,19 +37,16 @@ public class ConvertRecordHandler(
     {
         var conversion = await conversions.GetByKeyAsync(request.ConversionKey, ct);
         if (conversion is not { Active: true }) return ServiceResult.NotFound(NotFound);
-        var record = await records.GetAsync(request.SourceId, ct);
-        if (record is null || record.ModuleId != conversion.SourceModuleId) return ServiceResult.NotFound(RecordMapper.RecordNotFound);
-        var source = await modules.GetByIdAsync(conversion.SourceModuleId, includeChildren: true, ct);
+        // 看不到這筆、或它不屬於這個轉換的來源模組，一律和不存在相同（#15），不能拿轉換代碼探測 id 屬於哪個模組
+        if (await RecordReadGate.ReadAsync(request.SourceId, records, modules, guard, ct) is not { } seen
+            || seen.Record.ModuleId != conversion.SourceModuleId) return RecordReadGate.NotFound();
+        var (record, source, perms) = seen;
         var target = await modules.GetByIdAsync(conversion.TargetModuleId, includeChildren: true, ct);
-        if (!source.IsReadable() || !target.IsReadable()) return ServiceResult.NotFound(RecordMapper.ModuleNotFound);
+        if (!target.IsReadable()) return ServiceResult.NotFound(RecordMapper.ModuleNotFound);
         // Closed（應用程式關閉）的來源或目標都不能轉：轉換會寫目標，也會動來源記錄的版本號，兩邊都違反「資料唯讀」
         if (await ModuleGate.RejectUnwritableAsync(source, guard, ct) is { } sourceRejected) return sourceRejected;
         if (await ModuleGate.RejectUnwritableAsync(target, guard, ct) is { } targetRejected) return targetRejected;
 
-        var access = await guard.AuthorizeAsync(source, PermissionAction.Read, ct);
-        if (access.Permissions is not { } perms) return access.Denied!;
-        if (perms.OwnerUserIds is not null && !perms.OwnerUserIds.Contains(record.OwnerUserId))
-            return ServiceResult.NotFound(RecordMapper.RecordNotFound);
         if (request.RowVersion is not null && request.RowVersion != record.RowVersion) return ServiceResult.Stale();
 
         var def = conversion.Definition;
