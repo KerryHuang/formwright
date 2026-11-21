@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AppInfo, UpgradeItem } from 'src/services/api/dynamic-api';
-import { countByChip, DEFAULT_CATEGORIES, filterItems, formatValue, groupItems, isLong, moduleNames, NOT_APPLICABLE } from './upgrade-view';
+import { confirmCounts, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatValue, groupItems, isLong, moduleNames, NOT_APPLICABLE, toggleItem } from './upgrade-view';
 
 const item = (id: string, category: UpgradeItem['category'], extra: Partial<UpgradeItem> = {}): UpgradeItem => ({
   id, section: 'fields', module: 'lead', label: null, category, defaultSelected: false, applicable: true, reason: null,
@@ -50,5 +50,34 @@ describe('upgrade view', () => {
     expect(names.get('visit')).toEqual({ 'zh-TW': '拜訪' });
     expect(names.get('partner/partner')).toEqual({ 'zh-TW': '往來對象' });
     expect(names.has('ghost')).toBe(false);
+  });
+});
+
+describe('selection (§6.5, §10.2 point 7)', () => {
+  const mk = (id: string, dependsOn: string[] = [], category: UpgradeItem['category'] = 'added', applicable = true): UpgradeItem => ({
+    id, section: 'fields', module: 'm', label: null, category, defaultSelected: applicable, applicable, reason: null, dependsOn,
+    properties: [], attachedPermissions: [],
+  });
+  const items = [mk('report:r', ['field:m.a']), mk('field:m.a', ['field:m.b']), mk('field:m.b'), mk('field:m.c', [], 'both')];
+
+  it('ticking pulls in dependencies transitively', () => {
+    const r = toggleItem(items, new Set(), 'report:r', true);
+    expect([...r.selected].sort()).toEqual(['field:m.a', 'field:m.b', 'report:r']);
+    expect(r.together.sort()).toEqual(['field:m.a', 'field:m.b']);
+  });
+
+  it('unticking drops dependents transitively', () => {
+    const r = toggleItem(items, new Set(['report:r', 'field:m.a', 'field:m.b']), 'field:m.b', false);
+    expect([...r.selected]).toEqual([]);
+    expect(r.together.sort()).toEqual(['field:m.a', 'report:r']);
+  });
+
+  it('confirm counts per category and overwritten edits', () => {
+    const c = confirmCounts(items, new Set(['field:m.c', 'field:m.b']));
+    expect(c).toEqual({ byCategory: { both: 1, added: 1 }, overwrite: 1, total: 2 });
+  });
+
+  it('default selection follows the backend', () => {
+    expect([...defaultSelection([mk('a'), mk('b', [], 'customerOnly', false)])]).toEqual(['a']);
   });
 });

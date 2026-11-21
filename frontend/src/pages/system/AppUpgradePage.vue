@@ -1,22 +1,30 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useRoute } from 'vue-router';
-import { useAppUpgradePreview, useApps } from 'src/application/dynamic/queries/apps-queries';
+import { useRoute, useRouter } from 'vue-router';
+import { useQuasar } from 'quasar';
+import { useQuery } from '@tanstack/vue-query';
+import { useAppUpgradePreview, useApplyAppUpgrade, useApps } from 'src/application/dynamic/queries/apps-queries';
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import {
-  CATEGORY_ORDER, countByChip, DEFAULT_CATEGORIES, filterItems, formatValue, groupItems, isLong, moduleNames, NOT_APPLICABLE,
+  CATEGORY_ORDER, confirmCounts, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatValue, groupItems, isLong,
+  moduleNames, NOT_APPLICABLE, toggleItem,
 } from 'src/presentation/dynamic/upgrade/upgrade-view';
 import type { I18nText } from 'src/domain/dynamic/types';
-import type { UpgradeGroup, UpgradeItem } from 'src/services/api/dynamic-api';
+import { dynamicApi, type UpgradeBody, type UpgradeGroup, type UpgradeGroupChoice, type UpgradeItem } from 'src/services/api/dynamic-api';
 import { isForbidden, type ApiError } from 'src/services/api/http';
 
-// 唯讀更新頁（套件更新設計 §10.2，pkg1b）：列出差異與預設勾選，套用在 pkg1c 才上線，所以勾選框不能改、沒有套用鈕
+// 更新頁（套件更新設計 §10.2）：列出差異、勾選（相依連勾）、群組對應、套用；能不能勾、預設勾不勾都照後端回應
 const { t, te, locale } = useI18n();
+const $q = useQuasar();
 const route = useRoute();
+const router = useRouter();
 const key = String(route.params.key);
-const preview = useAppUpgradePreview(key);
+const body = ref<UpgradeBody>({});
+const preview = useAppUpgradePreview(key, body);
+const applying = useApplyAppUpgrade(key);
+const adminGroups = useQuery({ queryKey: ['admin-groups'], queryFn: dynamicApi.getAdminGroups });
 const apps = useApps();
 const data = computed(() => preview.data.value);
 const error = computed(() => preview.error.value as ApiError | null);
@@ -65,6 +73,68 @@ const dependsLabel = (ids: string[]) => ids.map((id) => {
 const effectLabel = (effect: string) => (te(`apps.upgrade.effect.${effect}`) ? t(`apps.upgrade.effect.${effect}`) : effect);
 const reasonLabel = (reason: string) => (te(`apps.upgrade.reason.${reason}`) ? t(`apps.upgrade.reason.${reason}`) : reason);
 
+// 勾選：預覽載入（含改群組對應後重新預覽）時回到後端的預設勾選
+const selected = ref<Set<string>>(new Set());
+watch(() => data.value?.token, () => { selected.value = defaultSelection(data.value?.items ?? []); }, { immediate: true });
+const canTick = (i: UpgradeItem) => !!data.value?.canApply && i.applicable && (data.value?.items ?? []).includes(i);
+function tick(i: UpgradeItem, on: boolean) {
+  const r = toggleItem(data.value?.items ?? [], selected.value, i.id, on);
+  selected.value = r.selected;
+  if (r.together.length) $q.notify({ message: t(on ? 'apps.upgrade.together' : 'apps.upgrade.togetherOff', { items: dependsLabel(r.together) }) });
+}
+
+// 群組對應（§10.2 第 3 點）：只列後端給的代號（新代號、失效的、略過過而新物件用得到的），改了就帶 groupMap 重新預覽
+const groupOptions = computed(() => [
+  ...(adminGroups.data.value ?? []).map((g) => ({ label: `${t('apps.upgrade.mapTo')}：${name(g.nameI18n)}`, value: `map:${g.id}` })),
+  { label: t('apps.upgrade.groupChoice.create'), value: 'create' },
+  { label: t('apps.upgrade.groupChoice.skip'), value: 'skip' },
+]);
+const choiceValue = (c: { mode: string; groupId?: number | null }) => (c.mode === 'map' ? `map:${c.groupId}` : c.mode);
+function choose(code: string, value: string) {
+  const choice: UpgradeGroupChoice = value.startsWith('map:') ? { mode: 'map', groupId: Number(value.slice(4)) } : { mode: value as 'create' | 'skip' };
+  body.value = { ...body.value, groupMap: { ...(body.value.groupMap ?? {}), [code]: choice } };
+}
+
+const confirming = ref(false);
+const summary = computed(() => confirmCounts(data.value?.items ?? [], selected.value));
+async function apply() {
+  if (!data.value) return;
+  try {
+    const result = await applying.mutateAsync({ ...body.value, token: data.value.token, items: [...selected.value] });
+    confirming.value = false;
+    $q.notify({
+      type: 'positive', timeout: 0, closeBtn: true, message: t('apps.upgrade.applied', { version: data.value.toVersion }),
+      caption: result.warnings?.join('；') || undefined,
+    });
+    await router.push('/system/apps');
+  } catch (e) {
+    confirming.value = false;
+    const err = e as ApiError;
+    if (err.status === 409) {
+      $q.notify({ type: 'warning', message: t('apps.upgrade.stale') });
+      await preview.refetch();
+    } else $q.notify({ type: 'negative', message: err.message || t('apps.upgrade.applyFailed') });
+  }
+}
+
+const downloading = ref(false);
+async function download() {
+  downloading.value = true;
+  try {
+    const { blob, fileName } = await dynamicApi.exportApp(key);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) {
+    $q.notify({ type: 'negative', message: (e as ApiError).message });
+  } finally {
+    downloading.value = false;
+  }
+}
+
 const expanded = ref<Record<string, boolean>>({});
 const viewing = ref<{ title: string; value: string } | null>(null);
 </script>
@@ -79,6 +149,8 @@ const viewing = ref<{ title: string; value: string } | null>(null);
           <template v-if="data">{{ t('apps.upgrade.title', { name: name(data.name), from: data.fromVersion, to: data.toVersion }) }}</template>
           <template v-else>{{ t('apps.title') }}</template>
         </div>
+        <q-btn v-if="data" outline no-caps icon="download" :label="t('apps.upgrade.download')" :loading="downloading"
+          data-testid="upgrade-download" @click="download" />
       </div>
 
       <q-inner-loading :showing="preview.isLoading.value" />
@@ -87,7 +159,7 @@ const viewing = ref<{ title: string; value: string } | null>(null);
       </q-banner>
 
       <template v-if="data">
-        <q-banner rounded class="bg-info-soft q-mb-md" data-testid="upgrade-readonly">{{ t('apps.upgrade.readOnlyHint') }}</q-banner>
+        <div class="text-caption text-muted q-mb-md" data-testid="upgrade-apply-hint">{{ t('apps.upgrade.applyHint') }}</div>
         <q-banner v-if="!data.hasBaseline" rounded class="bg-warning-soft q-mb-md" data-testid="upgrade-no-baseline">{{ t('apps.upgrade.noBaseline') }}</q-banner>
         <q-banner v-if="data.blockers.length" rounded class="bg-negative-soft q-mb-md" data-testid="upgrade-blockers">
           <div class="text-weight-medium">{{ t('apps.upgrade.blocked') }}</div>
@@ -97,8 +169,12 @@ const viewing = ref<{ title: string; value: string } | null>(null);
 
         <div v-if="data.groups.length" class="q-mb-md" data-testid="upgrade-groups">
           <div class="text-subtitle2">{{ t('apps.upgrade.groupsTitle') }}</div>
-          <div v-for="g in data.groups" :key="g.code" class="text-body2">
-            {{ name(g.name) }} <span class="text-muted">({{ g.code }})</span>：{{ t(`apps.upgrade.groupReason.${g.reason}`) }}・{{ t(`apps.upgrade.groupChoice.${g.choice.mode}`) }}
+          <div v-for="g in data.groups" :key="g.code" class="row items-center q-col-gutter-sm q-mb-xs upgrade-group" data-testid="upgrade-group">
+            <div class="col-12 col-sm-5 text-body2">
+              {{ name(g.name) }} <span class="text-muted">({{ g.code }})</span>：{{ t(`apps.upgrade.groupReason.${g.reason}`) }}
+            </div>
+            <q-select class="col-12 col-sm-7" dense outlined emit-value map-options :options="groupOptions" :model-value="choiceValue(g.choice)"
+              :aria-label="g.code" data-testid="upgrade-group-choice" @update:model-value="(v: string) => choose(g.code, v)" />
           </div>
         </div>
 
@@ -123,14 +199,15 @@ const viewing = ref<{ title: string; value: string } | null>(null);
             <q-item-label header>{{ groupTitle(g, s.modules) }}</q-item-label>
             <q-item v-for="i in g.items" :key="i.id" class="column items-stretch upgrade-item" data-testid="upgrade-item">
               <div class="row items-start no-wrap upgrade-row">
-                <q-checkbox :model-value="i.applicable && i.defaultSelected" disable dense :aria-label="labelOf(i)" />
+                <q-checkbox :model-value="selected.has(i.id)" :disable="!canTick(i)" dense :aria-label="labelOf(i)"
+                  data-testid="upgrade-tick" @update:model-value="(v: boolean) => tick(i, v)" />
                 <div class="col upgrade-name">
                   <div class="row items-center q-gutter-xs">
                     <span class="text-weight-medium">{{ labelOf(i) }}</span>
                     <span class="text-caption text-muted">{{ kindOf(i) }}</span>
                     <q-badge outline color="primary" :data-testid="`upgrade-category-${i.category}`">{{ t(`apps.upgrade.category.${i.category}`) }}</q-badge>
                   </div>
-                  <div v-if="i.reason" class="text-caption text-negative">{{ reasonLabel(i.reason) }}</div>
+                  <div v-if="i.reason" class="text-caption text-negative">{{ i.reason === 'affectsData' ? t('apps.upgrade.reason.affectsData', { n: i.affectedRecords ?? 0 }) : reasonLabel(i.reason) }}</div>
                   <div v-if="i.dependsOn.length" class="text-caption text-muted">{{ t('apps.upgrade.dependsOn', { items: dependsLabel(i.dependsOn) }) }}</div>
                   <div v-if="i.attachedPermissions.length" class="row q-gutter-xs q-mt-xs" data-testid="upgrade-attached">
                     <q-badge v-for="(p, k) in i.attachedPermissions" :key="k" :color="p.grants ? 'warning' : 'secondary'" :outline="!p.grants">
@@ -164,6 +241,30 @@ const viewing = ref<{ title: string; value: string } | null>(null);
         </template>
       </template>
 
+      <div v-if="data" class="upgrade-bar row items-center q-gutter-sm" data-testid="upgrade-bar">
+        <span class="col" data-testid="upgrade-selected">{{ t('apps.upgrade.selected', { n: selected.size }) }}</span>
+        <q-btn color="primary" unelevated no-caps :label="t('apps.upgrade.apply')" :disable="!data.canApply || selected.size === 0"
+          data-testid="upgrade-apply" @click="confirming = true" />
+      </div>
+
+      <q-dialog v-model="confirming">
+        <q-card class="upgrade-dialog" data-testid="upgrade-confirm">
+          <q-card-section class="text-subtitle1">{{ t('apps.upgrade.confirmTitle') }}</q-card-section>
+          <q-card-section class="q-pt-none">
+            <div v-for="(n, c) in summary.byCategory" :key="c">{{ t(`apps.upgrade.category.${c}`) }}：{{ n }}</div>
+            <div v-if="summary.overwrite" class="text-negative q-mt-sm" data-testid="upgrade-confirm-overwrite">
+              {{ t('apps.upgrade.confirmOverwrite', { n: summary.overwrite }) }}
+            </div>
+            <div class="text-caption text-muted q-mt-sm">{{ t('apps.upgrade.applyHint') }}</div>
+          </q-card-section>
+          <q-card-actions align="right">
+            <q-btn flat no-caps :label="t('apps.upgrade.close')" v-close-popup />
+            <q-btn color="primary" unelevated no-caps :label="t('apps.upgrade.apply')" :loading="applying.isPending.value"
+              data-testid="upgrade-confirm-ok" @click="apply" />
+          </q-card-actions>
+        </q-card>
+      </q-dialog>
+
       <q-dialog :model-value="!!viewing" @update:model-value="viewing = null">
         <q-card class="upgrade-dialog">
           <q-card-section class="text-subtitle1">{{ viewing?.title }}</q-card-section>
@@ -178,6 +279,9 @@ const viewing = ref<{ title: string; value: string } | null>(null);
 <style scoped>
 /* 列與列之間留白：全域把 q-item 的上下內距壓得很小，第二列以後會貼著分隔線（走查 W4） */
 .upgrade-item { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+/* 底部固定列：已選數量與套用（§10.2 第 7 點）；頁面底部留白讓最後一項不被擋住 */
+.upgrade-page { padding-bottom: 5rem; }
+.upgrade-bar { position: sticky; bottom: 0; z-index: 2; background: var(--t-panel); border-top: 1px solid var(--t-border); padding: 0.5rem 0; }
 .upgrade-row { gap: 0.5rem; }
 .upgrade-name { min-width: 0; overflow-wrap: anywhere; }
 .upgrade-prop { display: grid; grid-template-columns: minmax(8rem, 1fr) repeat(3, minmax(0, 2fr)); gap: 0.5rem; padding: 0.25rem 0; }

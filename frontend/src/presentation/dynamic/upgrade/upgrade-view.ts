@@ -77,3 +77,39 @@ export function moduleNames(apps: AppInfo[], appKey: string, items: UpgradeItem[
   }
   return map;
 }
+
+/** Initial selection: what the backend marked applicable and selected by default (design §20 point 3; never re-decided here). */
+export function defaultSelection(items: UpgradeItem[]): Set<string> {
+  return new Set(items.filter((i) => i.applicable && i.defaultSelected).map((i) => i.id));
+}
+
+/**
+ * Ticking or unticking one item (design §6.5): ticking also ticks everything it depends on (transitively);
+ * unticking also unticks everything that depends on it. Returns the new selection and the ids pulled in or dropped with it.
+ */
+export function toggleItem(items: UpgradeItem[], selected: Set<string>, id: string, on: boolean): { selected: Set<string>; together: string[] } {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const next = new Set(selected);
+  const together: string[] = [];
+  const visit = (current: string) => {
+    if (on === next.has(current)) return;
+    if (on) next.add(current); else next.delete(current);
+    if (current !== id) together.push(current);
+    const linked = on ? byId.get(current)?.dependsOn ?? [] : items.filter((i) => i.dependsOn.includes(current)).map((i) => i.id);
+    linked.filter((x) => byId.get(x)?.applicable !== false).forEach(visit);
+  };
+  visit(id);
+  return { selected: next, together };
+}
+
+/** Confirm dialog numbers (design §10.2 point 7): ticked count per category, and how many "both" items overwrite the customer's edits. */
+export function confirmCounts(items: UpgradeItem[], selected: Set<string>): { byCategory: Record<string, number>; overwrite: number; total: number } {
+  const byCategory: Record<string, number> = {};
+  let total = 0;
+  for (const i of items) {
+    if (!selected.has(i.id)) continue;
+    byCategory[i.category] = (byCategory[i.category] ?? 0) + 1;
+    total += 1;
+  }
+  return { byCategory, overwrite: byCategory.both ?? 0, total };
+}

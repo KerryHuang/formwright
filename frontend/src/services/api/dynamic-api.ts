@@ -141,6 +141,8 @@ export interface UpgradeItem {
   dependsOn: string[];
   properties: UpgradeProperty[];
   attachedPermissions: AttachedPermission[];
+  /** reason 是 affectsData 時，沒有值的記錄數（§6.4、A12b）。 */
+  affectedRecords?: number | null;
 }
 
 export interface UpgradeGroup {
@@ -160,6 +162,10 @@ export interface UpgradeMasterPreview {
   items: UpgradeItem[];
   counts: Record<string, number>;
 }
+
+export interface UpgradeGroupChoice { mode: 'map' | 'create' | 'skip'; groupId?: number | null }
+export interface UpgradeBody { groupMap?: Record<string, UpgradeGroupChoice>; moduleKeys?: Record<string, string> }
+export interface UpgradeApplyBody extends UpgradeBody { token: string; items: string[] }
 
 export interface UpgradePreview {
   app: string;
@@ -592,8 +598,22 @@ export const dynamicApi = {
   openApp: (id: string, body: OpenAppBody) =>
     http.post<AppInfo>(`/apps/packages/${encodeURIComponent(id)}/open`, body).then(data),
   getApps: () => http.get<AppInfo[]>('/apps').then(data),
-  previewAppUpgrade: (key: string) =>
-    http.post<UpgradePreview>(`/apps/${encodeURIComponent(key)}/upgrade/preview`, {}).then(data),
+  previewAppUpgrade: (key: string, body: UpgradeBody = {}) =>
+    http.post<UpgradePreview>(`/apps/${encodeURIComponent(key)}/upgrade/preview`, body).then(data),
+  applyAppUpgrade: (key: string, body: UpgradeApplyBody) =>
+    http.post<AppInfo & { warnings: string[] }>(`/apps/${encodeURIComponent(key)}/upgrade`, body).then(data),
+  /** 下載目前設計（套件更新設計 §10.2 第 1 點）：同 GET apps/{key}/export，存成 .app.json。 */
+  exportApp: async (key: string) => {
+    const r = await http.get<Blob>(`/apps/${encodeURIComponent(key)}/export`, { responseType: 'blob', validateStatus: () => true });
+    if (r.status >= 400) {
+      let body: unknown;
+      try { body = JSON.parse(await r.data.text()); } catch { body = undefined; }
+      const err = toApiError({ response: { status: r.status, data: body } });
+      handleAuthFailure(err);
+      throw err;
+    }
+    return { blob: r.data, fileName: dispositionFileName(r.headers['content-disposition']) ?? `${key}.app.json` };
+  },
   closeApp: (key: string, cascade: boolean) =>
     http.post<CloseAppResult>(`/apps/${encodeURIComponent(key)}/close`, { cascade }).then(data),
   reopenApp: (key: string) => http.post<AppInfo>(`/apps/${encodeURIComponent(key)}/reopen`).then(data),
