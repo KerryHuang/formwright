@@ -244,12 +244,20 @@ public class ApprovalGraphEquivalenceTests : ApprovalTestBase
     /// <summary>歷程 DataJson 裡兩邊本來就不同的鍵（版本 id、流程 id、流程名稱，以及兩組模組各自的欄位 id）；遞迴移除。</summary>
     private static readonly string[] DataKeysDropped = ["flowVersionId", "flowId", "flowKey", "flowName", "versionId", "fieldId"];
 
-    private static string NormalizeData(string? json, PurchaseRig r)
+    private static string NormalizeData(string? json, string module)
     {
         if (string.IsNullOrEmpty(json)) return "";
         var node = JsonNode.Parse(json);
         Drop(node);
-        return (node?.ToJsonString() ?? "").Replace(r.Module, "@M");
+        return Regex.Replace(node?.ToJsonString() ?? "", $@"(?<![\p{{L}}\p{{N}}_]){Regex.Escape(module)}(?![\p{{L}}\p{{N}}_])", "@M");
+    }
+
+    [Fact]
+    public void NormalizeData_ReplacesModuleKeyOnlyAtWordBoundary()
+    {
+        // 模組鍵 "po" 是 "position"、"report" 的子字串：無邊界替換會把它們也改掉，造成假紅或遮蔽差異
+        NormalizeData("""{"a":"po","b":"po-extra","c":"position report","d":"/po/1"}""", "po")
+            .Should().Be("""{"a":"@M","b":"@M-extra","c":"position report","d":"/@M/1"}""");
     }
 
     private static void Drop(JsonNode? n)
@@ -306,7 +314,7 @@ public class ApprovalGraphEquivalenceTests : ApprovalTestBase
 
             foreach (var a in set.Set<ApprovalAction>().AsNoTracking().Where(x => x.InstanceId == inst.Id).OrderBy(x => x.Id))
                 lines.Add($"action{i} {a.Action} run={N(a.StageRunId)} task={(a.TaskId is { } tid && taskPos.TryGetValue(tid, out var p) ? p.ToString() : "-")} " +
-                          $"actor={a.ActorUserId} onBehalf={a.OnBehalfOfUserId ?? "-"} targets={string.Join(",", a.TargetUserIds ?? [])} data={NormalizeData(a.DataJson, r)}");
+                          $"actor={a.ActorUserId} onBehalf={a.OnBehalfOfUserId ?? "-"} targets={string.Join(",", a.TargetUserIds ?? [])} data={NormalizeData(a.DataJson, r.Module)}");
         }
 
         // 通知：SourceType = approval 而且 SourceId 屬於這個情境建出的實例（含重來建的新實例）；Link 中的模組鍵與記錄 id 換成占位字
