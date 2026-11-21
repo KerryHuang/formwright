@@ -20,6 +20,8 @@ public interface IAppRepository
     void AddIntegration(AppIntegration integration);
     /// <summary>升級的基準（套件更新設計 §5.4）：開啟時寫入一列。</summary>
     void AddBaseline(AppBaseline baseline);
+    /// <summary>套用升級後整列換成新版（套件更新設計 §9.2）；讀出來的是未追蹤的實體，改完由這裡標成修改。</summary>
+    void UpdateBaseline(AppBaseline baseline);
     /// <summary>讀基準（升級預覽與套用用）；pkg1 上線前開啟的應用程式沒有基準，回 null。</summary>
     Task<AppBaseline?> GetBaselineAsync(long appId, CancellationToken ct);
 }

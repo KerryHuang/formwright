@@ -28,6 +28,7 @@ public static class MessageText
         // 記錄寫入、狀態轉移、刪除、唯讀鎖定
         Required = nameof(Required), RecordReadOnly = nameof(RecordReadOnly), OptionOutOfRange = nameof(OptionOutOfRange),
         UnknownDetail = nameof(UnknownDetail), DetailRowNotFound = nameof(DetailRowNotFound), TooManyDetailRows = nameof(TooManyDetailRows),
+        AppUpgradeSummary = nameof(AppUpgradeSummary),
         WorkflowNotInitial = nameof(WorkflowNotInitial), WorkflowNotAllowed = nameof(WorkflowNotAllowed), WorkflowNotPermitted = nameof(WorkflowNotPermitted),
         WorkflowLockedDetails = nameof(WorkflowLockedDetails), WorkflowLockedDelete = nameof(WorkflowLockedDelete),
         WorkflowTooManyTransitions = nameof(WorkflowTooManyTransitions),
@@ -224,6 +225,7 @@ public static class MessageText
         [UnknownDetail] = ("明細模組不存在或未啟用", "The detail module does not exist or is not enabled",
             "ไม่มีโมดูลรายละเอียดหรือยังไม่เปิดใช้งาน", "Mô-đun chi tiết không tồn tại hoặc chưa được kích hoạt"),
         [DetailRowNotFound] = ("明細不存在", "Detail row not found", "ไม่พบรายการรายละเอียด", "Không tìm thấy dòng chi tiết"),
+        [AppUpgradeSummary] = ("{0} → {1}，套用 {2} 項，略過 {3} 項", "{0} → {1}, applied {2}, skipped {3}", "{0} → {1} ใช้ {2} รายการ ข้าม {3} รายการ", "{0} → {1}, đã áp dụng {2} mục, bỏ qua {3} mục"),
         [TooManyDetailRows] = ("明細最多 {0} 列", "At most {0} detail rows", "รายละเอียดได้ไม่เกิน {0} แถว", "Tối đa {0} dòng chi tiết"),
         [WorkflowNotInitial] = ("新增時只能使用起始狀態", "Only the initial status can be used when creating", "ตอนสร้างใช้ได้เฉพาะสถานะเริ่มต้น", "Khi tạo mới chỉ được dùng trạng thái ban đầu"),
         [WorkflowNotAllowed] = ("不允許這個狀態轉移", "This status change is not allowed", "ไม่อนุญาตให้เปลี่ยนสถานะนี้", "Không cho phép chuyển trạng thái này"),
