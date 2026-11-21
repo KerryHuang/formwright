@@ -6,10 +6,15 @@ using DynamicModules.Application.Dynamic.PermissionService.Data;
 using DynamicModules.Application.Dynamic.RecordService.Data;
 using DynamicModules.Application.Dynamic.RecordService.Queries.GetRecord;
 using DynamicModules.Domain.Approvals;
+using DynamicModules.Domain.Policies;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.ValueObjects;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using DynamicModules.Domain.Repositories.Dynamic;
+using DynamicModules.Persistence.Repositories.Dynamic;
+using Record = DynamicModules.Domain.Entities.Dynamic.Record;
 using static DynamicModules.ApplicationTests.Dynamic.Approvals.ApprovalGraphTestKit;
 using DynamicModules.TestSupport;
 
@@ -22,6 +27,21 @@ namespace DynamicModules.ApplicationTests.Dynamic.Approvals;
 public class ApprovalGraphSummaryTests : ApprovalTestBase
 {
     protected override bool ScopePerRequest => true;
+
+    /// <summary>IRecordRepository 每個方法被呼叫的次數（票 #28：已處理分頁按模組批次判斷可見性）。</summary>
+    private readonly Dictionary<string, int> RecordCalls = [];
+
+    protected override void ConfigureServices(IServiceCollection services)
+    {
+        services.AddScoped<RecordRepository>();
+        services.AddScoped<IRecordRepository>(sp =>
+        {
+            var proxy = System.Reflection.DispatchProxy.Create<IRecordRepository, ReportSqlEquivalenceTests.CountingProxy>();
+            ((ReportSqlEquivalenceTests.CountingProxy)(object)proxy).Inner = sp.GetRequiredService<RecordRepository>();
+            ((ReportSqlEquivalenceTests.CountingProxy)(object)proxy).Calls = RecordCalls;
+            return proxy;
+        });
+    }
 
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 
@@ -46,10 +66,11 @@ public class ApprovalGraphSummaryTests : ApprovalTestBase
             [E("e0", "start", "f"), E("fa", "f", "m1"), E("fb", "f", "m2"), E("aj", "m1", "j"), E("bj", "m2", "j"), E("je", "j", "end")]);
     }
 
-    private async Task<(PurchaseRig R, long Id)> Boot(ApprovalDefinition graph)
+    private async Task<(PurchaseRig R, long Id)> Boot(ApprovalDefinition graph, string p = "po")
     {
-        var r = await BuildPurchase();
-        await SeedGraphFlow(r, "po-g", r.Confirmed, 1, graph);
+        As("admin");
+        var r = await BuildPurchase(p);
+        await SeedGraphFlow(r, $"{p}-g", r.Confirmed, 1, graph);
         (await SaveWorkflow(r, [Needs(r.Draft, r.Confirmed), Plain(r.Confirmed, r.Partial), Plain(r.Partial, r.Received),
             Plain(r.Confirmed, r.Cancelled)])).IsSuccess.Should().BeTrue();
         await GrantEveryone(r.Module, r.Extra);
@@ -341,5 +362,138 @@ public class ApprovalGraphSummaryTests : ApprovalTestBase
         await RevokeRead(r);
 
         Names((await InboxItem("buyer1", ApprovalInboxBoxes.Submitted)).ActiveStages).Should().Equal("a", "b");
+    }
+
+    // ───────── 已處理分頁按模組批次判斷可見性（票 #28）：先釘住逐列判斷的結果，再驗查詢次數 ─────────
+
+    private async Task<long> SubmitAnother(PurchaseRig r)
+    {
+        As("buyer1");
+        var po = await NewPo(r, price: 5000);
+        return (await MustSubmit(po.Id, r.Confirmed)).InstanceId!.Value;
+    }
+
+    private async Task<List<ApprovalInboxItem>> InboxItems(string user, string box)
+    {
+        As(user);
+        var res = await Send(new GetApprovalTasksRequest(box, null, null, null, 1, 50));
+        res.IsSuccess.Should().BeTrue(Dump(res));
+        return ((DynamicModules.Application.Common.PagedResponse<ApprovalInboxItem>)res.Data!).Items.ToList();
+    }
+
+    private async Task SetOwner(long instanceId, string owner)
+    {
+        var recordId = Inst(instanceId).RecordId;
+        await Db.Context.Set<Record>().Where(x => x.Id == recordId).ExecuteUpdateAsync(u => u.SetProperty(x => x.OwnerUserId, owner));
+        Db.Context.ChangeTracker.Clear();
+    }
+
+    [Fact]
+    public async Task Inbox_Done_SameModule_MixedScope_PerRowVisibility()
+    {
+        // 同模組三張：fin1 只有「自己的記錄」Read；擁有者改成 fin1 的那張看得到並行名稱，其餘兩張看不到
+        var (r, first) = await Boot(ThreeBranches());
+        var second = await SubmitAnother(r);
+        var third = await SubmitAnother(r);
+        await OwnScopeReadOnly(r);
+        await SetOwner(second, "fin1");
+        foreach (var id in new[] { first, second, third }) await MustApprove(id, "fin1");
+
+        var items = (await InboxItems("fin1", ApprovalInboxBoxes.Done)).ToDictionary(i => i.InstanceId);
+
+        items.Should().HaveCount(3);
+        Names(items[second].ActiveStages).Should().Equal("b", "z");
+        items[first].ActiveStages.Should().BeNull();
+        items[third].ActiveStages.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Inbox_Done_CrossModule_OnlyReadableModuleListsActiveStages()
+    {
+        // 兩個模組各一張：fin1 在 po 有 Read、在 po2 的權限被收回 → 只有 po 的列看得到並行名稱
+        var (_, inA) = await Boot(ThreeBranches());
+        var (r2, inB) = await Boot(ThreeBranches(), "po2");
+        As("admin");
+        await RevokeAll(r2.Module);
+        await MustApprove(inA, "fin1");
+        await MustApprove(inB, "fin1");
+
+        var items = (await InboxItems("fin1", ApprovalInboxBoxes.Done)).ToDictionary(i => i.InstanceId);
+
+        items.Should().HaveCount(2);
+        Names(items[inA].ActiveStages).Should().Equal("b", "z");
+        items[inB].ActiveStages.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Inbox_Done_CrossModule_BothReadable_BothListActiveStages()
+    {
+        var (_, inA) = await Boot(ThreeBranches());
+        var (_, inB) = await Boot(ThreeBranches(), "po2");
+        await MustApprove(inA, "fin1");
+        await MustApprove(inB, "fin1");
+
+        var items = await InboxItems("fin1", ApprovalInboxBoxes.Done);
+
+        items.Should().HaveCount(2);
+        items.Should().OnlyContain(i => i.ActiveStages != null && i.ActiveStages.Count == 2);
+    }
+
+    [Fact]
+    public async Task Inbox_Done_DeletedRecord_NoActiveStages()
+    {
+        // 記錄已軟刪除：和「全部」分頁一樣不算看得到
+        var (_, id) = await Boot(ThreeBranches());
+        await MustApprove(id, "fin1");
+        var recordId = Inst(id).RecordId;
+        await Db.Context.Set<Record>().Where(x => x.Id == recordId).ExecuteUpdateAsync(u => u.SetProperty(x => x.DeleteFlag, true));
+        Db.Context.ChangeTracker.Clear();
+
+        var items = await InboxItems("fin1", ApprovalInboxBoxes.Done);
+
+        items.Should().ContainSingle().Which.ActiveStages.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Inbox_Done_InitiatorWithoutRead_ListsActiveStages()
+    {
+        // 發起人一律看得到整張圖：模組允許自簽，buyer1 送出後自己在 b 分支同意，再收回全員 Read
+        var graph = G(
+            [Start(), Fork("f"), Approval("a", Users("fin1")), Approval("b", Users("buyer1")), Approval("z", Users("fin2")), Join("j", "f"), End()],
+            [E("e0", "start", "f"), E("fa", "f", "a"), E("fb", "f", "b"), E("fz", "f", "z"), E("aj", "a", "j"), E("bj", "b", "j"), E("zj", "z", "j"), E("je", "j", "end")]);
+        As("admin");
+        var r = await BuildPurchase();
+        Db.Context.Add(new ModulePolicy
+        {
+            ModuleId = r.ModuleId, Code = PolicyCatalog.ApprovalAllowSelfApproval.Code, Value = "true", ModifiedUserId = "admin"
+        });
+        await Db.Context.SaveForTestsAsync();
+        Db.Context.ChangeTracker.Clear();
+        await SeedGraphFlow(r, "po-g", r.Confirmed, 1, graph);
+        (await SaveWorkflow(r, [Needs(r.Draft, r.Confirmed), Plain(r.Confirmed, r.Partial)])).IsSuccess.Should().BeTrue();
+        await GrantEveryone(r.Module, r.Extra);
+        var id = await SubmitAnother(r);
+        await RevokeRead(r);
+        await MustApprove(id, "buyer1");
+
+        Names((await InboxItem("buyer1", ApprovalInboxBoxes.Done)).ActiveStages).Should().Equal("a", "z");
+    }
+
+    [Fact]
+    public async Task Inbox_Done_VisibilityQueries_OnePerModule()
+    {
+        // 同模組三列、另一模組兩列：每個模組只查一次可見性，不是每列各查一次
+        var (r, a1) = await Boot(ThreeBranches());
+        var a2 = await SubmitAnother(r);
+        var a3 = await SubmitAnother(r);
+        var (r2, b1) = await Boot(ThreeBranches(), "po2");
+        var b2 = await SubmitAnother(r2);
+        foreach (var id in new[] { a1, a2, a3, b1, b2 }) await MustApprove(id, "fin1");
+
+        RecordCalls.Clear();
+        var items = await InboxItems("fin1", ApprovalInboxBoxes.Done);
+
+        items.Should().HaveCount(5).And.OnlyContain(i => i.ActiveStages != null);
+        RecordCalls.GetValueOrDefault(nameof(IRecordRepository.ListVisibleIdsAsync)).Should().Be(2);
     }
 }

@@ -308,31 +308,46 @@ public class GetApprovalTasksHandler(
         var now = time.Now;
         var items = new List<ApprovalInboxItem>();
         var runsByInstance = runs.ToLookup(x => x.InstanceId);
-        var scopeCache = new Dictionary<(long, PermissionAction), EffectivePermissions?>();
-        // 「已處理」列要逐列判斷讀者看不看得到整張圖：發起人，或對該記錄有 Read／Approve 的資料範圍（同「全部」分頁的 ListVisibleIdsAsync）
-        async Task<bool> SeesWhole(ApprovalInstance inst)
+        // 「已處理」列要判斷讀者看不看得到整張圖：發起人，或對該記錄有 Read／Approve 的資料範圍（同「全部」分頁的 ListVisibleIdsAsync）。
+        // 按模組批次查（票 #28）：每個模組先用 Read 範圍查整批記錄，剩下沒命中的再用 Approve 範圍查，結果與逐列判斷相同
+        async Task<HashSet<long>> SeesWhole(IReadOnlyCollection<ApprovalInstance> candidates)
         {
-            if (inst.InitiatorUserId == me) return true;
-            if (await ModuleOf(inst.ModuleId) is not { } m || !m.IsReadable()) return false;
-            foreach (var action in new[] { PermissionAction.Read, PermissionAction.Approve })
+            var whole = candidates.Where(i => i.InitiatorUserId == me).Select(i => i.Id).ToHashSet();
+            foreach (var group in candidates.Where(i => i.InitiatorUserId != me).GroupBy(i => i.ModuleId))
             {
-                if (!scopeCache.TryGetValue((m.Id, action), out var p))
-                    scopeCache[(m.Id, action)] = p = (await guard.AuthorizeAsync(m, action, ct)).Permissions;
-                if (p is not null && (await records.ListVisibleIdsAsync(m.Id, [inst.RecordId], p.OwnerUserIds, ct)).Contains(inst.RecordId)) return true;
+                if (await ModuleOf(group.Key) is not { } m || !m.IsReadable()) continue;
+                var remaining = group.Select(i => i.RecordId).Distinct().ToList();
+                var visible = new HashSet<long>();
+                foreach (var action in new[] { PermissionAction.Read, PermissionAction.Approve })
+                {
+                    if (remaining.Count == 0) break;
+                    if ((await guard.AuthorizeAsync(m, action, ct)).Permissions is not { } p) continue;
+                    var hit = await records.ListVisibleIdsAsync(m.Id, remaining, p.OwnerUserIds, ct);
+                    visible.UnionWith(hit);
+                    remaining = remaining.Where(id => !hit.Contains(id)).ToList();
+                }
+                whole.UnionWith(group.Where(i => visible.Contains(i.RecordId)).Select(i => i.Id));
             }
-            return false;
+            return whole;
         }
-        foreach (var r in rows.Skip((page - 1) * size).Take(size))
+        // 並行時三個分頁列出進行中的節點（fg4 U10）；「待簽」維持自己的節點（U26），「已處理」只給看得到整張圖的讀者（M2）
+        List<ApprovalActiveStage>? ActiveOf(Row r)
+        {
+            var def = r.Inst.Status == ApprovalInstanceStatus.Pending && request.Box != ApprovalInboxBoxes.Todo ? ApprovalEngine.DefinitionOf(r.Inst) : null;
+            return def is not null && ApprovalGraphMode.Applies(r.Inst, def) ? ApprovalReader.ActiveStages(def, runsByInstance[r.Inst.Id]) : null;
+        }
+        var pageRows = rows.Skip((page - 1) * size).Take(size).Select(r => (Row: r, Active: ActiveOf(r))).ToList();
+        var seesWhole = request.Box == ApprovalInboxBoxes.Done
+            ? await SeesWhole(pageRows.Where(x => x.Active is not null).Select(x => x.Row.Inst).DistinctBy(i => i.Id).ToList())
+            : null;
+        foreach (var (r, rowActive) in pageRows)
         {
             var module = await ModuleOf(r.Inst.ModuleId);
             var pending = r.Inst.Status == ApprovalInstanceStatus.Pending;
             // 「待簽」列取自己任務所在的關卡（U5）：sequence 的待簽任務一定在目前關卡，結果不變；graph 並行時目前關卡可能是另一條分支的節點。其餘照舊取目前關卡
             var runId = request.Box == ApprovalInboxBoxes.Todo && r.Task is { } mine ? mine.StageRunId : r.Inst.CurrentStageRunId;
             var stage = pending && runId is { } rid && runById.TryGetValue(rid, out var run) ? run.NameSnapshot : null;
-            // 並行時三個分頁列出進行中的節點（fg4 U10）；「待簽」維持自己的節點（U26），「已處理」只給看得到整張圖的讀者（M2）
-            var def = pending && request.Box != ApprovalInboxBoxes.Todo ? ApprovalEngine.DefinitionOf(r.Inst) : null;
-            var active = def is not null && ApprovalGraphMode.Applies(r.Inst, def) ? ApprovalReader.ActiveStages(def, runsByInstance[r.Inst.Id]) : null;
-            if (active is not null && request.Box == ApprovalInboxBoxes.Done && !await SeesWhole(r.Inst)) active = null;
+            var active = seesWhole is not null && !seesWhole.Contains(r.Inst.Id) ? null : rowActive;
             items.Add(new ApprovalInboxItem(r.Task?.Id ?? 0, r.Inst.Id, r.Inst.RecordId, module?.Key ?? "", module?.NameI18n ?? new I18nText(),
                 ApprovalViews.AiBlanksTitle(channel, module) ? "" : r.Inst.TitleSnapshot, stage, r.Inst.InitiatorUserId, names.GetValueOrDefault(r.Inst.InitiatorUserId) ?? r.Inst.InitiatorUserId,
                 r.Inst.SubmittedTime, r.Due, pending && r.Due < now, module is null || !module.IsWritable(), r.Inst.Status, active));
