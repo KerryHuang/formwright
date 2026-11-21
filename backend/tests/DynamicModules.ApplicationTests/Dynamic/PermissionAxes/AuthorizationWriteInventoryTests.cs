@@ -151,6 +151,7 @@ public class AuthorizationWriteInventoryTests
         "DynamicModules.Persistence/SqliteDatabaseBackup.cs",              // 備份：VACUUM INTO、讀備份檔的 PRAGMA quick_check 與 migration 歷程（只寫備份檔）
         "DynamicModules.Persistence/SqliteMmapInterceptor.cs",              // PRAGMA mmap_size
         "DynamicModules.Persistence/DatabaseStartupTuning.cs",              // PRAGMA journal_mode = wal（啟動時，#20）
+        "DynamicModules.Persistence.Postgres/PostgresDatabaseBackup.cs",    // 備份：pg_database_size、server_version_num（只讀；快照由外部的 pg_dump 做）
         "DynamicModules.Persistence.Postgres/PostgresReportSqlSnapshot.cs", // SET TRANSACTION READ ONLY 與 statement_timeout
         "DynamicModules.Persistence.Postgres/PostgresStartupLock.cs",       // pg_advisory_lock／unlock（啟動鎖）
         "DynamicModules.Persistence.Postgres/PostgresWriteLockInterceptor.cs", // pg_advisory_xact_lock（全庫寫入鎖）

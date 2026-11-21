@@ -34,7 +34,7 @@ public static class DependencyInjection
         services.AddSingleton<ISqlDialect, SqliteDialect>();
         services.AddSingleton<IReportSqlSnapshot, SqliteReportSqlSnapshot>();
         services.AddScoped<Application.Dynamic.OpsService.Health.IDatabaseHealthProbe, SqliteDatabaseHealthProbe>();
-        // 備份快照（備份設計 §5.3）：PostgreSQL 版由 bk1b 在 Persistence.Postgres 註冊，沒註冊＝備份回 providerUnsupported
+        // 備份快照（備份設計 §5.3）：PostgreSQL 版（pg_dump）在 Persistence.Postgres 註冊
         services.AddScoped<Application.Dynamic.OpsService.Backup.IDatabaseBackup, SqliteDatabaseBackup>();
         services.AddScoped<ITransactionManager, EfTransactionManager>();
         services.AddScoped<IWorkSavepoints, EfWorkSavepoints>();

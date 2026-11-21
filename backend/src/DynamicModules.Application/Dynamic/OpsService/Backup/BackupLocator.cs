@@ -8,7 +8,7 @@ namespace DynamicModules.Application.Dynamic.OpsService.Backup;
 /// <see cref="Unwritable"/>：沒有標記檔、寫不進去，而且這個資料庫從沒採用過位置。執行器採用時寫不進標記檔，
 /// 或只讀（新鮮度、畫面、立即備份）時探測檔寫不進去，都回這個（複核 N1）。
 /// </summary>
-public enum BackupLocationStatus { NotConfigured, ProviderUnsupported, Invalid, Mismatch, Unwritable, Ok }
+public enum BackupLocationStatus { NotConfigured, Invalid, Mismatch, Unwritable, Ok }
 
 /// <summary>位置檢查的結果；<see cref="LocationId"/> 是目前採用的位置識別碼（Ok 時才有，還沒採用過可能是 null）。</summary>
 public sealed record BackupLocationState(BackupLocationStatus Status, string? LocationId = null)
@@ -19,7 +19,6 @@ public sealed record BackupLocationState(BackupLocationStatus Status, string? Lo
     public string Code => Status switch
     {
         BackupLocationStatus.NotConfigured => "notConfigured",
-        BackupLocationStatus.ProviderUnsupported => "providerUnsupported",
         BackupLocationStatus.Invalid => "locationInvalid",
         BackupLocationStatus.Mismatch => "locationMismatch",
         BackupLocationStatus.Unwritable => "destinationUnwritable",
@@ -39,7 +38,6 @@ public sealed class BackupLocator(BackupSettings settings, IServiceProvider serv
     public async Task<BackupLocationState> ResolveAsync(bool adopt, string instanceId, CancellationToken ct)
     {
         if (!settings.Configured || services.GetService<IBackupStore>() is not { } store) return new(BackupLocationStatus.NotConfigured);
-        if (services.GetService<IDatabaseBackup>() is null) return new(BackupLocationStatus.ProviderUnsupported);
         if (settings.Invalid) return new(BackupLocationStatus.Invalid);
 
         var adopted = (await runs.GetStateAsync(ct))?.LocationId;

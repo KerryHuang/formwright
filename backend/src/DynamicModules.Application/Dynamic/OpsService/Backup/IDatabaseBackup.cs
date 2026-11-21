@@ -2,7 +2,7 @@ namespace DynamicModules.Application.Dynamic.OpsService.Backup;
 
 /// <summary>
 /// provider 專屬的資料庫快照（備份設計 §5.3、§5.4、§5.6）：SQLite 是 Persistence 的 <c>SqliteDatabaseBackup</c>（<c>VACUUM INTO</c>）；
-/// PostgreSQL（<c>pg_dump</c>）由 bk1b 實作，在那之前不註冊，備份回「未設定 <c>providerUnsupported</c>」。
+/// PostgreSQL 是 Persistence.Postgres 的 <c>PostgresDatabaseBackup</c>（<c>pg_dump</c>）。失敗原因有專屬代碼時直接丟 <see cref="BackupFailure"/>。
 /// </summary>
 public interface IDatabaseBackup
 {

@@ -74,7 +74,7 @@ internal sealed class BackupJob(
             {
                 await database.SnapshotAsync(dbPath, ct);
             }
-            catch (Exception e) when (!ct.IsCancellationRequested)
+            catch (Exception e) when (!ct.IsCancellationRequested && e is not BackupFailure)
             {
                 throw new BackupFailure("databaseSnapshotFailed", $"資料庫快照失敗：{e.Message}", e);
             }

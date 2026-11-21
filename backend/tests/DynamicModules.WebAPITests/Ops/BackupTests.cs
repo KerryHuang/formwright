@@ -26,7 +26,7 @@ namespace DynamicModules.WebAPITests.Ops;
 /// <summary>
 /// 產品內備份 bk1a（備份設計 §22 bk1a 驗收、§23）：SQLite 快照與附件增量、立即備份 API、位置檢查與標記檔、互斥、保留清理、新鮮度。
 /// 資料庫用 TestApp 預設的記憶體 SQLite（檔案模式的資料庫檔在暫存目錄，和備份位置重疊會被判不合法）。執行器直接建（TestApp 關了背景排程，備份的 hosted service 跟著不跑）；剛寫的附件不等穩定（<see cref="BackupLimits.SettleAge"/> 設 0），除非案例要測。
-/// 這個類別只跑 SQLite（快照是 VACUUM INTO）；PostgreSQL 回「不支援」的案例在 <see cref="BackupPostgresTests"/>。
+/// 這個類別只跑 SQLite（快照是 VACUUM INTO）；PostgreSQL（pg_dump）的執行器案例在 <see cref="BackupPostgresTests"/>。
 /// </summary>
 public class BackupTests
 {
@@ -84,7 +84,7 @@ public class BackupTests
 
     private static HealthObservation Freshness(TestApp app) => app.Services.GetRequiredService<HealthCheckEngine>().Board[HealthCheckCatalog.BackupFreshness];
 
-    private static async Task<HealthObservation> RunFreshness(TestApp app)
+    internal static async Task<HealthObservation> RunFreshness(TestApp app)
     {
         var def = HealthCheckCatalog.Find(HealthCheckCatalog.BackupFreshness)!;
         return (await app.Services.GetRequiredService<HealthCheckEngine>().TryRunNowAsync(def, EffectiveHealthSettings.Of(def, null), CancellationToken.None))!;
@@ -820,30 +820,5 @@ public class BackupTests
         var result = await RunFreshness(app);
         result.Status.Should().Be(HealthStatus.Warning);
         result.Value.Should().Be(27);
-    }
-}
-
-/// <summary>PostgreSQL 在 bk1b 之前：設了位置也不備份，新鮮度未設定 <c>providerUnsupported</c>，立即備份 409（§22 bk1a 末列）。</summary>
-[Trait("Category", "Postgres")]
-public class BackupPostgresTests
-{
-    [Fact]
-    public async Task ProviderWithoutSnapshot_NotConfigured_ProviderUnsupported()
-    {
-        using var app = new BackupTests.BackupApp();
-        if (!TestDatabase.IsPostgres)
-        {
-            // SQLite 有快照：這個案例只在 PostgreSQL 有意義；SQLite 這邊驗「拿掉快照實作就是不支援」
-            app.ExtraServices = s => s.RemoveAll<IDatabaseBackup>();
-        }
-        var def = HealthCheckCatalog.Find(HealthCheckCatalog.BackupFreshness)!;
-        var result = await app.Services.GetRequiredService<HealthCheckEngine>().TryRunNowAsync(def, EffectiveHealthSettings.Of(def, null), CancellationToken.None);
-        result!.Status.Should().Be(HealthStatus.NotConfigured);
-        result.MessageCode.Should().Be("providerUnsupported");
-        await BackupTests.Worker(app).TickAsync(CancellationToken.None);
-        (await BackupTests.Runs(app)).Should().BeEmpty();
-        var r = await app.AsUser().PostAsync($"{Base}/backups", null);
-        r.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await app.AsUser().GetFromJsonAsync<JsonElement>($"{Base}/backups")).GetProperty("locationStatus").GetString().Should().Be("providerUnsupported");
     }
 }
