@@ -8,8 +8,9 @@ using Microsoft.EntityFrameworkCore;
 namespace DynamicModules.ApplicationTests.Persistence;
 
 /// <summary>
-/// B8（審查 S9）：正式環境的路徑是檔案資料庫＋WAL。<c>VACUUM INTO</c> 跑的同時，另一條連線照常寫入、不必等（busy_timeout 設 0，
-/// 被擋就會立刻 SQLITE_BUSY）；快照是一致的、驗證得過。只跑 SQLite（快照是 SQLite 專屬）。
+/// B8（審查 S9、複核 N6）：正式環境的路徑是檔案資料庫＋WAL。<c>VACUUM INTO</c> 跑到一半時，另一條連線照常寫入、不必等
+/// （busy_timeout 設 0，被擋就會立刻 SQLITE_BUSY）；快照是一致的、驗證得過，而且不含快照開始後才寫的那筆。只跑 SQLite。
+/// 不靠時序：在快照要用的那條（連線池裡的）連線上掛 progress handler，VACUUM INTO 跑到一半就停在那裡，等寫入做完才放行。
 /// 資料庫檔與快照放在不同的暫存目錄。
 /// </summary>
 public sealed class SqliteDatabaseBackupTests : IDisposable
@@ -35,15 +36,29 @@ public sealed class SqliteDatabaseBackupTests : IDisposable
             await setup.OpenAsync();
             MigratedDatabaseTemplate.RestoreInto(setup);
             await using var cmd = setup.CreateCommand();
-            // 灌一張大表，讓 VACUUM INTO 跑得夠久，寫入才會和它重疊
             cmd.CommandText = """
                 PRAGMA journal_mode=WAL;
-                CREATE TABLE BulkForBackupTest (Id INTEGER PRIMARY KEY, Payload TEXT NOT NULL);
-                WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 300000)
-                INSERT INTO BulkForBackupTest (Payload) SELECT printf('%0200d', i) FROM n;
                 CREATE TABLE WritesDuringBackup (Id INTEGER PRIMARY KEY, At TEXT NOT NULL);
                 """;
             await cmd.ExecuteNonQueryAsync();
+        }
+
+        // 快照會從連線池拿回這一條（池裡只有它），progress handler 跟著連線
+        var inside = new ManualResetEventSlim();
+        var release = new ManualResetEventSlim();
+        var fired = 0;
+        await using (var pooled = new SqliteConnection(cs))
+        {
+            await pooled.OpenAsync();
+            SQLitePCL.raw.sqlite3_progress_handler(pooled.Handle, 50, _ =>
+            {
+                if (Interlocked.Exchange(ref fired, 1) == 0)
+                {
+                    inside.Set();
+                    release.Wait(TimeSpan.FromSeconds(30));
+                }
+                return 0;
+            }, null);
         }
 
         await using var db = new DynamicDbContext(new DbContextOptionsBuilder<DynamicDbContext>()
@@ -51,25 +66,27 @@ public sealed class SqliteDatabaseBackupTests : IDisposable
         var backup = new SqliteDatabaseBackup(db);
         var target = Path.Combine(_outDir, "database.sqlite");
         var snapshot = Task.Run(() => backup.SnapshotAsync(target, Ct));
-
-        int overlapped = 0, written = 0;
-        await using (var writer = new SqliteConnection(cs + ";Default Timeout=0"))
+        try
         {
+            inside.Wait(TimeSpan.FromSeconds(30)).Should().BeTrue("快照要用到掛了 progress handler 的連線");
+            snapshot.IsCompleted.Should().BeFalse();
+            await using var writer = new SqliteConnection(cs + ";Pooling=False");
             await writer.OpenAsync();
-            await using var busy = writer.CreateCommand();
-            busy.CommandText = "PRAGMA busy_timeout=0";
-            await busy.ExecuteNonQueryAsync();
-            while (!snapshot.IsCompleted && written < 5000)
-            {
-                await using var cmd = writer.CreateCommand();
-                cmd.CommandText = "INSERT INTO WritesDuringBackup (At) VALUES (datetime('now'))";
-                await cmd.ExecuteNonQueryAsync();   // 被擋會丟 SQLITE_BUSY
-                written++;
-                if (!snapshot.IsCompleted) overlapped++;
-            }
+            await using var cmd = writer.CreateCommand();
+            cmd.CommandText = "PRAGMA busy_timeout=0; INSERT INTO WritesDuringBackup (At) VALUES ('during')";
+            await cmd.ExecuteNonQueryAsync();   // 被擋會丟 SQLITE_BUSY
+        }
+        finally
+        {
+            release.Set();
         }
         await snapshot;
-        overlapped.Should().BeGreaterThan(0, "寫入要和快照重疊才驗得到「不擋寫入」");
         await backup.VerifyAsync(target, await backup.LatestMigrationAsync(Ct), Ct);
+
+        await using var copy = new SqliteConnection($"Data Source={target};Mode=ReadOnly;Pooling=False");
+        await copy.OpenAsync();
+        await using var count = copy.CreateCommand();
+        count.CommandText = "SELECT COUNT(*) FROM WritesDuringBackup";
+        Convert.ToInt64(await count.ExecuteScalarAsync()).Should().Be(0, "快照是開始那一刻的一致點");
     }
 }
