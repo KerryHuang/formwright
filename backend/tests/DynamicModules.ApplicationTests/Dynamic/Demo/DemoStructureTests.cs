@@ -48,6 +48,21 @@ public class DemoStructureTests(DemoGeneratedFixture fx)
     }
 
     [Fact]
+    public async Task Generate_WritesABaseline_ForEveryOpenedApp_IncludingAutoOpenedMasters()
+    {
+        fx.Generated();
+
+        // 套件更新設計 §5.4：Demo 產生器經 AppOpener 開啟，基準不必另寫；pkg1b 推導舊版之前存的是目錄原文
+        var catalog = fx.Host.Services.GetRequiredService<AppCatalog>();
+        var db = fx.Host.Db.Context;
+        var apps = await db.Set<App>().AsNoTracking().ToListAsync();
+        var baselines = await db.Set<AppBaseline>().AsNoTracking().ToDictionaryAsync(b => b.AppId);
+        apps.Select(a => a.Key).Should().Contain(DemoCatalog.AppIds).And.Contain(["partner", "contact"]);
+        foreach (var app in apps)
+            baselines.Should().ContainKey(app.Id, app.Key).WhoseValue.PackageJson.Should().Be(catalog.OriginalOf(app.Key), app.Key);
+    }
+
+    [Fact]
     public async Task Generate_SupplementsPermissions()
     {
         fx.Generated();

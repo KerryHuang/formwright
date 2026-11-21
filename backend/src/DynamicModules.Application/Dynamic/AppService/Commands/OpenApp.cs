@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DynamicModules.Application.Common;
 using DynamicModules.Application.Common.Audit;
 using DynamicModules.Application.Common.Security;
@@ -165,6 +166,7 @@ public class AppOpener(
             });
         foreach (var r in package.Manifest.Requires.Masters)
             shared.AddUse(new AppMasterUse { AppId = app.Id, MasterAppId = masters[r.Id].Id });
+        apps.AddBaseline(BaselineOf(app.Id, plan.Source, groupIds, body.ExcludeFields));
         await uow.CommitAsync(ct);
 
         await RecordGrantsAsync(package, app, result, contributions, ids2, groupIds, ct);
@@ -178,6 +180,20 @@ public class AppOpener(
             warnings.AddRange(await integrations.ReconcileAsync(ct));
         return ServiceResult.Created(await builder.BuildAsync(app, withDependents: false, warnings, ct) with { ApprovalSubstitutions = installed.ApprovalSubstitutions });
     }
+
+    /// <summary>
+    /// 升級的基準（套件更新設計 §5）：原文、群組對應（套件的每個群組代號；skip 與沒列出的記 null）、開啟時排除的欄位。
+    /// HTTP 開啟、自動開啟的共用主檔、Demo 產生器都走這裡，不必各寫一次（§5.4）。
+    /// </summary>
+    private AppBaseline BaselineOf(long appId, SourcedPackage source, IReadOnlyDictionary<string, long> groupIds, IEnumerable<string> excluded) => new()
+    {
+        AppId = appId,
+        PackageJson = source.Original ?? throw new InvalidOperationException($"套件 {source.Package.Manifest.Id} 沒有原文，無法寫入升級基準"),
+        GroupMapJson = JsonSerializer.Serialize(source.Package.Groups.OrderBy(g => g.Code, StringComparer.Ordinal)
+            .ToDictionary(g => g.Code, g => groupIds.TryGetValue(g.Code, out var id) ? id : (long?)null)),
+        ExcludedFieldsJson = JsonSerializer.Serialize(excluded.Distinct().Order(StringComparer.Ordinal)),
+        CapturedTime = time.Now
+    };
 
     /// <summary>
     /// 權限來源記錄（§6）：主檔自己的模組權限記成 master 來源，貢獻的 permissions 記成 app 來源；之後由重算寫出有效值。

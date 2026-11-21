@@ -34,6 +34,13 @@ public static class AppJson
 
     private static readonly UTF8Encoding StrictUtf8 = new(false, throwOnInvalidBytes: true);
 
+    /// <summary>已通過 <see cref="Parse(byte[])"/> 的檔案內容轉成文字（UTF-8、去 BOM）：升級基準存的原文（套件更新設計 §5.2）。</summary>
+    public static string TextOf(byte[] content)
+    {
+        var skip = content.Length >= 3 && content[0] == 0xEF && content[1] == 0xBB && content[2] == 0xBF ? 3 : 0;
+        return Encoding.UTF8.GetString(content, skip, content.Length - skip);
+    }
+
     public static AppParseResult Parse(byte[] content)
     {
         if (content.Length > MaxBytes) return Fail($"套件檔案不能超過 {MaxBytes / 1024 / 1024} MiB");
