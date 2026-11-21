@@ -1144,6 +1144,12 @@ namespace DynamicModules.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
+                    b.Property<long?>("ProgressDone")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("ProgressTotal")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Provider")
                         .IsRequired()
                         .HasMaxLength(16)

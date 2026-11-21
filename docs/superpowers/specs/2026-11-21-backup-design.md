@@ -371,6 +371,7 @@ bk1 驗收時兩種資料庫各演練一次（§22 D1、D2）。
 | `Provider` | string(16) | 排隊時填 |
 | `AppVersion`、`MigrationId` | string(64)?、string(150)? | 快照完成時才填（排隊中的列可能被部署後的新版實例領走） |
 | `DatabaseBytes`、`AttachmentCount`、`NewAttachmentCount`、`NewAttachmentBytes`、`TotalAttachmentBytes`、`SkippedAttachments` | long? | 統計 |
+| `ProgressTotal`、`ProgressDone` | long? | 執行中附件步驟的進度（畫面「附件 120／340」）：總數＝快照後列一次附件根目錄的檔案數，已處理＝已複製或略過的數；心跳時寫，結束或判定中斷清回 null（bk1a 審查 M4，§25） |
 | `ErrorCode` | string(32)? | §10.2 |
 | `ErrorDetail` | string(1000)? | 摘要，已遮密碼、不含記錄值 |
 | `PruneError` | string(1000)? | 保留清理失敗的摘要 |

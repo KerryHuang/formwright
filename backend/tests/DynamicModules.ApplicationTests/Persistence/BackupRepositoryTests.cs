@@ -37,6 +37,8 @@ public class BackupRepositoryTests
         run.FindProperty(nameof(BackupRun.OwnerInstanceId))!.GetMaxLength().Should().Be(100);
         run.FindProperty(nameof(BackupRun.ErrorDetail))!.GetMaxLength().Should().Be(1000);
         run.FindProperty(nameof(BackupRun.MigrationId))!.GetMaxLength().Should().Be(150);
+        run.FindProperty(nameof(BackupRun.ProgressTotal))!.IsNullable.Should().BeTrue();
+        run.FindProperty(nameof(BackupRun.ProgressDone))!.IsNullable.Should().BeTrue();
         run.GetIndexes().Where(i => i.IsUnique).Select(i => i.Properties.Single().Name).Should().BeEquivalentTo("RunKey", "ActiveSlot");
         run.GetIndexes().Should().OnlyContain(i => i.GetFilter() == null);
         run.GetProperties().Where(p => (Nullable.GetUnderlyingType(p.ClrType) ?? p.ClrType) == typeof(DateTime))
@@ -78,7 +80,8 @@ public class BackupRepositoryTests
         row.Status.Should().Be(BackupRunStatus.Running);
         row.OwnerInstanceId.Should().Be("a");
         row.Stage.Should().Be(BackupStage.Attachments);
-        (row.AttachmentCount, row.NewAttachmentCount).Should().Be((340L, 120L));
+        (row.ProgressTotal, row.ProgressDone).Should().Be((340L, 120L));
+        (row.AttachmentCount, row.NewAttachmentCount).Should().Be(((long?)null, (long?)null), "進度不寫進統計欄位（M4）");
         row.HeartbeatUtc.Should().Be(T0.AddMinutes(1));
         row.HeartbeatUtc!.Value.Kind.Should().Be(DateTimeKind.Utc);
         (await repo.ActiveAsync(Ct))!.Id.Should().Be(run.Id);
@@ -88,6 +91,7 @@ public class BackupRepositoryTests
             .Should().BeTrue();
         row = (await repo.GetAsync(run.Id, Ct))!;
         (row.Status, row.ActiveSlot, row.Stage, row.SetName, row.PrunedSets).Should().Be((BackupRunStatus.Succeeded, (int?)null, (BackupStage?)null, "s1", 1));
+        (row.ProgressTotal, row.ProgressDone).Should().Be(((long?)null, (long?)null), "結束就清掉進度");
         (await repo.ActiveAsync(Ct)).Should().BeNull();
     }
 
@@ -99,6 +103,7 @@ public class BackupRepositoryTests
         var run = Run();
         await repo.AddAsync(run, Ct);
         await repo.TryClaimAsync(run.Id, "a", T0, Ct);
+        await repo.HeartbeatAsync(run.Id, "a", T0, BackupStage.Attachments, 340, 120, Ct);
 
         (await repo.InterruptStaleAsync(T0, T0.AddMinutes(4), Ct)).Should().BeEmpty("心跳不早於界線");
         (await repo.InterruptStaleAsync(T0.AddMinutes(1), T0.AddMinutes(6), Ct)).Should().Equal(run.RunKey);
@@ -106,6 +111,7 @@ public class BackupRepositoryTests
         var row = (await repo.GetAsync(run.Id, Ct))!;
         (row.Status, row.ActiveSlot, row.ErrorCode).Should().Be((BackupRunStatus.Interrupted, (int?)null, "interrupted"));
         row.FinishedUtc.Should().Be(T0.AddMinutes(6));
+        (row.ProgressTotal, row.ProgressDone).Should().Be(((long?)null, (long?)null), "中斷的列不留進度數字");
         (await repo.HeartbeatAsync(run.Id, "a", T0.AddMinutes(6), BackupStage.Database, null, null, Ct)).Should().BeFalse("被別台判定中斷");
         // 中斷之後可以再排一份
         await repo.AddAsync(Run(), Ct);

@@ -49,8 +49,8 @@ public class BackupRepository(DynamicDbContext db) : IBackupRepository
             .ExecuteUpdateAsync(s => s
                 .SetProperty(r => r.HeartbeatUtc, nowUtc)
                 .SetProperty(r => r.Stage, stage)
-                .SetProperty(r => r.AttachmentCount, attachmentTotal)
-                .SetProperty(r => r.NewAttachmentCount, attachmentDone), ct) == 1;
+                .SetProperty(r => r.ProgressTotal, attachmentTotal)
+                .SetProperty(r => r.ProgressDone, attachmentDone), ct) == 1;
 
     public async Task<bool> RecordSnapshotAsync(long id, string owner, DateTime snapshotUtc, string appVersion, string migrationId, long databaseBytes,
         CancellationToken ct) =>
@@ -67,6 +67,8 @@ public class BackupRepository(DynamicDbContext db) : IBackupRepository
                 .SetProperty(r => r.Status, f.Status)
                 .SetProperty(r => r.ActiveSlot, (int?)null)
                 .SetProperty(r => r.Stage, (BackupStage?)null)
+                .SetProperty(r => r.ProgressTotal, (long?)null)
+                .SetProperty(r => r.ProgressDone, (long?)null)
                 .SetProperty(r => r.FinishedUtc, f.FinishedUtc)
                 .SetProperty(r => r.SetName, f.SetName)
                 .SetProperty(r => r.ErrorCode, f.ErrorCode)
@@ -93,6 +95,8 @@ public class BackupRepository(DynamicDbContext db) : IBackupRepository
                     .SetProperty(r => r.Status, BackupRunStatus.Interrupted)
                     .SetProperty(r => r.ActiveSlot, (int?)null)
                     .SetProperty(r => r.Stage, (BackupStage?)null)
+                    .SetProperty(r => r.ProgressTotal, (long?)null)
+                    .SetProperty(r => r.ProgressDone, (long?)null)
                     .SetProperty(r => r.FinishedUtc, nowUtc)
                     .SetProperty(r => r.ErrorCode, "interrupted"), ct);
             if (n == 1) interrupted.Add(row.RunKey);

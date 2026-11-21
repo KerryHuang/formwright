@@ -15,12 +15,12 @@ public sealed record BackupRunDto(
     long Id, string RunKey, BackupTrigger Trigger, string? ScheduleSlot, string LocationId, BackupRunStatus Status, BackupStage? Stage, string? RequestedUserId,
     DateTime QueuedUtc, DateTime? StartedUtc, DateTime? HeartbeatUtc, DateTime? SnapshotUtc, DateTime? FinishedUtc, string StoreKind, string? SetName,
     string Provider, string? AppVersion, string? MigrationId, long? DatabaseBytes, long? AttachmentCount, long? NewAttachmentCount,
-    long? NewAttachmentBytes, long? TotalAttachmentBytes, long? SkippedAttachments, int? PrunedSets, string? ErrorCode, string? ErrorDetail,
+    long? NewAttachmentBytes, long? TotalAttachmentBytes, long? SkippedAttachments, long? ProgressTotal, long? ProgressDone, int? PrunedSets, string? ErrorCode, string? ErrorDetail,
     string? PruneError)
 {
     public static BackupRunDto Of(BackupRun r) => new(r.Id, r.RunKey, r.Trigger, r.ScheduleSlot, r.LocationId, r.Status, r.Stage, r.RequestedUserId, r.QueuedUtc,
         r.StartedUtc, r.HeartbeatUtc, r.SnapshotUtc, r.FinishedUtc, r.StoreKind, r.SetName, r.Provider, r.AppVersion, r.MigrationId, r.DatabaseBytes,
-        r.AttachmentCount, r.NewAttachmentCount, r.NewAttachmentBytes, r.TotalAttachmentBytes, r.SkippedAttachments, r.PrunedSets, r.ErrorCode,
+        r.AttachmentCount, r.NewAttachmentCount, r.NewAttachmentBytes, r.TotalAttachmentBytes, r.SkippedAttachments, r.ProgressTotal, r.ProgressDone, r.PrunedSets, r.ErrorCode,
         r.ErrorDetail, r.PruneError);
 }
 

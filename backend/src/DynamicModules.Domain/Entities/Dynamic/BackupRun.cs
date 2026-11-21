@@ -50,6 +50,9 @@ public class BackupRun
     public long? NewAttachmentBytes { get; set; }
     public long? TotalAttachmentBytes { get; set; }
     public long? SkippedAttachments { get; set; }
+    /// <summary>執行中附件步驟的進度（畫面「附件 120／340」）：總數是快照後列出的附件數、已處理是複製或略過的數；結束或判定中斷時清回 null，不和統計欄位混用（審查 M4）。</summary>
+    public long? ProgressTotal { get; set; }
+    public long? ProgressDone { get; set; }
     public string? ErrorCode { get; set; }
     public string? ErrorDetail { get; set; }
     public string? PruneError { get; set; }

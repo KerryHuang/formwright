@@ -1290,6 +1290,12 @@ namespace DynamicModules.Persistence.Postgres.Migrations
                         .HasColumnType("text")
                         .UseCollation("C");
 
+                    b.Property<long?>("ProgressDone")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("ProgressTotal")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("Provider")
                         .IsRequired()
                         .HasMaxLength(16)

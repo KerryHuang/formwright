@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace DynamicModules.Persistence.Migrations
 {
     [DbContext(typeof(DynamicDbContext))]
-    [Migration("20261121155118_BackupRuns")]
+    [Migration("20261121163802_BackupRuns")]
     partial class BackupRuns
     {
         /// <inheritdoc />
@@ -1146,6 +1146,12 @@ namespace DynamicModules.Persistence.Migrations
                     b.Property<string>("OwnerInstanceId")
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
+
+                    b.Property<long?>("ProgressDone")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("ProgressTotal")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Provider")
                         .IsRequired()
