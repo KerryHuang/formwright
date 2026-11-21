@@ -24,6 +24,9 @@ public static class DependencyInjection
         services.AddSingleton<ISqlDialect, PostgresDialect>();
         services.AddSingleton<IReportSqlSnapshot, PostgresReportSqlSnapshot>();
         services.AddScoped<Application.Dynamic.OpsService.Health.IDatabaseHealthProbe, PostgresDatabaseHealthProbe>();
+        // 備份快照（備份設計 §5.4）：pg_dump 的路徑是部署設定 Backup:PgDumpPath，沒設就找 PATH
+        services.AddSingleton(new PgDumpSettings(configuration[PgDumpSettings.Key]));
+        services.AddScoped<Application.Dynamic.OpsService.Backup.IDatabaseBackup, PostgresDatabaseBackup>();
         services.AddScoped<ITransactionManager, PostgresTransactionManager>();
         services.AddScoped<IWorkSavepoints, EfWorkSavepoints>();
         services.AddScoped<Application.Dynamic.OpsService.IDatabaseInfo, EfDatabaseInfo>();

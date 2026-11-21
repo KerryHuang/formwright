@@ -97,8 +97,6 @@ public sealed class BackupWorker(
             logger.LogWarning("備份位置 {Root} 的位置標記檔和其他伺服器採用的位置不同（或換回了舊位置），這台不備份；換回舊位置要先刪掉標記檔", settings.Root);
         else if (location.Status == BackupLocationStatus.Unwritable)
             logger.LogWarning("備份位置 {Root} 寫不進位置標記檔、這個資料庫也還沒採用過位置，這台不備份", settings.Root);
-        else if (location.Status == BackupLocationStatus.ProviderUnsupported)
-            logger.LogWarning("這個資料庫種類還不支援產品內備份，設了 Backup:Root 也不會備份");
     }
 
     private async Task<BackupRun?> ClaimAsync(IBackupRepository runs, string locationId, CancellationToken ct)

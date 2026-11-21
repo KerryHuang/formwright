@@ -170,3 +170,46 @@ public sealed class PostgresFactAttribute : FactAttribute
         if (!TestDatabase.IsPostgres) Skip = $"只在 PostgreSQL 跑（{TestDatabase.ProviderVariable}=postgres）";
     }
 }
+
+/// <summary>
+/// 備份測試用的真實 <c>pg_dump</c>（備份設計 §23 bk1b）：<c>FORMWRIGHT_TEST_PG_DUMP</c>（<c>pg_dump</c> 的路徑，同目錄要有 <c>pg_restore</c>）優先，
+/// 否則找 <c>PATH</c>。CI 的 PostgreSQL job 裝好用戶端並設 <c>FORMWRIGHT_TEST_REQUIRE_PG_DUMP=1</c>：找不到時不略過、照跑而失敗，不會默默少測。
+/// </summary>
+public static class PgDumpTool
+{
+    public const string PathVariable = "FORMWRIGHT_TEST_PG_DUMP";
+    public const string RequireVariable = "FORMWRIGHT_TEST_REQUIRE_PG_DUMP";
+
+    public static string? Path { get; } = Find();
+
+    private static string? Find()
+    {
+        if (Environment.GetEnvironmentVariable(PathVariable) is { Length: > 0 } configured) return configured;
+        var exe = OperatingSystem.IsWindows() ? "pg_dump.exe" : "pg_dump";
+        return (Environment.GetEnvironmentVariable("PATH") ?? "").Split(System.IO.Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Select(d => System.IO.Path.Combine(d, exe)).FirstOrDefault(File.Exists);
+    }
+
+    public static bool Required => Environment.GetEnvironmentVariable(RequireVariable) == "1";
+}
+
+/// <summary>要真的跑 <c>pg_dump</c> 的 PostgreSQL 案例：不是 PostgreSQL 模式、或找不到 <c>pg_dump</c>（且沒要求一定要有）時略過，略過原因寫明。</summary>
+public sealed class PgDumpFactAttribute : FactAttribute
+{
+    public PgDumpFactAttribute()
+    {
+        if (!TestDatabase.IsPostgres) Skip = $"只在 PostgreSQL 跑（{TestDatabase.ProviderVariable}=postgres）";
+        else if (PgDumpTool.Path is null && !PgDumpTool.Required)
+            Skip = $"找不到 pg_dump（PATH 或 {PgDumpTool.PathVariable}）；CI 設 {PgDumpTool.RequireVariable}=1 一定要跑";
+    }
+}
+
+/// <summary>用假的 <c>pg_dump</c> 指令稿（shell）測程序處理的 PostgreSQL 案例：Windows 沒有 sh，略過。</summary>
+public sealed class PostgresUnixFactAttribute : FactAttribute
+{
+    public PostgresUnixFactAttribute()
+    {
+        if (!TestDatabase.IsPostgres) Skip = $"只在 PostgreSQL 跑（{TestDatabase.ProviderVariable}=postgres）";
+        else if (OperatingSystem.IsWindows()) Skip = "假的 pg_dump 是 shell 指令稿，Windows 不跑";
+    }
+}
