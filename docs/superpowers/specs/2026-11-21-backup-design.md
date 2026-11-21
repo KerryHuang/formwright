@@ -533,7 +533,7 @@ bk1 驗收時兩種資料庫各演練一次（§22 D1、D2）。
   - Demo 資料產生器在客戶站台也能從「系統管理 → Demo 資料」按（`docs/manual.md` §10），種歷程等於在客戶的維運紀錄裡插一筆捏造的失敗。
 - Demo 資料產生器不寫任何備份資料。
 - Demo 保留份數用政策出廠值 7；Demo 資料庫只有幾 MB，喚醒後只會有一兩份，容器重啟就清空。
-- `scripts/unattended/local-demo.sh` 加 `Backup__Root=<worktree>/backend/data/local-e2e-backups`（啟動前清空），用來走查成功路徑、立即備份與上面的故障注入。
+- `scripts/unattended/local-demo.sh` 加 `Backup__Root=<worktree>/.tmp/local-e2e-backups`（啟動前清空；不能放在 `backend/data/` 底下，那是資料庫目錄，會被判 `locationInvalid`；`BACKUP_ROOT=` 設空字串走查「未設定」、指到唯讀目錄走查「寫不進去」），用來走查成功路徑、立即備份與上面的故障注入。
 - 種子不動，所以不必 grep 既有的種子斷言。
 
 ## 16. 開關組合下誰負責
