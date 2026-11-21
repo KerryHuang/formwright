@@ -30,7 +30,7 @@ import type { McpCreateBody, McpInfo, McpToken, McpTokenCall, McpTokenCreated } 
 import type { EffectivePolicies, ModulePolicy, PolicyValue, SystemPolicy } from 'src/domain/dynamic/policy-types';
 import type {
   AuditAction, AuditDetail, AuditFilter, AuditList, HealthCheckConfig, HealthCheckState, HealthCheckUpdate, HealthResults, IncidentDetail, IncidentFilter,
-  IncidentList, IncidentSummary, MailSettings, MailSettingsInput, MailTestResult, OpsOverview, SmtpChannel, SmtpChannelInput,
+  BackupOverview, BackupRun, IncidentList, IncidentSummary, MailSettings, MailSettingsInput, MailTestResult, OpsOverview, SmtpChannel, SmtpChannelInput,
 } from 'src/domain/ops/ops-types';
 import { handleAuthFailure, http, toApiError } from './http';
 import {
@@ -582,6 +582,9 @@ export const dynamicApi = {
     http.post<IncidentSummary>(`/system/ops/incidents/${id}/acknowledge`, { expectedStatus }).then(data),
   resolveIncident: (id: number, expectedStatus: string, note?: string) =>
     http.post<IncidentSummary>(`/system/ops/incidents/${id}/resolve`, { expectedStatus, note: note || undefined }).then(data),
+  getBackups: (cursor?: number) => http.get<BackupOverview>('/system/ops/backups', { params: { cursor } }).then(data),
+  getBackup: (id: number) => http.get<BackupRun>(`/system/ops/backups/${id}`).then(data),
+  requestBackup: () => http.post<BackupRun>('/system/ops/backups').then(data),
   getSmtpChannel: () => http.get<SmtpChannel>('/system/ops/channels/smtp').then(data),
   saveSmtpChannel: (body: SmtpChannelInput) => http.put('/system/ops/channels/smtp', body).then(data),
   testSmtpChannel: () => http.post<MailTestResult>('/system/ops/channels/smtp/test').then(data),

@@ -93,3 +93,12 @@ export const useAuditEntry = (id: MaybeRefOrGetter<number | null>) =>
   });
 
 export const useAuditActions = () => useQuery({ queryKey: ['ops-audit-actions'], queryFn: dynamicApi.getAuditActions, staleTime: Infinity });
+
+/** 備份狀態與最近 20 筆歷程；有排隊或執行中的那筆時每 5 秒重讀一次，結束後停（備份設計 §14.1）。 */
+export const useBackups = () =>
+  useQuery({ queryKey: ['ops-backups'], queryFn: () => dynamicApi.getBackups(), refetchInterval: (q) => (q.state.data?.current ? 5_000 : false) });
+/** 歷程往下翻：以 `nextCursor` 讀下一頁，結果由呼叫端接在第一頁後面。 */
+export const loadBackupPage = (cursor: number) => dynamicApi.getBackups(cursor);
+export const useBackupRun = (id: MaybeRefOrGetter<number | null>) =>
+  useQuery({ queryKey: computed(() => ['ops-backup', toValue(id)]), queryFn: () => dynamicApi.getBackup(toValue(id)!), enabled: computed(() => toValue(id) !== null) });
+export const useRequestBackup = () => useOpsMutation(() => dynamicApi.requestBackup(), ['ops-backups', 'ops-overview', 'ops-health-checks']);

@@ -282,3 +282,65 @@ export interface TaskRuleFailureStreak {
   consecutiveFailures: number;
   lastFailureUtc: string;
 }
+
+/** 產品內備份（備份設計 §10、§11）；伺服器省略 null 屬性。 */
+export type BackupRunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'interrupted';
+export type BackupStage = 'waiting' | 'database' | 'attachments' | 'verify' | 'prune';
+
+export interface BackupRun {
+  id: number;
+  runKey: string;
+  trigger: 'schedule' | 'manual';
+  scheduleSlot?: string;
+  locationId: string;
+  status: BackupRunStatus;
+  stage?: BackupStage;
+  requestedUserId?: string;
+  queuedUtc: string;
+  startedUtc?: string;
+  heartbeatUtc?: string;
+  snapshotUtc?: string;
+  finishedUtc?: string;
+  storeKind: string;
+  setName?: string;
+  provider: string;
+  appVersion?: string;
+  migrationId?: string;
+  databaseBytes?: number;
+  attachmentCount?: number;
+  newAttachmentCount?: number;
+  newAttachmentBytes?: number;
+  totalAttachmentBytes?: number;
+  skippedAttachments?: number;
+  progressTotal?: number;
+  progressDone?: number;
+  prunedSets?: number;
+  errorCode?: string;
+  errorDetail?: string;
+  pruneError?: string;
+}
+
+export interface BackupOverview {
+  configured: boolean;
+  locationValid: boolean;
+  /** ok、notConfigured、providerUnsupported、locationInvalid、locationMismatch、destinationUnwritable */
+  locationStatus: string;
+  locationId?: string;
+  storeKind?: string;
+  displayLocation?: string;
+  isolated: boolean;
+  edition: string;
+  canDelete: boolean;
+  provider?: string;
+  includesKeys: boolean;
+  schedule: { hour: number; offsetMinutes: number; nextScheduledUtc?: string };
+  retentionCount: number;
+  manualRetentionDays: number;
+  lastSuccess?: BackupRun;
+  current?: BackupRun;
+  runs: BackupRun[];
+  nextCursor?: number;
+  manualAllowed: boolean;
+  /** demoSite、notConfigured、inProgress、locationPending */
+  manualDisabledReason?: string;
+}

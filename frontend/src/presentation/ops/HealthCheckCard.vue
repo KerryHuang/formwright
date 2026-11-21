@@ -103,6 +103,10 @@ const intervalHint = computed(() => {
           <span v-if="messageText" class="text-muted">（{{ messageText }}）</span>
           <q-badge v-if="s.fromMemory" color="info" class="q-ml-xs">{{ t('ops.health.fromMemory') }}</q-badge>
         </div>
+        <router-link
+          v-if="check.code === 'backup.freshness'" :to="{ path: '/system/ops', query: { tab: 'backup' } }" class="text-caption"
+          :data-testid="`health-to-backup-${check.code}`"
+        >{{ t('ops.health.toBackup') }}</router-link>
         <div class="text-caption text-muted">
           {{ t('ops.health.last') }} {{ formatTime(s.checkedUtc) }}<template v-if="s.nextDueUtc"> · {{ t('ops.health.next') }} {{ formatTime(s.nextDueUtc) }}</template>
         </div>

@@ -5,14 +5,15 @@ import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { useOpsOverview } from 'src/application/dynamic/queries/ops-queries';
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
+import OpsBackupTab from 'src/presentation/ops/OpsBackupTab.vue';
 import OpsChannelTab from 'src/presentation/ops/OpsChannelTab.vue';
 import OpsHealthTab from 'src/presentation/ops/OpsHealthTab.vue';
 import OpsIncidentsTab from 'src/presentation/ops/OpsIncidentsTab.vue';
 import OpsOverviewTab from 'src/presentation/ops/OpsOverviewTab.vue';
 import { isForbidden, type ApiError } from 'src/services/api/http';
 
-// 維運監控頁（維運設計 §17.3）：四個分頁，URL query `tab` 記住；通知連結帶 `tab=incidents&incident=<id>` 直接開事件詳細
-const TABS = ['overview', 'incidents', 'health', 'channel'] as const;
+// 維運監控頁（維運設計 §17.3）：五個分頁，URL query `tab` 記住；通知連結帶 `tab=incidents&incident=<id>` 直接開事件詳細
+const TABS = ['overview', 'incidents', 'health', 'backup', 'channel'] as const;
 type Tab = (typeof TABS)[number];
 
 const { t } = useI18n();
@@ -84,6 +85,9 @@ const unavailable = computed(() => dbDown(err.value) || subDown.value);
         </q-tab-panel>
         <q-tab-panel name="health" class="q-pa-none">
           <OpsHealthTab />
+        </q-tab-panel>
+        <q-tab-panel name="backup" class="q-pa-none">
+          <OpsBackupTab />
         </q-tab-panel>
         <q-tab-panel name="channel" class="q-pa-none">
           <OpsChannelTab />
