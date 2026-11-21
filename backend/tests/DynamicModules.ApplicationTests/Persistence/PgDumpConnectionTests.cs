@@ -216,6 +216,43 @@ public sealed class PgDumpConnectionTests
     }
 
     /// <summary>
+    /// #94 第 1 項：家目錄（libpq 對 <c>~/.pgpass</c>、<c>~/.postgresql/postgresql.key</c> 的權限警告）與暫存目錄（WritePassfile 失敗）也遮；
+    /// 互相包含時遮成最精確的那個；太短（<c>/</c>、磁碟根）不遮。
+    /// </summary>
+    [Theory]
+    [InlineData("/home/fw-test", "",
+        "WARNING: password file \"/home/fw-test/.pgpass\" has group or world access",
+        "WARNING: password file \"<家目錄>/.pgpass\" has group or world access")]
+    [InlineData("/home/fw-test/", "",
+        "private key file \"/home/fw-test/.postgresql/postgresql.key\" has group or world access",
+        "private key file \"<家目錄>/.postgresql/postgresql.key\" has group or world access")]
+    [InlineData("", "/tmp/fw-test-tmp/",
+        "Could not find a part of the path '/tmp/fw-test-tmp/formwright-pgpass-1'.",
+        "Could not find a part of the path '<暫存目錄>/formwright-pgpass-1'.")]
+    [InlineData("/home/fw-test", "/home/fw-test/tmp/",
+        "/home/fw-test/tmp/formwright-pgpass-1; /home/fw-test/.pgpass",
+        "<暫存目錄>/formwright-pgpass-1; <家目錄>/.pgpass")]
+    [InlineData("C:\\Users\\fw-test", "C:\\Users\\fw-test\\AppData\\Local\\Temp\\",
+        "C:\\Users\\fw-test\\AppData\\Local\\Temp\\formwright-pgpass-1; C:\\Users\\fw-test\\AppData\\Roaming\\postgresql\\pgpass.conf",
+        "<暫存目錄>\\formwright-pgpass-1; <家目錄>\\AppData\\Roaming\\postgresql\\pgpass.conf")]
+    [InlineData("/", "C:\\",
+        "c:\\x and /y",
+        "c:\\x and /y")]
+    public void MaskSummary_RemovesHomeAndTempDirectories(string home, string temp, string input, string expected) =>
+        PostgresDatabaseBackup.MaskSummary(input, Base, new PgDumpSettings(null), null, null, [home], temp).Should().Be(expected);
+
+    /// <summary>#94 第 1 項：實例版本從這台機器的家目錄與 <see cref="Path.GetTempPath"/> 取值。</summary>
+    [Fact]
+    public void MaskSummary_InstanceUsesMachineHomeAndTemp()
+    {
+        var temp = Path.GetTempPath().TrimEnd('/', '\\');
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile).TrimEnd('/', '\\');
+        var text = BackupFor(Base).MaskSummary($"{Path.Combine(temp, "formwright-pgpass-1")}; {Path.Combine(home, ".pgpass")}");
+        if (temp.Length > 2 && !temp.EndsWith(':')) text.Should().NotContain(temp).And.Contain("formwright-pgpass-1");
+        if (home.Length > 2 && !home.EndsWith(':')) text.Should().NotContain(home).And.Contain(".pgpass");
+    }
+
+    /// <summary>
     /// #90 第 3 項：子程序環境白名單。Unix 帶動態連結器的搜尋路徑（PostgreSQL 用戶端裝在非標準位置時要靠它載入 libpq）；
     /// Windows 補 OpenSSL 憑證與 Kerberos。兩邊都不帶含密碼的變數（M1 原則不變）。
     /// </summary>

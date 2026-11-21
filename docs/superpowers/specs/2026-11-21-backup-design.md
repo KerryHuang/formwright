@@ -613,7 +613,7 @@ bk1 驗收時兩種資料庫各演練一次（§22 D1、D2）。
 | 金鑰不隨資料備份（Q1，使用者 11-21 裁決） | — | 安全 |
 | `pg_dump` 密碼只走 0600 暫存 `PGPASSFILE`，不進命令列、環境變數、log；參數用 `ArgumentList` 不經 shell | — | 安全 |
 | `pg_dump`／`pg_restore` 子程序的環境變數只帶白名單（路徑、家目錄、語系、時區、暫存目錄、OpenSSL 憑證、Kerberos、動態連結器搜尋路徑；Windows 另帶系統變數，OpenSSL 憑證與 Kerberos 同 Unix），加 `--no-password`（bk1b 審查 M1、#90） | — | 安全 |
-| 錯誤摘要遮掉資料庫主機（有邊界才遮）、IP 位址、引號裡的帳號與資料庫名、`pg_dump` 路徑（設定的或從 `PATH` 找到的）、工作目錄、連線字串的憑證／金鑰／Passfile 路徑；遮罩出錯時改寫固定文字（完整訊息只記在伺服器 log；bk1b 審查 M2、#90） | `<Database:Host>`、`<ip>` 等 | 安全 |
+| 錯誤摘要遮掉資料庫主機（有邊界才遮）、IP 位址、引號裡的帳號與資料庫名、`pg_dump` 路徑（設定的或從 `PATH` 找到的）、工作目錄、家目錄（`HOME`、`USERPROFILE`、`APPDATA`、`LOCALAPPDATA`）、暫存目錄、連線字串的憑證／金鑰／Passfile 路徑；目錄是 `/` 或磁碟根時不遮；遮罩出錯時改寫固定文字（完整訊息只記在伺服器 log；bk1b 審查 M2、#90、#94） | `<Database:Host>`、`<ip>`、`<家目錄>`、`<暫存目錄>` 等 | 安全 |
 | 暫存 `PGPASSFILE` 殘檔（`formwright-pgpass-*`）多久之後在備份開始時清掉 | 24 小時 | 技術限制 |
 | 備份目錄 0700、檔案 0600（非 Windows，盡力而為） | — | 安全 |
 | Demo 站不開放立即備份 | 403 | 安全（同寄信測試信） |
@@ -919,6 +919,8 @@ bk1 驗收時兩種資料庫各演練一次（§22 D1、D2）。
   - 主機要有邊界才遮（前後不是字元或 `-`、前面也不是 `.`），先把每個要遮的值換成內部記號、最後才放佔位字，`Host=postgres` 不會把 `PostgreSQL` 換壞，主機名是 `database` 也不會換壞已放好的佔位字。
   - 遮罩本身丟例外時，摘要改寫固定文字（`BackupWorker.UnmaskedDetail`），這份照樣結束成 failed；例外往外丟的話會停在執行中。
   - Unix 白名單帶 `LD_LIBRARY_PATH`、`DYLD_LIBRARY_PATH`，不改成在 deploy.md 說明不帶。理由：它們只是函式庫搜尋路徑、不含機密，站台自己啟動時本來就用同一組值；不帶的話，用戶端裝在非標準位置的主機會因載不到 libpq 而以 `pgDumpMissing` 失敗，原因難查。macOS 對系統保護的執行檔會自行剝掉 `DYLD_*`，帶了也無害。
+  - Windows 白名單帶 `OPENSSL_CONF`（#94）。它能指定 OpenSSL 載入的設定檔與引擎模組，等於能讓 libpq 載入任意程式碼；信任前提是子程序拿的是站台自己的同一組環境，能改這個變數的人本來就能改 `PATH` 或直接劫持 dotnet 行程，帶它沒有多開權限。Unix 的同名變數同理。
+  - 錯誤摘要另遮家目錄與暫存目錄（#94，#90 審查 S2）：libpq 對 `~/.pgpass`、`~/.postgresql/postgresql.key` 的權限警告帶出家目錄，寫暫存 PGPASSFILE 失敗帶出暫存目錄。家目錄取 `UserProfile`、`ApplicationData`、`LocalApplicationData` 與環境變數 `HOME`、`USERPROFILE`、`APPDATA`、`LOCALAPPDATA`，暫存目錄取 `Path.GetTempPath()`，都去尾斜線；和工作目錄同一套「長的先換」，互相包含時遮成最精確的那個（Windows 的暫存目錄在家目錄底下，遮成 `<暫存目錄>`）。
 
 ## 25. 留給實作者
 

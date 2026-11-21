@@ -188,18 +188,26 @@ public sealed partial class PostgresDatabaseBackup(DynamicDbContext db, PgDumpSe
 
     /// <summary>
     /// 錯誤摘要的連線識別資訊遮罩（審查 M2，和 Q12 同一類：雲端版客戶管理員看得到摘要）：pg_dump 路徑與它的目錄（設定的，或靠 <c>PATH</c> 找到的）、
-    /// 工作目錄（<c>Process.Start</c> 失敗時 .NET 的訊息帶它）、連線字串的根憑證／用戶端憑證／金鑰／Passfile 路徑、每個主機、
+    /// 工作目錄（<c>Process.Start</c> 失敗時 .NET 的訊息帶它）、家目錄（libpq 對 <c>~/.pgpass</c>、<c>~/.postgresql/postgresql.key</c> 的權限警告帶它）、
+    /// 暫存目錄（寫暫存 PGPASSFILE 失敗時帶它，#94）、連線字串的根憑證／用戶端憑證／金鑰／Passfile 路徑、每個主機、
     /// IPv4／IPv6 位址（libpq 會印出解析後的位址，事先拿不到）、引號裡的帳號與資料庫名、密碼（含 .pgpass 跳脫寫法）。
     /// </summary>
     public string MaskSummary(string text) =>
-        MaskSummary(text, _connectionString, settings, System.Environment.GetEnvironmentVariable("PATH"), Directory.GetCurrentDirectory());
+        MaskSummary(text, _connectionString, settings, System.Environment.GetEnvironmentVariable("PATH"), Directory.GetCurrentDirectory(),
+            [System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
+             System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData),
+             System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData),
+             System.Environment.GetEnvironmentVariable("HOME"), System.Environment.GetEnvironmentVariable("USERPROFILE"),
+             System.Environment.GetEnvironmentVariable("APPDATA"), System.Environment.GetEnvironmentVariable("LOCALAPPDATA")],
+            Path.GetTempPath());
 
     /// <summary>
-    /// <see cref="MaskSummary(string)"/> 的本體（輸入都由參數給，測試不必改行程的 <c>PATH</c>）。
+    /// <see cref="MaskSummary(string)"/> 的本體（輸入都由參數給，測試不必改行程的 <c>PATH</c>、家目錄、暫存目錄）。
     /// 先把每個要遮的值換成不會再被比對到的記號，最後才換成佔位字：主機名剛好是 <c>Database</c> 這類字時，不會把先放好的佔位字換壞（#90）。
     /// 主機要有邊界才遮（前面不是字元、<c>.</c>、<c>-</c>，後面不是字元、<c>-</c>）：<c>Host=postgres</c> 不會把 <c>PostgreSQL</c> 換壞。
     /// </summary>
-    public static string MaskSummary(string text, string? connectionString, PgDumpSettings settings, string? pathVariable, string? workingDirectory)
+    public static string MaskSummary(string text, string? connectionString, PgDumpSettings settings, string? pathVariable, string? workingDirectory,
+        IReadOnlyList<string?>? homeDirectories = null, string? tempDirectory = null)
     {
         var placeholders = new List<string>();
         string Hide(string placeholder)
@@ -226,9 +234,15 @@ public sealed partial class PostgresDatabaseBackup(DynamicDbContext db, PgDumpSe
             Literal(found, "<pg_dump>");
             Literal(Path.GetDirectoryName(found), "<pg_dump 的目錄>");
         }
-        // 工作目錄是磁碟根（C:\ 去尾斜線成 C:）或 / 時不遮：太短會把訊息裡每個 c: 都換掉（#90 審查 S3）
-        var wd = workingDirectory?.TrimEnd('/', '\\');
-        if (wd is { Length: > 2 } && !wd.EndsWith(':')) Literal(wd, "<工作目錄>");
+        // 目錄是磁碟根（C:\ 去尾斜線成 C:）或 / 時不遮：太短會把訊息裡每個 c: 都換掉（#90 審查 S3）
+        void Folder(string? value, string placeholder)
+        {
+            var trimmed = value?.TrimEnd('/', '\\');
+            if (trimmed is { Length: > 2 } && !trimmed.EndsWith(':')) Literal(trimmed, placeholder);
+        }
+        Folder(workingDirectory, "<工作目錄>");
+        foreach (var home in homeDirectories ?? []) Folder(home, "<家目錄>");
+        Folder(tempDirectory, "<暫存目錄>");
 
         NpgsqlConnectionStringBuilder? b = null;
         try
