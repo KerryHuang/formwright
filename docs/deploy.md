@@ -98,7 +98,8 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 | `Localization__PackImportEnabled` | 是否開放匯入語系包（套用、回到上一版、移除覆寫、移除語系）；沒設時 `Demo__LoginEnabled` 為 `true` 就關閉（只能預覽報告），否則開放 |
 | `Attachments__DisabledReason` | 關閉上傳時顯示給使用者的原因 |
 | `Attachments__MaxBytes`、`Attachments__MaxFilesPerField`、`Attachments__AllowedExtensions__0`… | 附件政策在這個環境的出廠值，見下方「附件設定與政策出廠值」 |
-| `Ops__Edition` | 版別，`Cloud` 或 `OnPrem`（其他值記 Warning 並當 `OnPrem`）；顯示在系統管理員的 ops info |
+| `Ops__Edition` | 版別，`Cloud` 或 `OnPrem`（區分大小寫，其他值記 Warning 並當 `OnPrem`）；顯示在系統管理員的 ops info。⚠️ 雲端主機填錯（例如 `cloud`）會被當成地端版，備份狀態會把備份路徑顯示給客戶管理員 |
+| `Backup__Root` | 產品內備份的位置（本機目錄）；沒設就不備份。見下方「產品內備份」 |
 | `Ops__TrustIncomingTraceParent` | 預設 `false`：忽略外來的 `traceparent`，request id 由伺服器產生；放在自家反向代理後面、要串接上游 trace 時才設 `true` |
 | `Ops__Scheduler__Enabled` | 背景排程器（通知維護等），預設 `true`；設 `false` 整個不跑。多實例時同一工作靠資料表租約只跑一份，也可以只讓其中一台開著；實例之間的時鐘誤差由 5 分鐘租約吸收，主機請開 NTP 校時 |
 | `Sqlite__MmapSizeMb` | SQLite 每條連線的記憶體對映大小，單位 MB，預設 `0`（關閉）；也可寫在 `appsettings.json` 的 `Sqlite:MmapSizeMb` |
@@ -134,6 +135,29 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 ⚠️ 已知限制：資料庫持續讀不到時，政策設定（含營運時區與語系）沿用上次成功讀到的值、沒有時間上限；站台啟動時就讀不到資料庫則先用出廠值，恢復後最多 10 秒重新讀取。
 
 ⚠️ 多台部署：全系統政策（含維運政策與營運時區）每台各自快取，在別台改的值最多 60 秒後才在這台生效（與 O1 的維運政策快取是同一份）。改營運時區的那一刻，其他台在這段時間內用舊時區寫入的日期時間索引會永久差一段時差，所以**改時區請在離峰時段、先縮成一台再改**，改完再擴回多台。
+
+## 產品內備份
+
+設了 `Backup__Root` 就每天自動備份一份（政策「每天幾點自動備份」，營運時區，出廠 02:00），系統管理員也可以按「立即備份」。一份備份含資料庫快照與附件，不含登入金鑰（設計見[備份設計](superpowers/specs/2026-11-21-backup-design.md)）。bk1a 只支援 SQLite；PostgreSQL 設了也不備份，維運監控的「備份」顯示「這種資料庫還不支援產品內備份」。
+
+- **放另一顆磁碟或另一個 volume**：備份位置不能和資料庫目錄、附件根目錄、金鑰目錄、站台的 `wwwroot` 相同或互相包含（不分大小寫），否則啟動記 Warning、不備份、「備份」檢查判嚴重。Docker 部署要另掛一個 volume，例如 `-v formwright-backup:/backup -e Backup__Root=/backup`。
+- **多台部署**：每台的 `Backup__Root` 要指到同一個共享掛載（同一份備份只會有一台在做），或只讓其中一台開背景工作（`Ops__Scheduler__Enabled=true`），其他台設 `false`。背景工作關閉的那台不做備份。
+- **位置標記檔**：第一次備份時在位置根目錄寫 `.formwright-backup-location`。之後位置裡的標記檔和資料庫記的不同（換了掛載、或兩台指到不同地方）就停下來不備份、判嚴重。要換到新位置：直接改 `Backup__Root`，新位置沒有標記檔，會當成新位置重新做第一份；**要換回以前用過的位置，先刪掉那裡的標記檔**。
+- **保留**：排程備份留最新 7 份、立即備份留 7 天（政策設定可改），最新一份成功的永遠不刪；清掉的備份記在稽核（`backup.prune`）。位置空間不夠時備份失敗、不寫任何檔。
+- 備份目錄權限：目錄 0700、檔案 0600（作業系統不支援時記一次 Warning）。
+- **部署與重啟**：重啟會中斷執行中的備份，記成「中斷」並在下一輪自動重試（同一時段最多 3 次）。部署前先確認沒有執行中的備份（`GET /api/v3/dynamic/system/ops/backups` 的 `current`；監控頁的「備份」分頁隨 bk1c 上線）。
+
+### 從備份還原（SQLite）
+
+1. 停站台。
+2. 在 `<Backup__Root>/sets/` 選一份，確認它不比要啟動的版本新：舊備份可以用新版啟動（migration 會往前升），新備份不能用舊版開。
+   - 比對 `manifest.json` 的 `appVersion`。
+   - 版本是 `dev`（本機與 Demo）時改比 `migrationId`：備份的 `migrationId` 必須在要啟動的版本的 migration 清單裡。
+3. 把那份的 `database.sqlite` 複製成資料庫檔（例如 `/app/data/poc.db`），刪掉舊的 `-wal`、`-shm`。
+4. 把 `<Backup__Root>/attachments/` 整個複製到附件根目錄。多出來的檔案是別份備份的，之後可以用「清孤兒附件」清掉。
+5. 啟動。
+   - 原本的金鑰目錄還在（同一台主機、只是資料庫壞了）：保留金鑰目錄，不必重新登入、也不必重填密碼。
+   - 金鑰目錄也沒了（換主機、整顆磁碟壞）：所有人要重新登入，系統管理員要到「寄信設定」重填密碼。
 
 ## 本機試跑容器
 
