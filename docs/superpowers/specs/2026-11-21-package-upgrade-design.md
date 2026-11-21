@@ -68,7 +68,7 @@ pkg1 做一個**升級預覽與逐項套用**的入口：
 | 補欄位到已有資料的主檔時改成非必填並警告 | `MasterMerger.cs:243–250` |
 | 套件的政策上限（群組、模組、欄位、選項、規則、檢視、整合、簽核流程數）只在匯入與開啟時檢查 | `AppService/PackageLimitReader.cs`；手冊政策一節「設計上限」 |
 | 開啟要設計器 Add、系統管理員、權限設定三者 | `AppService/Commands/OpenApp.cs` `OpenAppRequest` |
-| 內建套件版本：`crm-sales` 1.3.0（格式 8）、`inventory` 1.2.0（8）、`mes-mold` 1.0.2（6）、`partner`、`contact` 1.0.1（7） | `backend/apps/*.app.json` |
+| 內建套件版本：`crm-sales` 1.3.0（格式 8）、`inventory` 1.2.0（8）、`mes`（當時舊名，已改通用 MES）1.0.2（6）、`partner`、`contact` 1.0.1（7） | `backend/apps/*.app.json` |
 | 內建套件的規則與檢視數：CRM 0／0、進銷存 5／0、MES 23／10、`partner` 0／2 | 同上 |
 | 應用程式頁：開啟對話框的群組對應只顯示建議、不能改 | `frontend/src/pages/system/AppsPage.vue`；手冊 §18「開啟」第 3 點 |
 
