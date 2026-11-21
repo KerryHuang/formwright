@@ -11,7 +11,12 @@ public record UpgradeBody(Dictionary<string, GroupMapEntry>? GroupMap, Dictionar
 }
 
 /// <summary>一個屬性的三個值（§8.4）。值原樣回，由前端格式化；Result：newOnly、customerOnly、both、added、noBaseline…</summary>
-public record UpgradeProperty(string Name, string? Locale, JsonNode? Base, JsonNode? New, JsonNode? Current, string Result);
+public record UpgradeProperty(string Name, string? Locale, JsonNode? Base, JsonNode? New, JsonNode? Current, string Result)
+{
+    /// <summary>同 <c>UpgradeItem.Props</c> 的鍵：多語是 <c>name|locale</c>。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string Key => Locale is null ? Name : $"{Name}|{Locale}";
+}
 
 /// <summary>新物件附帶的權限（Q12）：Effect 是動作或限制，Grants 為 true 表示給權類；Scope 只有模組權限有。</summary>
 public record AttachedPermission(long GroupId, string GroupName, string Effect, bool Grants, string? Scope = null);
@@ -22,7 +27,24 @@ public record AttachedPermission(long GroupId, string GroupName, string Effect, 
 /// </summary>
 public record UpgradeItemResponse(
     string Id, string Section, string? Module, I18nText? Label, string Category, bool DefaultSelected, bool Applicable,
-    string? Reason, List<string> DependsOn, List<UpgradeProperty> Properties, List<AttachedPermission> AttachedPermissions);
+    string? Reason, List<string> DependsOn, List<UpgradeProperty> Properties, List<AttachedPermission> AttachedPermissions)
+{
+    /// <summary>原因是 affectsData（既有欄位改必填、有記錄沒填）時，沒有值的記錄數（§6.4、A12b）。</summary>
+    public int? AffectedRecords { get; init; }
+}
+
+/// <summary>
+/// 套用（§8.3）：Token 是預覽回的雜湊；Items 是勾選的項目識別；GroupMap、ModuleKeys 同預覽；Masters 是共用主檔 id → 勾選的項目（pkg1d 才開放）。
+/// </summary>
+public record UpgradeApplyBody(
+    string? Token, List<string>? Items, Dictionary<string, GroupMapEntry>? GroupMap, Dictionary<string, string>? ModuleKeys,
+    Dictionary<string, List<string>>? Masters = null)
+{
+    public List<string> Items { get; init; } = Items ?? [];
+    public Dictionary<string, GroupMapEntry> GroupMap { get; init; } = GroupMap ?? [];
+    public Dictionary<string, string> ModuleKeys { get; init; } = ModuleKeys ?? [];
+    public Dictionary<string, List<string>> Masters { get; init; } = Masters ?? [];
+}
 
 /// <summary>要決定對應的群組代號（§8.1）。Reason：new（新版多的）、stale（對到的群組已刪除）、skipped（開啟時略過、新物件用得到）。</summary>
 public record UpgradeGroup(string Code, I18nText Name, string Reason, GroupMapEntry Choice);

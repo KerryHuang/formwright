@@ -15,7 +15,8 @@ public static class UpgradeClassifier
 
     /// <summary>原因代碼（前端 apps.upgrade.reason.*）。</summary>
     public const string ReasonCustomerOnly = "customerOnly", ReasonRemovedInNew = "removedInNew", ReasonTypeChanged = "typeChanged",
-        ReasonKindChanged = "kindChanged", ReasonExistingPermission = "existingPermission", ReasonReferenceChanged = "referenceChanged";
+        ReasonKindChanged = "kindChanged", ReasonExistingPermission = "existingPermission", ReasonReferenceChanged = "referenceChanged",
+        ReasonNotYetSupported = "notYetSupported", ReasonAffectsData = "affectsData", ReasonUnmatched = "unmatched";
 
     public sealed record Result(string Category, bool DefaultSelected, bool Applicable, string? Reason, List<UpgradeProperty> Properties);
 
