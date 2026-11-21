@@ -24,7 +24,7 @@ public sealed class DemoStructure(
     EventService.EffectBudget budget, IWriteJournal journal, AppService.SharedMasters.MasterSymbols masterSymbols,
     ApprovalService.ApprovalWriteContext approvalContext, ApprovalService.ApprovalLockService approvalLock,
     AttachmentService.AttachmentUploadTracker uploadTracker, TaskService.TaskVisibilityService taskVisibility,
-    ReportService.TaskReportSource taskReports)
+    ReportService.TaskReportSource taskReports, AppService.AppCatalog catalog)
 {
     public const string CrmAppId = DemoCatalog.CrmAppId;
 
@@ -64,7 +64,11 @@ public sealed class DemoStructure(
         })
         {
             var groupMap = map.ToDictionary(m => m.Code, m => new GroupMapEntry("map", groupIds[m.Group]));
-            var app = await appOpener.OpenAsync(appId, new OpenAppBody(null, null, groupMap, null, masterMap), ct);
+            var body = new OpenAppBody(null, null, groupMap, null, masterMap);
+            // CRM 開推導出的舊版，示範升級預覽（套件更新設計 §11.1）；其他照目錄版開啟，示範「已是最新」
+            var app = appId == DemoCatalog.CrmAppId
+                ? await appOpener.OpenTextAsync(DemoOldCrm.Derive(catalog.OriginalOf(appId)!), body, ct)
+                : await appOpener.OpenAsync(appId, body, ct);
             if (!app.Result.IsSuccess) return (null, Fail($"開啟應用程式 {appId}", app.Result));
             opened[appId] = app.Ids!;
         }
@@ -88,6 +92,47 @@ public sealed class DemoStructure(
             Inventory = new DemoContext(today, sender, opened[DemoCatalog.InventoryAppId], groupIds),
             Masters = masters is null ? null : new DemoContext(today, sender, masters, groupIds)
         }, null);
+    }
+
+    /// <summary>
+    /// 情境跑完後以「客戶」身分改 CRM（套件更新設計 §11.1）：主旨的繁中標籤改成第三個值（兩邊都改）、停用活動的「說明」（只有客戶改）、
+    /// 刪掉活動的「地點」（客戶已刪除；情境不填它，沒有資料才能刪）、在潛在客戶加一個自己的欄位（客戶新增）。排在情境之後，情境寫值不受影響。
+    /// </summary>
+    public async Task<ServiceResult?> CustomizeCrmAsync(TemplateIdMap crm, CancellationToken ct)
+    {
+        using var _ = ActingScope.Begin("admin");
+        async Task<Domain.Entities.Dynamic.Field> FieldAsync(string name)
+        {
+            var module = (await modules.GetByKeyAsync(crm.ModuleKeys[name[..name.IndexOf('.')]], includeChildren: true, ct))!;
+            return module.Blocks.SelectMany(b => b.Fields).First(f => f.Id == crm.FieldIds[name]);
+        }
+        var subject = await FieldAsync("activity.subject");
+        var label = new Domain.ValueObjects.I18nText(subject.LabelI18n.Values);
+        label.Set("zh-TW", DemoOldCrm.CustomerSubject);
+        var steps = new List<(string Step, Func<Task<ServiceResult>> Run)>
+        {
+            ("改主旨標籤", async () => await sender.Send(new FieldService.Commands.UpdateField.UpdateFieldRequest(subject.Id, subject.Type, label, subject.Config, subject.BlockId), ct)),
+            ("停用活動說明", async () => await sender.Send(new FieldService.Commands.SetFieldStatus.SetFieldStatusRequest(crm.FieldIds["campaign.note"], Domain.Entities.Dynamic.FieldStatus.Inactive), ct)),
+            ("刪除活動地點", async () => await DeleteFieldAsync(crm.FieldIds["campaign.location"])),
+            ("潛在客戶加欄位", async () => await sender.Send(new FieldService.Commands.AddField.AddFieldRequest(crm.ModuleKeys["lead"],
+                (await FieldAsync("lead.company")).BlockId, Domain.Entities.Dynamic.FieldType.Text,
+                new Domain.ValueObjects.I18nText([KeyValuePair.Create("zh-TW", "產業別")]), new Domain.ValueObjects.FieldConfig(), Designer: true), ct))
+        };
+        foreach (var (step, run) in steps)
+            if (await run() is { IsSuccess: false } failed) return Fail($"客戶修改 CRM：{step}", failed);
+        return null;
+
+        async Task<ServiceResult> DeleteFieldAsync(long id)
+        {
+            // 刪除要先停用，清除的筆數要對上預檢的數字
+            var off = await sender.Send(new FieldService.Commands.SetFieldStatus.SetFieldStatusRequest(id, Domain.Entities.Dynamic.FieldStatus.Inactive), ct);
+            if (!off.IsSuccess) return off;
+            var first = await sender.Send(new DeleteService.Commands.DeleteField.DeleteFieldRequest(id, 0), ct);
+            if (first is { IsConflict: true, Data: DeleteService.Data.DeleteCheckResponse { CanDelete: false } blocked })
+                return ServiceResult.Conflict(string.Join("、", blocked.Blockers.Select(b => $"{b.Kind}:{b.Name}")));
+            return first is { IsConflict: true, Data: DeleteService.Data.DeleteCheckResponse check }
+                ? await sender.Send(new DeleteService.Commands.DeleteField.DeleteFieldRequest(id, check.Purge.Records), ct) : first;
+        }
     }
 
     /// <summary>已開啟主檔的符號對照（&lt;主檔 id&gt;/&lt;模組&gt;.&lt;欄位&gt;），給 <see cref="Scenarios.MasterScenario"/> 用；沒有主檔時是 null。</summary>

@@ -35,9 +35,10 @@ public sealed partial class AppOpenPlanner(
     private static readonly OpenPreview Empty = new([], [], [], [], [], []);
 
     /// <param name="asMaster">由使用者套件自動開啟主檔時為 true；直接開啟主檔套件一律 409（主檔由使用它的應用程式管理）。</param>
-    public async Task<Plan> PlanAsync(string packageId, OpenAppBody body, CancellationToken ct, bool asMaster = false)
+    /// <param name="given">Demo 產生器的內部入口直接給套件（推導的舊版，套件更新設計 §11.1）；HTTP 一律依 id 找。</param>
+    public async Task<Plan> PlanAsync(string packageId, OpenAppBody body, CancellationToken ct, bool asMaster = false, SourcedPackage? given = null)
     {
-        var source = await packages.FindAsync(packageId, ct);
+        var source = given ?? await packages.FindAsync(packageId, ct);
         if (source is null) return Fail(ServiceResult.NotFound(AppMessages.PackageNotFound));
         if (source.Package.Manifest.IsMaster && !asMaster) return Fail(ServiceResult.Conflict(AppMessages.MasterManaged));
 

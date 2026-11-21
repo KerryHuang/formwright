@@ -28,6 +28,8 @@ public class GenerateDemoDataHandler(DemoPreflight preflight, IDemoPeople people
         using (ServerUploadScope.Begin())
             failed = await DemoTimeline.RunAsync(context!, steps, request.Progress, ct);
         if (failed is not null) return failed;
+        // 客戶修改 CRM（升級預覽的示範，套件更新設計 §11.1）排在情境之後
+        if (context!.Crm is { } crm && await structure.CustomizeCrmAsync(crm.Ids, ct) is { } customized) return customized;
         // 資料日期停在這天；Demo 登入開啟時報表以它為基準日
         await settings.SetAsync(SystemSetting.DemoGeneratedOn, request.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), ct);
         await uow.CommitAsync(ct);

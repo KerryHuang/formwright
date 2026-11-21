@@ -46,7 +46,8 @@ public class AppOpener(
     AppOpenPlanner planner, TemplateInstantiator instantiator, ISender sender, IAppRepository apps,
     AppResponseBuilder builder, AppFlowInstaller flows, IUnitOfWork uow, ICurrentUser user, IBusinessTime time,
     IntegrationReconciler integrations, ISharedMasterRepository shared, IModuleRepository modules, IPermissionRepository permissions,
-    MasterSymbols symbols, MasterGrants grants, MasterLifecycle lifecycle, ContributionOrphans orphans, RequestLocale requestLocale)
+    MasterSymbols symbols, MasterGrants grants, MasterLifecycle lifecycle, ContributionOrphans orphans, RequestLocale requestLocale,
+    AppPackageSource packages)
 {
     public async Task<AppOpenOutcome> OpenAsync(string packageId, OpenAppBody body, CancellationToken ct)
     {
@@ -55,13 +56,28 @@ public class AppOpener(
         return new AppOpenOutcome(result, result.IsSuccess ? ids : null);
     }
 
-    private async Task<ServiceResult> OpenCoreAsync(string packageId, OpenAppBody body, bool asMaster, Action<TemplateIdMap> onIds, CancellationToken ct)
+    /// <summary>
+    /// 內部入口（套件更新設計 §11.1，只給 Demo 產生器用、HTTP 不開）：開啟一份給定的內建套件文字，走同一條讀取、規劃、開啟的路徑，
+    /// 基準存這份文字。Demo 用它開由目錄版推導出的舊版，示範升級預覽。
+    /// </summary>
+    public async Task<AppOpenOutcome> OpenTextAsync(string packageJson, OpenAppBody body, CancellationToken ct)
+    {
+        var (package, errors) = await packages.ReadAsync(packageJson, ct);
+        if (package is null) return new AppOpenOutcome(ServiceResult.Invalid(new Dictionary<string, string[]> { ["package"] = [.. errors] }), null);
+        TemplateIdMap? ids = null;
+        var result = await OpenCoreAsync(package.Manifest.Id, body, asMaster: false, i => ids = i, ct,
+            new SourcedPackage(package, AppPackageSource.BuiltIn, packageJson));
+        return new AppOpenOutcome(result, result.IsSuccess ? ids : null);
+    }
+
+    private async Task<ServiceResult> OpenCoreAsync(string packageId, OpenAppBody body, bool asMaster, Action<TemplateIdMap> onIds, CancellationToken ct,
+        SourcedPackage? given = null)
     {
         // 套件內容只要求繁中，不跟政策 locale.requiredText（判斷 12）
         using var packageText = PackageTextScope.Begin();
         // 建立群組與流程用的語系：沒給用請求語系、給了停用或不認得的用預設語系（D4）
         var lc = requestLocale.For(body.Locale);
-        var plan = await planner.PlanAsync(packageId, body, ct, asMaster);
+        var plan = await planner.PlanAsync(packageId, body, ct, asMaster, given);
         if (plan.Failure is { } failure) return failure;
         var preview = plan.Preview;
         if (preview.Errors.Count > 0)
