@@ -34,15 +34,43 @@ public sealed class BackupStoreTests : IDisposable
         await again.Should().ThrowAsync<BackupObjectExistsException>();
         await using var read = (await store.OpenReadAsync("attachments/ab/cd/abcd", Ct))!;
         (await new StreamReader(read).ReadToEndAsync()).Should().Be("one");
-        Directory.EnumerateFiles(_root, "*.partial", SearchOption.AllDirectories).Should().BeEmpty();
+        Directory.EnumerateFiles(_root, "*.partial-*", SearchOption.AllDirectories).Should().BeEmpty();
+    }
+
+    /// <summary>M1：多個寫入者同時寫同一個目標（兩台同時建位置標記檔）：恰好一個成功、其餘都是「已存在」，內容是成功那一個的、完整。</summary>
+    [Fact]
+    public async Task Put_ConcurrentWriters_ExactlyOneWins_OthersGetExists()
+    {
+        for (var round = 0; round < 20; round++)
+        {
+            var store = Store();
+            var path = $"race/{round}";
+            var writers = Enumerable.Range(0, 8).Select(i => Task.Run(async () =>
+            {
+                try
+                {
+                    await store.PutAsync(path, Bytes(new string((char)('a' + i), 4096)), Ct);
+                    return (char)('a' + i);
+                }
+                catch (BackupObjectExistsException)
+                {
+                    return '-';
+                }
+            })).ToArray();
+            var results = await Task.WhenAll(writers);
+            results.Where(r => r != '-').Should().ContainSingle();
+            var winner = results.Single(r => r != '-');
+            (await File.ReadAllTextAsync(Path.Combine(_root, "race", round.ToString()))).Should().Be(new string(winner, 4096));
+        }
+        Directory.EnumerateFiles(_root, "*.partial-*", SearchOption.AllDirectories).Should().BeEmpty();
     }
 
     [Fact]
-    public async Task Put_LeftoverPartial_IsReplaced_AndNotListed()
+    public async Task Put_LeftoverPartial_IsIgnored_AndNotListed()
     {
         var store = Store();
         Directory.CreateDirectory(Path.Combine(_root, "attachments"));
-        await File.WriteAllTextAsync(Path.Combine(_root, "attachments", "x.partial"), "half");
+        await File.WriteAllTextAsync(Path.Combine(_root, "attachments", "x.partial-0123456789abcdef0123456789abcdef"), "half");
         (await store.ListAsync("attachments/", Ct)).Should().BeEmpty("半個檔不算");
         await store.PutAsync("attachments/x", Bytes("whole"), Ct);
         (await store.ListAsync("attachments/", Ct)).Should().ContainSingle().Which.Should().Match<BackupObject>(o => o.Path == "attachments/x" && o.Size == 5);
