@@ -1,4 +1,6 @@
 using DynamicModules.Application.Dynamic.AppService;
+using DynamicModules.Application.Dynamic.AppService.Data;
+using DynamicModules.Application.Dynamic.AppService.Queries;
 using DynamicModules.Application.Dynamic.DemoService;
 using DynamicModules.Application.Dynamic.DemoService.Commands.GenerateDemoData;
 using DynamicModules.Application.Dynamic.ModuleService.Commands.CreateModule;
@@ -52,14 +54,43 @@ public class DemoStructureTests(DemoGeneratedFixture fx)
     {
         fx.Generated();
 
-        // 套件更新設計 §5.4：Demo 產生器經 AppOpener 開啟，基準不必另寫；pkg1b 推導舊版之前存的是目錄原文
+        // 套件更新設計 §5.4、U21：Demo 產生器經 AppOpener 開啟，基準不必另寫；CRM 開的是推導的舊版，基準是推導文字，其他是目錄原文
         var catalog = fx.Host.Services.GetRequiredService<AppCatalog>();
         var db = fx.Host.Db.Context;
         var apps = await db.Set<App>().AsNoTracking().ToListAsync();
         var baselines = await db.Set<AppBaseline>().AsNoTracking().ToDictionaryAsync(b => b.AppId);
         apps.Select(a => a.Key).Should().Contain(DemoCatalog.AppIds).And.Contain(["partner", "contact"]);
         foreach (var app in apps)
-            baselines.Should().ContainKey(app.Id, app.Key).WhoseValue.PackageJson.Should().Be(catalog.OriginalOf(app.Key), app.Key);
+            baselines.Should().ContainKey(app.Id, app.Key).WhoseValue.PackageJson.Should().Be(
+                app.Key == DemoCatalog.CrmAppId ? DemoOldCrm.Derive(catalog.OriginalOf(app.Key)!) : catalog.OriginalOf(app.Key), app.Key);
+        var crm = apps.Single(a => a.Key == DemoCatalog.CrmAppId);
+        crm.PackageVersion.Should().Be(DemoOldCrm.Older(catalog.BuiltIns.Single(p => p.Manifest.Id == crm.Key).Manifest.Version));
+    }
+
+    /// <summary>U21 與 §11.2 pkg1b 的示範路徑：CRM 有新版，預覽列出各分類；進銷存已是最新。</summary>
+    [Fact]
+    public async Task Generate_CrmPreview_ShowsEveryDemoCategory_AndInventoryIsUpToDate()
+    {
+        fx.Generated();
+
+        var preview = (UpgradePreview)(await fx.Host.Send(new PreviewAppUpgradeRequest(DemoCatalog.CrmAppId, new UpgradeBody(null, null)))).Data!;
+        UpgradeItemResponse Item(string id) => preview.Items.Should().ContainSingle(i => i.Id == id, id).Subject;
+        preview.HasBaseline.Should().BeTrue();
+        Item($"option:{DemoOldCrm.RemovedOption}").Should().Match<UpgradeItemResponse>(i => i.Category == "added" && i.DefaultSelected, "推導時拿掉的是新版新增，不是客戶已刪除");
+        Item("field:lead.company").Should().Match<UpgradeItemResponse>(i => i.Category == "newOnly" && i.DefaultSelected
+            && i.Properties.Single().Locale == "th");
+        var subject = Item("field:activity.subject");
+        subject.Category.Should().Be("both");
+        subject.DefaultSelected.Should().BeFalse();
+        subject.Properties.Single().Should().Match<UpgradeProperty>(p => p.Base!.ToString() == DemoOldCrm.OldSubject
+            && p.Current!.ToString() == DemoOldCrm.CustomerSubject);
+        Item("field:campaign.note").Should().Match<UpgradeItemResponse>(i => i.Category == "customerOnly" && !i.Applicable);
+        Item("field:campaign.location").Should().Match<UpgradeItemResponse>(i => i.Category == "customerDeleted" && !i.DefaultSelected);
+        preview.Counts["customerAdded"].Should().Be(1);
+        preview.Items.Should().HaveCount(5, "示範之外不能有假差異");
+
+        var inventory = await fx.Host.Send(new PreviewAppUpgradeRequest(DemoCatalog.InventoryAppId, new UpgradeBody(null, null)));
+        inventory.IsConflict.Should().BeTrue("進銷存照目錄版開啟，已是最新");
     }
 
     [Fact]

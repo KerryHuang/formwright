@@ -159,14 +159,15 @@ public sealed class CrmScenario : IDemoScenario
 
         // ---- 行銷活動：建立時由規則「行銷活動派工」產生任務（任務管理設計 §10）----
         var expoStart = today.AddDays(88);
+        // 「地點」不填：產生器最後以客戶身分刪掉這個欄位，示範升級預覽的「客戶已刪除」（有資料的欄位不能刪，套件更新設計 §11.1）
         var expo = plan.Create("crm-campaign", plan.At(today.AddDays(-3)), "sales01", "行銷活動 春季工具機展 建立", ctx => Create(ctx, "campaign",
             ("name", "春季工具機展"), ("kind", ctx.Crm!.Opt("campaign", "exhibition")), ("startDate", Iso(expoStart)),
-            ("endDate", Iso(expoStart.AddDays(2))), ("location", "濱港會展中心 B 館"), ("status", ctx.Crm.Opt("campaign", "confirmed")),
+            ("endDate", Iso(expoStart.AddDays(2))), ("status", ctx.Crm.Opt("campaign", "confirmed")),
             ("planOwner", "sales01"), ("setupOwner", "sales02"), ("feedbackOwner", "sales03"),
             ("note", "攤位兩格，展示產線自動化方案")));
         plan.Create("crm-campaign", plan.At(today.AddDays(-2)), "sales02", "行銷活動 智慧製造研討會 建立", ctx => Create(ctx, "campaign",
             ("name", "智慧製造研討會"), ("kind", ctx.Crm!.Opt("campaign", "seminar")), ("startDate", Iso(today.AddDays(60))),
-            ("endDate", Iso(today.AddDays(60))), ("location", "線上與北區教育訓練室"), ("status", ctx.Crm.Opt("campaign", "planning")),
+            ("endDate", Iso(today.AddDays(60))), ("status", ctx.Crm.Opt("campaign", "planning")),
             ("planOwner", "sales02"), ("feedbackOwner", "sales03")));
         var setupCommentAt = plan.At(today.AddDays(-2));
         plan.Run(setupCommentAt, "sales02", "展場佈置 留言", (ctx, ct) => Comment(ctx, expo, "展場佈置", "@{sales01} 攤位尺寸要再確認", ct));
