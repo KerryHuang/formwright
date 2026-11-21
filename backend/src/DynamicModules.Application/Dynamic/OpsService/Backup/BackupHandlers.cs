@@ -56,7 +56,8 @@ public sealed class GetBackupsHandler(
         var page = await runs.PageAsync(request.Cursor, PageSize + 1, ct);
         var active = await runs.ActiveAsync(ct);
         var cloud = environment.Edition == "Cloud";
-        var reason = auth.DemoLoginEnabled ? "demoSite" : !location.IsOk ? "notConfigured" : active is not null ? "inProgress" : null;
+        var reason = auth.DemoLoginEnabled ? "demoSite" : !location.IsOk ? "notConfigured" : location.LocationId is null ? "locationPending"
+            : active is not null ? "inProgress" : null;
         var lastSuccess = history.Where(r => r.Status == BackupRunStatus.Succeeded && r.SnapshotUtc is not null).MaxBy(r => r.SnapshotUtc);
         return ServiceResult.Success(new BackupOverviewDto(
             location.Status != BackupLocationStatus.NotConfigured, location.IsOk, location.Code, location.LocationId, store?.Kind,
@@ -81,13 +82,14 @@ public sealed class GetBackupRunHandler(IBackupRepository runs) : IRequestHandle
 
 /// <summary>
 /// 立即備份（備份設計 §6.3、§11）：排一筆 <c>manual</c>，由執行器下一輪（至多 60 秒）領走；成功回那一筆（控制器回 202）。
-/// 已有排隊或執行中 409 <c>backupInProgress</c>；位置沒設、不合法、不一致或資料庫種類不支援 409 <c>backupNotConfigured</c>；Demo 站 403。
+/// 已有排隊或執行中 409 <c>backupInProgress</c>；位置沒設、不合法、不一致或資料庫種類不支援 409 <c>backupNotConfigured</c>；
+/// 執行器還沒採用過位置 409 <c>backupLocationPending</c>；Demo 站 403。
 /// 不是交易型請求（插入一列、撞唯一鍵當成忙碌）；稽核 <c>backup.request</c> 在交易外寫，被拒也記（§12）。
 /// </summary>
 public sealed record RequestBackupRequest : IRequest<ServiceResult>, ISystemAdminRequest;
 
 public sealed class RequestBackupHandler(
-    BackupLocator locator, IServiceProvider sp, OpsInstance instance, AuthSettings auth, ICurrentUser user, IAuditLog audit, TimeProvider time)
+    BackupLocator locator, IServiceProvider sp, AuthSettings auth, ICurrentUser user, IAuditLog audit, TimeProvider time)
     : IRequestHandler<RequestBackupRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(RequestBackupRequest request, CancellationToken ct)
@@ -97,12 +99,18 @@ public sealed class RequestBackupHandler(
             await Audit(AuditResult.Denied, null, "demoSite", ct);
             return ServiceResult.Forbidden();
         }
-        // 立即備份也可以是這台第一次碰到位置：照執行器的規則採用（建標記檔）
-        var location = await locator.ResolveAsync(adopt: true, instance.InstanceId, ct);
-        if (location is not { IsOk: true, LocationId: { } locationId })
+        // 立即備份不採用位置（M2）：採用只由執行器做。背景工作關閉的那台位置可能指到自己的本機磁碟，替它採用會讓真正在跑的那台判不一致
+        var location = await locator.ResolveAsync(adopt: false, "", ct);
+        if (!location.IsOk)
         {
             await Audit(AuditResult.Denied, null, "backupNotConfigured", ct);
             return ServiceResult.Conflict(MessageRef.Of(MessageText.BackupNotConfigured), "backupNotConfigured", new { location = location.Code });
+        }
+        if (location.LocationId is not { } locationId)
+        {
+            // 執行器還沒採用過位置（啟動後第一輪之前，至多 60 秒）
+            await Audit(AuditResult.Denied, null, "backupLocationPending", ct);
+            return ServiceResult.Conflict(MessageRef.Of(MessageText.BackupLocationPending), "backupLocationPending");
         }
         var run = await BackupQueue.TryEnqueueAsync(sp, locationId, BackupTrigger.Manual, null, user.UserId, Common.StorageTime.ToMicroseconds(time.GetUtcNow().UtcDateTime), ct);
         if (run is null)
