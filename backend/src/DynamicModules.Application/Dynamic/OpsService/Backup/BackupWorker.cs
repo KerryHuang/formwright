@@ -125,6 +125,7 @@ public sealed class BackupWorker(
         await using var scope = scopes.CreateAsyncScope();
         var store = scope.ServiceProvider.GetRequiredService<IBackupStore>();
         _localRoot = store.LocalRoot;
+        _databaseMask = scope.ServiceProvider.GetRequiredService<IDatabaseBackup>().MaskSummary;
         try
         {
             var job = new BackupJob(scope.ServiceProvider, scopes, store, attachments, environment, time, _limits, owner, logger, Summary);
@@ -178,19 +179,25 @@ public sealed class BackupWorker(
         if (!ct.IsCancellationRequested) await RerunFreshnessAsync();
     }
 
-    private BackupRunFinish Failed(string code, Exception e, string? detail = null) =>
-        new(BackupRunStatus.Failed, Now, ErrorCode: code, ErrorDetail: Summary(detail ?? $"{e.GetType().Name}: {e.Message}"));
+    private BackupRunFinish Failed(string code, Exception e, string? detail = null)
+    {
+        var text = detail ?? $"{e.GetType().Name}: {e.Message}";
+        // 歷程的摘要會遮掉路徑與連線資訊；完整訊息（只遮機密）記一次在伺服器 log，給維運查原因（審查 M2）
+        logger.LogWarning("備份失敗 {ErrorCode}：{Detail}", code, SensitiveTextMask.Apply(text));
+        return new(BackupRunStatus.Failed, Now, ErrorCode: code, ErrorDetail: Summary(text));
+    }
 
     /// <summary>錯誤摘要裡代替備份位置、附件根目錄、資料庫目錄路徑的字樣（M3、複核 N2）。</summary>
     public const string RootPlaceholder = "<Backup:Root>", AttachmentsPlaceholder = "<Attachments:Root>", DatabasePlaceholder = "<Database:Directory>";
 
     /// <summary>
-    /// 錯誤摘要（errorDetail、pruneError 的唯一出口）：備份位置、附件根目錄、資料庫目錄的路徑換成固定字樣（雲端版不得讓客戶管理員看到廠商主機路徑，
+    /// 錯誤摘要（errorDetail、pruneError 的唯一出口）：先由 provider 遮連線識別資訊（<see cref="IDatabaseBackup.MaskSummary"/>），再把備份位置、附件根目錄、資料庫目錄的路徑換成固定字樣（雲端版不得讓客戶管理員看到廠商主機路徑，
     /// Q12、審查 M3、複核 N2；地端照樣從 displayLocation 看得到），遮掉像密碼、權杖的片段，截到 1000 字（§10.1、E9）。
     /// 長的路徑先換：目錄互相包含時遮成最精確的那個。
     /// </summary>
     public string Summary(string text)
     {
+        if (_databaseMask is { } mask) text = mask(text);
         var paths = new (string? Path, string Placeholder)[]
         {
             (settings.Root, RootPlaceholder), (_localRoot, RootPlaceholder),
@@ -204,6 +211,7 @@ public sealed class BackupWorker(
     }
 
     private string? _localRoot;
+    private Func<string, string>? _databaseMask;
 
     private void TryClearStaging(IBackupStore store, string runKey)
     {

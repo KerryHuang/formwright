@@ -130,7 +130,7 @@ public sealed class PostgresDatabaseBackupTests : IAsyncLifetime
 
         var lines = await File.ReadAllLinesAsync(record);
         string.Join('\n', lines).Should().NotContain(Secret);
-        lines[0].Should().Be($"ARGS: --format=custom --no-owner --no-privileges --file={Path.Combine(_dir, "out.pgdump")}");
+        lines[0].Should().Be($"ARGS: --format=custom --no-owner --no-privileges --no-password --file={Path.Combine(_dir, "out.pgdump")}");
         lines.Should().Contain($"PGUSER={_role}").And.Contain("PGSSLMODE=prefer").And.Contain(l => l.StartsWith("PGPORT=")).And.Contain(l => l.StartsWith("PGHOST="));
         lines.Should().NotContain(l => l.StartsWith("PGPASSWORD="));
         lines[^1].Should().Be("-rw-------");
@@ -140,13 +140,15 @@ public sealed class PostgresDatabaseBackupTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// 主機環境裡繼承來的 PG* 變數（例如別人設的 PGPASSWORD）不會帶進子程序。用一個 libpq、Npgsql 都不認得的名字：
-    /// 改的是整個測試行程的環境變數，真的 PG 變數會影響同時在跑的其他測試。
+    /// 子程序的環境是白名單（審查 M1）：測試行程裡帶機密的變數（模擬用環境變數給的 <c>ConnectionStrings__Dynamic</c>）和繼承來的 PG* 都不帶進去，
+    /// libpq 需要的（PATH、HOME）照帶。用 libpq、Npgsql 都不認得的名字：改的是整個測試行程的環境變數，真的變數會影響同時在跑的其他測試。
     /// </summary>
     [PostgresUnixFact]
-    public async Task InheritedPgVariables_Cleared()
+    public async Task ChildEnvironment_IsWhitelisted()
     {
         var record = Path.Combine(_dir, "env.txt");
+        var secretName = $"FW_TEST_SECRET_{Guid.NewGuid():N}";
+        Environment.SetEnvironmentVariable(secretName, $"Host=x;Password={Secret}");
         Environment.SetEnvironmentVariable("PGFW_TEST_INHERITED", "1");
         try
         {
@@ -155,9 +157,56 @@ public sealed class PostgresDatabaseBackupTests : IAsyncLifetime
         }
         finally
         {
+            Environment.SetEnvironmentVariable(secretName, null);
             Environment.SetEnvironmentVariable("PGFW_TEST_INHERITED", null);
         }
-        (await File.ReadAllLinesAsync(record)).Should().NotContain(l => l.StartsWith("PGFW_TEST_INHERITED="));
+        var lines = await File.ReadAllLinesAsync(record);
+        string.Join('\n', lines).Should().NotContain(Secret).And.NotContain(secretName);
+        lines.Should().NotContain(l => l.StartsWith("PGFW_TEST_INHERITED="));
+        lines.Should().Contain(l => l.StartsWith("PATH=")).And.Contain(l => l.StartsWith("PGUSER="));
+    }
+
+    /// <summary>系統暫存目錄裡超過一天的 formwright-pgpass-* 殘檔（上次被 SIGKILL 之類）在備份開始時清掉；還新的不動（可能是別的實例正在用）。</summary>
+    [PostgresUnixFact]
+    public async Task StalePassfiles_ClearedAtStart()
+    {
+        var stale = Path.Combine(Path.GetTempPath(), $"formwright-pgpass-{Guid.NewGuid():N}");
+        var fresh = Path.Combine(Path.GetTempPath(), $"formwright-pgpass-{Guid.NewGuid():N}");
+        await File.WriteAllTextAsync(stale, "*:*:*:*:x\n");
+        await File.WriteAllTextAsync(fresh, "*:*:*:*:x\n");
+        File.SetLastWriteTimeUtc(stale, DateTime.UtcNow - PostgresDatabaseBackup.PassfileStaleAge - TimeSpan.FromMinutes(5));
+        try
+        {
+            var act = () => Backup(FakeTools("99.0", "exit 1")).SnapshotAsync(Path.Combine(_dir, "out.pgdump"), Ct);
+            await act.Should().ThrowAsync<InvalidOperationException>();
+            File.Exists(stale).Should().BeFalse();
+            File.Exists(fresh).Should().BeTrue();
+        }
+        finally
+        {
+            File.Delete(stale);
+            File.Delete(fresh);
+        }
+    }
+
+    /// <summary>驗證要列得出資料表：只有 TABLE DATA 行（沒有 TABLE 定義）不算（審查建議 3）。</summary>
+    [PostgresUnixFact]
+    public async Task Verify_OnlyTableDataLines_Throws()
+    {
+        var pgDump = FakeTools("99.0", "exit 0");
+        var pgRestore = Path.Combine(Path.GetDirectoryName(pgDump)!, "pg_restore");
+        await File.WriteAllTextAsync(pgRestore, "#!/bin/sh\necho '; Archive'\necho '3456; 0 16390 TABLE DATA public __EFMigrationsHistory postgres'\n");
+        var path = Path.Combine(_dir, "database.pgdump");
+        await File.WriteAllTextAsync(path, "x");
+        await FluentActions.Awaiting(() => Backup(pgDump).VerifyAsync(path, "x", Ct)).Should().ThrowAsync<InvalidDataException>();
+    }
+
+    /// <summary>B1：啟動時先找一次用戶端；找不到回一句給 Warning 的話，找得到回 null。</summary>
+    [PostgresUnixFact]
+    public void ToolsProblem_ReportsMissing()
+    {
+        PostgresDatabaseBackup.ToolsProblem(new PgDumpSettings(Path.Combine(_dir, "nope", "pg_dump"))).Should().Contain("pg_dump");
+        PostgresDatabaseBackup.ToolsProblem(new PgDumpSettings(FakeTools("99.0", "exit 0"))).Should().BeNull();
     }
 
     /// <summary>P7：VerifyFull＋Trust Server Certificate → pgDumpConfig，不跑 pg_dump。</summary>

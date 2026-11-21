@@ -5,6 +5,8 @@ using DynamicModules.Application.Dynamic.OpsService.Health;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.TestSupport;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using static DynamicModules.WebAPITests.Ops.OpsIncidentKit;
 
@@ -45,16 +47,53 @@ public class BackupPostgresTests
     public async Task PgDumpPathMissing_FailedPgDumpMissing()
     {
         using var app = new BackupTests.BackupApp();
-        app.Settings["Backup:PgDumpPath"] = Path.Combine(Path.GetTempPath(), $"dm-nope-{Guid.NewGuid():N}", "pg_dump");
+        var missingDir = Path.Combine(Path.GetTempPath(), $"dm-nope-{Guid.NewGuid():N}");
+        app.Settings["Backup:PgDumpPath"] = Path.Combine(missingDir, "pg_dump");
         await BackupTests.Worker(app).TickAsync(CancellationToken.None);
 
         var run = (await BackupTests.Runs(app)).Single();
         run.Status.Should().Be(BackupRunStatus.Failed);
         run.ErrorCode.Should().Be("pgDumpMissing");
-        run.ErrorDetail.Should().Contain("Backup:PgDumpPath");
+        run.ErrorDetail.Should().Contain("<Backup:PgDumpPath>").And.NotContain(missingDir, "pg_dump 的路徑是廠商主機的資訊（審查 M2）");
         Directory.Exists(Path.Combine(app.Root, "sets")).Should().BeFalse("失敗不進 sets/");
         var freshness = await BackupTests.RunFreshness(app);
         freshness.Status.Should().Be(HealthStatus.Critical);
         freshness.MessageCode.Should().Be("neverSucceeded");
+    }
+
+    /// <summary>
+    /// 審查 M2：pg_dump 連不上時 stderr 帶主機、IP、帳號、資料庫名；寫進歷程的錯誤摘要要全部遮掉（雲端版客戶管理員看得到摘要）。
+    /// 假的 pg_dump 照 libpq 的格式把目前的連線資訊印到 stderr。
+    /// </summary>
+    [PostgresUnixFact]
+    public async Task PgDumpStderr_ConnectionIdentityMasked()
+    {
+        using var app = new BackupTests.BackupApp();
+        var bin = Directory.CreateTempSubdirectory("dm-fakepg-").FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(bin, "pg_dump"), """
+                #!/bin/sh
+                if [ "$1" = "--version" ]; then echo "pg_dump (PostgreSQL) 99.0"; exit 0; fi
+                echo "pg_dump: error: connection to server at \"$PGHOST\" (127.0.0.1), port $PGPORT failed: FATAL: password authentication failed for user \"$PGUSER\" database \"$PGDATABASE\"" >&2
+                exit 1
+                """);
+            File.WriteAllText(Path.Combine(bin, "pg_restore"), "#!/bin/sh\nexit 0\n");
+            foreach (var f in Directory.GetFiles(bin))
+                if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(f, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            app.Settings["Backup:PgDumpPath"] = Path.Combine(bin, "pg_dump");
+            await BackupTests.Worker(app).TickAsync(CancellationToken.None);
+
+            var run = (await BackupTests.Runs(app)).Single();
+            run.ErrorCode.Should().Be("databaseSnapshotFailed");
+            using var scope = app.Services.CreateScope();
+            var cs = new Npgsql.NpgsqlConnectionStringBuilder(scope.ServiceProvider.GetRequiredService<DynamicModules.Domain.Data.DynamicDbContext>().Database.GetConnectionString());
+            run.ErrorDetail.Should().Contain("password authentication failed").And.NotContain("127.0.0.1").And.NotContain(bin)
+                .And.NotContain($"\"{cs.Host}\"").And.NotContain(cs.Database!).And.NotContain($"\"{cs.Username}\"");
+        }
+        finally
+        {
+            Directory.Delete(bin, recursive: true);
+        }
     }
 }

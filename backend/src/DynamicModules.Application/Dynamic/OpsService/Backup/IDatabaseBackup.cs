@@ -18,4 +18,9 @@ public interface IDatabaseBackup
     Task SnapshotAsync(string path, CancellationToken ct);
     /// <summary>唯讀開啟快照檢查：能開、完整性檢查通過、最新 migration 等於 <paramref name="expectedMigration"/>；不通過丟例外。</summary>
     Task VerifyAsync(string path, string expectedMigration, CancellationToken ct);
+    /// <summary>
+    /// 寫進歷程的錯誤摘要先經這裡遮掉 provider 的連線識別資訊（主機、位址、帳號、工具路徑；審查 M2，和 Q12 同一類）。
+    /// 檔案資料庫沒有這些，預設原樣回傳；路徑與機密的共通遮罩在 <see cref="BackupWorker.Summary"/>。
+    /// </summary>
+    string MaskSummary(string text) => text;
 }

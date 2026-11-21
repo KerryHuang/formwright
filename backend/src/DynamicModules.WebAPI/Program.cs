@@ -149,6 +149,10 @@ else if (databaseProvider == DatabaseProvider.Postgres)
 var (backupSettings, backupWarning) = DynamicModules.Application.Dynamic.OpsService.Backup.BackupSettings.Create(builder.Configuration["Backup:Root"],
     builder.Environment.ContentRootPath, [databaseDirectory, attachmentSettings.Root, keysDirectory, Path.Combine(builder.Environment.ContentRootPath, "wwwroot")]);
 if (backupWarning is not null) startupWarnings.Add(backupWarning);
+// PostgreSQL 的備份要 pg_dump／pg_restore：啟動時先找一次，找不到記 Warning（不擋啟動），不必等第一份失敗才知道（bk1b 審查 B1）
+if (databaseProvider == DatabaseProvider.Postgres && backupSettings.Configured && !backupSettings.Invalid
+    && PostgresDatabaseBackup.ToolsProblem(new PgDumpSettings(builder.Configuration[PgDumpSettings.Key])) is { } pgDumpProblem)
+    startupWarnings.Add(pgDumpProblem);
 backupSettings = backupSettings with
 {
     AttachmentsRoot = Path.GetFullPath(attachmentSettings.Root, builder.Environment.ContentRootPath),

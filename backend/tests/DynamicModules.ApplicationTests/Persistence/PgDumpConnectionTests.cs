@@ -106,4 +106,24 @@ public sealed class PgDumpConnectionTests
 
     [Fact]
     public void ParseMajor_Garbage_Null() => PostgresDatabaseBackup.ParseMajor("not a version").Should().BeNull();
+
+    /// <summary>
+    /// 審查 M2：錯誤摘要遮連線識別資訊——每個主機、IPv4／IPv6、引號裡的帳號與資料庫名、pg_dump 路徑、密碼；
+    /// 時間這類有冒號的文字不誤遮。
+    /// </summary>
+    [Fact]
+    public void MaskSummary_RemovesConnectionIdentity()
+    {
+        var options = (Microsoft.EntityFrameworkCore.DbContextOptions<DynamicModules.Domain.Data.DynamicDbContext>)PostgresDatabase.Configure(
+            new Microsoft.EntityFrameworkCore.DbContextOptionsBuilder<DynamicModules.Domain.Data.DynamicDbContext>(),
+            "Host=pg-prod-3.vendor.test,pg-b.vendor.test:5433;Database=tenant_db;Username=tenant_07;Password=Hunter2-9f3c",
+            new PostgresWriteSettings(PostgresWriteSettings.DefaultLockTimeoutSeconds)).Options;
+        var backup = new PostgresDatabaseBackup(new DynamicModules.Domain.Data.DynamicDbContext(options), new PgDumpSettings("/opt/vendor/pg16/bin/pg_dump"));
+        var text = backup.MaskSummary(
+            "pg_dump: error: connection to server at \"pg-prod-3.vendor.test\" (203.0.113.9), port 5432 failed: FATAL: password authentication failed for user \"tenant_07\"; " +
+            "pg-b.vendor.test (fd00::1:2) database \"tenant_db\" does not exist; /opt/vendor/pg16/bin/pg_restore; Failed to connect to [2001:db8::7]:5432; pw Hunter2-9f3c; at 12:34:56");
+        text.Should().NotContain("pg-prod-3").And.NotContain("pg-b.vendor").And.NotContain("203.0.113.9").And.NotContain("fd00::1:2")
+            .And.NotContain("2001:db8").And.NotContain("tenant_07").And.NotContain("tenant_db").And.NotContain("/opt/vendor").And.NotContain("Hunter2");
+        text.Should().Contain("<Database:Host>").And.Contain("12:34:56").And.Contain("password authentication failed");
+    }
 }

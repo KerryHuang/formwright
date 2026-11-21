@@ -60,8 +60,10 @@ public sealed record PgDumpConnection(IReadOnlyDictionary<string, string> Enviro
     public static string PassfileLine(string password) => $"*:*:*:*:{password.Replace(@"\", @"\\", StringComparison.Ordinal).Replace(":", @"\:", StringComparison.Ordinal)}\n";
 
     /// <summary>把文字裡的密碼（含 <c>.pgpass</c> 跳脫過的寫法）換成 <c>***</c>；錯誤訊息先遮密碼，再交給備份的錯誤摘要遮路徑、截斷。</summary>
-    public string Mask(string text) => string.IsNullOrEmpty(Password) ? text
-        : text.Replace(PassfileLine(Password).TrimEnd('\n')[8..], "***", StringComparison.Ordinal).Replace(Password, "***", StringComparison.Ordinal);
+    public string Mask(string text) => MaskPassword(text, Password);
+
+    public static string MaskPassword(string text, string? password) => string.IsNullOrEmpty(password) ? text
+        : text.Replace(PassfileLine(password).TrimEnd('\n')[8..], "***", StringComparison.Ordinal).Replace(password, "***", StringComparison.Ordinal);
 
     private static BackupFailure Config(string detail) => new("pgDumpConfig", $"連線設定對不到 pg_dump：{detail}");
 }
