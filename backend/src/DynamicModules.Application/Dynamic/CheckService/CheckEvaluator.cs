@@ -3,12 +3,12 @@ using System.Text.Json;
 using DynamicModules.Application.Common;
 using DynamicModules.Application.Common.Security;
 using DynamicModules.Application.Common.Time;
-using DynamicModules.Application.Dynamic.ApprovalService;
 using DynamicModules.Application.Dynamic.McpService;
 using DynamicModules.Application.Dynamic.RecordService;
 using DynamicModules.Domain.Conditions;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.FieldTypes;
+using DynamicModules.Domain.Modules;
 using DynamicModules.Domain.Repositories.Dynamic;
 using DynamicModules.Domain.Rules;
 
@@ -32,7 +32,14 @@ public class CheckEvaluator(IRecordRepository records, IModuleRepository modules
     public const string Incomplete = "跨記錄驗證的索引不完整，請重新儲存這個檢查以重建索引";
     public const string Overflow = "加總超出可計算範圍";
 
-    public sealed record Prepared(Module Module, ModuleCheck Check, ConditionNode? Where, Dictionary<long, Field> Fields);
+    /// <summary>
+    /// 一次求值（寫入後的 CheckStage 一輪、或一次試跑）的準備結果，只活在那一次呼叫裡。
+    /// <see cref="HiddenSources"/> 快取 MCP 通道的遮罩判斷：同一個檢查、同一位使用者，各違規組共用（票 #89）。
+    /// </summary>
+    public sealed record Prepared(Module Module, ModuleCheck Check, ConditionNode? Where, Dictionary<long, Field> Fields)
+    {
+        internal (bool Value, bool Limit)? HiddenSources { get; set; }
+    }
 
     /// <summary>where 用列表篩選的規則解析（欄位已確保可篩選）；解析失敗代表定義壞掉，回傳 failure。</summary>
     public async Task<(Prepared? Prepared, ServiceResult? Failure)> PrepareAsync(Module module, ModuleCheck check, CancellationToken ct)
@@ -97,9 +104,13 @@ public class CheckEvaluator(IRecordRepository records, IModuleRepository modules
     /// <summary>
     /// 只在 MCP 通道判斷：彙總用到的欄位（加總對象、條件、組鍵）有任一看不到，<c>{value}</c> 就不給；上限讀自看不到的欄位
     /// （本筆的上限欄位、參照欄位、或被參照記錄的上限欄位）時 <c>{limit}</c> 不給。看不到的欄位沿用權限解析（<see cref="ApprovalHiddenFields"/>，
-    /// MCP 通道已併入「不提供給 AI」與依賴它的公式、彙總）；讀不到權限輸入或找不到上限來源模組一律不給（fail closed）。
+    /// MCP 通道已併入「不提供給 AI」與依賴它的公式、彙總；明細模組比照 AuthorizeDetailAsync 用表頭的動作軸與 Pricing）；
+    /// 讀不到權限輸入、找不到表頭或上限來源模組一律不給（fail closed）。結果只看檢查定義與使用者，快取在 <see cref="Prepared"/>。
     /// </summary>
-    private async Task<(bool Value, bool Limit)> HiddenSourcesAsync(Prepared p, string message, CancellationToken ct)
+    private async Task<(bool Value, bool Limit)> HiddenSourcesAsync(Prepared p, string message, CancellationToken ct) =>
+        p.HiddenSources ??= await ComputeHiddenSourcesAsync(p, message, ct);
+
+    private async Task<(bool Value, bool Limit)> ComputeHiddenSourcesAsync(Prepared p, string message, CancellationToken ct)
     {
         if (channel.Channel != RequestChannel.Mcp) return (false, false);
         var def = p.Check.Definition;
@@ -107,7 +118,7 @@ public class CheckEvaluator(IRecordRepository records, IModuleRepository modules
         var wantLimit = message.Contains("{limit}") && def.Assert.Limit.Const is null;
         if (!wantValue && !wantLimit) return (false, false);
 
-        var hidden = await hiddenFields.ForUserAsync(p.Module, user.UserId, ct);
+        var hidden = await HiddenFieldsAsync(p.Module, ct);
         var valueHidden = wantValue && (hidden is null || CheckIndexer.IndexedFieldIds(def).Overlaps(hidden));
         if (!wantLimit) return (valueHidden, false);
 
@@ -116,8 +127,16 @@ public class CheckEvaluator(IRecordRepository records, IModuleRepository modules
         if (limit.Via is not { } via) return (valueHidden, hidden.Contains(lf));
         if (hidden.Contains(via)) return (valueHidden, true);
         var target = await modules.GetByFieldIdAsync(lf, ct);
-        var targetHidden = target is null ? null : await hiddenFields.ForUserAsync(target, user.UserId, ct);
+        var targetHidden = target is null ? null : await HiddenFieldsAsync(target, ct);
         return (valueHidden, targetHidden is null || targetHidden.Contains(lf));
+    }
+
+    /// <summary>明細模組用表頭的權限輸入（找不到表頭回 null＝全部隱藏），其餘用模組自己的。</summary>
+    private async Task<IReadOnlySet<long>?> HiddenFieldsAsync(Module module, CancellationToken ct)
+    {
+        if (ModuleRelations.ParentKeyOf(module) is not { } parentKey) return await hiddenFields.ForUserAsync(module, user.UserId, ct);
+        var parent = await modules.GetByKeyAsync(parentKey, includeChildren: true, ct);
+        return parent is null ? null : await hiddenFields.ForDetailUserAsync(parent, module, user.UserId, ct);
     }
 
     private async Task<decimal?> LimitAsync(CheckLimit limit, IReadOnlyDictionary<string, JsonElement?> source, CancellationToken ct)
