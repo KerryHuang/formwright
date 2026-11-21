@@ -612,6 +612,9 @@ bk1 驗收時兩種資料庫各演練一次（§22 D1、D2）。
 | 沒有下載、刪除備份的 API；MCP 沒有刪除或改寫備份的工具 | — | 安全 |
 | 金鑰不隨資料備份（Q1，使用者 11-21 裁決） | — | 安全 |
 | `pg_dump` 密碼只走 0600 暫存 `PGPASSFILE`，不進命令列、環境變數、log；參數用 `ArgumentList` 不經 shell | — | 安全 |
+| `pg_dump`／`pg_restore` 子程序的環境變數只帶白名單（路徑、家目錄、語系、時區、暫存目錄、OpenSSL 憑證、Kerberos；Windows 另帶系統變數），加 `--no-password`（bk1b 審查 M1） | — | 安全 |
+| 錯誤摘要遮掉資料庫主機、IP 位址、引號裡的帳號與資料庫名、`pg_dump` 路徑（完整訊息只記在伺服器 log；bk1b 審查 M2） | `<Database:Host>`、`<ip>` 等 | 安全 |
+| 暫存 `PGPASSFILE` 殘檔（`formwright-pgpass-*`）多久之後在備份開始時清掉 | 24 小時 | 技術限制 |
 | 備份目錄 0700、檔案 0600（非 Windows，盡力而為） | — | 安全 |
 | Demo 站不開放立即備份 | 403 | 安全（同寄信測試信） |
 | 還原一律 L4（沿用維運設計 §12） | — | 安全 |
@@ -885,7 +888,7 @@ bk1 驗收時兩種資料庫各演練一次（§22 D1、D2）。
 - **T1** 備份不走排程器，另開 `BackupWorker` hosted service；排程器單次 10 分鐘上限與「一次一個工作」不適合長工作（§6.1）。
 - **T2** 新表 `Dynamic_BackupRun`；`ActiveSlot` 可空欄＋唯一索引保證同時只一份，不用部分索引；一個 migration（§10）。
 - **T3** SQLite 用 `VACUUM INTO`（不用 Online Backup API：一句 SQL、產出獨立檔、讀取交易不擋寫）；驗證用 `quick_check` 與 migration 比對；放 SQLite 專屬類別（§5.3、§5.6）。
-- **T4** PostgreSQL 用 `pg_dump -Fc`，密碼走 `PGPASSWORD`、版本先比、`pg_restore --list` 驗證；客戶 `Dockerfile` 裝 PGDG `postgresql-client-16`；時間點還原與託管快照是雲端部署的事、產品不管（§5.4）。
+- **T4** PostgreSQL 用 `pg_dump -Fc`，密碼走 0600 暫存 `PGPASSFILE`（不用 `PGPASSWORD`）、版本先比、`pg_restore --list` 驗證；客戶 `Dockerfile` 裝 PGDG `postgresql-client-16`；時間點還原與託管快照是雲端部署的事、產品不管（§5.4）。
 - **T5** `IBackupStore`：只寫一次、可列出、可查存在、刪除看 `CanDelete`；bk1 只做本機目錄（§7.1）。
 - **T6** 位置版面：`sets/` 每份一個目錄、`manifest.json` 最後寫、附件池與附件根目錄同版面、`.staging/` 改名搬入（§5.2）。
 - **T7** 位置不能和資料庫、附件、金鑰目錄重疊；目錄 0700、檔案 0600（§7.4、§7.1）。

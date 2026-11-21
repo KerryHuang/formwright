@@ -93,6 +93,8 @@ jobs:
         run: |
           command -v pg_dump >/dev/null || { sudo apt-get update && sudo apt-get install -y postgresql-client; }
           pg_dump --version && pg_restore --version
+          major=$(pg_dump --version | sed -E 's/.*\(PostgreSQL\) ([0-9]+).*/\1/')
+          [ "$major" -ge 16 ] || { echo "pg_dump 主版本 $major 小於測試容器的 16"; exit 1; }
       # 命令列 filter 會蓋掉 csproj 的 Category!=Benchmark，要自己再排除；同類別裡個別標 SqliteOnly 的案例也排除
       - name: dotnet test (PostgreSQL)
         if: matrix.pg

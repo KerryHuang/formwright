@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.6
 # Demo 部署用：前端建置 + 後端發佈，打包成單一容器（API 與前端同一個站台）。
 # 建置內容：repo 根目錄（在根目錄執行 docker build -t dynamic-modules .）。
 
@@ -35,7 +36,9 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0
 # 產品內備份（PostgreSQL）要 pg_dump／pg_restore（備份設計 §5.4）：從 PGDG（apt.postgresql.org）裝 postgresql-client-16，
 # 和測試容器同主版本；之後支援更新的伺服器時換新版用戶端（新版用戶端能備舊版伺服器）。金鑰用 .asc 檔加 signed-by，不另裝 gnupg。
 # 路徑直接指到版本目錄，不經 Debian 的 pg_wrapper；SQLite 用不到，裝著無害（Dockerfile.demo 不裝）
-ADD https://www.postgresql.org/media/keys/ACCC4CF8.asc /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+# 金鑰鎖內容（ADD --checksum 要 Dockerfile 語法 1.6 以上，見第一行）：指紋 B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8；
+# PGDG 換發金鑰檔時這裡會建置失敗，重新下載、以 gpg --show-keys 核對指紋後更新雜湊
+ADD --checksum=sha256:0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76 https://www.postgresql.org/media/keys/ACCC4CF8.asc /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
 RUN . /etc/os-release \
     && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
       > /etc/apt/sources.list.d/pgdg.list \
