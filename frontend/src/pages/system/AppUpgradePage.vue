@@ -120,6 +120,10 @@ async function apply() {
     if (err.status === 409 && err.code === 'upgradeStale') {
       $q.notify({ type: 'warning', message: t('apps.upgrade.stale') });
       await preview.refetch();
+    } else if (err.status === 409 && err.code === 'upgradeUnavailable') {
+      // 另一個分頁已套用等：已沒有可套用的新版，重新預覽讓頁面收起舊清單、顯示原因
+      $q.notify({ type: 'warning', message: err.message || t('apps.upgrade.unavailable') });
+      await preview.refetch();
     } else if (err.status === 409 && err.upgradePreview) {
       qc.setQueryData(['app-upgrade', key, body.value], err.upgradePreview);
       $q.notify({ type: 'warning', message: t('apps.upgrade.blocked') });

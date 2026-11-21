@@ -106,6 +106,8 @@ public static class AppMessages
     public const string UpgradeBlocked = "目前不能套用這次更新";
     public const string UpgradeStaleCode = "upgradeStale";
     public const string UpgradeBlockedCode = "upgradeBlocked";
+    /// <summary>沒有可套用的新版（已是最新、沒有新版、降版）：套用時遇到就重新預覽，畫面收起舊清單。</summary>
+    public const string UpgradeUnavailableCode = "upgradeUnavailable";
     public const string UpgradeGroupMapped = "已對應好的群組不能在更新頁改，請到權限分頁調整";
     public const string UpgradeGroupMissing = "對應的群組不存在";
     public const string UpgradeItemUnknown = "這一項不在預覽的清單裡";
