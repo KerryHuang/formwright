@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/vue-query';
-import { dynamicApi, type OpenAppBody } from 'src/services/api/dynamic-api';
+import { computed, type Ref } from 'vue';
+import { dynamicApi, type OpenAppBody, type UpgradeApplyBody, type UpgradeBody } from 'src/services/api/dynamic-api';
 
 /** Opening/closing changes module statuses, so menu, module list and every cached schema (readOnly) go stale. */
 const invalidateAll = (qc: QueryClient) => Promise.all(
@@ -9,9 +10,23 @@ export function useAppPackages() {
   return useQuery({ queryKey: ['app-packages'], queryFn: dynamicApi.getAppPackages });
 }
 
-/** Read-only upgrade preview (pkg1b); a 409 means up to date / no candidate / downgrade. */
-export function useAppUpgradePreview(key: string) {
-  return useQuery({ queryKey: ['app-upgrade', key], queryFn: () => dynamicApi.previewAppUpgrade(key), retry: false });
+/** Upgrade preview; a 409 means up to date / no candidate / downgrade. */
+/** body 是畫面上改的群組對應（§10.2 第 3 點）；改了就重新預覽。 */
+export function useAppUpgradePreview(key: string, body?: Ref<UpgradeBody>) {
+  return useQuery({
+    queryKey: computed(() => ['app-upgrade', key, body?.value ?? {}]),
+    queryFn: () => dynamicApi.previewAppUpgrade(key, body?.value ?? {}),
+    retry: false,
+  });
+}
+
+export function useApplyAppUpgrade(key: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: UpgradeApplyBody) => dynamicApi.applyAppUpgrade(key, body),
+    // 套用會改模組、欄位與選單，同開啟一樣全部重抓
+    onSuccess: () => invalidateAll(qc),
+  });
 }
 
 export function useApps() {
