@@ -648,6 +648,8 @@ namespace DynamicModules.Persistence.Migrations
 
                     b.HasIndex("InstanceId");
 
+                    b.HasIndex("ActorUserId", "TaskId");
+
                     b.ToTable("Dynamic_ApprovalAction", (string)null);
                 });
 

@@ -123,6 +123,7 @@ public class ApprovalActionConfiguration : IEntityTypeConfiguration<ApprovalActi
         b.Property(x => x.DataJson).HasMaxLength(4000);
         b.Property(x => x.OperationId).HasMaxLength(64).IsRequired();
         b.HasIndex(x => x.InstanceId);
+        b.HasIndex(x => new { x.ActorUserId, x.TaskId }); // 「我已處理」：ListActedTasksOfAsync 以處理人＋任務找動作（#16）
         b.HasOne<ApprovalInstance>().WithMany().HasForeignKey(x => x.InstanceId).OnDelete(DeleteBehavior.Cascade);
     }
 }
