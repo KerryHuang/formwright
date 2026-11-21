@@ -76,6 +76,36 @@ public sealed class BackupStoreTests : IDisposable
         (await store.ListAsync("attachments/", Ct)).Should().ContainSingle().Which.Should().Match<BackupObject>(o => o.Path == "attachments/x" && o.Size == 5);
     }
 
+    /// <summary>複核 N4：備份開始時（ClearStaging 不指定某一份）清掉超過一天的 .partial-* 與探測檔；新的不碰（可能是另一台正在寫）。</summary>
+    [Fact]
+    public async Task ClearStaging_RemovesLeftoversOlderThanADay_KeepsFreshOnes()
+    {
+        var store = Store();
+        await store.PutAsync("attachments/01/23/keep", Bytes("whole"), Ct);
+        string Leftover(string relative, TimeSpan age)
+        {
+            var path = Path.Combine(_root, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, "half");
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow - age);
+            return path;
+        }
+        var oldPool = Leftover("attachments/01/23/x.partial-0123456789abcdef0123456789abcdef", TimeSpan.FromHours(25));
+        var oldProbe = Leftover($"{BackupLocator.ProbePrefix}0123456789abcdef0123456789abcdef", TimeSpan.FromHours(25));
+        var oldMarker = Leftover(".formwright-backup-location.partial-0123456789abcdef0123456789abcdef", TimeSpan.FromHours(25));
+        var fresh = Leftover("attachments/01/23/y.partial-fedcba9876543210fedcba9876543210", TimeSpan.FromHours(1));
+
+        store.ClearStaging(runKey: "abcd");   // 失敗後清自己那份：不掃殘檔
+        File.Exists(oldPool).Should().BeTrue();
+
+        store.ClearStaging(keepRunKey: "abcd");
+        File.Exists(oldPool).Should().BeFalse();
+        File.Exists(oldProbe).Should().BeFalse();
+        File.Exists(oldMarker).Should().BeFalse();
+        File.Exists(fresh).Should().BeTrue();
+        File.Exists(Path.Combine(_root, "attachments", "01", "23", "keep")).Should().BeTrue();
+    }
+
     [Fact]
     public async Task Staging_PublishesAsSet_AndClearsOthers()
     {
