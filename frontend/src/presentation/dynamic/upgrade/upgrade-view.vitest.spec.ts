@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { UpgradeItem } from 'src/services/api/dynamic-api';
-import { countByChip, DEFAULT_CATEGORIES, filterItems, formatValue, groupItems, isLong, NOT_APPLICABLE } from './upgrade-view';
+import type { AppInfo, UpgradeItem } from 'src/services/api/dynamic-api';
+import { countByChip, DEFAULT_CATEGORIES, filterItems, formatValue, groupItems, isLong, moduleNames, NOT_APPLICABLE } from './upgrade-view';
 
 const item = (id: string, category: UpgradeItem['category'], extra: Partial<UpgradeItem> = {}): UpgradeItem => ({
   id, section: 'fields', module: 'lead', label: null, category, defaultSelected: false, applicable: true, reason: null,
@@ -34,5 +34,21 @@ describe('upgrade view', () => {
     expect(formatValue({ a: 1 })).toBe('{"a":1}');
     expect(formatValue(null)).toBe('');
     expect(isLong('x'.repeat(81))).toBe(true);
+  });
+
+  it('module names come from the opened app, the new module item, or the master for contributions', () => {
+    const app = (key: string, modules: [string, string][]): AppInfo => ({
+      key, name: { 'zh-TW': key }, packageVersion: '1.0.0', status: 'Open', rowVersion: 'r', dependents: [], unaffiliatedReferrers: [], warnings: [],
+      modules: modules.map(([code, name], id) => ({ code, key: `k-${code}`, id, name: { 'zh-TW': name }, status: 'Active' })),
+    });
+    const names = moduleNames([app('crm', [['lead', '潛在客戶']]), app('partner', [['partner', '往來對象']])], 'crm', [
+      item('module:visit', 'added', { section: 'modules', module: 'visit', label: { 'zh-TW': '拜訪' } }),
+      item('contribution:partner/partner', 'newOnly', { section: 'contributions', module: 'partner/partner' }),
+      item('field:ghost.x', 'newOnly', { module: 'ghost' }),
+    ]);
+    expect(names.get('lead')).toEqual({ 'zh-TW': '潛在客戶' });
+    expect(names.get('visit')).toEqual({ 'zh-TW': '拜訪' });
+    expect(names.get('partner/partner')).toEqual({ 'zh-TW': '往來對象' });
+    expect(names.has('ghost')).toBe(false);
   });
 });

@@ -26,6 +26,8 @@ const reopenApp = useReopenApp();
 
 const forbidden = computed(() => isForbidden(packages.error.value) || isForbidden(apps.error.value));
 const canWrite = computed(() => !!me.data.value?.designer.add && !!me.data.value?.designer.edit);
+// 預覽與套用要系統管理員（後端 ISystemAdminRequest），按鈕同樣要求，免得點了才 403（套件更新設計 §11.2）
+const canUpgrade = computed(() => canWrite.value && me.data.value?.isSystemAdmin === true);
 const appByKey = computed(() => new Map((apps.data.value ?? []).map((a) => [a.key, a])));
 const name = (n: Parameters<typeof resolveI18n>[0]) => resolveI18n(n, locale.value);
 const statusColor = (s: AppPackageSummary['status']) => (s === 'Open' ? 'positive' : 'secondary');
@@ -136,7 +138,7 @@ const reopen = (key: string) => reopenApp.mutate(key, {
           <q-item-section avatar><q-icon :name="p.icon || 'inventory_2'" /></q-item-section>
           <q-item-section>
             <q-item-label>
-              {{ name(p.name) }} <span class="text-caption text-muted">v{{ p.version }}</span>
+              {{ name(p.name) }} <span class="text-caption text-muted" data-testid="app-version">v{{ appByKey.get(p.id)?.packageVersion ?? p.version }}</span>
               <q-badge v-if="p.upgrade" color="warning" class="q-ml-xs" data-testid="app-upgrade-badge">
                 {{ p.upgrade.toVersion ? t('apps.upgrade.badge', { version: p.upgrade.toVersion }) : t('apps.upgrade.masterBadge') }}
                 <q-tooltip v-if="p.status === 'Closed'">{{ t('apps.upgrade.reopenFirst') }}</q-tooltip>
@@ -159,7 +161,7 @@ const reopen = (key: string) => reopenApp.mutate(key, {
               <q-btn v-if="canWrite && !p.status" color="primary" dense no-caps :label="t('apps.open')" data-testid="app-open" @click="startOpen(p)" />
               <q-btn v-if="canWrite && p.status === 'Open' && appByKey.get(p.id)" outline dense no-caps :label="t('apps.close')" data-testid="app-close" @click="closing = appByKey.get(p.id)!" />
               <q-btn v-if="canWrite && p.status === 'Closed'" color="primary" dense no-caps :label="t('apps.reopen')" data-testid="app-reopen" @click="reopen(p.id)" />
-              <q-btn v-if="canWrite && p.status === 'Open' && p.upgrade" outline color="primary" dense no-caps :label="t('apps.upgrade.open')"
+              <q-btn v-if="canUpgrade && p.status === 'Open' && p.upgrade" outline color="primary" dense no-caps :label="t('apps.upgrade.open')"
                 :to="`/system/apps/${encodeURIComponent(p.id)}/upgrade`" data-testid="app-upgrade" />
             </div>
           </q-item-section>

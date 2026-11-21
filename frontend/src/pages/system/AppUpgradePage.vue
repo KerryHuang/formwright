@@ -2,13 +2,14 @@
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute } from 'vue-router';
-import { useAppUpgradePreview } from 'src/application/dynamic/queries/apps-queries';
+import { useAppUpgradePreview, useApps } from 'src/application/dynamic/queries/apps-queries';
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import {
-  CATEGORY_ORDER, countByChip, DEFAULT_CATEGORIES, filterItems, formatValue, groupItems, isLong, NOT_APPLICABLE,
+  CATEGORY_ORDER, countByChip, DEFAULT_CATEGORIES, filterItems, formatValue, groupItems, isLong, moduleNames, NOT_APPLICABLE,
 } from 'src/presentation/dynamic/upgrade/upgrade-view';
-import type { UpgradeItem } from 'src/services/api/dynamic-api';
+import type { I18nText } from 'src/domain/dynamic/types';
+import type { UpgradeGroup, UpgradeItem } from 'src/services/api/dynamic-api';
 import { isForbidden, type ApiError } from 'src/services/api/http';
 
 // 唯讀更新頁（套件更新設計 §10.2，pkg1b）：列出差異與預設勾選，套用在 pkg1c 才上線，所以勾選框不能改、沒有套用鈕
@@ -16,6 +17,7 @@ const { t, te, locale } = useI18n();
 const route = useRoute();
 const key = String(route.params.key);
 const preview = useAppUpgradePreview(key);
+const apps = useApps();
 const data = computed(() => preview.data.value);
 const error = computed(() => preview.error.value as ApiError | null);
 const forbidden = computed(() => isForbidden(error.value));
@@ -29,19 +31,29 @@ const toggle = (c: string) => { chips.value = chips.value.includes(c) ? chips.va
 const sections = computed(() => {
   if (!data.value) return [];
   return [
-    { key: data.value.app, title: null as string | null, groups: groupItems(filterItems(data.value.items, chips.value)) },
+    {
+      key: data.value.app, title: null as string | null, hasBaseline: true, pendingGroups: [] as UpgradeGroup[],
+      modules: moduleNames(apps.data.value ?? [], data.value.app, data.value.items), groups: groupItems(filterItems(data.value.items, chips.value)),
+    },
     ...data.value.masters.map((m) => ({
       key: `master:${m.id}`,
       title: t('apps.upgrade.master', { name: name(m.name), from: m.fromVersion, to: m.toVersion }),
+      hasBaseline: m.hasBaseline,
+      pendingGroups: m.groups,
+      modules: moduleNames(apps.data.value ?? [], m.id, m.items),
       groups: groupItems(filterItems(m.items, chips.value)),
     })),
   ];
 });
 
+
 const labelOf = (i: UpgradeItem) => (i.label ? name(i.label) : i.id.slice(i.id.indexOf(':') + 1));
 const kindOf = (i: UpgradeItem) => t(`apps.upgrade.section.${i.section}`);
-const groupTitle = (g: { key: string; module: string | null }) =>
-  g.module !== null ? t('apps.upgrade.moduleGroup', { module: g.module }) : t(`apps.upgrade.group.${g.key.slice(1)}`);
+const groupTitle = (g: { key: string; module: string | null }, modules: Map<string, I18nText>) => {
+  if (g.module === null) return t(`apps.upgrade.group.${g.key.slice(1)}`);
+  const label = modules.get(g.module);
+  return t('apps.upgrade.moduleGroup', { module: label ? name(label) : g.module });
+};
 const propName = (n: string) => {
   const k = n.startsWith('config.') ? `apps.upgrade.prop.${n.slice(7)}` : `apps.upgrade.prop.${n}`;
   return te(k) ? t(k) : n;
@@ -99,11 +111,18 @@ const viewing = ref<{ title: string; value: string } | null>(null);
 
         <template v-for="s in sections" :key="s.key">
           <div v-if="s.title" class="text-subtitle1 q-mt-lg" data-testid="upgrade-master">{{ s.title }}</div>
+          <q-banner v-if="!s.hasBaseline" rounded class="bg-warning-soft q-my-sm" data-testid="upgrade-master-no-baseline">{{ t('apps.upgrade.noBaseline') }}</q-banner>
+          <div v-if="s.pendingGroups.length" class="q-my-sm" data-testid="upgrade-master-groups">
+            <div class="text-subtitle2">{{ t('apps.upgrade.groupsTitle') }}</div>
+            <div v-for="g in s.pendingGroups" :key="g.code" class="text-body2">
+              {{ name(g.name) }} <span class="text-muted">({{ g.code }})</span>：{{ t(`apps.upgrade.groupReason.${g.reason}`) }}・{{ t(`apps.upgrade.groupChoice.${g.choice.mode}`) }}
+            </div>
+          </div>
           <div v-if="!s.groups.length" class="text-muted q-my-sm">{{ t('apps.upgrade.nothing') }}</div>
           <q-list v-for="g in s.groups" :key="g.key" bordered separator class="q-mb-md">
-            <q-item-label header>{{ groupTitle(g) }}</q-item-label>
-            <q-item v-for="i in g.items" :key="i.id" class="column items-stretch" data-testid="upgrade-item">
-              <div class="row items-start no-wrap q-gutter-sm">
+            <q-item-label header>{{ groupTitle(g, s.modules) }}</q-item-label>
+            <q-item v-for="i in g.items" :key="i.id" class="column items-stretch upgrade-item" data-testid="upgrade-item">
+              <div class="row items-start no-wrap upgrade-row">
                 <q-checkbox :model-value="i.applicable && i.defaultSelected" disable dense :aria-label="labelOf(i)" />
                 <div class="col upgrade-name">
                   <div class="row items-center q-gutter-xs">
@@ -157,6 +176,9 @@ const viewing = ref<{ title: string; value: string } | null>(null);
 </template>
 
 <style scoped>
+/* 列與列之間留白：全域把 q-item 的上下內距壓得很小，第二列以後會貼著分隔線（走查 W4） */
+.upgrade-item { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+.upgrade-row { gap: 0.5rem; }
 .upgrade-name { min-width: 0; overflow-wrap: anywhere; }
 .upgrade-prop { display: grid; grid-template-columns: minmax(8rem, 1fr) repeat(3, minmax(0, 2fr)); gap: 0.5rem; padding: 0.25rem 0; }
 .upgrade-prop > span { min-width: 0; overflow-wrap: anywhere; }

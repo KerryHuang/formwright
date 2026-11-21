@@ -30,8 +30,8 @@ const okPreview: OpenPreview = {
 };
 
 let mounted: ReturnType<typeof mount> | undefined;
-async function mountPage(packages: AppPackageSummary[], apps: AppInfo[], designer = { read: true, add: true, edit: true, delete: true }) {
-  api.getMe.mockResolvedValue({ isSystemAdmin: true, designer } as never);
+async function mountPage(packages: AppPackageSummary[], apps: AppInfo[], designer = { read: true, add: true, edit: true, delete: true }, isSystemAdmin = true) {
+  api.getMe.mockResolvedValue({ isSystemAdmin, designer } as never);
   api.getAppPackages.mockResolvedValue(packages);
   api.getApps.mockResolvedValue(apps);
   const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
@@ -64,6 +64,19 @@ describe('AppsPage', () => {
     expect(rows[1].querySelector('[data-testid="app-close"]')).not.toBeNull();
     expect(rows[2].querySelector('[data-testid="app-reopen"]')).not.toBeNull();
     expect(rows[2].textContent).toContain(zhTW.apps.status.Closed);
+  });
+
+  it('an opened app shows its installed version next to the newer-version badge, and only system admins get the review button', async () => {
+    const upgrade = { toVersion: '1.3.0', masters: [] };
+    await mountPage([pkg('b', 'Open', { version: '1.3.0', upgrade })], [app('b', 'Open', { packageVersion: '1.2.9' })]);
+    expect(q('app-version')!.textContent).toBe('v1.2.9');
+    expect(q('app-upgrade-badge')!.textContent).toContain('1.3.0');
+    expect(q('app-upgrade')).not.toBeNull();
+    mounted?.unmount(); document.body.innerHTML = '';
+
+    await mountPage([pkg('b', 'Open', { version: '1.3.0', upgrade })], [app('b', 'Open', { packageVersion: '1.2.9' })], undefined, false);
+    expect(q('app-upgrade-badge')).not.toBeNull();
+    expect(q('app-upgrade')).toBeNull();
   });
 
   it('shows the empty hint with no packages', async () => {

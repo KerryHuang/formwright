@@ -1,6 +1,10 @@
-import type { UpgradeCategory, UpgradeItem } from 'src/services/api/dynamic-api';
+import type { I18nText } from 'src/domain/dynamic/types';
+import type { AppInfo, UpgradeCategory, UpgradeItem } from 'src/services/api/dynamic-api';
 
-/** Filter chips in display order (design §10.2 point 4); the first five selectable kinds are on by default. */
+/**
+ * Filter chips in display order (design §10.2 point 4). DEFAULT_CATEGORIES is only the page's initial filter (a screen rule);
+ * whether an item can be ticked comes from the backend's `applicable` / `defaultSelected`.
+ */
 export const CATEGORY_ORDER: UpgradeCategory[] = [
   'newOnly', 'both', 'added', 'customerDeleted', 'skippedBefore', 'noBaseline', 'excludedAtOpen', 'customerOnly', 'removedInNew', 'unmatched',
 ];
@@ -55,3 +59,21 @@ export function formatValue(v: unknown): string {
 }
 
 export const isLong = (v: unknown) => formatValue(v).length > LONG_VALUE;
+
+/**
+ * Module code → name for group titles: opened modules from the apps list, modules new in this version from their
+ * module item; contributions (`<master>/<module>`) from that master's modules. Unknown codes are left out (title falls back to the code).
+ */
+export function moduleNames(apps: AppInfo[], appKey: string, items: UpgradeItem[]): Map<string, I18nText> {
+  const map = new Map<string, I18nText>();
+  const byApp = new Map(apps.map((a) => [a.key, a]));
+  for (const m of byApp.get(appKey)?.modules ?? []) map.set(m.code, m.name);
+  for (const i of items) {
+    if (!i.module || map.has(i.module)) continue;
+    const slash = i.module.indexOf('/');
+    const hit = slash > 0 ? byApp.get(i.module.slice(0, slash))?.modules.find((m) => m.code === i.module!.slice(slash + 1)) : undefined;
+    if (hit) map.set(i.module, hit.name);
+    else if (i.section === 'modules' && i.label) map.set(i.module, i.label);
+  }
+  return map;
+}
