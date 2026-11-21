@@ -183,17 +183,24 @@ public sealed class BackupWorker(
     private BackupRunFinish Failed(string code, Exception e, string? detail = null) =>
         new(BackupRunStatus.Failed, Now, ErrorCode: code, ErrorDetail: Summary(detail ?? $"{e.GetType().Name}: {e.Message}"));
 
-    /// <summary>錯誤摘要裡代替備份位置路徑的字樣（M3）。</summary>
-    public const string RootPlaceholder = "<Backup:Root>";
+    /// <summary>錯誤摘要裡代替備份位置、附件根目錄、資料庫目錄路徑的字樣（M3、複核 N2）。</summary>
+    public const string RootPlaceholder = "<Backup:Root>", AttachmentsPlaceholder = "<Attachments:Root>", DatabasePlaceholder = "<Database:Directory>";
 
     /// <summary>
-    /// 錯誤摘要（errorDetail、pruneError 的唯一出口）：備份位置的路徑換成 <see cref="RootPlaceholder"/>（雲端版不得讓客戶管理員看到廠商主機路徑，
-    /// Q12、審查 M3；地端照樣從 displayLocation 看得到），遮掉像密碼、權杖的片段，截到 1000 字（§10.1、E9）。
+    /// 錯誤摘要（errorDetail、pruneError 的唯一出口）：備份位置、附件根目錄、資料庫目錄的路徑換成固定字樣（雲端版不得讓客戶管理員看到廠商主機路徑，
+    /// Q12、審查 M3、複核 N2；地端照樣從 displayLocation 看得到），遮掉像密碼、權杖的片段，截到 1000 字（§10.1、E9）。
+    /// 長的路徑先換：目錄互相包含時遮成最精確的那個。
     /// </summary>
-    internal string Summary(string text)
+    public string Summary(string text)
     {
-        foreach (var root in new[] { settings.Root, _localRoot }.OfType<string>().Distinct().OrderByDescending(r => r.Length))
-            text = text.Replace(root.TrimEnd('/', '\\'), RootPlaceholder, StringComparison.OrdinalIgnoreCase);
+        var paths = new (string? Path, string Placeholder)[]
+        {
+            (settings.Root, RootPlaceholder), (_localRoot, RootPlaceholder),
+            (settings.AttachmentsRoot, AttachmentsPlaceholder), (settings.DatabaseDirectory, DatabasePlaceholder),
+        };
+        foreach (var (path, placeholder) in paths.Select(p => (Path: p.Path?.TrimEnd('/', '\\') ?? "", p.Placeholder))
+                     .Where(p => p.Path.Length > 0).OrderByDescending(p => p.Path.Length))
+            text = text.Replace(path, placeholder, StringComparison.OrdinalIgnoreCase);
         var masked = SensitiveTextMask.Apply(text) ?? "";
         return masked.Length > BackupRun.ErrorDetailMax ? masked[..BackupRun.ErrorDetailMax] : masked;
     }

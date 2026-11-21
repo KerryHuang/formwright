@@ -149,6 +149,11 @@ else if (databaseProvider == DatabaseProvider.Postgres)
 var (backupSettings, backupWarning) = DynamicModules.Application.Dynamic.OpsService.Backup.BackupSettings.Create(builder.Configuration["Backup:Root"],
     builder.Environment.ContentRootPath, [databaseDirectory, attachmentSettings.Root, keysDirectory, Path.Combine(builder.Environment.ContentRootPath, "wwwroot")]);
 if (backupWarning is not null) startupWarnings.Add(backupWarning);
+backupSettings = backupSettings with
+{
+    AttachmentsRoot = Path.GetFullPath(attachmentSettings.Root, builder.Environment.ContentRootPath),
+    DatabaseDirectory = databaseDirectory is null ? null : Path.GetFullPath(databaseDirectory, builder.Environment.ContentRootPath),
+};
 builder.Services.AddSingleton(backupSettings);
 if (backupSettings.Root is { } backupRoot)
 {

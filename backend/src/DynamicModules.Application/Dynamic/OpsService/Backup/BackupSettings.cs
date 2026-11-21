@@ -10,6 +10,12 @@ public sealed record BackupSettings(string? Root, bool Invalid = false)
 
     public bool Configured => Root is not null;
 
+    /// <summary>附件根目錄（絕對路徑）；只用來遮錯誤摘要裡的路徑（複核 N2）。</summary>
+    public string? AttachmentsRoot { get; init; }
+
+    /// <summary>資料庫檔所在目錄（檔案資料庫才有）；只用來遮錯誤摘要裡的路徑（複核 N2）。</summary>
+    public string? DatabaseDirectory { get; init; }
+
     /// <summary>
     /// 依部署設定建立並檢查位置。<paramref name="protectedDirectories"/> 是資料庫、附件、金鑰目錄與站台的 <c>wwwroot</c>；
     /// 和其中任一個相同、在它底下或包住它都不收（路徑比對一律不分大小寫，寧可多拒）。不合法時回傳理由（啟動時記 Warning）。
