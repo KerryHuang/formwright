@@ -152,7 +152,8 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
   - 連線沿用 `ConnectionStrings__Dynamic`：主機、埠、資料庫、帳號以環境變數交給 `pg_dump`，密碼寫進只有站台帳號讀得到的暫存檔、用完即刪，不出現在命令列或 log。
   - 帳號與密碼要寫在 `ConnectionStrings__Dynamic` 裡（或用連線字串的 `Passfile`）。只靠 `PGUSER`、`PGPASSWORD` 這類環境變數給的部署，站台連得上，但 `pg_dump` 拿不到（子程序只帶必要的環境變數），備份會認證失敗。
   - 用 `Passfile` 時，檔案權限要是 0600：`pg_dump`（libpq）會拒絕群組或其他人讀得到的檔，站台本身（Npgsql）不檢查，所以會出現站台正常、備份認證失敗的情況。
-  - 備份歷程的錯誤摘要會遮掉資料庫主機、IP、帳號、資料庫名與 `pg_dump` 路徑；完整訊息記在站台 log 的 Warning「備份失敗」。
+  - `pg_dump` 子程序只帶這些環境變數：`PATH`、`HOME`、語系（`LANG`、`LC_*`）、`TZ`、`TMPDIR`、OpenSSL 憑證（`SSL_CERT_FILE`、`SSL_CERT_DIR`、`OPENSSL_CONF`）、Kerberos（`KRB5CCNAME`、`KRB5_CONFIG`）、動態連結器的搜尋路徑（`LD_LIBRARY_PATH`、`DYLD_LIBRARY_PATH`，PostgreSQL 用戶端裝在非標準位置、要靠它找到 libpq 時用得到）；Windows 另帶 `SystemRoot` 等系統變數。含密碼的變數（`PGPASSWORD`、連線字串）不帶。
+  - 備份歷程的錯誤摘要會遮掉資料庫主機、IP、帳號、資料庫名、`pg_dump` 路徑（設定的或從 `PATH` 找到的）、站台的工作目錄，以及連線字串的 `Root Certificate`、`SSL Certificate`、`SSL Key`、`Passfile` 路徑；完整訊息記在站台 log 的 Warning「備份失敗」。遮罩本身出錯時，摘要只寫一句固定文字，這份照樣記成失敗。
   - SSL：`SSL Mode` 照同名對應；`Trust Server Certificate=true` 只能配 `SSL Mode=Require`（不驗憑證）；`VerifyCA` 要設 `Root Certificate`；不支援 `SSL Password`。對不上時是 `pgDumpConfig`，訊息寫出是哪個設定。
 - **PostgreSQL 部署前**：先確認沒有執行中的備份（同上）。`pg_dump` 不擋一般寫入，但會擋住新版啟動時的 migration（DDL 要等它的鎖）：排程備份避開備份時段部署即可；立即備份任何時刻都可能在跑，有的話等它結束再部署，否則新版會卡在啟動。站台關閉或備份逾時時，產品會結束整個 `pg_dump` 程序。
 

@@ -112,14 +112,18 @@ public sealed partial class PostgresDatabaseBackup(DynamicDbContext db, PgDumpSe
         }
         else
         {
-            pgDump = (System.Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-                .Select(dir => Path.Combine(dir, "pg_dump" + exe)).FirstOrDefault(File.Exists);
+            pgDump = FindOnPath(System.Environment.GetEnvironmentVariable("PATH"));
             if (pgDump is null) throw new BackupFailure("pgDumpMissing", $"找不到 pg_dump：PATH 上沒有，也沒有設定 {PgDumpSettings.Key}");
         }
         var pgRestore = Path.Combine(Path.GetDirectoryName(pgDump)!, "pg_restore" + exe);
         if (!File.Exists(pgRestore)) throw new BackupFailure("pgDumpMissing", $"pg_dump 的目錄裡沒有 pg_restore（{pgRestore}），驗證備份要用它");
         return (pgDump, pgRestore);
     }
+
+    /// <summary><c>PATH</c> 上第一個 <c>pg_dump</c>；沒有回 null。</summary>
+    private static string? FindOnPath(string? pathVariable) =>
+        (pathVariable ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Select(dir => Path.Combine(dir, "pg_dump" + (OperatingSystem.IsWindows() ? ".exe" : ""))).FirstOrDefault(File.Exists);
 
     private async Task CheckVersionAsync(string pgDump, CancellationToken ct)
     {
@@ -183,37 +187,90 @@ public sealed partial class PostgresDatabaseBackup(DynamicDbContext db, PgDumpSe
     }
 
     /// <summary>
-    /// 錯誤摘要的連線識別資訊遮罩（審查 M2，和 Q12 同一類：雲端版客戶管理員看得到摘要）：pg_dump 路徑與它的目錄、每個主機、
+    /// 錯誤摘要的連線識別資訊遮罩（審查 M2，和 Q12 同一類：雲端版客戶管理員看得到摘要）：pg_dump 路徑與它的目錄（設定的，或靠 <c>PATH</c> 找到的）、
+    /// 工作目錄（<c>Process.Start</c> 失敗時 .NET 的訊息帶它）、連線字串的根憑證／用戶端憑證／金鑰／Passfile 路徑、每個主機、
     /// IPv4／IPv6 位址（libpq 會印出解析後的位址，事先拿不到）、引號裡的帳號與資料庫名、密碼（含 .pgpass 跳脫寫法）。
     /// </summary>
-    public string MaskSummary(string text)
+    public string MaskSummary(string text) =>
+        MaskSummary(text, _connectionString, settings, System.Environment.GetEnvironmentVariable("PATH"), Directory.GetCurrentDirectory());
+
+    /// <summary>
+    /// <see cref="MaskSummary(string)"/> 的本體（輸入都由參數給，測試不必改行程的 <c>PATH</c>）。
+    /// 先把每個要遮的值換成不會再被比對到的記號，最後才換成佔位字：主機名剛好是 <c>Database</c> 這類字時，不會把先放好的佔位字換壞（#90）。
+    /// 主機要有邊界才遮（前面不是字元、<c>.</c>、<c>-</c>，後面不是字元、<c>-</c>）：<c>Host=postgres</c> 不會把 <c>PostgreSQL</c> 換壞。
+    /// </summary>
+    public static string MaskSummary(string text, string? connectionString, PgDumpSettings settings, string? pathVariable, string? workingDirectory)
     {
+        var placeholders = new List<string>();
+        string Hide(string placeholder)
+        {
+            placeholders.Add(placeholder);
+            return $"\u0001{placeholders.Count - 1}\u0002";
+        }
+
+        text = text.Replace("\u0001", "", StringComparison.Ordinal).Replace("\u0002", "", StringComparison.Ordinal);
+        var literals = new List<(string Value, string Placeholder, StringComparison Comparison)>();
+        void Literal(string? value, string placeholder, StringComparison comparison = StringComparison.OrdinalIgnoreCase)
+        {
+            if (value is { Length: > 1 }) literals.Add((value, placeholder, comparison));
+        }
+
         if (!string.IsNullOrWhiteSpace(settings.PgDumpPath))
         {
             var full = Path.GetFullPath(settings.PgDumpPath);
-            text = text.Replace(full, "<Backup:PgDumpPath>", StringComparison.OrdinalIgnoreCase);
-            if (Path.GetDirectoryName(full) is { Length: > 1 } dir) text = text.Replace(dir, "<Backup:PgDumpPath 的目錄>", StringComparison.OrdinalIgnoreCase);
+            Literal(full, "<Backup:PgDumpPath>");
+            Literal(Path.GetDirectoryName(full), "<Backup:PgDumpPath 的目錄>");
         }
+        else if (FindOnPath(pathVariable) is { } found)
+        {
+            Literal(found, "<pg_dump>");
+            Literal(Path.GetDirectoryName(found), "<pg_dump 的目錄>");
+        }
+        Literal(workingDirectory?.TrimEnd('/', '\\'), "<工作目錄>");
+
         NpgsqlConnectionStringBuilder? b = null;
         try
         {
-            b = new NpgsqlConnectionStringBuilder(_connectionString);
+            b = new NpgsqlConnectionStringBuilder(connectionString);
         }
         catch (ArgumentException)
         {
         }
+        var hosts = new List<string>();
         if (b is not null)
         {
             text = PgDumpConnection.MaskPassword(text, b.Password);
-            if (!string.IsNullOrEmpty(b.Username)) text = text.Replace($"\"{b.Username}\"", "\"<Database:User>\"", StringComparison.Ordinal);
-            if (!string.IsNullOrEmpty(b.Database)) text = text.Replace($"\"{b.Database}\"", "\"<Database:Name>\"", StringComparison.Ordinal);
-            var hosts = (b.Host ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(StripPort).Where(h => h.Length > 0).OrderByDescending(h => h.Length);
-            foreach (var host in hosts) text = text.Replace(host, "<Database:Host>", StringComparison.OrdinalIgnoreCase);
+            Literal(b.RootCertificate, "<Database:Root Certificate>");
+            Literal(b.SslCertificate, "<Database:SSL Certificate>");
+            Literal(b.SslKey, "<Database:SSL Key>");
+            Literal(b.Passfile, "<Database:Passfile>");
+            if (!string.IsNullOrEmpty(b.Username)) Literal($"\"{b.Username}\"", "\"<Database:User>\"", StringComparison.Ordinal);
+            if (!string.IsNullOrEmpty(b.Database)) Literal($"\"{b.Database}\"", "\"<Database:Name>\"", StringComparison.Ordinal);
+            hosts.AddRange((b.Host ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(StripPort).Where(h => h.Length > 0));
         }
-        text = Ipv4Regex().Replace(text, "<ip>");
-        return Ipv6Regex().Replace(text, m => m.Value.Contains("::", StringComparison.Ordinal) || m.Value.Count(c => c == ':') >= 3 ? "<ip>" : m.Value);
+
+        text = WorkingDirectoryRegex().Replace(text, _ => Hide("<工作目錄>"));
+        // 長的先換：路徑互相包含時遮成最精確的那個
+        foreach (var (value, placeholder, comparison) in literals.OrderByDescending(l => l.Value.Length))
+            text = text.Replace(value, Hide(placeholder), comparison);
+        if (hosts.Count > 0)
+        {
+            var alternatives = string.Join('|', hosts.Distinct(StringComparer.OrdinalIgnoreCase).OrderByDescending(h => h.Length).Select(Regex.Escape));
+            text = Regex.Replace(text, $@"(?<![\w.-])(?:{alternatives})(?![\w-])", _ => Hide("<Database:Host>"),
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+        }
+        text = Ipv4Regex().Replace(text, _ => Hide("<ip>"));
+        text = Ipv6Regex().Replace(text, m => m.Value.Contains("::", StringComparison.Ordinal) || m.Value.Count(c => c == ':') >= 3 ? Hide("<ip>") : m.Value);
+        return HiddenRegex().Replace(text, m => placeholders[int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)]);
     }
+
+    [GeneratedRegex("\u0001(\\d+)\u0002")]
+    private static partial Regex HiddenRegex();
+
+    // .NET 的 Process.Start 失敗訊息：An error occurred trying to start process '…' with working directory '…'.
+    [GeneratedRegex("(?<=working directory ')[^']+(?=')")]
+    private static partial Regex WorkingDirectoryRegex();
 
     /// <summary><c>host:5433</c> → <c>host</c>；<c>[fd00::1]:5433</c> → <c>fd00::1</c>；不帶埠的 IPv6 照原樣。</summary>
     private static string StripPort(string host)
@@ -233,16 +290,19 @@ public sealed partial class PostgresDatabaseBackup(DynamicDbContext db, PgDumpSe
 
     /// <summary>
     /// 子程序環境的白名單（審查 M1）：父行程的環境變數可能帶機密（例如用環境變數給的 <c>ConnectionStrings__Dynamic</c>），
-    /// 只放回 libpq 與作業系統需要的：路徑、家目錄、語系、時區、暫存目錄、OpenSSL 的憑證設定（<c>sslrootcert=system</c> 會用到）、Kerberos（GSS 驗證）。
+    /// 只放回 libpq 與作業系統需要的：路徑、家目錄、語系、時區、暫存目錄、OpenSSL 的憑證設定（<c>sslrootcert=system</c> 會用到）、Kerberos（GSS 驗證）、
+    /// 動態連結器的搜尋路徑（PostgreSQL 用戶端裝在非標準位置時要靠它找到 libpq，#90）。都不含密碼；含密碼的變數（<c>PGPASSWORD</c>、連線字串）一律不帶。
     /// </summary>
     private static readonly string[] UnixEnvironment =
-        ["PATH", "HOME", "LANG", "TZ", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR", "OPENSSL_CONF", "KRB5CCNAME", "KRB5_CONFIG"];
+        ["PATH", "HOME", "LANG", "TZ", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR", "OPENSSL_CONF", "KRB5CCNAME", "KRB5_CONFIG", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"];
 
-    /// <summary>Windows 另外要 <c>SystemRoot</c>（沒有它 Winsock 起不來）等系統變數。</summary>
+    /// <summary>Windows 另外要 <c>SystemRoot</c>（沒有它 Winsock 起不來）等系統變數；OpenSSL 憑證與 Kerberos 同 Unix（#90）。</summary>
     private static readonly string[] WindowsEnvironment =
-        ["PATH", "PATHEXT", "SystemRoot", "windir", "SystemDrive", "TEMP", "TMP", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "COMSPEC"];
+        ["PATH", "PATHEXT", "SystemRoot", "windir", "SystemDrive", "TEMP", "TMP", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "COMSPEC",
+         "SSL_CERT_FILE", "SSL_CERT_DIR", "OPENSSL_CONF", "KRB5CCNAME", "KRB5_CONFIG"];
 
-    private static bool Inherited(string key) => OperatingSystem.IsWindows()
+    /// <summary>這個環境變數要不要從父行程帶進子程序（<paramref name="windows"/>：照 Windows 的清單、不分大小寫）。</summary>
+    public static bool Inherited(string key, bool windows) => windows
         ? WindowsEnvironment.Contains(key, StringComparer.OrdinalIgnoreCase)
         : UnixEnvironment.Contains(key, StringComparer.Ordinal) || key.StartsWith("LC_", StringComparison.Ordinal);
 
@@ -254,7 +314,7 @@ public sealed partial class PostgresDatabaseBackup(DynamicDbContext db, PgDumpSe
             UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true, CreateNoWindow = true,
         };
         foreach (var arg in args) info.ArgumentList.Add(arg);
-        var keep = info.Environment.Where(e => Inherited(e.Key) && e.Value is not null).ToList();
+        var keep = info.Environment.Where(e => Inherited(e.Key, OperatingSystem.IsWindows()) && e.Value is not null).ToList();
         info.Environment.Clear();
         foreach (var (key, value) in keep) info.Environment[key] = value;
         foreach (var (key, value) in env) info.Environment[key] = value;

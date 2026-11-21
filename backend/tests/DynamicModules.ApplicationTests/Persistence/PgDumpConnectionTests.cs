@@ -126,4 +126,112 @@ public sealed class PgDumpConnectionTests
             .And.NotContain("2001:db8").And.NotContain("tenant_07").And.NotContain("tenant_db").And.NotContain("/opt/vendor").And.NotContain("Hunter2");
         text.Should().Contain("<Database:Host>").And.Contain("12:34:56").And.Contain("password authentication failed");
     }
+
+    private static PostgresDatabaseBackup BackupFor(string connectionString, string? pgDump = null)
+    {
+        var options = (Microsoft.EntityFrameworkCore.DbContextOptions<DynamicModules.Domain.Data.DynamicDbContext>)PostgresDatabase.Configure(
+            new Microsoft.EntityFrameworkCore.DbContextOptionsBuilder<DynamicModules.Domain.Data.DynamicDbContext>(), connectionString,
+            new PostgresWriteSettings(PostgresWriteSettings.DefaultLockTimeoutSeconds)).Options;
+        return new PostgresDatabaseBackup(new DynamicModules.Domain.Data.DynamicDbContext(options), new PgDumpSettings(pgDump));
+    }
+
+    /// <summary>#90 第 1 項：連線字串裡的根憑證、用戶端憑證、金鑰、Passfile 路徑也遮（libpq 讀不到檔時會印出路徑）。</summary>
+    [Fact]
+    public void MaskSummary_RemovesSslAndPassfilePaths()
+    {
+        var backup = BackupFor("Host=db.example.test;Database=fw_app;Username=fw_user;SSL Mode=VerifyFull;" +
+            "Root Certificate=/etc/fw-test/ca/root.crt;SSL Certificate=/etc/fw-test/client.crt;SSL Key=/etc/fw-test/client.key;Passfile=/home/fw-test/pgpass");
+        var text = backup.MaskSummary(
+            "could not read root certificate file \"/etc/fw-test/ca/root.crt\"; could not open certificate file \"/etc/fw-test/client.crt\"; " +
+            "private key file \"/etc/fw-test/client.key\" has group or world access; password file \"/home/fw-test/pgpass\" has group or world access");
+        text.Should().NotContain("/etc/fw-test").And.NotContain("/home/fw-test");
+        text.Should().Contain("could not read root certificate file").And.Contain("has group or world access");
+    }
+
+    /// <summary>
+    /// #90 第 2 項：主機有邊界才遮（引號裡、host:port、單字邊界），<c>Host=postgres</c> 不會把 <c>PostgreSQL</c> 換壞；
+    /// 主機名剛好是佔位字裡的字（<c>database</c>）也不會把先放好的佔位字換壞。
+    /// </summary>
+    [Theory]
+    [InlineData("Host=postgres;Database=fw_app;Username=fw_user",
+        "pg_dump (PostgreSQL) 16.4; connection to server at \"postgres\" (192.0.2.5), port 5432 failed; postgres:5432 refused; host postgres down; postgres-old ok",
+        "pg_dump (PostgreSQL) 16.4; connection to server at \"<Database:Host>\" (<ip>), port 5432 failed; <Database:Host>:5432 refused; host <Database:Host> down; postgres-old ok")]
+    [InlineData("Host=database;Database=fw_app;Username=app_user",
+        "FATAL: role \"app_user\" on database \"fw_app\" at database:5432",
+        "FATAL: role \"<Database:User>\" on <Database:Host> \"<Database:Name>\" at <Database:Host>:5432")]
+    public void MaskSummary_HostNeedsBoundary(string connectionString, string input, string expected) =>
+        BackupFor(connectionString).MaskSummary(input).Should().Be(expected);
+
+    /// <summary>#90 第 1 項：沒設 Backup:PgDumpPath 時，靠 PATH 找到的 pg_dump 路徑與它的目錄（pg_restore 也在那裡）也遮。</summary>
+    [Fact]
+    public void MaskSummary_RemovesToolPathFoundOnPath()
+    {
+        var bin = Directory.CreateTempSubdirectory("dm-pgpath-").FullName;
+        try
+        {
+            var exe = OperatingSystem.IsWindows() ? ".exe" : "";
+            File.WriteAllText(Path.Combine(bin, "pg_dump" + exe), "");
+            var pathVariable = string.Join(Path.PathSeparator, Path.Combine(bin, "nope"), bin);
+            var text = PostgresDatabaseBackup.MaskSummary(
+                $"{Path.Combine(bin, "pg_dump" + exe)} failed; pg_dump 的目錄裡沒有 pg_restore（{Path.Combine(bin, "pg_restore" + exe)}）",
+                Base, new PgDumpSettings(null), pathVariable, workingDirectory: null);
+            text.Should().NotContain(bin).And.Contain("pg_restore");
+        }
+        finally
+        {
+            Directory.Delete(bin, recursive: true);
+        }
+    }
+
+    /// <summary>#90 第 1 項：Process.Start 失敗時 Win32Exception 的訊息帶工作目錄（.NET 的 "with working directory '…'"），也遮。</summary>
+    [Fact]
+    public async Task MaskSummary_RemovesWorkingDirectoryFromStartFailure()
+    {
+        if (OperatingSystem.IsWindows()) return;   // 用「沒有執行權限」讓 Process.Start 失敗
+        var bin = Directory.CreateTempSubdirectory("dm-pgx-").FullName;
+        try
+        {
+            foreach (var name in new[] { "pg_dump", "pg_restore" })
+            {
+                File.WriteAllText(Path.Combine(bin, name), "#!/bin/sh\nexit 0\n");
+                File.SetUnixFileMode(Path.Combine(bin, name), UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
+            var backup = BackupFor(Base, Path.Combine(bin, "pg_dump"));
+            var failure = (await FluentActions.Awaiting(() => backup.SnapshotAsync(Path.Combine(bin, "out.pgdump"), CancellationToken.None))
+                .Should().ThrowAsync<BackupFailure>()).Which;
+            var cwd = Directory.GetCurrentDirectory();
+            failure.Message.Should().Contain(cwd, "前提：.NET 的訊息帶工作目錄");
+            var text = backup.MaskSummary(failure.Message);
+            text.Should().NotContain(cwd).And.NotContain(bin).And.Contain("pg_dump");
+            PostgresDatabaseBackup.MaskSummary("start failed in /srv/fw-test-cwd/x", Base, new PgDumpSettings(null), null, "/srv/fw-test-cwd")
+                .Should().NotContain("/srv/fw-test-cwd");
+        }
+        finally
+        {
+            Directory.Delete(bin, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// #90 第 3 項：子程序環境白名單。Unix 帶動態連結器的搜尋路徑（PostgreSQL 用戶端裝在非標準位置時要靠它載入 libpq）；
+    /// Windows 補 OpenSSL 憑證與 Kerberos。兩邊都不帶含密碼的變數（M1 原則不變）。
+    /// </summary>
+    [Theory]
+    [InlineData("LD_LIBRARY_PATH", false, true)]
+    [InlineData("DYLD_LIBRARY_PATH", false, true)]
+    [InlineData("SSL_CERT_FILE", false, true)]
+    [InlineData("LC_ALL", false, true)]
+    [InlineData("SSL_CERT_FILE", true, true)]
+    [InlineData("SSL_CERT_DIR", true, true)]
+    [InlineData("OPENSSL_CONF", true, true)]
+    [InlineData("KRB5CCNAME", true, true)]
+    [InlineData("KRB5_CONFIG", true, true)]
+    [InlineData("SystemRoot", true, true)]
+    [InlineData("PGPASSWORD", false, false)]
+    [InlineData("PGPASSWORD", true, false)]
+    [InlineData("ConnectionStrings__Dynamic", false, false)]
+    [InlineData("ConnectionStrings__Dynamic", true, false)]
+    [InlineData("LD_PRELOAD", false, false)]
+    public void ChildEnvironment_Whitelist(string key, bool windows, bool inherited) =>
+        PostgresDatabaseBackup.Inherited(key, windows).Should().Be(inherited);
 }

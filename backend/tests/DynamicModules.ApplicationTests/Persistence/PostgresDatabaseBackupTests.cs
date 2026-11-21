@@ -150,6 +150,10 @@ public sealed class PostgresDatabaseBackupTests : IAsyncLifetime
         var secretName = $"FW_TEST_SECRET_{Guid.NewGuid():N}";
         Environment.SetEnvironmentVariable(secretName, $"Host=x;Password={Secret}");
         Environment.SetEnvironmentVariable("PGFW_TEST_INHERITED", "1");
+        // #90 第 3 項：動態連結器的搜尋路徑照帶（值本身不含機密；改成不存在的目錄也不影響其他測試）
+        var libraryPath = Environment.GetEnvironmentVariable("LD_LIBRARY_PATH");
+        var probeLibraryPath = string.Join(':', new[] { libraryPath, "/nonexistent-fw-test-lib" }.Where(v => !string.IsNullOrEmpty(v)));
+        Environment.SetEnvironmentVariable("LD_LIBRARY_PATH", probeLibraryPath);
         try
         {
             var act = () => Backup(FakeTools("99.0", $"env > '{record}'; exit 1")).SnapshotAsync(Path.Combine(_dir, "out.pgdump"), Ct);
@@ -159,11 +163,13 @@ public sealed class PostgresDatabaseBackupTests : IAsyncLifetime
         {
             Environment.SetEnvironmentVariable(secretName, null);
             Environment.SetEnvironmentVariable("PGFW_TEST_INHERITED", null);
+            Environment.SetEnvironmentVariable("LD_LIBRARY_PATH", libraryPath);
         }
         var lines = await File.ReadAllLinesAsync(record);
         string.Join('\n', lines).Should().NotContain(Secret).And.NotContain(secretName);
         lines.Should().NotContain(l => l.StartsWith("PGFW_TEST_INHERITED="));
         lines.Should().Contain(l => l.StartsWith("PATH=")).And.Contain(l => l.StartsWith("PGUSER="));
+        lines.Should().Contain($"LD_LIBRARY_PATH={probeLibraryPath}");
     }
 
     /// <summary>系統暫存目錄裡超過一天的 formwright-pgpass-* 殘檔（上次被 SIGKILL 之類）在備份開始時清掉；還新的不動（可能是別的實例正在用）。</summary>

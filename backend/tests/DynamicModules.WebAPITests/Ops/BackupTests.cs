@@ -606,6 +606,36 @@ public class BackupTests
         public void ClearStaging(string? runKey = null, string? keepRunKey = null) => inner.ClearStaging(runKey, keepRunKey);
     }
 
+    /// <summary>#90 第 2 項：provider 的摘要遮罩本身丟例外 → 這份照樣結束成 failed（不停在執行中），摘要改寫固定文字、不放原文。</summary>
+    [Fact]
+    public async Task SummaryMaskThrows_FailedWithFixedDetail()
+    {
+        using var app = new BackupApp();
+        app.ExtraServices = s =>
+        {
+            var real = s.Single(d => d.ServiceType == typeof(IDatabaseBackup));
+            s.Remove(real);
+            s.AddScoped<IDatabaseBackup>(sp => new BrokenMask((IDatabaseBackup)ActivatorUtilities.CreateInstance(sp, real.ImplementationType!)));
+        };
+        await Worker(app).TickAsync(CancellationToken.None);
+        var run = (await Runs(app)).Single();
+        run.Status.Should().Be(BackupRunStatus.Failed);
+        run.ErrorCode.Should().Be("databaseSnapshotFailed");
+        run.ErrorDetail.Should().Be(BackupWorker.UnmaskedDetail);
+    }
+
+    private sealed class BrokenMask(IDatabaseBackup inner) : IDatabaseBackup
+    {
+        public string FileName => inner.FileName;
+        public string Provider => inner.Provider;
+        public Task<long> SizeBytesAsync(CancellationToken ct) => inner.SizeBytesAsync(ct);
+        public Task<string> LatestMigrationAsync(CancellationToken ct) => inner.LatestMigrationAsync(ct);
+        public Task SnapshotAsync(string path, CancellationToken ct) =>
+            throw new BackupFailure("databaseSnapshotFailed", "connection to server at \"db.example.test\" failed");
+        public Task VerifyAsync(string path, string expectedMigration, CancellationToken ct) => inner.VerifyAsync(path, expectedMigration, ct);
+        public string MaskSummary(string text) => throw new InvalidOperationException("mask broke");
+    }
+
     private sealed class BrokenVerify(IDatabaseBackup inner) : IDatabaseBackup
     {
         public string FileName => inner.FileName;

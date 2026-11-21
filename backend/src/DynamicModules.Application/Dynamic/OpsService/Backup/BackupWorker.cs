@@ -188,14 +188,30 @@ public sealed class BackupWorker(
     }
 
     /// <summary>錯誤摘要裡代替備份位置、附件根目錄、資料庫目錄路徑的字樣（M3、複核 N2）。</summary>
+    /// <summary>遮罩本身丟例外時寫進摘要的固定文字（#90，fail-closed：不放沒遮過的原文，這份照樣結束成 failed）。</summary>
+    public const string UnmaskedDetail = "錯誤摘要無法遮罩，已略去；完整訊息見站台 log 的 Warning「備份失敗」";
+
     public const string RootPlaceholder = "<Backup:Root>", AttachmentsPlaceholder = "<Attachments:Root>", DatabasePlaceholder = "<Database:Directory>";
 
     /// <summary>
     /// 錯誤摘要（errorDetail、pruneError 的唯一出口）：先由 provider 遮連線識別資訊（<see cref="IDatabaseBackup.MaskSummary"/>），再把備份位置、附件根目錄、資料庫目錄的路徑換成固定字樣（雲端版不得讓客戶管理員看到廠商主機路徑，
     /// Q12、審查 M3、複核 N2；地端照樣從 displayLocation 看得到），遮掉像密碼、權杖的片段，截到 1000 字（§10.1、E9）。
-    /// 長的路徑先換：目錄互相包含時遮成最精確的那個。
+    /// 長的路徑先換：目錄互相包含時遮成最精確的那個。遮罩本身丟例外時回 <see cref="UnmaskedDetail"/>（#90）：例外若往外丟，這份會停在執行中。
     /// </summary>
     public string Summary(string text)
+    {
+        try
+        {
+            return Mask(text);
+        }
+        catch (Exception e)
+        {
+            logger.LogWarning("備份錯誤摘要遮罩失敗（{ExceptionType}），改寫固定文字", e.GetType().Name);
+            return UnmaskedDetail;
+        }
+    }
+
+    private string Mask(string text)
     {
         if (_databaseMask is { } mask) text = mask(text);
         var paths = new (string? Path, string Placeholder)[]
