@@ -176,6 +176,9 @@ function logout() {
   align-items: center;
   height: 100%;
   width: fit-content;
+  min-width: 44px;
+  min-height: 44px;
+  justify-content: center;
   gap: 0.4em;
 }
 /* #76：頂列按鈕變多後 820 以下放不下品牌字，只留 mark（連結仍有 aria-label 與 title） */
