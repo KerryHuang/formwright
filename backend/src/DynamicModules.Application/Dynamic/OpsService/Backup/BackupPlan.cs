@@ -41,14 +41,17 @@ public static class BackupPlan
         return (nowUtc + offset).Hour >= backupHour ? slot : null;
     }
 
-    /// <summary>下一次排定的時間（UTC）：今天的時段還沒用掉且已過時段＝現在；否則是下一個時段整點。</summary>
+    /// <summary>下一次排定的時間（UTC）：今天的時段還沒用掉且已過時段＝現在；今天的時段還能用＝今天整點；否則是明天整點。</summary>
     public static DateTime NextScheduledUtc(IReadOnlyCollection<BackupRun> runs, DateTime nowUtc, TimeSpan offset, int backupHour, BackupLimits limits)
     {
         if (SlotToQueue(runs, nowUtc, offset, backupHour, limits) is not null) return nowUtc;
         var local = nowUtc + offset;
         var today = local.Date.AddHours(backupHour);
-        var next = today > local && !runs.Any(r => r.Trigger == BackupTrigger.Schedule && r.ScheduleSlot == SlotOf(nowUtc, offset)
-            && r.Status != BackupRunStatus.Interrupted) ? today : today.AddDays(1);
+        var mine = runs.Where(r => r.Trigger == BackupTrigger.Schedule && r.ScheduleSlot == SlotOf(nowUtc, offset)).ToList();
+        // 今天的時段已被占用，或已中斷到上限（審查 S8）：要到明天
+        var todayUsable = !mine.Any(r => r.Status != BackupRunStatus.Interrupted)
+            && mine.Count(r => r.Status == BackupRunStatus.Interrupted) < limits.MaxInterruptsPerSlot;
+        var next = today > local && todayUsable ? today : today.AddDays(1);
         return DateTime.SpecifyKind(next - offset, DateTimeKind.Utc);
     }
 }
