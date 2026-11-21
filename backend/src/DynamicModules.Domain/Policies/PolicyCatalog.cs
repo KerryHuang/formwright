@@ -241,6 +241,18 @@ public static class PolicyCatalog
     public static readonly PolicyDefinition OpsSchedulerLagIntervals =
         new("ops.schedulerLagIntervals", "ops", PolicyKind.Integer, PolicyScope.System, "3", 2, 100, Unit: "count");
 
+    /// <summary>bk1（備份設計 §13.1）：每天幾點開始排程備份（營運時區的整點，0–23）；前端以 <c>hourOfDay</c> 顯示成「02:00」。</summary>
+    public static readonly PolicyDefinition OpsBackupHour =
+        new("ops.backupHour", "ops", PolicyKind.Integer, PolicyScope.System, "2", 0, 23, Unit: "hourOfDay");
+
+    /// <summary>bk1：保留最近幾份成功的排程備份（只對可刪除的儲存位置有效；改小從下一份成功備份起才照新值刪，§8）。</summary>
+    public static readonly PolicyDefinition OpsBackupRetentionCount =
+        new("ops.backupRetentionCount", "ops", PolicyKind.Integer, PolicyScope.System, "7", 1, 90, Unit: "count");
+
+    /// <summary>bk1（Q10，使用者 2026-11-21 裁決）：立即備份保留幾天，不占排程備份的份數（只對可刪除的儲存位置有效）。</summary>
+    public static readonly PolicyDefinition OpsBackupManualRetentionDays =
+        new("ops.backupManualRetentionDays", "ops", PolicyKind.Integer, PolicyScope.System, "7", 1, 365, Unit: "days");
+
     /// <summary>A3：一個簽核流程的關卡數。</summary>
     public static readonly PolicyDefinition ApprovalMaxStages =
         new("approval.maxStages", "approval", PolicyKind.Integer, PolicyScope.Module, "10", 1, 20, Unit: "count");
@@ -494,7 +506,7 @@ public static class PolicyCatalog
          OpsIncidentRenotifyHours, OpsIncidentAutoResolveHours, OpsRulePauseConsecutiveFailures, OpsRulePauseWindowMinutes,
          OpsRuleLoopTriggersPerRecord, OpsRuleLoopWindowMinutes,
          OpsConfigIssueRecipients, OpsAlertRecipients, OpsAlertEmailCategories, OpsAlertEmailMinSeverity, OpsAlertEmailMaxPerHour,
-         OpsLoginFailureWindowMinutes, OpsSchedulerLagIntervals,
+         OpsLoginFailureWindowMinutes, OpsSchedulerLagIntervals, OpsBackupHour, OpsBackupRetentionCount, OpsBackupManualRetentionDays,
          ApprovalMaxStages, ApprovalMaxBranches, ApprovalMaxApprovers, ApprovalMaxDueHours, ApprovalMaxCommentLength, ApprovalMaxManagerLevel,
          ApprovalAllowSelfApproval, ApprovalAdminBypassTransitionGroups, ApprovalMaxAddSignUsers, ApprovalMaxAddSignStages,
          ApprovalOverdueReminderHours, ApprovalDefaultFallbackApprovers, ApprovalAlertRecipients,

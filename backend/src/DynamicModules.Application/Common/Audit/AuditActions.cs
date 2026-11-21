@@ -123,6 +123,9 @@ public static class AuditActions
         new("ops.channel.test", Ops, W),
         new("mailSettings.update", Ops, W),
         new("mailSettings.test", Ops, W),
+        // 產品內備份（備份設計 §12）：立即備份（含被拒）、保留清理刪掉一份；排程備份本身記在歷程表
+        new("backup.request", Ops, W),
+        new("backup.prune", Ops, W),
         // AI 連線（MCP 設計 §8.1；mcp1a 判斷 17）：被政策擋下的連線、權杖管理是一般寫入；工具呼叫與不存在的工具是唯讀
         new("mcp.access", Mcp, W),
         new("mcp.token.create", Mcp, W),

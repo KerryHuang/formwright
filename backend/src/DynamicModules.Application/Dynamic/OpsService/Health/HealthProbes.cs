@@ -1,5 +1,6 @@
 using DynamicModules.Application.Common;
 using DynamicModules.Application.Dynamic.AppService.SharedMasters;
+using DynamicModules.Application.Dynamic.OpsService.Backup;
 using DynamicModules.Application.Dynamic.OpsService.Scheduling;
 using DynamicModules.Application.Dynamic.PolicyService;
 using DynamicModules.Domain.Entities.Dynamic;
@@ -186,12 +187,26 @@ public sealed class IntegrityProbe : IHealthProbe
     }
 }
 
-/// <summary><c>backup.freshness</c>：備份還沒做（路線階段 5），回「未設定」（B20）。</summary>
+/// <summary>
+/// <c>backup.freshness</c>（備份設計 §9.1，取代 B20 的「一律未設定」）：沒設 <c>Backup:Root</c> 是未設定；資料庫種類還不支援（PostgreSQL，bk1b 之前）是未設定
+/// <c>providerUnsupported</c>；位置不合法、標記檔不一致判嚴重；其餘依目前位置的紀錄判斷（<see cref="BackupFreshness"/>）。只讀，不建標記檔。
+/// </summary>
 public sealed class BackupFreshnessProbe : IHealthProbe
 {
     public string Code => HealthCheckCatalog.BackupFreshness;
 
-    public Task<ProbeResult> RunAsync(HealthProbeContext c, CancellationToken ct) => Task.FromResult(new ProbeResult(HealthStatus.NotConfigured));
+    public async Task<ProbeResult> RunAsync(HealthProbeContext c, CancellationToken ct)
+    {
+        var location = await c.Services.GetRequiredService<BackupLocator>().ResolveAsync(adopt: false, "", ct);
+        switch (location.Status)
+        {
+            case BackupLocationStatus.NotConfigured: return new ProbeResult(HealthStatus.NotConfigured);
+            case BackupLocationStatus.ProviderUnsupported: return new ProbeResult(HealthStatus.NotConfigured, null, location.Code);
+            case BackupLocationStatus.Invalid or BackupLocationStatus.Mismatch: return new ProbeResult(HealthStatus.Critical, null, location.Code);
+        }
+        var runs = location.LocationId is { } id ? await c.Services.GetRequiredService<IBackupRepository>().ListForLocationAsync(id, ct) : [];
+        return BackupFreshness.Evaluate(runs, c.NowUtc, c.Definition, c.Settings, BackupLimits.Default);
+    }
 }
 
 /// <summary><c>security.loginFailures</c>：稽核表最近 <c>ops.loginFailureWindowMinutes</c> 分鐘的 <c>login.failed</c> 列數。</summary>

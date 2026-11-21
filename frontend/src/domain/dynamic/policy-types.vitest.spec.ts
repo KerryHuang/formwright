@@ -43,6 +43,7 @@ describe('policy-types', () => {
     expect(policyValueText({ code: 'x', category: 'task', kind: 'roleSet', options: [] }, [], t)).toBe('（無）');
     expect(policyValueText({ code: 'x', category: 'task', kind: 'integer', unit: 'bytes' }, 10485760, t)).toContain('10.0 MB');
     expect(policyValueText({ code: 'x', category: 'task', kind: 'integer' }, 20, t)).toBe('20');
+    expect(policyValueText({ code: 'ops.backupHour', category: 'ops', kind: 'integer', unit: 'hourOfDay' }, 2, t)).toBe('2 (02:00 開始)');
     expect(policyValueText({ code: 'x', category: 'task', kind: 'codeList' }, ['pdf', 'png'], t)).toBe('pdf、png');
   });
 

@@ -142,7 +142,9 @@ public static class MessageText
         McpTokenInQuery = nameof(McpTokenInQuery), McpOriginDenied = nameof(McpOriginDenied), McpHttpsRequired = nameof(McpHttpsRequired),
         // AI 連線一般寫入（mcp2a 計畫判斷 13）
         McpIdempotencyKeyRequired = nameof(McpIdempotencyKeyRequired), McpWriteLoop = nameof(McpWriteLoop),
-        McpTokenScopeMissingRequired = nameof(McpTokenScopeMissingRequired);
+        McpTokenScopeMissingRequired = nameof(McpTokenScopeMissingRequired),
+        // 產品內備份（備份設計 §11、§5.5）
+        BackupInProgress = nameof(BackupInProgress), BackupNotConfigured = nameof(BackupNotConfigured);
 
     private static readonly Dictionary<string, (string Zh, string En, string Th, string Vi)> Table = new()
     {
@@ -627,6 +629,11 @@ public static class MessageText
             "Token này đã sửa cùng một bản ghi {0} lần trong {1} phút nên việc ghi vào bản ghi này đã bị tạm dừng. Hãy dừng lại và nhờ người dùng xác nhận"),
         [McpTokenScopeMissingRequired] = ("勾選寫入範圍時，也要勾選同一類的讀取範圍", "When you select a write scope, also select the read scope of the same kind",
             "เมื่อเลือกขอบเขตการเขียน ต้องเลือกขอบเขตการอ่านประเภทเดียวกันด้วย", "Khi chọn phạm vi ghi, hãy chọn cả phạm vi đọc cùng loại"),
+        [BackupInProgress] = ("備份進行中，請等這一份完成後再試", "A backup is in progress. Try again after it finishes",
+            "กำลังสำรองข้อมูลอยู่ โปรดลองอีกครั้งหลังจากเสร็จสิ้น", "Đang sao lưu, vui lòng thử lại sau khi hoàn tất"),
+        [BackupNotConfigured] = ("備份位置沒設定或目前無法使用，請先看維運監控的「備份」檢查", "The backup location is not set or cannot be used right now. Check the Backup item in Operations monitoring first",
+            "ยังไม่ได้ตั้งค่าตำแหน่งสำรองข้อมูลหรือใช้งานไม่ได้ในขณะนี้ โปรดตรวจสอบรายการสำรองข้อมูลในการตรวจสอบระบบก่อน",
+            "Chưa đặt vị trí sao lưu hoặc hiện không dùng được, vui lòng xem mục Sao lưu trong giám sát vận hành trước"),
     };
 
     /// <summary>給 <see cref="Localization.BuiltinServerText"/> 合併用（鍵不加前綴）。</summary>
