@@ -127,7 +127,7 @@ describe('ProgressGraphCanvas', () => {
   });
 });
 
-describe('ProgressGraphCanvas keyboard focus', () => {
+describe('ProgressGraphCanvas keyboard focus and tooltip', () => {
   it('pans to a focused node that is outside the view without changing zoom', async () => {
     const nodes = [{ id: 'far', position: { x: 2000, y: 10 }, data: { ...nodeData, width: 168, height: 84 } }] as unknown as Node<ProgressNodeData>[];
     const w = mountCanvas();
@@ -139,4 +139,10 @@ describe('ProgressGraphCanvas keyboard focus', () => {
     expect(flowFns.setViewport).toHaveBeenCalledWith(expect.objectContaining({ zoom: 0.8 }), expect.anything());
   });
 
+  it('shows the full name in a tooltip only when the name is clamped, and does not repeat it for screen readers', () => {
+    const w = mountCanvas();
+    const name = w.get('[data-testid="pg-name"]');
+    expect(name.attributes('title')).toBeUndefined();
+    expect(w.findComponent({ name: 'QTooltip' }).exists()).toBe(true);
+  });
 });

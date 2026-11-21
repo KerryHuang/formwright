@@ -13,7 +13,7 @@ function open() { if (clickable.value) emit('open'); }
 
 <template>
   <div
-    class="pg-node" :class="[`pg-frame-${data.frame}`, data.color ? `pg-c-${data.color}` : 'pg-c-none', { 'pg-dim': data.dim, 'pg-small': data.small, 'pg-clickable': clickable }]"
+    class="pg-node" :class="[`pg-frame-${data.frame}`, data.color ? `pg-c-${data.color}` : 'pg-c-none', { 'pg-hover': interactive, 'pg-dim': data.dim, 'pg-small': data.small, 'pg-clickable': clickable }]"
     :style="{ width: `${data.width}px`, height: `${data.height}px` }" :aria-label="data.ariaLabel" :role="clickable ? 'button' : 'img'" :tabindex="clickable ? 0 : undefined"
     data-testid="pg-node" @click="open" @keydown.enter.prevent="open" @keydown.space.prevent="open"
   >
@@ -30,6 +30,8 @@ function open() { if (clickable.value) emit('open'); }
       <span v-if="data.statusText" class="pg-status-text">{{ data.statusText }}</span>
       <q-badge v-if="data.overdue" color="negative" class="pg-overdue" :label="data.overdueText" data-testid="pg-overdue" />
     </div>
+    <!-- 名稱最多顯示兩行，超過就被截斷：滑鼠移上去用 tooltip 看全名。節點本身已有 aria-label，tooltip 內容 aria-hidden 避免讀屏重複念；不用原生 title。 -->
+    <q-tooltip v-if="interactive" anchor="bottom middle" self="top middle" :delay="300" data-testid="pg-name-tip"><span aria-hidden="true">{{ data.label }}</span></q-tooltip>
     <Handle type="source" :position="Position.Right" :connectable="false" class="pg-handle" />
   </div>
 </template>
@@ -48,6 +50,8 @@ function open() { if (clickable.value) emit('open'); }
 .pg-c-muted { border-color: var(--t-muted); }
 .pg-dim { opacity: 0.55; }
 /* Vue Flow 對不可選、不可拖的節點把外層設成 pointer-events: none；可點的節點要自己接回來。 */
+/* 不可點的節點也要收 hover（tooltip 看全名）。 */
+.pg-hover { pointer-events: auto; }
 .pg-clickable { cursor: pointer; pointer-events: auto; }
 .pg-clickable:focus-visible { outline: 2px solid var(--t-primary); outline-offset: 2px; }
 .pg-head { display: flex; align-items: flex-start; gap: 4px; min-height: 0; overflow: hidden; }
