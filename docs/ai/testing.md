@@ -11,6 +11,8 @@
 | WebAPITests | `backend/tests/DynamicModules.WebAPITests` | 整合測試，最慢、最怕 CPU 爭用 |
 | 前端 | `frontend`（`*.vitest.spec.ts`） | vitest、vue-tsc、quasar build |
 
+- 後端 `[Theory]` 的資料（`MemberData`、`TheoryData`）只放可序列化的值（字串、數字、列舉等）；要用 request 物件或 `JsonElement` 時，資料放在靜態陣列、Theory 參數改用編號。否則 `--list-tests` 把整組收成一筆，CI 切份比對「清單數＝執行數」會失敗（2026-11-21 mcp2a `McpWriteTargetsTests`）。
+
 ## 開發時：只跑窄範圍
 
 ```bash
