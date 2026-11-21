@@ -17,15 +17,21 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  # upload 與 deploy 分兩個 job（GitHub 官方範本寫法）：同一個 job 內上傳後立刻部署，
+  # 會撞 artifact API 的延遲而找不到 artifact（#91）。失敗時開新 run，不要 rerun failed jobs。
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - id: deployment
         uses: actions/deploy-pages@v5
