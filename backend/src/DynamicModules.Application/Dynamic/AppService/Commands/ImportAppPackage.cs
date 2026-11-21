@@ -51,7 +51,16 @@ public class ImportAppPackageHandler(
         var stored = await repository.GetByKeyAsync(id, ct);
         var exists = catalog.BuiltIns.Any(p => p.Manifest.Id == id) || stored is not null;
         SourcedPackage? current = null;
-        if (exists)
+        AppPackage? replace = null;
+        // 已匯入過的一般應用程式（套件更新設計 §7.3）：版號較大就取代原文，已開啟的到更新頁套用；相同或較小照舊 409、帶目前版號
+        if (!package.Manifest.IsMaster && stored is not null && catalog.BuiltIns.All(p => p.Manifest.Id != id)
+            && (await packages.ReadAsync(stored.Json, ct)).Package is { Manifest.IsMaster: false })
+        {
+            if (!Upgrade.PackageVersion.IsNewer(package.Manifest.Version, stored.Version))
+                return ServiceResult.Conflict(AppMessages.ImportVersionNotNewer(id, stored.Version));
+            replace = stored;
+        }
+        else if (exists)
         {
             current = await packages.FindAsync(id, ct);
             var app = await apps.GetByKeyAsync(id, ct);
@@ -72,6 +81,18 @@ public class ImportAppPackageHandler(
 
         var c = request.Content;
         var skip = c.Length >= 3 && c[0] == 0xEF && c[1] == 0xBB && c[2] == 0xBF ? 3 : 0;
+        if (replace is not null)
+        {
+            // 舊原文不留：已開啟的應用程式有自己的基準，還沒開啟的直接開新版
+            replace.Version = package.Manifest.Version;
+            replace.Json = Encoding.UTF8.GetString(c, skip, c.Length - skip);
+            replace.StampModified(user.UserId, time.Now);
+            repository.Update(replace);
+            await uow.CommitAsync(ct);
+            var opened = await apps.GetByKeyAsync(id, ct);
+            return ServiceResult.Success(AppResponseBuilder.Summarize(new SourcedPackage(package, AppPackageSource.Imported),
+                opened is null ? null : AppMapper.StatusName(opened.Status)));
+        }
         var row = new AppPackage { Key = id, Version = package.Manifest.Version, Json = Encoding.UTF8.GetString(c, skip, c.Length - skip) };
         row.StampCreated(user.UserId, time.Now);
         repository.Add(row);

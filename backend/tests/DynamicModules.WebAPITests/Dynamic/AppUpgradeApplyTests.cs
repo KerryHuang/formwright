@@ -228,4 +228,36 @@ public class AppUpgradeApplyTests : IDisposable
         item.GetProperty("reason").GetString().Should().Be("affectsData");
         item.GetProperty("affectedRecords").GetInt32().Should().Be(1);
     }
+
+    /// <summary>匯入套件的新版（§7.3，I1–I3）：版號較大取代原文，卡片有新版，套用後客戶的修改照分類保留。</summary>
+    [Fact]
+    public async Task ImportNewerVersion_ReplacesPackage_AndCanBeApplied_I1_I2_I3()
+    {
+        Task<HttpResponseMessage> Import(string json) =>
+            _admin.PostAsync($"{Apps}/packages/import", new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
+        (await Import(AppTestPackages.Crm)).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await _admin.PostAsJsonAsync($"{Apps}/packages/crm-lite/open", new { })).StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var newer = JsonNode.Parse(AppTestPackages.Crm)!;
+        newer["manifest"]!["version"] = "1.1.0";
+        newer["modules"]![0]!["name"]!["en-US"] = "Customers";
+        var same = await Import(AppTestPackages.Crm);
+        same.StatusCode.Should().Be(HttpStatusCode.Conflict, "版號相同維持 409（I2）");
+        (await same.Content.ReadAsStringAsync()).Should().Contain("1.0.0");
+        (await Import(newer.ToJsonString())).StatusCode.Should().Be(HttpStatusCode.OK, "版號較大取代原文（I1）");
+
+        var hint = (await JsonOf(await _admin.GetAsync($"{Apps}/crm-lite"))).GetProperty("upgrade").GetProperty("toVersion").GetString();
+        hint.Should().Be("1.1.0");
+        var preview = await JsonOf(await _admin.PostAsJsonAsync($"{Apps}/crm-lite/upgrade/preview", new { }));
+        var item = preview.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("id").GetString() == "module:customer");
+        item.GetProperty("category").GetString().Should().Be("newOnly");
+        var res = await _admin.PostAsJsonAsync($"{Apps}/crm-lite/upgrade", new { token = preview.GetProperty("token").GetString(), items = new[] { "module:customer" } });
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        Query(db => db.Set<Module>().Single(m => m.Key == "crm-customer").NameI18n.Values.Single(v => v.Key == "en-US").Value).Should().Be("Customers");
+
+        var builtIn = JsonNode.Parse(AppTestPackages.Crm)!;
+        builtIn["manifest"]!["id"] = "crm-sales";
+        builtIn["manifest"]!["version"] = "9.0.0";
+        (await Import(builtIn.ToJsonString())).StatusCode.Should().Be(HttpStatusCode.Conflict, "與內建同 id 不跨來源（I3）");
+    }
 }

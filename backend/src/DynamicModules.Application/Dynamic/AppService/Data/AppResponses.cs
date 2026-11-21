@@ -109,7 +109,6 @@ public static class AppMessages
     public const string UpgradeItemUnknown = "這一項不在預覽的清單裡";
     public const string UpgradeItemNotApplicable = "這一項不能套用";
     public static string UpgradeItemMissingDependency(string ids) => $"要一起套用：{ids}";
-    public const string ImportedNewVersion = "已匯入新版，已開啟的應用程式可以到更新頁套用";
     public static string ImportVersionNotNewer(string id, string version) => $"套件代碼已存在：{id}（目前版號 {version}）";
 
     public static string FlowCodeTaken(string code) => $"approvalFlows.{code}: 流程代碼已被使用";
