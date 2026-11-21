@@ -19,23 +19,22 @@ public class WriteGateTests
         var waiters = new List<Task>();
         for (var i = 0; i < 8; i++)
         {
-            var n = i;
-            var entered = new TaskCompletionSource();
-            waiters.Add(Task.Run(async () =>
-            {
-                var t = gate.EnterAsync(Patient, default);
-                entered.SetResult();
-                using var _ = await t;
-                lock (order) order.Add(n);
-            }));
-            await entered.Task;
-            await Task.Delay(20); // 確保 EnterAsync 已登記排隊再放下一個
+            // EnterAsync 在第一個 await 之前就同步把節點排進佇列：在測試執行緒上依序呼叫，
+            // 到達順序就由呼叫順序決定，不靠 Task.Run 的排程或 Delay 估時
+            var pending = gate.EnterAsync(Patient, default);
+            waiters.Add(RecordWhenGranted(i, pending, order));
         }
 
         first.Dispose();
-        await Task.WhenAll(waiters);
+        await Task.WhenAll(waiters).WaitAsync(Patient);
 
         order.Should().Equal(Enumerable.Range(0, 8), "先到先得，不能被後到的搶先");
+    }
+
+    private static async Task RecordWhenGranted(int n, Task<IDisposable> pending, List<int> order)
+    {
+        using var _ = await pending;
+        lock (order) order.Add(n); // 先記錄再放開：下一位要等這裡放開才拿得到寫入權
     }
 
     [Fact]
