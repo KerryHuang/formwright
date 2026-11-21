@@ -15,6 +15,9 @@ public interface IAttachmentStore
     bool Delete(string id);
 
     IReadOnlyList<StoredAttachment> List();
+
+    /// <summary>單一檔案的大小與最後寫入時間（備份複製前後比對用，備份設計 §5.5）；不存在回 null。</summary>
+    StoredAttachment? Stat(string id) => null;
 }
 
-public sealed record StoredAttachment(string Id, DateTime LastWriteUtc);
+public sealed record StoredAttachment(string Id, DateTime LastWriteUtc, long Size = 0);

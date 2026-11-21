@@ -148,6 +148,7 @@ public class AuthorizationWriteInventoryTests
         "DynamicModules.Persistence/Repositories/Dynamic/RecordRepository.cs", // 以 Dapper 執行記錄清單查詢，只讀
         "DynamicModules.Persistence/Repositories/Dynamic/ReportQueryRepository.cs", // 以 Dapper 執行報表聚合，只讀
         "DynamicModules.Persistence/SqliteDatabaseHealthProbe.cs",          // PRAGMA quick_check／foreign_key_check
+        "DynamicModules.Persistence/SqliteDatabaseBackup.cs",              // 備份：VACUUM INTO、讀備份檔的 PRAGMA quick_check 與 migration 歷程（只寫備份檔）
         "DynamicModules.Persistence/SqliteMmapInterceptor.cs",              // PRAGMA mmap_size
         "DynamicModules.Persistence/DatabaseStartupTuning.cs",              // PRAGMA journal_mode = wal（啟動時，#20）
         "DynamicModules.Persistence.Postgres/PostgresReportSqlSnapshot.cs", // SET TRANSACTION READ ONLY 與 statement_timeout

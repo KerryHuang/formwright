@@ -63,5 +63,12 @@ public sealed partial class LocalAttachmentStore : IAttachmentStore
         [.. Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories)
             .Select(f => Path.GetFileName(f))
             .Where(n => IdPattern().IsMatch(n))
-            .Select(n => new StoredAttachment(n, File.GetLastWriteTimeUtc(PathOf(n)!)))];
+            .Select(n => Stat(n)).OfType<StoredAttachment>()];
+
+    public StoredAttachment? Stat(string id)
+    {
+        if (PathOf(id) is not { } path) return null;
+        var info = new FileInfo(path);
+        return info.Exists ? new StoredAttachment(id, info.LastWriteTimeUtc, info.Length) : null;
+    }
 }
