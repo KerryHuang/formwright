@@ -253,6 +253,39 @@ namespace DynamicModules.Persistence.Postgres.Migrations
                     b.ToTable("Dynamic_App", (string)null);
                 });
 
+            modelBuilder.Entity("DynamicModules.Domain.Entities.Dynamic.AppBaseline", b =>
+                {
+                    b.Property<long>("AppId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CapturedTime")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("ExcludedFieldsJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .UseCollation("C");
+
+                    b.Property<string>("GroupMapJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .UseCollation("C");
+
+                    b.Property<string>("PackageJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .UseCollation("C");
+
+                    b.Property<string>("SkippedJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .UseCollation("C");
+
+                    b.HasKey("AppId");
+
+                    b.ToTable("Dynamic_AppBaseline", (string)null);
+                });
+
             modelBuilder.Entity("DynamicModules.Domain.Entities.Dynamic.AppBlock", b =>
                 {
                     b.Property<long>("AppId")
@@ -4450,6 +4483,15 @@ namespace DynamicModules.Persistence.Postgres.Migrations
                         .IsUnique();
 
                     b.ToTable("Dynamic_Workflow", (string)null);
+                });
+
+            modelBuilder.Entity("DynamicModules.Domain.Entities.Dynamic.AppBaseline", b =>
+                {
+                    b.HasOne("DynamicModules.Domain.Entities.Dynamic.App", null)
+                        .WithOne()
+                        .HasForeignKey("DynamicModules.Domain.Entities.Dynamic.AppBaseline", "AppId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("DynamicModules.Domain.Entities.Dynamic.AppBlock", b =>

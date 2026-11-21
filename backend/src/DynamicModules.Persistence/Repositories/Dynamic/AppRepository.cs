@@ -39,6 +39,8 @@ public class AppRepository(DynamicDbContext db) : IAppRepository
         db.Set<AppIntegration>().OrderBy(x => x.AppId).ThenBy(x => x.Code).ToListAsync(ct);
 
     public void AddIntegration(AppIntegration integration) => db.Set<AppIntegration>().Add(integration);
+
+    public void AddBaseline(AppBaseline baseline) => db.Set<AppBaseline>().Add(baseline);
 }
 
 public class AppPackageRepository(DynamicDbContext db) : IAppPackageRepository

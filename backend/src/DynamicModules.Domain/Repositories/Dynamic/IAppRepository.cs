@@ -18,6 +18,8 @@ public interface IAppRepository
     /// <summary>全部整合（追蹤中，狀態要改）。</summary>
     Task<List<AppIntegration>> ListIntegrationsAsync(CancellationToken ct);
     void AddIntegration(AppIntegration integration);
+    /// <summary>升級的基準（套件更新設計 §5.4）：開啟時寫入一列。</summary>
+    void AddBaseline(AppBaseline baseline);
 }
 
 /// <summary>Name 是 &lt;模組代號&gt;.&lt;欄位／選項／區塊代號&gt;。</summary>
