@@ -86,12 +86,20 @@ jobs:
         env:
           FORMWRIGHT_TEST_DB: sqlite
         run: dotnet test tests/DynamicModules.${{ matrix.project }} --logger "console;verbosity=minimal"
+      # 產品內備份 bk1b 的測試要真的跑 pg_dump／pg_restore（備份設計 §23）：runner 映像通常已有 PostgreSQL 16 用戶端，沒有才裝；
+      # 主版本要不小於測試容器（postgres:16-alpine）
+      - name: pg_dump
+        if: matrix.pg
+        run: |
+          command -v pg_dump >/dev/null || { sudo apt-get update && sudo apt-get install -y postgresql-client; }
+          pg_dump --version && pg_restore --version
       # 命令列 filter 會蓋掉 csproj 的 Category!=Benchmark，要自己再排除；同類別裡個別標 SqliteOnly 的案例也排除
       - name: dotnet test (PostgreSQL)
         if: matrix.pg
         working-directory: backend
         env:
           FORMWRIGHT_TEST_DB: postgres
+          FORMWRIGHT_TEST_REQUIRE_PG_DUMP: "1"
           FORMWRIGHT_LATENCY_TRACE: ${{ runner.temp }}/latency-trace.md
         run: >-
           dotnet test tests/DynamicModules.${{ matrix.project }} --logger "console;verbosity=minimal"

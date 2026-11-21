@@ -40,6 +40,7 @@ bun run typecheck
 - **規則**：新增或修改 repository、並行、raw SQL、migration 相關的測試，類別加 `[Trait("Category", "Postgres")]` 進雙跑集，並在 PostgreSQL 跑過一次。raw SQL 的識別字一律加雙引號。
 - 並行測試要證明「不靠序列化也正確」時，`TestApp` 設 `WithoutWriteSerialization = true`（無鎖模式：閘門與全庫鎖都不做事，只在 PostgreSQL 有作用），例如 `SchedulerNoLockTests`。
 - 自己組 DI 的 ApplicationTests 用 `TestDb.AddProviderServices(services)` 註冊方言與交易管理，不直接寫 `SqliteDialect`／`EfTransactionManager`。
+- 產品內備份的 PostgreSQL 案例（`PostgresDatabaseBackupTests`、`BackupPostgresTests`）要真的跑 `pg_dump`／`pg_restore`（`[PgDumpFact]`）：設 `FORMWRIGHT_TEST_PG_DUMP`（`pg_dump` 的路徑，同目錄要有 `pg_restore`）或放在 `PATH`，主版本不小於 16；找不到就略過並寫明原因。CI 的 PostgreSQL job 設 `FORMWRIGHT_TEST_REQUIRE_PG_DUMP=1`，找不到不略過、直接失敗。程序處理（密碼、程序樹）用假的 shell 指令稿，不需要用戶端，Windows 略過。
 
 ```bash
 cd backend
