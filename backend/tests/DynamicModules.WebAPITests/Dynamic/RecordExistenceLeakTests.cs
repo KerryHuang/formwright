@@ -32,7 +32,7 @@ public class RecordExistenceLeakTests(RecordExistenceLeakTests.LeakApp app) : IC
     private const int ConvSource = 2;        // 轉換的來源模組，sales01 沒有任何權限
     private const int OutOfScope = 3;        // sales01 有 Read（限本人），記錄是別人的
     private const int ClosedNoPermission = 4; // 模組已關閉，sales01 沒有任何權限（不洩漏「存在且已關閉」）
-    private const int Draft = 5;             // 模組退回草稿：連 admin 也和不存在相同（本文不再是「模組不存在或未啟用」）
+    private const int Draft = 5;             // 模組退回草稿：連 admin（簽核發起人）也和不存在相同（本文不再是「模組不存在或未啟用」）
     private const int Inactive = 6;          // 模組停用：同上
     private const int DetailRecord = 7;      // 明細記錄的 id（連 admin 也和不存在相同）
     private const int ClosedOutOfScope = 8;  // 模組已關閉，sales01 有 Read（限本人），記錄是別人的（寫入原本回 409，現在回 404）
@@ -226,8 +226,21 @@ public class RecordExistenceLeakTests(RecordExistenceLeakTests.LeakApp app) : IC
         {
             var m = await CreateModule(admin);
             await Activate(admin, m);
-            subjects[subject] = (await NewRecord(admin, m), user);
-            WithDb(db => db.Set<Module>().Single(x => x.Key == m).Status = status);
+            var id = await NewRecord(admin, m);
+            subjects[subject] = (id, user);
+            WithDb(db =>
+            {
+                var module = db.Set<Module>().Single(x => x.Key == m);
+                module.Status = status;
+                // Draft／Inactive 的記錄帶一個 admin 發起的簽核實例：發起人看歷程的路徑也要回 404（#92）
+                if (status != ModuleStatus.Closed)
+                    db.Set<ApprovalInstance>().Add(new ApprovalInstance
+                    {
+                        RecordId = id, ModuleId = module.Id, RouteKind = ApprovalRouteKind.Fallback, InitiatorUserId = "admin",
+                        Status = ApprovalInstanceStatus.Approved, TitleSnapshot = "x", SubmittedTime = DateTime.Now,
+                        CompletedTime = DateTime.Now, RowVersion = Guid.NewGuid().ToString(), OperationId = Guid.NewGuid().ToString("N")
+                    });
+            });
         }
 
         return new World(subjects, key);

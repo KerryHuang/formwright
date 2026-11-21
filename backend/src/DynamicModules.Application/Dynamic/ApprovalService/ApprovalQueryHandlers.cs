@@ -145,6 +145,7 @@ public sealed class ApprovalReader(IApprovalInstanceRepository repo, IDynamicAcc
 /// <summary>
 /// 記錄的簽核狀態與歷程（設計 §10.2）：對記錄有 Read（含資料範圍）或簽核管理權（Approve 軸）→ 全部實例；
 /// 否則只有自己送出的、或自己有任務的實例（只給歷程，不給記錄內容，也不給送簽目標）；一個都沒有 → 404。
+/// 模組 Draft／Inactive 時一律回與不存在相同的 404（#92）；Closed 照常可看。
 /// </summary>
 public class GetRecordApprovalHandler(
     IRecordRepository records, IModuleRepository modules, IApprovalInstanceRepository repo, IDynamicAccessGuard guard,
@@ -157,11 +158,11 @@ public class GetRecordApprovalHandler(
         var record = await records.GetAsync(request.RecordId, ct);
         if (record is null) return ServiceResult.NotFound(RecordMapper.RecordNotFound);
         var module = await modules.GetByIdAsync(record.ModuleId, includeChildren: true, ct);
-        if (module is null || ModuleRelations.IsDetail(module)) return ServiceResult.NotFound(RecordMapper.RecordNotFound);
+        // 模組 Draft／Inactive：連發起人、簽核人也和不存在相同（#92，同其他以記錄 id 為入口的端點，設計 §10.1）
+        if (!module.IsReadable() || ModuleRelations.IsDetail(module)) return ServiceResult.NotFound(RecordMapper.RecordNotFound);
 
         var me = user.UserId;
-        var readable = module.IsReadable();
-        var read = readable ? (await guard.AuthorizeAsync(module, PermissionAction.Read, ct)).Permissions : null;
+        var read = (await guard.AuthorizeAsync(module, PermissionAction.Read, ct)).Permissions;
         var canRead = read is not null && ApprovalReader.InScope(read, record.OwnerUserId);
         var manager = await reader.IsManagerAsync(module, record, ct);
 
