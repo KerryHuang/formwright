@@ -550,6 +550,37 @@ public class BackupTests
         File.Exists(Path.Combine(app.Root, "attachments", old[..2], old[2..4], old)).Should().BeFalse();
     }
 
+    /// <summary>R5：失敗的那份不觸發保留清理，已有的 set 一份都不刪。</summary>
+    [Fact]
+    public async Task Retention_FailedRun_DeletesNothing()
+    {
+        if (OperatingSystem.IsWindows() || Environment.UserName == "root") return;
+        using var app = new BackupApp();
+        await Worker(app).TickAsync(CancellationToken.None);
+        (await Request(app)).StatusCode.Should().Be(HttpStatusCode.Accepted);
+        await Worker(app).TickAsync(CancellationToken.None);
+        Sets(app).Should().HaveCount(2);
+
+        await SetPolicy(app, PolicyCatalog.OpsBackupRetentionCount, "1");
+        await SetPolicy(app, PolicyCatalog.OpsBackupManualRetentionDays, "1");
+        app.Time.Advance(TimeSpan.FromDays(3));
+        (await Request(app)).StatusCode.Should().Be(HttpStatusCode.Accepted);
+        // 這一份搬不進 sets/（寫入權限拿掉）而失敗
+        var sets = Path.Combine(app.Root, "sets");
+        File.SetUnixFileMode(sets, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        try
+        {
+            await Worker(app).TickAsync(CancellationToken.None);
+        }
+        finally
+        {
+            File.SetUnixFileMode(sets, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        (await Runs(app)).Last().Status.Should().Be(BackupRunStatus.Failed);
+        Sets(app).Should().HaveCount(2, "失敗不清理");
+        (await Audits(app, "backup.prune")).Should().BeEmpty();
+    }
+
     // ── 新鮮度 ─────────────────────────────
 
     /// <summary>

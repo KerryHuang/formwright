@@ -11,7 +11,7 @@ public sealed record BackupSetInfo(string Name, BackupManifest Manifest);
 /// 保留與清理（備份設計 §8、T14、T19）：以儲存位置的 manifest 為準，不看歷程表；只在 <see cref="IBackupStore.CanDelete"/> 為真時由產品刪。
 /// 排程備份依快照時間保留最新 N 份（<c>ops.backupRetentionCount</c>），立即備份快照早於「現在減 N 天」才刪（<c>ops.backupManualRetentionDays</c>，Q10）；
 /// 不論哪種，最新一份成功的永遠不刪。刪完 set 再清附件池：不在任何留下的 set 清單裡、而且寫入時間早於最新一份快照的才刪。
-/// 沒有 manifest 的目錄不是完整的 set，不碰。
+/// 沒有 manifest（或讀不懂）的目錄不是完整的 set，不刪它，它清單上的附件也不從池裡清。
 /// </summary>
 public static class BackupRetention
 {
@@ -58,18 +58,31 @@ public static class BackupRetention
                 logger.LogInformation("保留清理刪掉備份 {SetName}", name);
             }
         var kept = all.Where(s => !doomed.Contains(s.Name)).ToList();
-        await SweepPoolAsync(store, kept, ct);
+        await SweepPoolAsync(store, kept, doomed, ct);
         return (doomed.Count, [.. kept.Select(s => s.Name)]);
     }
 
-    private static async Task SweepPoolAsync(IBackupStore store, IReadOnlyCollection<BackupSetInfo> kept, CancellationToken ct)
+    /// <summary>
+    /// 清附件池：<c>sets/</c> 下每個沒被刪的目錄，只要有 <c>attachments.txt</c> 就算引用——包括 manifest 讀不懂或沒有 manifest 的目錄
+    /// （保留清理不碰它，就不能讓它還原不完整，審查 S1、R8）。完整的 set 缺清單時整個跳過（寧可多留）。
+    /// 引用以外的、寫入時間早於最新一份快照的才刪。
+    /// </summary>
+    private static async Task SweepPoolAsync(IBackupStore store, IReadOnlyCollection<BackupSetInfo> kept, IReadOnlySet<string> doomed, CancellationToken ct)
     {
         if (kept.Count == 0) return;
+        var complete = kept.Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
+        var dirs = (await store.ListAsync(SetsPrefix, ct)).Select(o => o.Path.Split('/')).Where(p => p.Length == 3)
+            .GroupBy(p => p[1], StringComparer.Ordinal).Where(g => !doomed.Contains(g.Key))
+            .ToDictionary(g => g.Key, g => g.Any(p => p[2] == BackupManifest.AttachmentListName), StringComparer.Ordinal);
         var referenced = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var set in kept)
+        foreach (var name in complete.Concat(dirs.Keys).Distinct(StringComparer.Ordinal))
         {
-            await using var stream = await store.OpenReadAsync($"{SetsPrefix}{set.Name}/{BackupManifest.AttachmentListName}", ct);
-            // 清單讀不到就不清池：寧可多留
+            if (!dirs.GetValueOrDefault(name))
+            {
+                if (complete.Contains(name)) return;   // 完整的 set 讀不到清單：不清池
+                continue;
+            }
+            await using var stream = await store.OpenReadAsync($"{SetsPrefix}{name}/{BackupManifest.AttachmentListName}", ct);
             if (stream is null) return;
             using var reader = new StreamReader(stream);
             while (await reader.ReadLineAsync(ct) is { } line)
