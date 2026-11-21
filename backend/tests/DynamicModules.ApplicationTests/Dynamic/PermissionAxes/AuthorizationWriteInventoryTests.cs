@@ -22,7 +22,7 @@ public class AuthorizationWriteInventoryTests
     private const string Repo = "DynamicModules.Persistence/Repositories/Dynamic/";
     private const string Seed = "DynamicModules.Persistence/Seed/";
 
-    /// <summary>清單測試 1：宣告 IPermissionAdminRequest 的正式請求（§7.2 表中「再加」與「新」的 13 列）。</summary>
+    /// <summary>清單測試 1：宣告 IPermissionAdminRequest 的正式請求（§7.2 表中「再加」與「新」的 13 列，加上套件更新設計 §12 的套用升級）。</summary>
     private static readonly string[] PermissionAdminRequests =
     [
         "SaveModulePermissionsRequest",          // 模組權限存檔：授權修改本身
@@ -32,6 +32,7 @@ public class AuthorizationWriteInventoryTests
         "SetGroupMembersRequest", "CreateUserRequest", "UpdateUserRequest",          // 成員表
         "DeleteGroupRequest",                    // 刪群組：成員與五種授權列
         "UpdateGroupSystemPrivilegesRequest", "UpdateUserSystemPrivilegesRequest",   // 系統權限代碼列
+        "ApplyAppUpgradeRequest",                // 套用升級：新模組、新欄位附帶的群組權限、欄位例外、選項範圍（套件更新設計 §12）
     ];
 
     /// <summary>清單測試 2：AuthorizationWriteScope.RunAsync 的呼叫，恰為這四處。</summary>
@@ -260,9 +261,9 @@ public class AuthorizationWriteInventoryTests
         GuardTypeNames(SqliteModel()).Should().Contain(["FieldGrant", "UserGroupMapping", "GroupProgramPrivilege", "ProgramPrivilege"]);
     }
 
-    /// <summary>清單測試 1：實作 IPermissionAdminRequest 的正式型別恰為 §7.2 的 13 個。</summary>
+    /// <summary>清單測試 1：實作 IPermissionAdminRequest 的正式型別恰為 §7.2 的 13 個加上套用升級，共 14 個。</summary>
     [Fact]
-    public void PAX23_1_PermissionAdminRequests_AreExactlyTheThirteen()
+    public void PAX23_1_PermissionAdminRequests_AreExactlyTheFourteen()
     {
         var assemblies = new[]
         {
@@ -272,7 +273,7 @@ public class AuthorizationWriteInventoryTests
         var declared = assemblies.SelectMany(a => a.GetTypes())
             .Where(t => !t.IsInterface && typeof(IPermissionAdminRequest).IsAssignableFrom(t)).Select(t => t.Name).ToList();
         declared.Should().BeEquivalentTo(PermissionAdminRequests);
-        PermissionAdminRequests.Should().HaveCount(13);
+        PermissionAdminRequests.Should().HaveCount(14);
 
         // WebAPI 組件不在測試專案的參照內，改看原始碼：除了 Application 之外沒有人宣告它
         Sources().Where(s => !s.Path.StartsWith(App, StringComparison.Ordinal) && AuthorizationWriteScanner.CodeOf(s.Text).Contains("IPermissionAdminRequest"))

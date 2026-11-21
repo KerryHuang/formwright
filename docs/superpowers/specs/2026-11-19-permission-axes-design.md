@@ -159,7 +159,7 @@
 
 表外說明：
 
-- 宣告 `IPermissionAdminRequest` 的正式請求共 13 個（表中「再加」與「新」的列）。只要求系統管理員的那些，對管理員來說宣告是冗餘的（管理員自動有），刻意宣告有三個作用：「寫授權資料的請求都宣告」這條規則沒有例外；寫入邊界的 `Authorized` 許可只由 `PermissionAdminGate` 開，behavior 也經它（§7.4）；MCP 通道經同一個 gate 一律拒絕（M8）。哪天權限軸-2 改成管理員不自動擁有，這些請求不必再回頭找（T7）。
+- 宣告 `IPermissionAdminRequest` 的正式請求共 13 個（表中「再加」與「新」的列）；套件更新（pkg1c）另加套用升級 `ApplyAppUpgradeRequest`，它寫新模組、新欄位附帶的群組權限、欄位例外與選項範圍（套件更新設計 §12），現在共 14 個。只要求系統管理員的那些，對管理員來說宣告是冗餘的（管理員自動有），刻意宣告有三個作用：「寫授權資料的請求都宣告」這條規則沒有例外；寫入邊界的 `Authorized` 許可只由 `PermissionAdminGate` 開，behavior 也經它（§7.4）；MCP 通道經同一個 gate 一律拒絕（M8）。哪天權限軸-2 改成管理員不自動擁有，這些請求不必再回頭找（T7）。
 - `SetUserActive`、`ResetPassword`、部門指派、`RetryIntegrationRequest`、`SetIntegrationEnabledRequest`、`ImportAppPackageRequest` 不寫授權資料，不宣告。
 - 仍歸「設計」、不改守衛的（使用者裁決）：簽核流程（`ApprovalFlowRequests.cs` 的建立、修改、草稿、發布、試算）、狀態機（`SaveWorkflowRequest`，含轉移的群組限制）、共用檢視（清單頁「共用」切換，設計器修改）、任務規則、跨記錄檢查、轉換、列印範本、分錄、欄位與參照帶值、帶表頭的值、公式、彙總。
 - 其餘 50 多個 `IDesignerRequest` 不動。
@@ -241,7 +241,7 @@
 
 **清單測試**（`AuthorizationWriteInventoryTests`，PAX-23；原始碼掃描照既有 `NoBusinessWordsTests` 的寫法掃 `backend/src/**/*.cs`）：
 
-1. 反射：實作 `IPermissionAdminRequest` 的正式型別恰為 §7.2 的 13 個。
+1. 反射：實作 `IPermissionAdminRequest` 的正式型別恰為 §7.2 的 13 個，加上套用升級共 14 個。
 2. 開許可的位置：`AuthorizationWriteScope.RunAsync` 的呼叫恰為上表四處（gate、`BindFieldAsync`、`RunCleanupAsync`、`SeedData`），種類相符；`RunForTestsAsync` 不得出現在 `src`。新增要改清單並在測試註解寫理由。
 3. 守衛實體的取得點：`Set<守衛型別>` 只准出現在登記檔案（`PermissionRepository`、`SharedMasterRepository`、`AccountRepository`、`DeletionRepository`、`DemoPeople`、`PermissionAxesImport`）；`src` 不得有型別參數不具體的 `Set<T>()`、`Set(typeof…)`；`src` 任何成員（含 Domain 的 repository 介面）的回傳型別、參數、欄位、屬性都不得是 `IQueryable<守衛型別>`、`DbSet<守衛型別>` 或其衍生介面，守衛列只以已具體化的 `List`／`IReadOnlyList` 交出登記檔案。
 4. 模型掃描：沒有任何 navigation 指向守衛型別（否則別的實體能經導覽屬性查出守衛列再批次刪）。加上 3，`Set<守衛型別>` 就是在 EF 裡取得守衛列的唯一途徑。
