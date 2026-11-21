@@ -19,7 +19,7 @@ namespace DynamicModules.Application.Dynamic.OpsService.Backup;
 /// </summary>
 internal sealed class BackupJob(
     IServiceProvider sp, IServiceScopeFactory scopes, IBackupStore store, IAttachmentStore attachments, IOpsEnvironment environment,
-    TimeProvider time, BackupLimits limits, string owner, ILogger logger)
+    TimeProvider time, BackupLimits limits, string owner, ILogger logger, Func<string, string> summarize)
 {
     private DateTime Now => Common.StorageTime.ToMicroseconds(time.GetUtcNow().UtcDateTime);
 
@@ -154,7 +154,7 @@ internal sealed class BackupJob(
         catch (Exception e) when (!ct.IsCancellationRequested)
         {
             logger.LogWarning(e, "備份保留清理失敗（這份備份照樣成功）");
-            pruneError = BackupWorker.Summary($"{e.GetType().Name}: {e.Message}");
+            pruneError = summarize($"{e.GetType().Name}: {e.Message}");
         }
         return new BackupRunFinish(BackupRunStatus.Succeeded, Now, setName, AttachmentCount: attachmentCount, NewAttachmentCount: newCount,
             NewAttachmentBytes: newTotal, TotalAttachmentBytes: totalBytes, SkippedAttachments: skipped, PrunedSets: pruned, PruneError: pruneError);

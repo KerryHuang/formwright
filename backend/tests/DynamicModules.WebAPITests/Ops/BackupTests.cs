@@ -404,6 +404,33 @@ public class BackupTests
             throw new InvalidDataException("cannot open Host=db;Username=app;Password=hunter2");
     }
 
+    /// <summary>E2、M3：目的地沒有寫入權限 → failed／destinationUnwritable；錯誤摘要不含備份位置的路徑（換成 &lt;Backup:Root&gt;）。</summary>
+    [Fact]
+    public async Task DestinationUnwritable_Failed_PathMasked()
+    {
+        if (OperatingSystem.IsWindows() || Environment.UserName == "root") return;   // root 不受權限限制
+        using var app = new BackupApp();
+        await Worker(app).TickAsync(CancellationToken.None);
+        var staging = Path.Combine(app.Root, ".staging");
+        Directory.CreateDirectory(staging);
+        File.SetUnixFileMode(staging, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        try
+        {
+            (await Request(app)).StatusCode.Should().Be(HttpStatusCode.Accepted);
+            await Worker(app).TickAsync(CancellationToken.None);
+        }
+        finally
+        {
+            File.SetUnixFileMode(staging, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        var run = (await Runs(app)).Last();
+        run.Status.Should().Be(BackupRunStatus.Failed);
+        run.ErrorCode.Should().Be("destinationUnwritable");
+        run.ErrorDetail.Should().Contain(BackupWorker.RootPlaceholder).And.NotContain(app.Root);
+        var detail = await app.AsUser().GetFromJsonAsync<JsonElement>($"{Base}/backups/{run.Id}");
+        detail.GetProperty("errorDetail").GetString().Should().NotContain(app.Root);
+    }
+
     private sealed class TinyDisk : IDiskSpace
     {
         public DiskUsage? Measure(string directory) => new(10, 1_000_000);
