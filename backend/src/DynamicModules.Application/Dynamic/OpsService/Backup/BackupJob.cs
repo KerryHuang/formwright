@@ -28,16 +28,25 @@ internal sealed class BackupJob(
     public async Task<BackupRunFinish> ExecuteAsync(BackupRun run, string locationId, BackupProgress progress, CancellationToken ct)
     {
         var database = sp.GetRequiredService<IDatabaseBackup>();
-        // 上一次中斷留下的別份暫存
-        store.ClearStaging(keepRunKey: run.RunKey);
+        IReadOnlyList<StoredAttachment> current;
+        try
+        {
+            current = attachments.List();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            throw new BackupFailure("attachmentCopyFailed", $"附件根目錄讀不到：{e.Message}", e);
+        }
 
         // 1. 預估空間：資料庫＋還不在附件池的附件，乘 1.1；不夠就什麼都不寫
         Dictionary<string, long> pool;
         string staging;
         try
         {
+            // 上一次中斷留下的別份暫存
+            store.ClearStaging(keepRunKey: run.RunKey);
             pool = (await store.ListAsync(BackupRetention.PoolPrefix, ct)).ToDictionary(o => o.Path[(o.Path.LastIndexOf('/') + 1)..], o => o.Size, StringComparer.Ordinal);
-            var newBytes = attachments.List().Where(f => !pool.ContainsKey(f.Id)).Sum(f => f.Size);
+            var newBytes = current.Where(f => !pool.ContainsKey(f.Id)).Sum(f => f.Size);
             var need = (long)((await database.SizeBytesAsync(ct) + newBytes) * limits.SpaceMargin);
             if (store.LocalRoot is { } root && sp.GetService<IDiskSpace>()?.Measure(root) is { } disk && disk.FreeBytes < need)
                 throw new BackupFailure("destinationFull", $"備份位置剩 {disk.FreeBytes} 位元組，預估需要 {need} 位元組");
@@ -51,8 +60,13 @@ internal sealed class BackupJob(
         long attachmentCount, totalBytes, newCount = 0, newTotal = 0, skipped = 0;
         string dbPath, migration, dbHash, listPath, listHash;
         DateTime snapshotUtc;
-        await using (var lease = await AcquireAttachmentsLockAsync(progress, ct))
+        var outer = ct;
+        await using (var lease = await AcquireAttachmentsLockAsync(progress, outer))
+        using (var held = CancellationTokenSource.CreateLinkedTokenSource(outer, lease.Lost))
+        try
         {
+            // 鎖被接手（續鎖落空）就中止，不和清孤兒附件同時動附件（審查 S2）
+            ct = held.Token;
             // 2. 資料庫快照；SnapshotUtc 取在指令完成之後（§5.5）
             progress.Stage = BackupStage.Database;
             dbPath = Path.Combine(staging, database.FileName);
@@ -73,7 +87,7 @@ internal sealed class BackupJob(
 
             // 3. 附件：快照之後列一次附件根目錄，全部複製（不用寫入時間過濾）；剛寫的先等它穩定
             progress.Stage = BackupStage.Attachments;
-            var listed = attachments.List().OrderBy(f => f.Id, StringComparer.Ordinal).ToList();
+            var listed = ListAttachmentsAfterSnapshot();
             progress.Total = listed.Count;
             progress.Done = 0;
             await SettleAsync(listed, ct);
@@ -122,6 +136,11 @@ internal sealed class BackupJob(
                 throw new BackupFailure("verifyFailed", $"備份驗證失敗：{e.Message}", e);
             }
         }
+        catch (Exception e) when (lease.Lost.IsCancellationRequested && !outer.IsCancellationRequested)
+        {
+            throw new BackupFailure("lockLost", "附件維運鎖過期、被清孤兒附件接手，這份中止", e);
+        }
+        ct = outer;
 
         // 5. manifest 最後寫，再整個搬進 sets/
         var setName = $"{snapshotUtc.ToString("yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture)}-{run.RunKey[..8]}";
@@ -139,7 +158,9 @@ internal sealed class BackupJob(
             throw new BackupFailure("destinationUnwritable", $"備份寫不進位置：{e.Message}", e);
         }
 
-        // 6. 保留清理（失敗只記 Warning 與 PruneError）
+        // 6. 保留清理（失敗只記 Warning 與 PruneError）。這時 sets/ 已經有完整的一份：不再理會逾時與關站（審查 S3），
+        // 免得完整的備份記成失敗或中斷、同一天又多排一份
+        ct = CancellationToken.None;
         progress.Stage = BackupStage.Prune;
         int? pruned = null;
         string? pruneError = null;
@@ -151,13 +172,25 @@ internal sealed class BackupJob(
                 await policies.IntAsync(PolicyCatalog.OpsBackupManualRetentionDays, null, ct),
                 sp.GetRequiredService<IAuditLog>(), logger, ct);
         }
-        catch (Exception e) when (!ct.IsCancellationRequested)
+        catch (Exception e)
         {
             logger.LogWarning(e, "備份保留清理失敗（這份備份照樣成功）");
             pruneError = summarize($"{e.GetType().Name}: {e.Message}");
         }
         return new BackupRunFinish(BackupRunStatus.Succeeded, Now, setName, AttachmentCount: attachmentCount, NewAttachmentCount: newCount,
             NewAttachmentBytes: newTotal, TotalAttachmentBytes: totalBytes, SkippedAttachments: skipped, PrunedSets: pruned, PruneError: pruneError);
+    }
+
+    private List<StoredAttachment> ListAttachmentsAfterSnapshot()
+    {
+        try
+        {
+            return [.. attachments.List().OrderBy(f => f.Id, StringComparer.Ordinal)];
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            throw new BackupFailure("attachmentCopyFailed", $"附件根目錄讀不到：{e.Message}", e);
+        }
     }
 
     /// <summary>和清孤兒附件搶同一把 <c>attachments</c> 鎖（§5.5、T30）：搶不到就停在 waiting，每輪再試；等待時間算進單次 6 小時上限。</summary>

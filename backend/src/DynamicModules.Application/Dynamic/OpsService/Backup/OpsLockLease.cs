@@ -13,7 +13,7 @@ public sealed class OpsLockLease : IAsyncDisposable
 {
     private readonly IServiceScopeFactory _scopes;
     private readonly string _key, _owner;
-    private readonly CancellationTokenSource _stop = new();
+    private readonly CancellationTokenSource _stop = new(), _lost = new();
     private readonly Task _renewal;
 
     private OpsLockLease(IServiceScopeFactory scopes, string key, string owner, TimeProvider time, BackupLimits limits, ILogger logger)
@@ -23,6 +23,9 @@ public sealed class OpsLockLease : IAsyncDisposable
         _owner = owner;
         _renewal = RenewLoopAsync(time, limits, logger, _stop.Token);
     }
+
+    /// <summary>續鎖時發現已不是持有者（鎖過期被別人接手）就取消：持有者要中止手上的工作，不能和接手的人同時動附件（審查 S2）。</summary>
+    public CancellationToken Lost => _lost.Token;
 
     /// <summary>搶不到（別人持有、未過期）回 null。</summary>
     public static async Task<OpsLockLease?> TryAcquireAsync(IServiceScopeFactory scopes, string key, string owner, TimeProvider time, BackupLimits limits,
@@ -47,7 +50,11 @@ public sealed class OpsLockLease : IAsyncDisposable
                     await using var scope = _scopes.CreateAsyncScope();
                     if (!await scope.ServiceProvider.GetRequiredService<IOpsLockRepository>()
                             .RenewAsync(_key, _owner, Common.StorageTime.ToMicroseconds(time.GetUtcNow().UtcDateTime) + limits.LockDuration, stop))
-                        logger.LogWarning("維運鎖 {Key} 續鎖時已不是持有者 {Owner}", _key, _owner);
+                    {
+                        logger.LogWarning("維運鎖 {Key} 續鎖時已不是持有者 {Owner}，中止持有者的工作", _key, _owner);
+                        await _lost.CancelAsync();
+                        return;
+                    }
                 }
                 catch (Exception e) when (!stop.IsCancellationRequested)
                 {
@@ -65,6 +72,7 @@ public sealed class OpsLockLease : IAsyncDisposable
         _stop.Cancel();
         await _renewal;
         _stop.Dispose();
+        _lost.Dispose();
         try
         {
             await using var scope = _scopes.CreateAsyncScope();

@@ -153,7 +153,11 @@ bk1 讓產品自己做備份：
 
 - 兩邊搶同一把全系統的維運鎖 `attachments`（`Dynamic_OpsLock`，§10.3，條件式取得，做法同排程器租約）。
 - 清孤兒：開始時搶鎖，搶不到（備份持有）就回 409 `backupInProgress`；拿到之後每 60 秒續鎖，結束或失敗時放鎖。鎖最長 30 分鐘（技術限制），請求異常中止時最多卡 30 分鐘。
-- 備份：領工後、快照前搶鎖，持有到附件複製與驗證結束，由心跳續鎖（§6.3）。搶不到（清孤兒持有）就停在 `Stage = waiting`，每輪再試。等待時間算進單次 6 小時的上限。
+- 備份：領工後、快照前搶鎖，持有到附件複製與驗證結束，每 60 秒續鎖（bk1a 實作由鎖自己的計時器續，不放在心跳裡）。搶不到（清孤兒持有）就停在 `Stage = waiting`，每輪再試。等待時間算進單次 6 小時的上限。
+  - 續鎖時發現已不是持有者（鎖過期被接手）就中止這份、記 `failed`／`lockLost`，不和清孤兒同時動附件（bk1a 審查 S2）。
+- 已知限制（bk1a 審查 S5，不修）：刪除模組時，任務留言附件的檔案在交易提交後直接刪（`ModuleRemover`），沒有經過 `attachments` 鎖。
+  - 影響：「上一份備份之後才上傳、這一份備份進行中被刪」的留言附件，這一份可能漏掉；更早的檔案已在附件池，不受影響。
+  - 不修的理由：提交後的動作是同步的，要搶鎖得在請求裡同步等非同步；留言附件的刪除本來就是「失敗留給清孤兒」的語意，之後若改成搶不到鎖就略過、留給清孤兒，再一起回填。
 - 快照之後才上傳的附件，可能在這份備份裡，也可能不在（看列目錄的時點）；下一份一定有。
 
 ### 5.6 驗證（T3、T4）
@@ -221,6 +225,7 @@ bk1 讓產品自己做備份：
 4. 驗證（§5.6），寫 `manifest.json`，搬進 `sets/`。
 5. 狀態 `succeeded`。
 6. 保留清理（§8）。清理失敗不改變這份備份的成功，只記 Warning 與 `PruneError`。
+   - 這一步開始時 `sets/` 已經有完整的一份：之後逾時或關站都不中斷清理、照樣記成功（bk1a 審查 S3），同一天不再多排一份，新鮮度也認這一份。
 7. 不論成敗，立刻重跑一次 `backup.freshness`（不受「立即檢查」60 秒限制），事件馬上開或結案（§9）。
    - `HealthCheckEngine.TryRunNowAsync` 在同一檢查正在跑時回 null（`HealthCheckEngine.cs:78-79`）。這時每 5 秒再試，最多試 60 秒；還是不行就交給下一輪 `ops.monitor`，最多晚一個檢查間隔。
 
@@ -407,7 +412,11 @@ bk1 驗收時兩種資料庫各演練一次（§22 D1、D2）。
 
 ### 10.5 錯誤代碼
 
-`destinationUnwritable`、`destinationFull`、`databaseSnapshotFailed`、`pgDumpMissing`、`pgDumpVersion`、`pgDumpConfig`、`attachmentCopyFailed`、`verifyFailed`、`timeout`、`interrupted`、`locationInvalid`、`locationMismatch`。前端以 `ops.backup.error.<代碼>` 顯示，不認得的代碼原樣顯示。
+`destinationUnwritable`、`destinationFull`、`databaseSnapshotFailed`、`pgDumpMissing`、`pgDumpVersion`、`pgDumpConfig`、`attachmentCopyFailed`、`verifyFailed`、`lockLost`、`timeout`、`interrupted`、`locationInvalid`、`locationMismatch`、`unexpected`。
+
+- `lockLost`：附件維運鎖過期被接手，這份中止（bk1a 審查 S2）。
+- `locationMismatch` 也用在排隊之後位置換了、被領走時直接結束的那筆（記 `interrupted`）。
+- `unexpected`：以上都不是的例外（兜底，bk1a 審查 S4）。附件根目錄讀不到歸 `attachmentCopyFailed`；清上一份的暫存失敗歸 `destinationUnwritable`。前端以 `ops.backup.error.<代碼>` 顯示，不認得的代碼原樣顯示。
 
 ## 11. API
 
