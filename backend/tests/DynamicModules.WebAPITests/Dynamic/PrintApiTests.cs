@@ -267,12 +267,13 @@ public class PrintApiTests : IDisposable
     }
 
     [Fact]
-    public async Task Print_WithReadRevokedButPrintExportKept_Forbidden_AndOptionsToo()
+    public async Task Print_WithReadRevokedButPrintExportKept_NotFound_AndOptionsForbidden()
     {
         var w = await MakeWorld();
         await Create(_admin, w.Parent, "quote", FullBody(w));
         await SetSalesPermissions(w, printExport: true, read: false);
-        (await Print(_sales, w.RecordId, "quote")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        // 以記錄 id 為入口：看不到這筆就和不存在相同（#15）；以模組為入口的範本清單維持 403
+        (await Print(_sales, w.RecordId, "quote")).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await _sales.GetAsync($"{Base}/modules/{w.Parent}/print-templates")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 

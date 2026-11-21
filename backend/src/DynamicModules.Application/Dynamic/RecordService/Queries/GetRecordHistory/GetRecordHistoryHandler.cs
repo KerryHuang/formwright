@@ -25,16 +25,9 @@ public class GetRecordHistoryHandler(
 
     public async Task<ServiceResult> Handle(GetRecordHistoryRequest request, CancellationToken ct)
     {
-        // 404 與範圍檢查照 GET /records/{id}
-        var record = await records.GetAsync(request.Id, ct);
-        if (record is null) return ServiceResult.NotFound(RecordMapper.RecordNotFound);
-        var module = await modules.GetByIdAsync(record.ModuleId, includeChildren: true, ct);
-        if (!module.IsReadable()) return ServiceResult.NotFound(RecordMapper.ModuleNotFound);
-        if (ModuleRelations.IsDetail(module)) return ServiceResult.NotFound(RecordMapper.RecordNotFound);
-        var access = await guard.AuthorizeAsync(module, PermissionAction.Read, ct);
-        if (access.Permissions is not { } p) return access.Denied!;
-        if (p.OwnerUserIds is not null && !p.OwnerUserIds.Contains(record.OwnerUserId))
-            return ServiceResult.NotFound(RecordMapper.RecordNotFound);
+        // 看不到這筆就和不存在相同（#15）
+        if (await RecordReadGate.ReadAsync(request.Id, records, modules, guard, ct) is not { } seen) return RecordReadGate.NotFound();
+        var (record, module, p) = seen;
 
         // 記錄 Id → 來源；明細列以索引找，不看 DeleteFlag
         var sourceOf = new Dictionary<long, Source> { [record.Id] = new(module, p, false) };

@@ -25,14 +25,9 @@ public class GetRecordEffectsHandler(
 {
     public async Task<ServiceResult> Handle(GetRecordEffectsRequest request, CancellationToken ct)
     {
-        var record = await records.GetAsync(request.Id, ct);
-        if (record is null) return ServiceResult.NotFound(RecordMapper.RecordNotFound);
-        var module = await modules.GetByIdAsync(record.ModuleId, includeChildren: true, ct);
-        if (module is null || ModuleRelations.IsDetail(module)) return ServiceResult.NotFound(RecordMapper.RecordNotFound);
-        var read = await guard.AuthorizeAsync(module, PermissionAction.Read, ct);
-        if (read.Permissions is not { } perms) return read.Denied!;
-        if (perms.OwnerUserIds is not null && !perms.OwnerUserIds.Contains(record.OwnerUserId))
-            return ServiceResult.NotFound(RecordMapper.RecordNotFound);
+        // 看不到這筆就和不存在相同（#15）
+        if (await RecordReadGate.ReadAsync(request.Id, records, modules, guard, ct) is not { } seen) return RecordReadGate.NotFound();
+        var (record, module, perms) = seen;
 
         var items = new List<EffectItem>();
         var hidden = 0;

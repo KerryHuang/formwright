@@ -14,21 +14,12 @@ public static class RelatedTabs
 {
     public const string RelationNotFound = "關聯不存在";
 
-    /// <summary>本記錄通過 GET /records/{id} 同樣的讀取檢查才回傳模組；否則回 404。</summary>
+    /// <summary>本記錄看得到（<see cref="RecordReadGate"/>）才回傳模組；否則回和不存在相同的 404（#15）。</summary>
     public static async Task<(Module? Module, ServiceResult? Error)> ReadTargetAsync(
-        long recordId, IModuleRepository modules, IRecordRepository records, IDynamicAccessGuard guard, CancellationToken ct)
-    {
-        var record = await records.GetAsync(recordId, ct);
-        if (record is null) return (null, ServiceResult.NotFound(RecordMapper.RecordNotFound));
-        var module = await modules.GetByIdAsync(record.ModuleId, includeChildren: true, ct);
-        if (!module.IsReadable()) return (null, ServiceResult.NotFound(RecordMapper.ModuleNotFound));
-        if (ModuleRelations.IsDetail(module)) return (null, ServiceResult.NotFound(RecordMapper.RecordNotFound));
-        var access = await guard.AuthorizeAsync(module, PermissionAction.Read, ct);
-        if (access.Permissions is not { } p) return (null, access.Denied!);
-        if (p.OwnerUserIds is not null && !p.OwnerUserIds.Contains(record.OwnerUserId))
-            return (null, ServiceResult.NotFound(RecordMapper.RecordNotFound));
-        return (module, null);
-    }
+        long recordId, IModuleRepository modules, IRecordRepository records, IDynamicAccessGuard guard, CancellationToken ct) =>
+        await RecordReadGate.ReadAsync(recordId, records, modules, guard, ct) is { } seen
+            ? (seen.Module, null)
+            : (null, RecordReadGate.NotFound());
 
     /// <summary>來源模組啟用、使用者有 Read、來源欄位看得到的反向關聯；Permissions 是來源模組的權限。</summary>
     public static async Task<List<(Module Source, Field Field, EffectivePermissions Permissions)>> VisibleAsync(

@@ -26,15 +26,13 @@ public sealed class ApprovalSubmitEligibility(
     /// <summary>記錄存在、是表頭、模組可寫、有 Edit 且在資料範圍內。</summary>
     public async Task<(Record? Record, Module? Module, ServiceResult? Failure)> LoadAsync(long recordId, CancellationToken ct)
     {
-        var record = await records.GetAsync(recordId, ct);
-        if (record is null) return (null, null, ServiceResult.NotFound(RecordMapper.RecordNotFound));
-        var module = await modules.GetByIdAsync(record.ModuleId, includeChildren: true, ct);
-        if (module is null || ModuleRelations.IsDetail(module)) return (null, null, ServiceResult.NotFound(RecordMapper.RecordNotFound));
+        // 看不到這筆（也沒有修改權限）就和不存在相同（#15）；看得到之後才回 Closed 的 409、缺修改權限的 403
+        if (await RecordReadGate.ForActionAsync(recordId, PermissionAction.Edit, records, modules, guard, ct) is not { } gate)
+            return (null, null, RecordReadGate.NotFound());
+        var (record, module, access) = gate;
         if (await ModuleGate.RejectUnwritableAsync(module, guard, ct) is { } blocked) return (null, null, blocked);
-        var access = await guard.AuthorizeAsync(module, PermissionAction.Edit, ct);
         if (access.Permissions is not { } perms) return (null, null, access.Denied!);
-        if (perms.OwnerUserIds is not null && !perms.OwnerUserIds.Contains(record.OwnerUserId))
-            return (null, null, ServiceResult.NotFound(RecordMapper.RecordNotFound));
+        if (!RecordReadGate.InScope(perms, record.OwnerUserId)) return (null, null, RecordReadGate.NotFound());
         return (record, module, null);
     }
 

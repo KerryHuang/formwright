@@ -31,6 +31,10 @@ public class RecordExistenceLeakTests(RecordExistenceLeakTests.LeakApp app) : IC
     private const int LedgerNoPermission = 1; // 分錄模組，sales01 沒有任何權限
     private const int ConvSource = 2;        // 轉換的來源模組，sales01 沒有任何權限
     private const int OutOfScope = 3;        // sales01 有 Read（限本人），記錄是別人的
+    private const int ClosedNoPermission = 4; // 模組已關閉，sales01 沒有任何權限（不洩漏「存在且已關閉」）
+    private const int Draft = 5;             // 模組退回草稿：連 admin 也和不存在相同（本文不再是「模組不存在或未啟用」）
+    private const int Inactive = 6;          // 模組停用：同上
+    private static readonly int[] AllSubjects = [NoPermission, LedgerNoPermission, ConvSource, OutOfScope, ClosedNoPermission, Draft, Inactive];
 
     // 端點編號 → 送出的請求（id 是要打的記錄）
     private static readonly Func<long, World, HttpRequestMessage>[] Endpoints =
@@ -38,13 +42,27 @@ public class RecordExistenceLeakTests(RecordExistenceLeakTests.LeakApp app) : IC
         (id, _) => Post($"records/{id}/reverse", new { }),
         (id, w) => new HttpRequestMessage(HttpMethod.Get, $"{Base}/records/{id}/conversions/{w.ConversionKey}/inputs"),
         (id, w) => Post($"records/{id}/conversions/{w.ConversionKey}/convert", new { }),
+        (id, _) => Get($"records/{id}/history"),
+        (id, _) => Get($"records/{id}/effects"),
+        (id, _) => Get($"records/{id}/ledger"),
+        (id, _) => Get($"records/{id}/related"),
+        (id, _) => Get($"records/{id}/related/1/paged"),
+        (id, _) => Get($"records/{id}/print/any"),
+        (id, _) => Get($"records/{id}/conversions"),
+        (id, _) => new HttpRequestMessage(HttpMethod.Put, $"{Base}/records/{id}")
+            { Content = JsonContent.Create(new { values = new Dictionary<string, object>(), rowVersion = "x" }) },
+        (id, _) => new HttpRequestMessage(HttpMethod.Delete, $"{Base}/records/{id}?rowVersion=x"),
+        (id, _) => new HttpRequestMessage(HttpMethod.Post, $"{Base}/records/{id}/attachments/1") { Content = UploadBody() },
+        (id, _) => Post($"records/{id}/approval/preview", new { to = 1 }),
+        (id, _) => Post($"records/{id}/approval/submit", new { to = 1, recordRowVersion = "x" }),
+        (id, _) => Get($"records/{id}"),
     ];
 
     public static TheoryData<int, int> Cases()
     {
         var data = new TheoryData<int, int>();
         for (var e = 0; e < Endpoints.Length; e++)
-            foreach (var s in new[] { NoPermission, LedgerNoPermission, ConvSource, OutOfScope })
+            foreach (var s in AllSubjects)
                 data.Add(e, s);
         return data;
     }
@@ -64,6 +82,11 @@ public class RecordExistenceLeakTests(RecordExistenceLeakTests.LeakApp app) : IC
         existing.StatusCode.Should().Be(missing.StatusCode, $"端點 {endpoint}、對象 {subject}：{await existing.Content.ReadAsStringAsync()}");
         (await existing.Content.ReadAsStringAsync()).Should().Be(await missing.Content.ReadAsStringAsync());
     }
+
+    private static HttpRequestMessage Get(string path) => new(HttpMethod.Get, $"{Base}/{path}");
+
+    private static MultipartFormDataContent UploadBody() =>
+        new() { { new ByteArrayContent("hello"u8.ToArray()), "file", "a.txt" } };
 
     private static HttpRequestMessage Post(string path, object body) =>
         new(HttpMethod.Post, $"{Base}/{path}") { Content = JsonContent.Create(body) };
@@ -115,6 +138,15 @@ public class RecordExistenceLeakTests(RecordExistenceLeakTests.LeakApp app) : IC
                 db.Set<ModuleDataScope>().Add(new ModuleDataScope { ModuleId = m.Id, GroupId = groupId, Scope = DataScope.Own });
         });
         subjects[OutOfScope] = (await NewRecord(admin, scoped), "sales01");
+
+        foreach (var (subject, status, user) in new[]
+                 { (ClosedNoPermission, ModuleStatus.Closed, "sales01"), (Draft, ModuleStatus.Draft, "admin"), (Inactive, ModuleStatus.Inactive, "admin") })
+        {
+            var m = await CreateModule(admin);
+            await Activate(admin, m);
+            subjects[subject] = (await NewRecord(admin, m), user);
+            WithDb(db => db.Set<Module>().Single(x => x.Key == m).Status = status);
+        }
 
         return new World(subjects, key);
     }

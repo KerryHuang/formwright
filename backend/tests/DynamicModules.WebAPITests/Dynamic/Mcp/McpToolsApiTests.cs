@@ -84,6 +84,20 @@ public class McpToolsApiTests : IAsyncLifetime
             .Should().Equal(menu.EnumerateArray().Select(m => m.GetProperty("key").GetString()));
     }
 
+    /// <summary>模組沒授權給業務群組：sales01 讀歷程和記錄不存在回同一個錯誤碼與訊息，不洩漏記錄存在（#15）。</summary>
+    [Fact]
+    public async Task GetRecordHistory_NoPermission_SameErrorAsMissingRecord()
+    {
+        EnsureUser(_app, "sales01", u => (u.IsDemoAccount, u.MustChangePassword) = (false, false));
+        await using var sales = await ConnectAsync(_app, IssueToken(_app, "sales01").Raw);
+
+        var hidden = await Call("get_record_history", new { recordId = _ids[0] }, sales);
+        var missing = await Call("get_record_history", new { recordId = 999_999_999 }, sales);
+
+        Code(hidden).Should().Be(McpErrorCodes.NotFound, hidden.GetRawText());
+        hidden.GetProperty("error").GetRawText().Should().Be(missing.GetProperty("error").GetRawText());
+    }
+
     [Fact]
     public async Task DescribeModule_HasFilterSyntax_UnknownIsError()
     {

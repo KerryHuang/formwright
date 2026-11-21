@@ -663,6 +663,7 @@ public class ApprovalApiTests : IDisposable
         res.Headers.GetValues("X-Content-Type-Options").Should().Equal("nosniff");
         res.Headers.GetValues("Content-Security-Policy").Single().Should().Contain("default-src 'none'");
         res.Headers.CacheControl!.NoStore.Should().BeTrue();
-        (await _app.AsUser("floor01").GetAsync($"{Base}/records/{id}/print/sheet")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        // floor01 沒有 Read 也不是簽核人：看不到這筆，和不存在相同（#15）
+        (await _app.AsUser("floor01").GetAsync($"{Base}/records/{id}/print/sheet")).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 }
