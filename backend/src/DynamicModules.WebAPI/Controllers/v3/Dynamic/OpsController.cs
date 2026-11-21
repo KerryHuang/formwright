@@ -35,7 +35,6 @@ public class OpsController(IMediator mediator) : ControllerBase
     [HttpGet("system/ops/audit/{id:long}")]
     public async Task<IActionResult> AuditDetail(long id) => (await mediator.Send(new GetAuditRequest(id))).ToActionResult(this);
 
-    /// <summary>監控總覽（維運設計 §17.5）：整體狀態、各檢查、未結事件數、需要處理清單、排程器、告警通道（o2c 前一律未設定）。</summary>
     // 產品內備份（備份設計 §11）：沒有刪除、下載、改位置的 API
     [HttpGet("system/ops/backups")]
     public async Task<IActionResult> Backups([FromQuery] long? cursor) => (await mediator.Send(new GetBackupsRequest(cursor))).ToActionResult(this);
@@ -51,6 +50,7 @@ public class OpsController(IMediator mediator) : ControllerBase
         return result.IsSuccess ? Accepted(result.Data) : result.ToActionResult(this);
     }
 
+    /// <summary>監控總覽（維運設計 §17.5）：整體狀態、各檢查、未結事件數、需要處理清單、排程器、告警通道（o2c 前一律未設定）。</summary>
     [HttpGet("system/ops/overview")]
     public async Task<IActionResult> Overview() => (await mediator.Send(new GetOpsOverviewRequest())).ToActionResult(this);
 
