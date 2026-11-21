@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import * as quasar from 'quasar';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createI18n } from 'vue-i18n';
+import { createMemoryHistory, createRouter } from 'vue-router';
 import type { HealthCheckConfig } from 'src/domain/ops/ops-types';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import { bodyOf, HttpFail, mockHttp, type Call } from 'src/test-utils/mock-http';
@@ -28,7 +29,7 @@ async function make(c: HealthCheckConfig, resultsFail?: HttpFail) {
   w = mount(HealthCheckCard, {
     attachTo: document.body,
     props: { check: c },
-    global: { plugins: [[quasar.Quasar, { components: quasar, directives: quasar, plugins: { Notify: quasar.Notify } }], i18n, [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]] },
+    global: { plugins: [[quasar.Quasar, { components: quasar, directives: quasar, plugins: { Notify: quasar.Notify } }], i18n, createRouter({ history: createMemoryHistory(), routes: [{ path: '/:p(.*)*', component: { render: () => null } }] }), [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]] },
   });
   await flushPromises();
 }
@@ -118,5 +119,15 @@ describe('HealthCheckCard', () => {
     expect(q('health-status-storage.diskFree')!.textContent).toContain('不適用（Demo 站）');
     expect(q('health-run-storage.diskFree')).toBeNull();
     expect(q('health-expand-storage.diskFree')).toBeNull();
+  });
+
+  it('備份新鮮度卡有「看備份」連到備份分頁；別的卡沒有', async () => {
+    await make(check({ code: 'backup.freshness', state: { ...check().state, code: 'backup.freshness', unit: 'hours', value: 3 } }));
+    const a = q('health-to-backup-backup.freshness') as HTMLAnchorElement;
+    expect(a.textContent).toBe('看備份');
+    expect(a.getAttribute('href')).toBe('/system/ops?tab=backup');
+    w?.unmount();
+    await make(check());
+    expect(document.querySelector('[data-testid^="health-to-backup"]')).toBeNull();
   });
 });

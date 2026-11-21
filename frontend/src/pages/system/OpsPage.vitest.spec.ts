@@ -39,6 +39,7 @@ async function mountPage(url: string, opts: Opts = {}) {
     if (c.url === '/system/ops/overview') return opts.overviewFails ?? opts.overview ?? overview();
     if (c.url === '/system/ops/incidents') return opts.incidentsFail ?? pages[c.params?.cursor ? Number(c.params.cursor) : 0];
     if (c.url === '/system/ops/incidents/7/acknowledge') return opts.ackFails ? new HttpFail(409, { code: 'incidentStateChanged' }) : incident({ status: 'acknowledged' });
+    if (c.url === '/system/ops/backups') return { configured: false, locationValid: false, locationStatus: 'notConfigured', isolated: false, edition: 'OnPrem', canDelete: false, includesKeys: false, schedule: { hour: 2, offsetMinutes: 480 }, retentionCount: 7, manualRetentionDays: 7, runs: [], manualAllowed: false, manualDisabledReason: 'notConfigured' };
     if (c.url === '/system/ops/channels/smtp') return opts.channel ?? { enabled: false, toAddresses: [], mailLocale: { value: null, factory: 'zh-TW', options: ['zh-TW', 'en-US'] }, consecutiveFailures: 0, editable: true, mailConfigured: true };
     return [];
   });
@@ -59,6 +60,13 @@ async function mountPage(url: string, opts: Opts = {}) {
 const q = (id: string) => document.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
 
 describe('OpsPage', () => {
+  it('備份分頁：?tab=backup 直接開，分頁列有「備份」', async () => {
+    const { w } = await mountPage('/system/ops?tab=backup');
+    expect(q('ops-tab-backup')!.textContent).toContain('備份');
+    expect(q('backup-notice')!.textContent).toContain('Backup:Root');
+    w.unmount();
+  });
+
   it('資料庫連不上（503 databaseUnavailable）整頁改成提示、不顯示分頁', async () => {
     const { w } = await mountPage('/system/ops', { overviewFails: new HttpFail(503, { code: 'databaseUnavailable' }) });
     expect(q('ops-unavailable')?.textContent).toContain('資料庫目前無法連線');

@@ -45,7 +45,7 @@ export function incidentTitle(t: Translate, te: Exists, titleKey: string, params
 
 export const checkName = (t: Translate, te: Exists, code: string) => labelOr(t, te, `ops.checks.${code}.name`, code);
 
-function formatBytes(n: number, locale: string): string {
+export function formatBytes(n: number, locale: string): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let v = n;
   let i = 0;
