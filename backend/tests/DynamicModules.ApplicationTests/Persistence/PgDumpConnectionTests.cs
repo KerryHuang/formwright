@@ -159,6 +159,9 @@ public sealed class PgDumpConnectionTests
     [InlineData("Host=database;Database=fw_app;Username=app_user",
         "FATAL: role \"app_user\" on database \"fw_app\" at database:5432",
         "FATAL: role \"<Database:User>\" on <Database:Host> \"<Database:Name>\" at <Database:Host>:5432")]
+    [InlineData("Host=dbhost;Database=fw;Username=u",
+        "連線到dbhost失敗",
+        "連線到<Database:Host>失敗")]
     public void MaskSummary_HostNeedsBoundary(string connectionString, string input, string expected) =>
         BackupFor(connectionString).MaskSummary(input).Should().Be(expected);
 

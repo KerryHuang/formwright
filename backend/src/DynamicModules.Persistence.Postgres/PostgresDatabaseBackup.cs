@@ -226,7 +226,9 @@ public sealed partial class PostgresDatabaseBackup(DynamicDbContext db, PgDumpSe
             Literal(found, "<pg_dump>");
             Literal(Path.GetDirectoryName(found), "<pg_dump 的目錄>");
         }
-        Literal(workingDirectory?.TrimEnd('/', '\\'), "<工作目錄>");
+        // 工作目錄是磁碟根（C:\ 去尾斜線成 C:）或 / 時不遮：太短會把訊息裡每個 c: 都換掉（#90 審查 S3）
+        var wd = workingDirectory?.TrimEnd('/', '\\');
+        if (wd is { Length: > 2 } && !wd.EndsWith(':')) Literal(wd, "<工作目錄>");
 
         NpgsqlConnectionStringBuilder? b = null;
         try
@@ -257,7 +259,7 @@ public sealed partial class PostgresDatabaseBackup(DynamicDbContext db, PgDumpSe
         if (hosts.Count > 0)
         {
             var alternatives = string.Join('|', hosts.Distinct(StringComparer.OrdinalIgnoreCase).OrderByDescending(h => h.Length).Select(Regex.Escape));
-            text = Regex.Replace(text, $@"(?<![\w.-])(?:{alternatives})(?![\w-])", _ => Hide("<Database:Host>"),
+            text = Regex.Replace(text, $@"(?<![A-Za-z0-9_.-])(?:{alternatives})(?![A-Za-z0-9_-])", _ => Hide("<Database:Host>"),
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
         }
         text = Ipv4Regex().Replace(text, _ => Hide("<ip>"));

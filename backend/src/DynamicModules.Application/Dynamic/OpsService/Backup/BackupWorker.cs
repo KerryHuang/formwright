@@ -187,10 +187,10 @@ public sealed class BackupWorker(
         return new(BackupRunStatus.Failed, Now, ErrorCode: code, ErrorDetail: Summary(text));
     }
 
-    /// <summary>錯誤摘要裡代替備份位置、附件根目錄、資料庫目錄路徑的字樣（M3、複核 N2）。</summary>
     /// <summary>遮罩本身丟例外時寫進摘要的固定文字（#90，fail-closed：不放沒遮過的原文，這份照樣結束成 failed）。</summary>
     public const string UnmaskedDetail = "錯誤摘要無法遮罩，已略去；完整訊息見站台 log 的 Warning「備份失敗」";
 
+    /// <summary>錯誤摘要裡代替備份位置、附件根目錄、資料庫目錄路徑的字樣（M3、複核 N2）。</summary>
     public const string RootPlaceholder = "<Backup:Root>", AttachmentsPlaceholder = "<Attachments:Root>", DatabasePlaceholder = "<Database:Directory>";
 
     /// <summary>
