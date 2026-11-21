@@ -18,7 +18,7 @@ public class App : AuditableEntity
     public AppKind Kind { get; set; } = AppKind.App;
     public I18nText NameI18n { get; set; } = new();
     public string? Icon { get; set; }
-    /// <summary>manifest.version。目前不參與任何判斷；pkg1b 的升級預覽上線後才用它判斷有沒有新版（套件更新設計 §7.2）。</summary>
+    /// <summary>manifest.version。升級的判斷依據（套件更新設計 §7.2）：候選新版的版號比它大才算有新版，相同是最新，較小不支援降版。</summary>
     public string PackageVersion { get; set; } = "";
     public int FormatVersion { get; set; }
     /// <summary>builtIn 或 imported。</summary>
