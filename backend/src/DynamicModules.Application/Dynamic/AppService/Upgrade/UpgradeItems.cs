@@ -141,7 +141,8 @@ public static class UpgradeItems
         foreach (var m in p.Modules)
         {
             var moduleId = $"module:{m.Code}";
-            Add(new UpgradeItem(moduleId, "modules", m.Code, m.Name, Generic(m)));
+            // 標題欄位與標題樣板裡的 {代號}：新版改成引用新欄位時，模組項目依賴那個欄位（審查 M2）
+            Add(new UpgradeItem(moduleId, "modules", m.Code, m.Name, Generic(m)) { Refs = RefsOf(m.TitleField, m.TitleTemplate) });
             AddBlocks(m.Code, m.Blocks, moduleId);
             if (m.Rules.Count > 0)
                 Add(new UpgradeItem($"rules:{m.Code}", "rules", m.Code, m.Name, Single("rules", m.Rules)) { Parent = moduleId, Refs = RefsOf(m.Rules) });
@@ -411,6 +412,8 @@ public static class UpgradeItems
         return item.Refs.Contains(name) || (item.Module == target.Module && item.Refs.Contains(code));
     }
 
+    private static readonly string[] RefPrefixes = ["field:", "block:", "opt_"];
+
     private static readonly System.Text.RegularExpressions.Regex Placeholder = new(@"\{([A-Za-z0-9_./-]+)\}");
 
     /// <summary>內容裡出現的所有字串（含物件鍵值）與字串裡的 {代號}，給相依判斷比對新項目的代號用。</summary>
@@ -434,6 +437,9 @@ public static class UpgradeItems
                 case JsonValue v when v.GetValueKind() == JsonValueKind.String:
                     var text = v.GetValue<string>();
                     refs.Add(text);
+                    // 規則 target 的 field:代號、block:代號，條件值的 opt_代號：另記去掉前綴的代號（審查 M2）
+                    foreach (var prefix in RefPrefixes)
+                        if (text.StartsWith(prefix, StringComparison.Ordinal) && text.Length > prefix.Length) refs.Add(text[prefix.Length..]);
                     // 公式與樣板裡的 {代號}（例如 {subtotal} * {taxRate}）：逐個記下，新欄位被公式引用時才連得上（審查 S1）
                     foreach (System.Text.RegularExpressions.Match match in Placeholder.Matches(text)) refs.Add(match.Groups[1].Value);
                     break;
