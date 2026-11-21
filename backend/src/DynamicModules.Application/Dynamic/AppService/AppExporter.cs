@@ -12,7 +12,7 @@ using DynamicModules.Domain.ValueObjects;
 namespace DynamicModules.Application.Dynamic.AppService;
 
 /// <summary>
-/// 由目前的成員模組重新產生套件（開啟後內容屬於客戶，不保留開啟時的原文）。
+/// 由目前的成員模組重新產生套件（開啟後內容屬於客戶；開啟時的原文另存在 <c>Dynamic_AppBaseline</c> 當升級基準，匯出不用它）。
 /// 表達不了的引用不匯出並記在 warnings（和範本匯出一致）；匯出的檔案一定要能被 v3 讀取器完整讀回。
 /// </summary>
 public sealed partial class AppExporter(
