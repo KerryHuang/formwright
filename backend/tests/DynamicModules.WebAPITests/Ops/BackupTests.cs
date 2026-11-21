@@ -50,10 +50,10 @@ public class BackupTests
         }
     }
 
-    internal static BackupWorker Worker(TestApp app, TimeProvider? clock = null, BackupLimits? limits = null, OpsInstance? instance = null)
+    internal static BackupWorker Worker(TestApp app, TimeProvider? clock = null, BackupLimits? limits = null, OpsInstance? instance = null, BackupSettings? settings = null)
     {
         var s = app.Services;
-        return new BackupWorker(s.GetRequiredService<IServiceScopeFactory>(), s.GetRequiredService<BackupSettings>(), clock ?? app.Time,
+        return new BackupWorker(s.GetRequiredService<IServiceScopeFactory>(), settings ?? s.GetRequiredService<BackupSettings>(), clock ?? app.Time,
             instance ?? s.GetRequiredService<OpsInstance>(), s.GetRequiredService<HealthCheckEngine>(), s.GetRequiredService<CachedSystemPolicy>(),
             s.GetRequiredService<IOpsEnvironment>(), s.GetRequiredService<IAttachmentStore>(), s.GetRequiredService<ILogger<BackupWorker>>(), limits ?? Fast);
     }
@@ -596,6 +596,39 @@ public class BackupTests
         run.ErrorDetail.Should().Contain(BackupWorker.RootPlaceholder).And.NotContain(app.Root);
         var detail = await app.AsUser().GetFromJsonAsync<JsonElement>($"{Base}/backups/{run.Id}");
         detail.GetProperty("errorDetail").GetString().Should().NotContain(app.Root);
+    }
+
+    /// <summary>複核 N2：附件讀不到（attachmentCopyFailed）時，錯誤摘要裡的附件根目錄換成 &lt;Attachments:Root&gt;。</summary>
+    [Fact]
+    public async Task AttachmentUnreadable_CopyFailed_AttachmentRootMasked()
+    {
+        if (OperatingSystem.IsWindows() || Environment.UserName == "root") return;
+        using var app = new BackupApp();
+        var id = await Attach(app, "locked");
+        var file = Directory.GetFiles(app.AttachmentRoot, id, SearchOption.AllDirectories).Single();
+        File.SetUnixFileMode(file, UnixFileMode.None);
+        try
+        {
+            await Worker(app).TickAsync(CancellationToken.None);
+        }
+        finally
+        {
+            File.SetUnixFileMode(file, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+        var run = (await Runs(app)).Single();
+        run.Status.Should().Be(BackupRunStatus.Failed);
+        run.ErrorCode.Should().Be("attachmentCopyFailed");
+        run.ErrorDetail.Should().Contain(BackupWorker.AttachmentsPlaceholder).And.NotContain(app.AttachmentRoot);
+    }
+
+    /// <summary>複核 N2：資料庫目錄也遮；目錄互相包含時遮成最精確的那個。</summary>
+    [Fact]
+    public void Summary_MasksDatabaseDirectory_LongestFirst()
+    {
+        using var app = new BackupApp();
+        var settings = app.Services.GetRequiredService<BackupSettings>() with { DatabaseDirectory = "/srv/fw-data", AttachmentsRoot = "/srv/fw-data/attachments/" };
+        var summary = Worker(app, settings: settings).Summary($"open /srv/fw-data/poc.db failed; read /srv/fw-data/attachments/ab/cd/x failed; write {app.Root}/sets failed");
+        summary.Should().Be("open <Database:Directory>/poc.db failed; read <Attachments:Root>/ab/cd/x failed; write <Backup:Root>/sets failed");
     }
 
     /// <summary>S4：上一份留下、刪不掉的暫存（位置權限壞了）歸 destinationUnwritable，不是兜底的 unexpected。</summary>
