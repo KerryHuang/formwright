@@ -32,6 +32,18 @@ RUN COMMIT="${GIT_COMMIT:-$RENDER_GIT_COMMIT}"; BUILT="${BUILD_TIME:-$(date -u +
       -p:AppVersion="$APP_VERSION" -p:GitCommit="$COMMIT" -p:BuildTime="$BUILT"
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
+# 產品內備份（PostgreSQL）要 pg_dump／pg_restore（備份設計 §5.4）：從 PGDG（apt.postgresql.org）裝 postgresql-client-16，
+# 和測試容器同主版本；之後支援更新的伺服器時換新版用戶端（新版用戶端能備舊版伺服器）。金鑰用 .asc 檔加 signed-by，不另裝 gnupg。
+# 路徑直接指到版本目錄，不經 Debian 的 pg_wrapper；SQLite 用不到，裝著無害（Dockerfile.demo 不裝）
+ADD https://www.postgresql.org/media/keys/ACCC4CF8.asc /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+RUN . /etc/os-release \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+      > /etc/apt/sources.list.d/pgdg.list \
+    && chmod 644 /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client-16 \
+    && rm -rf /var/lib/apt/lists/*
+ENV Backup__PgDumpPath=/usr/lib/postgresql/16/bin/pg_dump
 WORKDIR /app
 COPY --from=backend /app ./
 COPY --from=frontend /work/frontend/dist/spa ./wwwroot
