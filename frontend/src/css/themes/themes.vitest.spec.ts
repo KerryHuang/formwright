@@ -109,7 +109,7 @@ describe('主題 token', () => {
     // airy 的框線與陰影隨模式改變，寫在模式區塊，所以比較合併後的結果
     const keys = (s: (typeof STYLES)[number], m: 'light' | 'dark') => Object.keys(palette(s, m)).sort();
     const first = keys('workbench', 'light');
-    expect(first).toHaveLength(60);
+    expect(first).toHaveLength(61);
     expect(keys('workbench', 'dark')).toEqual(first);
     for (const s of STYLES) for (const m of ['light', 'dark'] as const) expect(keys(s, m)).toEqual(first);
   });

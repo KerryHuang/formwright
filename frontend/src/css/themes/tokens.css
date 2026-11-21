@@ -56,6 +56,7 @@
   --t-on-info: #ffffff;
   --t-negative-soft: #fbe4e2;
   --t-info-soft: #e1edf9;
+  --t-warning-soft: #fbf0d9;
   --t-chart-2: #c2571a;
   --t-chart-3: #2e7d5b;
   --t-chart-4: #8a4fb0;
@@ -73,6 +74,7 @@
   --t-on-info: #ffffff;
   --t-negative-soft: #fbe4e2;
   --t-info-soft: #e1edf9;
+  --t-warning-soft: #fbf0d9;
   --t-chart-2: #c2571a;
   --t-chart-3: #2e7d5b;
   --t-chart-4: #8a4fb0;
@@ -89,6 +91,7 @@
   --t-on-info: #0a1e3a;
   --t-negative-soft: #3a1c1a;
   --t-info-soft: #16293d;
+  --t-warning-soft: #3a2f12;
   --t-chart-2: #f0a36b;
   --t-chart-3: #6fd08c;
   --t-chart-4: #c79bf0;

@@ -38,7 +38,7 @@ describe('quasar-bridge.css', () => {
   });
 
   it('提供 Task 7 與小樣本使用的 class', () => {
-    for (const sel of ['.bg-muted', '.bg-negative-soft', '.bg-info-soft', '.text-stat', '.theme-sample']) {
+    for (const sel of ['.bg-muted', '.bg-negative-soft', '.bg-info-soft', '.bg-warning-soft', '.text-stat', '.theme-sample']) {
       expect(bodiesOf(bridge, sel).length, sel).toBeGreaterThan(0);
     }
     expect(bodiesOf(bridge, '.text-stat').join(';')).toContain('tabular-nums');
