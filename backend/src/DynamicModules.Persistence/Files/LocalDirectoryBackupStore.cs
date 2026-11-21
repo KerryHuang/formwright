@@ -91,18 +91,32 @@ public sealed class LocalDirectoryBackupStore(string root, ILogger<LocalDirector
     /// 兩個寫入者同時搬會互相覆蓋；非 Windows 改用 <c>link(2)</c>（目標存在回 EEXIST，原子）。
     /// 儲存端不支援硬連結（部分 CIFS 掛載）才退回 <c>File.Move</c>：那時只靠先查，極少數同時寫入可能互蓋（內容同樣完整）。
     /// </summary>
-    private static void Publish(string partial, string full)
+    private void Publish(string partial, string full)
     {
         if (OperatingSystem.IsWindows())
         {
             File.Move(partial, full, overwrite: false);
             return;
         }
-        if (Native.link(partial, full) == 0) return;
-        var errno = System.Runtime.InteropServices.Marshal.GetLastPInvokeError();
-        if (errno == Native.EEXIST) throw new IOException($"目標已存在：{full}");
+        if (!_linkUnavailable)
+        {
+            try
+            {
+                if (Native.link(partial, full) == 0) return;
+                var errno = System.Runtime.InteropServices.Marshal.GetLastPInvokeError();
+                if (errno == Native.EEXIST) throw new IOException($"目標已存在：{full}");
+            }
+            catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException)
+            {
+                // 解析不到 libc 的平台（複核 N3）：之後都退回 File.Move，只記一次
+                _linkUnavailable = true;
+                logger.LogWarning(e, "這個平台叫不到 link(2)，備份寫檔退回 File.Move（多實例同時寫同一個檔時可能互蓋）");
+            }
+        }
         File.Move(partial, full, overwrite: false);
     }
+
+    private static volatile bool _linkUnavailable;
 
     private static class Native
     {
@@ -156,8 +170,16 @@ public sealed class LocalDirectoryBackupStore(string root, ILogger<LocalDirector
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// 中斷留下的 <c>.partial-*</c> 與寫入權限探測檔，超過這麼久就清掉（複核 N4；技術限制，設計 §19）。
+    /// 留一天是為了不碰另一台正在寫的檔。
+    /// </summary>
+    public static readonly TimeSpan LeftoverMaxAge = TimeSpan.FromHours(24);
+
     public void ClearStaging(string? runKey = null, string? keepRunKey = null)
     {
+        // 備份開始時（不指定某一份）順便清殘檔；每次的暫存檔名都不同、列表看不到，不清會一直累積
+        if (runKey is null) ClearLeftovers();
         var staging = Path.Combine(_root, StagingDir);
         if (!Directory.Exists(staging)) return;
         foreach (var dir in Directory.EnumerateDirectories(staging))
@@ -165,6 +187,20 @@ public sealed class LocalDirectoryBackupStore(string root, ILogger<LocalDirector
             var name = Path.GetFileName(dir);
             if (runKey is not null ? name != runKey : name == keepRunKey) continue;
             Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    private void ClearLeftovers()
+    {
+        if (!Directory.Exists(_root)) return;
+        var cutoff = DateTime.UtcNow - LeftoverMaxAge;
+        var staging = Path.Combine(_root, StagingDir) + Path.DirectorySeparatorChar;
+        var leftovers = Directory.EnumerateFiles(_root, $"*{PartialMarker}*", SearchOption.AllDirectories)
+            .Concat(Directory.EnumerateFiles(_root, $"{BackupLocator.ProbePrefix}*", SearchOption.TopDirectoryOnly))
+            .Where(f => !f.StartsWith(staging, StringComparison.Ordinal));
+        foreach (var file in leftovers)
+        {
+            if (File.GetLastWriteTimeUtc(file) < cutoff) File.Delete(file);
         }
     }
 }
