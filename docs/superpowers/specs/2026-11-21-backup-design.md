@@ -122,7 +122,8 @@ bk1 讓產品自己做備份：
 - 連線參數一律走環境變數：`PGHOST`、`PGPORT`、`PGDATABASE`、`PGUSER`、`PGSSLMODE`，命令列不帶任何連線資訊。
 - **密碼寫進 0600 的暫存 `PGPASSFILE`**，子程序結束（含逾時、被砍）就刪。不用 `PGPASSWORD`：PostgreSQL 官方文件不建議，部分系統的 `ps` 看得到環境變數。密碼不出現在命令列、環境變數、log、錯誤訊息；錯誤訊息先遮掉密碼，再截斷到 1000 字。
 - Npgsql `SSL Mode` 對到 libpq `sslmode`：`Disable`、`Allow`、`Prefer`、`Require`、`VerifyCA`、`VerifyFull` 用同名值。`Trust Server Certificate=true` 只能搭配 `Require`，對到 libpq 的 `require` 並且不給根憑證，所以不驗憑證；其他組合對不上時回 `pgDumpConfig`，訊息寫出是哪個設定。雲端託管資料庫常用這種組合，所以要明寫。
-- 程式路徑是部署設定 `Backup:PgDumpPath`，沒設就找 `PATH` 上的 `pg_dump`；找不到回 `pgDumpMissing`。
+- 沒給根憑證時（bk1b 實作補充）：`VerifyFull` 對到 libpq 的 `sslrootcert=system`（和 Npgsql 一樣用系統憑證庫；libpq 只允許 `system` 搭配 `verify-full`），`VerifyCA` 回 `pgDumpConfig`、要求設 `Root Certificate`；`SSL Password` 沒有對應的環境變數，也回 `pgDumpConfig`。
+- 程式路徑是部署設定 `Backup:PgDumpPath`，沒設就找 `PATH` 上的 `pg_dump`；找不到（或同目錄沒有驗證要用的 `pg_restore`）回 `pgDumpMissing`。
 - 站台關閉與逾時時，用 `Kill(entireProcessTree: true)` 結束子程序。理由：殘留的 `pg_dump` 會一直持有鎖，下一次啟動的 migration 會卡在 `lock_timeout`，站台起不來。
 - 開始前比對版本：`pg_dump --version` 的主版本小於伺服器 `server_version_num` 的主版本時回 `pgDumpVersion`，訊息帶兩個版本。
 - `pg_dump` 自己用一致的快照，不擋一般寫入，但會擋住啟動時的 migration（DDL 要等它）。
@@ -318,7 +319,7 @@ Application 定 `IBackupStore`：
 | 情況 | 狀態 | 數值 | 訊息代碼 |
 |---|---|---|---|
 | `Backup:Root` 沒設 | 未設定 | — | — |
-| PostgreSQL、bk1b 還沒合併 | 未設定 | — | `providerUnsupported` |
+| ~~PostgreSQL、bk1b 還沒合併~~（bk1b 已拿掉） | 未設定 | — | `providerUnsupported` |
 | 位置不合法（§7.4） | 嚴重 | — | `locationInvalid` |
 | 標記檔和目前採用的位置不同（§7.4） | 嚴重 | — | `locationMismatch` |
 | 新安裝、位置寫不進去（§7.4） | 嚴重 | — | `destinationUnwritable` |
