@@ -6,7 +6,8 @@ public enum AppStatus { Open, Closed }
 
 /// <summary>
 /// 已開啟的應用程式：只是帳，記錄「哪個套件、哪些模組、現在開或關」。開啟後模組與設定都屬於客戶，
-/// 執行期沒有任何程式依賴套件檔；Module 本身不指向應用程式，所以沒有應用程式的模組不受影響。
+/// 執行期沒有任何程式依賴套件檔（開啟時的原文另存在 <see cref="AppBaseline"/>，只有升級預覽與套用會讀）；
+/// Module 本身不指向應用程式，所以沒有應用程式的模組不受影響。
 /// </summary>
 public class App : AuditableEntity
 {
@@ -17,7 +18,7 @@ public class App : AuditableEntity
     public AppKind Kind { get; set; } = AppKind.App;
     public I18nText NameI18n { get; set; } = new();
     public string? Icon { get; set; }
-    /// <summary>manifest.version，只是資訊，不參與任何判斷。</summary>
+    /// <summary>manifest.version。執行期不參與任何判斷；升級預覽以它判斷有沒有新版（套件更新設計 §7.2）。</summary>
     public string PackageVersion { get; set; } = "";
     public int FormatVersion { get; set; }
     /// <summary>builtIn 或 imported。</summary>
