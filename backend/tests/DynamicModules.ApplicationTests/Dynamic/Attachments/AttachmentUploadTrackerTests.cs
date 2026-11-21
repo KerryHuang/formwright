@@ -15,6 +15,7 @@ public class AttachmentUploadTrackerTests
         public Stream? OpenRead(string id) => null;
         public bool Delete(string id) { Deleted.Add(id); return onDelete?.Invoke(id) ?? true; }
         public IReadOnlyList<StoredAttachment> List() => [];
+        public StoredAttachment? Stat(string id) => null;
     }
 
     private static AttachmentUploadTracker Make(IAttachmentStore store) => new(store, NullLogger<AttachmentUploadTracker>.Instance);

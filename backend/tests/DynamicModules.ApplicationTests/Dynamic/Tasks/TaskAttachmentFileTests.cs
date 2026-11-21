@@ -28,6 +28,7 @@ public class TaskAttachmentFileTests : TaskTestBase, IAsyncLifetime
         public Stream? OpenRead(string id) => inner.OpenRead(id);
         public bool Delete(string id) => id == FailKey ? throw new IOException("檔案被鎖住") : inner.Delete(id);
         public IReadOnlyList<StoredAttachment> List() => inner.List();
+        public StoredAttachment? Stat(string id) => inner.Stat(id);
     }
 
     public sealed record RemoveModuleProbe(long ModuleId, bool Fail) : IRequest<ServiceResult>, ITransactionalRequest;

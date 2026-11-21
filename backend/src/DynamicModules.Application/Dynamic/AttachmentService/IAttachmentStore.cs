@@ -16,8 +16,11 @@ public interface IAttachmentStore
 
     IReadOnlyList<StoredAttachment> List();
 
-    /// <summary>單一檔案的大小與最後寫入時間（備份複製前後比對用，備份設計 §5.5）；不存在回 null。</summary>
-    StoredAttachment? Stat(string id) => null;
+    /// <summary>
+    /// 單一檔案的大小與最後寫入時間（備份複製前後比對用，備份設計 §5.5）；不存在回 null。沒有預設實作（審查 S6）：
+    /// 新的附件儲存忘了實作，備份會把每個附件都當成「變動中」略過而照樣成功，是靜默的資料遺漏。
+    /// </summary>
+    StoredAttachment? Stat(string id);
 }
 
 public sealed record StoredAttachment(string Id, DateTime LastWriteUtc, long Size = 0);
