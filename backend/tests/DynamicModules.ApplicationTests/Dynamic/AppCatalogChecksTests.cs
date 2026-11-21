@@ -38,6 +38,19 @@ public class AppCatalogChecksTests : IDisposable
     }
 
     [Fact]
+    public void OriginalOf_IsTheFileTextWithoutTheBom()
+    {
+        // 升級基準存的原文（套件更新設計 §5.2）；File.ReadAllText 會吃掉 BOM，所以直接比位元組
+        var body = System.Text.Encoding.UTF8.GetBytes(Package("ping", "alpha"));
+        File.WriteAllBytes(Path.Combine(_dir, "ping.app.json"), [.. System.Text.Encoding.UTF8.GetPreamble(), .. body]);
+
+        var original = AppCatalog.Load(_dir).OriginalOf("ping")!;
+        original[0].Should().NotBe('\uFEFF');
+        System.Text.Encoding.UTF8.GetBytes(original).Should().Equal(body);
+        AppCatalog.Load(_dir).OriginalOf("pong").Should().BeNull();
+    }
+
+    [Fact]
     public void TwoIntegrations_ThatTogetherFormACycle_RefuseStartup()
     {
         Write("ping", Package("ping", "alpha", Integration("ping", "alpha", "pong", "bravo", "name")));

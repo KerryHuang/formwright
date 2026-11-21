@@ -143,6 +143,44 @@ public class AppBaselineTests : IDisposable
         parsed.Errors.Should().BeEmpty();
         parsed.FormatVersion.Should().Be(AppPackageData.CurrentFormatVersion, "存開啟當下升級後的 v2，之後讀取不再依當下已知的套件解析");
         parsed.V2!.Manifest.Id.Should().Be("order");
+
+        // 讀回來的基準要和開啟時用的套件等價：序列化不能漏屬性或改預設值（U24 的寫入半段）
+        using var scope = _app.Services.CreateScope();
+        var source = scope.ServiceProvider.GetRequiredService<AppPackageSource>();
+        var opened = (await source.FindAsync("order", CancellationToken.None))!.Package;
+        var (readBack, errors) = await source.ReadAsync(b.PackageJson, CancellationToken.None);
+        errors.Should().BeEmpty();
+        readBack.Should().BeEquivalentTo(opened, o => o.ComparingByMembers<JsonElement>().RespectingRuntimeTypes());
+    }
+
+    [Fact]
+    public async Task ImportingWithABom_StoresTheTextWithoutTheBom()
+    {
+        var body = Encoding.UTF8.GetBytes(AppTestPackages.Crm);
+        var content = new ByteArrayContent([.. Encoding.UTF8.GetPreamble(), .. body]);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+        (await _admin.PostAsync($"{Apps}/packages/import", content)).StatusCode.Should().Be(HttpStatusCode.Created);
+        await OpenOk("crm-lite", new { groupMap = new Dictionary<string, object>() });
+
+        var stored = BaselineOf("crm-lite")!.PackageJson;
+        stored[0].Should().NotBe('\uFEFF');
+        Encoding.UTF8.GetBytes(stored).Should().Equal(body, "基準是去 BOM 後的位元組");
+    }
+
+    [Fact]
+    public async Task FailedOpen_AfterTheMasterWasAutoOpened_RollsBackTheMastersBaselineToo()
+    {
+        // 主檔 bp 先自動開啟並寫入基準（已 SaveChanges），使用者套件 stk 到實例化才失敗：整個交易回滾，主檔也不留
+        await ImportOk(SharedMasterPackages.Bp);
+        var phone = "{ \"code\": \"phone\", \"type\": \"phone\", \"label\": { \"zh-TW\": \"電話\" }, \"config\": {} }";
+        SharedMasterPackages.Stock.Should().Contain(phone);
+        await ImportOk(SharedMasterPackages.Stock.Replace(phone, phone +
+            ", { \"code\": \"calc\", \"type\": \"formula\", \"label\": { \"zh-TW\": \"算\" }, \"config\": { \"formula\": \"1 +\", \"resultType\": \"number\" } }"));
+
+        var res = await _admin.PostAsJsonAsync($"{Apps}/packages/stk/open", new { groupMap = new Dictionary<string, object>() });
+        res.IsSuccessStatusCode.Should().BeFalse(await res.Content.ReadAsStringAsync());
+        Db(db => db.Set<App>().Count()).Should().Be(0, "主檔的自動開啟也一起回滾");
+        Db(db => db.Set<AppBaseline>().Count()).Should().Be(0);
     }
 
     [Fact]
