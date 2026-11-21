@@ -104,6 +104,8 @@ public static class AppMessages
     public const string UpgradeDowngrade = "新版的版號比目前的小，不支援降版";
     public const string UpgradeStale = "內容已變更，請重新預覽";
     public const string UpgradeBlocked = "目前不能套用這次更新";
+    public const string UpgradeStaleCode = "upgradeStale";
+    public const string UpgradeBlockedCode = "upgradeBlocked";
     public const string UpgradeGroupMapped = "已對應好的群組不能在更新頁改，請到權限分頁調整";
     public const string UpgradeGroupMissing = "對應的群組不存在";
     public const string UpgradeItemUnknown = "這一項不在預覽的清單裡";

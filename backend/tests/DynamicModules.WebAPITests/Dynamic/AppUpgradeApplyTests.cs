@@ -163,6 +163,7 @@ public class AppUpgradeApplyTests : IDisposable
         var res = await ApplyAsync(preview.GetProperty("token").GetString()!, "field:lead.company");
         res.StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await res.Content.ReadAsStringAsync()).Should().Contain("內容已變更");
+        (await JsonOf(res)).GetProperty("code").GetString().Should().Be("upgradeStale", "畫面只在 token 不符時重新預覽（M5）");
         Query(db => db.Set<App>().Single(a => a.Key == "crm-sales").PackageVersion).Should().Be("1.0.0");
     }
 
@@ -206,7 +207,11 @@ public class AppUpgradeApplyTests : IDisposable
         item.GetProperty("reason").GetString().Should().Be("notYetSupported");
         preview.GetProperty("canApply").GetBoolean().Should().BeFalse();
         preview.GetProperty("blockers").EnumerateArray().Select(b => b.GetProperty("code").GetString()).Should().Contain("secondBatch");
-        (await ApplyAsync(preview.GetProperty("token").GetString()!)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var blocked = await ApplyAsync(preview.GetProperty("token").GetString()!);
+        blocked.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var body = await JsonOf(blocked);
+        body.GetProperty("code").GetString().Should().Be("upgradeBlocked", "擋下的 409 附預覽，畫面用它重畫（M5）");
+        body.GetProperty("blockers").EnumerateArray().Select(b => b.GetProperty("code").GetString()).Should().Contain("secondBatch");
     }
 
     [Fact]

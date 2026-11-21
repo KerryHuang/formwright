@@ -309,7 +309,7 @@ pkg1 做一個**升級預覽與逐項套用**的入口：
 
 以下是 pkg1b 定下、pkg1c 要依賴的契約細節（pkg1b 審查 M3 回填）：
 
-- **`blockers`** 每筆 `{ code, detail }`，`code` 由前端翻譯（`apps.upgrade.blocker.<code>`），`detail` 是補充（應用程式 id、驗證訊息；主檔的前面加主檔 id）。代碼：`closed`（應用程式已關閉，Q6）、`exportFailed`（現況匯出失敗）、`invalidPackage`（新版沒通過驗證或政策上限）、`requiresUpdate`（需要的模組要等別的應用程式先更新，`detail` 是那個應用程式 id）、`requiresApp`（需要的應用程式、主檔或實體沒開啟）。
+- **`blockers`** 每筆 `{ code, detail }`，`code` 由前端翻譯（`apps.upgrade.blocker.<code>`），`detail` 是補充（應用程式 id、驗證訊息；主檔的前面加主檔 id）。代碼：`closed`（應用程式已關閉，Q6）、`exportFailed`（現況匯出失敗）、`invalidPackage`（新版沒通過驗證或政策上限）、`requiresUpdate`（需要的模組要等別的應用程式先更新，`detail` 是那個應用程式 id）、`requiresApp`（需要的應用程式、主檔或實體沒開啟）、`secondBatch`（第二批項目有差異，pkg1d 之前整個擋下，§15）、`masterPending`（用到的共用主檔有新版，`detail` 是主檔 id，pkg1d 之前整個擋下）、`hostTaken`（新模組要擴充的宿主已被其他模組佔用，`detail` 是新模組代號，§8.2 第 3 點）。
 - **`groups[].reason`**：`new`（新版多的代號）、`stale`（對到的群組已刪除）、`skipped`（開啟時略過）。`choice` 是 `{ mode, groupId }`，`mode` 為 `map`、`create`、`skip`。
 - **409 有四種**，都回訊息文字：版號相同「已是最新」、目錄裡找不到這個應用程式的候選「沒有可用的新版」、候選版號較小「新版的版號比目前的小，不支援降版」、直接對共用主檔的 key 預覽回 `MasterManaged`（與開啟、關閉主檔同一句；主檔的新版從使用它的應用程式更新頁看，Q10，pkg1b 審查 S8）。應用程式本身不是新版、但用到的共用主檔有新版時照常回預覽（只含 `masters`）。降版目前排在主檔候選之前判斷（pkg1b 審查 S7，延到 pkg1c 決定）。
 
@@ -338,6 +338,9 @@ pkg1c 實作補記（2026-11-22）：
 - 勾選驗證的 400 以 `items.<項目識別>` 為鍵：不在這次清單、不能套用、缺的相依（訊息列出缺的項目識別）。
 - 設計器指令失敗時，既有物件的修改、規則組、檢視、報表的錯誤鍵前面加項目識別（`<項目識別>.<原本的鍵>`），409、404 的訊息前面加項目識別；新模組與新欄位的建立失敗沿用實例化的鍵（`<模組代號>.<欄位代號>.…`、`contributions.<模組代號>.<欄位代號>.…`）。畫面直接顯示訊息。
 - `masters` 先不收：共用主檔有新版時整個套用擋 `masterPending`（主檔一起更新留 pkg1d，§15），所以 pkg1c 的 token 只涵蓋應用程式自己。
+- 409 帶 `code` 讓畫面分辨（審查 M5）：token 不符是 `upgradeStale`，畫面提示「內容已變更」並重新預覽；`canApply` 為 false 是 `upgradeBlocked`，內容附預覽，畫面用它重畫、列出 `blockers`；沒有 `code` 的 409 是設計器指令擋下（訊息前面有項目識別），畫面只顯示訊息、不重新預覽。400 的 `errors` 逐鍵列出，鍵裡與訊息裡的項目識別換成項目名稱。重新預覽失敗（例如已是最新）時清掉舊清單與套用鈕，只顯示原因。
+- 既有報表的修改與分享不經報表指令（兩者只讓擁有者改），在套用裡直接寫，定義照樣驗證，擁有者不變（審查 M3）。
+- 稽核明細的單項本身超過一筆的上限時，舊值、新值改記 `{ length, sha256 }` 並標 `truncated`（審查 S1）；新模組、新欄位、新選項附帶的權限也逐筆記（`old` 為 null，審查 S2）。
 
 ### 8.4 項目的形狀
 
@@ -359,7 +362,9 @@ pkg1c 實作補記（2026-11-22）：
 }
 ```
 
-- `reason`：不能勾或要說明時的**原因代碼**，由前端翻譯（`apps.upgrade.reason.<code>`），能照一般規則勾時是 null。代碼：`customerOnly`（只有客戶改）、`removedInNew`（新版移除）、`typeChanged`（欄位型別不同）、`kindChanged`（模組種類或擴充宿主不同）、`referenceChanged`（參照對象或關聯方式不同）、`existingPermission`（既有物件的權限修改，Q5）。§6.4 寫的原因文字是畫面上翻譯後的樣子，不在 API 裡。
+- `reason`：不能勾或要說明時的**原因代碼**，由前端翻譯（`apps.upgrade.reason.<code>`），能照一般規則勾時是 null。代碼：`customerOnly`（只有客戶改）、`removedInNew`（新版移除）、`typeChanged`（欄位型別不同）、`kindChanged`（模組種類或擴充宿主不同）、`referenceChanged`（參照對象或關聯方式不同）、`existingPermission`（既有物件的權限修改，Q5）、`notYetSupported`（第二批項目，pkg1d 之前不能套用，§15）、`affectsData`（既有欄位這次會改成必填、有記錄沒填值，§6.4）、`unmatched`（現況有對照列、比對模式卻表達不了，§6.1）。§6.4 寫的原因文字是畫面上翻譯後的樣子，不在 API 裡。
+- `affectedRecords`：只在 `reason` 是 `affectsData` 時有值，是沒填值的記錄數；只有「必填」這次真的會寫入（不是客戶改成非必填而保留）時才判斷（審查 M4）。
+- `dependsOn`：引用到的「現況還沒有、這次列出」的項目。引用的對象是新區塊、新模組底下的項目時（它們不另列），指向列出的那個區塊或模組；模組項目看標題欄位與標題樣板，規則看 target 的 `field:`／`block:` 與條件值的 `opt_` 去掉前綴後的代號（審查 M2）。開啟時排除的欄位套用新區塊時不建（審查 S3），也不當依賴。
 - `attachedPermissions`：新模組、新欄位、新選項、新貢獻附帶的權限（Q12），每條 `{ groupId, groupName, effect, grants, scope }`（`scope` 只有模組權限有，是資料範圍）；選了「建立新群組」的代號，`groupId` 是**負數暫代 id**（這次預覽裡將新建的群組，同一次預覽內每個代號固定一個），`groupName` 是套件裡的群組名稱。負數 id 只給畫面顯示，套用時不得送回、也不能拿去查群組；`effect` 是動作或限制（`hidden`、`readOnly`、`visible`、`read`、`edit`…，含資料範圍），`grants` 為 true 表示給權類。和 `defaultSelected` 一樣只在後端算，畫面的「給權」標示照它顯示。
 - `category`：`newOnly`、`customerOnly`、`both`、`added`、`customerDeleted`、`removedInNew`、`excludedAtOpen`、`skippedBefore`、`noBaseline`、`unmatched`。
 - `label` 給畫面顯示，取新版的值，沒有新版（新版移除）取現況的。

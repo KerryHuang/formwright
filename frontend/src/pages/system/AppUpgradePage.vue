@@ -3,12 +3,12 @@ import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
-import { useQuery } from '@tanstack/vue-query';
+import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import { useAppUpgradePreview, useApplyAppUpgrade, useApps } from 'src/application/dynamic/queries/apps-queries';
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import {
-  CATEGORY_ORDER, confirmCounts, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatValue, groupItems, isLong,
+  applyErrorLines, CATEGORY_ORDER, confirmCounts, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatValue, groupItems, isLong,
   moduleNames, NOT_APPLICABLE, toggleItem,
 } from 'src/presentation/dynamic/upgrade/upgrade-view';
 import type { I18nText } from 'src/domain/dynamic/types';
@@ -26,7 +26,9 @@ const preview = useAppUpgradePreview(key, body);
 const applying = useApplyAppUpgrade(key);
 const adminGroups = useQuery({ queryKey: ['admin-groups'], queryFn: dynamicApi.getAdminGroups });
 const apps = useApps();
-const data = computed(() => preview.data.value);
+const qc = useQueryClient();
+// 重新預覽失敗（例如另一個分頁已套用、回 409 已是最新）時不留舊清單與套用鈕：react-query 失敗時仍保留上一次的 data（走查）
+const data = computed(() => (preview.error.value ? undefined : preview.data.value));
 const error = computed(() => preview.error.value as ApiError | null);
 const forbidden = computed(() => isForbidden(error.value));
 const name = (n: Parameters<typeof resolveI18n>[0]) => resolveI18n(n, locale.value);
@@ -97,8 +99,12 @@ function choose(code: string, value: string) {
 
 const confirming = ref(false);
 const summary = computed(() => confirmCounts(data.value?.items ?? [], selected.value));
+// 套用回 400 的逐項原因（§8.3）：項目識別換成名稱；重新預覽後清掉
+const applyErrors = ref<{ label: string; messages: string[] }[]>([]);
+watch(() => data.value?.token, () => { applyErrors.value = []; });
 async function apply() {
   if (!data.value) return;
+  applyErrors.value = [];
   try {
     const result = await applying.mutateAsync({ ...body.value, token: data.value.token, items: [...selected.value] });
     confirming.value = false;
@@ -110,9 +116,16 @@ async function apply() {
   } catch (e) {
     confirming.value = false;
     const err = e as ApiError;
-    if (err.status === 409) {
+    // 409 依代碼分辨（審查 M5）：token 不符才重新預覽；擋下的用附帶的預覽重畫；其他（例如設計器指令擋下）只顯示訊息、不自動重試
+    if (err.status === 409 && err.code === 'upgradeStale') {
       $q.notify({ type: 'warning', message: t('apps.upgrade.stale') });
       await preview.refetch();
+    } else if (err.status === 409 && err.upgradePreview) {
+      qc.setQueryData(['app-upgrade', key, body.value], err.upgradePreview);
+      $q.notify({ type: 'warning', message: t('apps.upgrade.blocked') });
+    } else if (err.status === 400 && err.errors && Object.keys(err.errors).length) {
+      applyErrors.value = applyErrorLines(err.errors, allItems.value, labelOf);
+      $q.notify({ type: 'negative', message: t('apps.upgrade.applyFailed') });
     } else $q.notify({ type: 'negative', message: err.message || t('apps.upgrade.applyFailed') });
   }
 }
@@ -164,6 +177,10 @@ const viewing = ref<{ title: string; value: string } | null>(null);
         <q-banner v-if="data.blockers.length" rounded class="bg-negative-soft q-mb-md" data-testid="upgrade-blockers">
           <div class="text-weight-medium">{{ t('apps.upgrade.blocked') }}</div>
           <div v-for="(b, i) in data.blockers" :key="i">{{ t(`apps.upgrade.blocker.${b.code}`, { detail: b.detail ?? '' }) }}</div>
+        </q-banner>
+        <q-banner v-if="applyErrors.length" rounded class="bg-negative-soft q-mb-md" data-testid="upgrade-apply-errors">
+          <div class="text-weight-medium">{{ t('apps.upgrade.applyFailed') }}</div>
+          <div v-for="(line, k) in applyErrors" :key="k">{{ line.label }}：{{ line.messages.join('；') }}</div>
         </q-banner>
         <div v-for="w in data.warnings" :key="w" class="text-caption text-muted q-mb-xs">{{ w }}</div>
 

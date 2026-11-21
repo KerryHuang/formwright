@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AppInfo, UpgradeItem } from 'src/services/api/dynamic-api';
-import { confirmCounts, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatValue, groupItems, isLong, moduleNames, NOT_APPLICABLE, toggleItem } from './upgrade-view';
+import { applyErrorLines, confirmCounts, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatValue, groupItems, isLong, moduleNames, NOT_APPLICABLE, toggleItem } from './upgrade-view';
 
 const item = (id: string, category: UpgradeItem['category'], extra: Partial<UpgradeItem> = {}): UpgradeItem => ({
   id, section: 'fields', module: 'lead', label: null, category, defaultSelected: false, applicable: true, reason: null,
@@ -79,5 +79,28 @@ describe('selection (§6.5, §10.2 point 7)', () => {
 
   it('default selection follows the backend', () => {
     expect([...defaultSelection([mk('a'), mk('b', [], 'customerOnly', false)])]).toEqual(['a']);
+  });
+});
+
+describe('apply errors (§8.3, review M5)', () => {
+  const items = [item('field:customer.tier', 'added'), item('field:customer.tierNote', 'added'), item('report:byStatus', 'added')];
+  const labelOf = (i: UpgradeItem) => `L(${i.id})`;
+
+  it('maps items.<id>, <id>.<detail> and bare keys to the item label, longest id first', () => {
+    expect(applyErrorLines({
+      'items.report:byStatus': ['要一起套用：field:customer.tier'],
+      'field:customer.tierNote.config.maxLength': ['too long'],
+      'report:byStatus.definition': ['bad'],
+      'groupMap.sales': ['mapped'],
+    }, items, labelOf)).toEqual([
+      { label: 'L(report:byStatus)', messages: ['要一起套用：L(field:customer.tier)'] },
+      { label: 'L(field:customer.tierNote)', messages: ['too long'] },
+      { label: 'L(report:byStatus)', messages: ['bad'] },
+      { label: 'groupMap.sales', messages: ['mapped'] },
+    ]);
+  });
+
+  it('is empty without errors', () => {
+    expect(applyErrorLines(undefined, items, labelOf)).toEqual([]);
   });
 });
