@@ -359,6 +359,21 @@ public sealed class McpCheckMessageMaskTests : EffectsTestBase
         Violation(await AddLineAsSales(o)).Should().Be("合計 …，上限 100");
     }
 
+    /// <summary>#89 審查 S2：Pricing 只看表頭。明細自己的程式代碼有 CanAmt、表頭沒有時仍要遮（不得「兩邊任一有就給」）。</summary>
+    [Fact]
+    public async Task Mcp_DetailCheck_PricingOnlyOnDetail_ValueElided()
+    {
+        var o = await OrderRig("mco5", pricing: false);
+        Db.Context.Set<GroupProgramPrivilege>().Add(new GroupProgramPrivilege
+        {
+            GroupId = o.SalesGroupId, ProgramCode = (await Detail(o.Line)).ProgramCode,
+            CanRead = true, CanAdd = true, CanEdit = true, CanDelete = true, CanAmt = true
+        });
+        await Db.Context.SaveForTestsAsync();
+        Db.Context.ChangeTracker.Clear();
+        Violation(await AddLineAsSales(o)).Should().Be("合計 …，上限 100");
+    }
+
     [Fact]
     public async Task Mcp_DetailCheck_AmountHiddenByDetailGroupRule_ValueElided()
     {
@@ -399,6 +414,7 @@ public sealed class McpCheckMessageMaskTests : EffectsTestBase
             var (prepared, failure) = await evaluator.PrepareAsync(module, check, default);
             failure.Should().BeNull();
 
+            var before = _perm.Loads;
             var loads = new List<int>();
             foreach (var item in new[] { "A", "B", "C" })
             {
@@ -406,6 +422,7 @@ public sealed class McpCheckMessageMaskTests : EffectsTestBase
                 (await evaluator.EvaluateAsync(prepared!, group, default)).Violation.Should().Be("目前 0，下限 100");
                 loads.Add(_perm.Loads);
             }
+            loads[0].Should().BeGreaterThan(before, "第一組要真的讀過權限（#89 審查 S1）");
             loads[1].Should().Be(loads[0]);
             loads[2].Should().Be(loads[0]);
         }

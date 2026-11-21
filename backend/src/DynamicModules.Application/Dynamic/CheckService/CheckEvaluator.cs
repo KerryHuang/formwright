@@ -135,7 +135,7 @@ public class CheckEvaluator(IRecordRepository records, IModuleRepository modules
     private async Task<IReadOnlySet<long>?> HiddenFieldsAsync(Module module, CancellationToken ct)
     {
         if (ModuleRelations.ParentKeyOf(module) is not { } parentKey) return await hiddenFields.ForUserAsync(module, user.UserId, ct);
-        var parent = await modules.GetByKeyAsync(parentKey, includeChildren: true, ct);
+        var parent = await modules.GetByKeyAsync(parentKey, includeChildren: false, ct);
         return parent is null ? null : await hiddenFields.ForDetailUserAsync(parent, module, user.UserId, ct);
     }
 
