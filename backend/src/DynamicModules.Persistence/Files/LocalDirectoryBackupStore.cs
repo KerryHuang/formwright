@@ -11,7 +11,8 @@ namespace DynamicModules.Persistence.Files;
 public sealed class LocalDirectoryBackupStore(string root, ILogger<LocalDirectoryBackupStore> logger) : IBackupStore
 {
     public const string StagingDir = ".staging", SetsDir = "sets";
-    private const string PartialSuffix = ".partial";
+    /// <summary>寫到一半的檔：<c>&lt;目標&gt;.partial-&lt;guid&gt;</c>，每次寫入各自一個（多台同時寫同一個目標時互不刪、不搬錯）。</summary>
+    private const string PartialMarker = ".partial-";
     private const UnixFileMode DirMode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
     private const UnixFileMode FileMode600 = UnixFileMode.UserRead | UnixFileMode.UserWrite;
 
@@ -66,18 +67,16 @@ public sealed class LocalDirectoryBackupStore(string root, ILogger<LocalDirector
         var full = Full(path);
         if (File.Exists(full)) throw new BackupObjectExistsException(path);
         EnsureDirectory(Path.GetDirectoryName(full)!);
-        var partial = full + PartialSuffix;
-        // 上一次中斷留下的半個檔
-        if (File.Exists(partial)) File.Delete(partial);
+        var partial = $"{full}{PartialMarker}{Guid.NewGuid():N}";
         try
         {
             await using (var file = new FileStream(partial, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 await content.CopyToAsync(file, ct);
             Restrict(partial, FileMode600);
-            // 不覆寫：目標在這之間被別人寫了就丟例外
-            File.Move(partial, full, overwrite: false);
+            // 不覆寫：目標在這之間被別人（另一台、另一個執行緒）寫了就是「已存在」
+            Publish(partial, full);
         }
-        catch (IOException) when (File.Exists(full) && !File.Exists(partial))
+        catch (IOException e) when (e is not BackupObjectExistsException && File.Exists(full))
         {
             throw new BackupObjectExistsException(path);
         }
@@ -85,6 +84,32 @@ public sealed class LocalDirectoryBackupStore(string root, ILogger<LocalDirector
         {
             if (File.Exists(partial)) File.Delete(partial);
         }
+    }
+
+    /// <summary>
+    /// 把寫好的暫存檔原子地放成目標、目標已存在就失敗（M1）。.NET 的 <c>File.Move(overwrite: false)</c> 在 macOS 等平台是「先查再 rename」，
+    /// 兩個寫入者同時搬會互相覆蓋；非 Windows 改用 <c>link(2)</c>（目標存在回 EEXIST，原子）。
+    /// 儲存端不支援硬連結（部分 CIFS 掛載）才退回 <c>File.Move</c>：那時只靠先查，極少數同時寫入可能互蓋（內容同樣完整）。
+    /// </summary>
+    private static void Publish(string partial, string full)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            File.Move(partial, full, overwrite: false);
+            return;
+        }
+        if (Native.link(partial, full) == 0) return;
+        var errno = System.Runtime.InteropServices.Marshal.GetLastPInvokeError();
+        if (errno == Native.EEXIST) throw new IOException($"目標已存在：{full}");
+        File.Move(partial, full, overwrite: false);
+    }
+
+    private static class Native
+    {
+        public const int EEXIST = 17;   // Linux 與 macOS 相同
+
+        [System.Runtime.InteropServices.DllImport("libc", SetLastError = true)]
+        public static extern int link(string oldPath, string newPath);
     }
 
     public Task<Stream?> OpenReadAsync(string path, CancellationToken ct)
@@ -99,7 +124,7 @@ public sealed class LocalDirectoryBackupStore(string root, ILogger<LocalDirector
         if (!Directory.Exists(dir)) return Task.FromResult<IReadOnlyList<BackupObject>>([]);
         var staging = Path.Combine(_root, StagingDir) + Path.DirectorySeparatorChar;
         IReadOnlyList<BackupObject> list = [.. Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories)
-            .Where(f => !f.StartsWith(staging, StringComparison.Ordinal) && !f.EndsWith(PartialSuffix, StringComparison.Ordinal))
+            .Where(f => !f.StartsWith(staging, StringComparison.Ordinal) && !Path.GetFileName(f).Contains(PartialMarker, StringComparison.Ordinal))
             .Select(f => new FileInfo(f))
             .Select(f => new BackupObject(Path.GetRelativePath(_root, f.FullName).Replace(Path.DirectorySeparatorChar, '/'), f.Length, f.LastWriteTimeUtc))];
         return Task.FromResult(list);
