@@ -20,28 +20,34 @@ public sealed class AppPackageSource(AppCatalog catalog, TemplateCatalog templat
     public const string Imported = "imported";
 
     /// <summary>
-    /// 「這個 id 現在該用哪一份套件」的唯一來源（套件更新設計 §7.1，T19），開啟、自動開啟主檔、升級預覽、
-    /// 套件清單的 upgrade 欄位共用：一般應用程式內建優先；共用主檔取內建與匯入兩份裡版號較大的，同版號取匯入的
-    /// （再匯入主檔會把合併結果存成匯入的那份，共用主檔設計 §9；合併副本保留當時的 manifest，匯入優先會永遠遮住內建新版）。
+    /// 「這個 id 現在該用哪一份套件」：開啟、自動開啟主檔、再匯入主檔的合併底稿、匯出共用（套件更新設計 §7.1，T19）。
+    /// 一般應用程式內建優先；共用主檔有匯入的那份就用它（再匯入主檔會把合併結果存成匯入的那份，共用主檔設計 §9），不比版號——
+    /// 合併副本留著當時的 manifest 版號，改用版號較大的內建版會讓客戶之前補進來的欄位不見（審查 S17）。
+    /// 已開啟的主檔看不看得到內建新版由 <see cref="CandidateForAsync"/> 決定。
     /// </summary>
     public async Task<SourcedPackage?> FindAsync(string id, CancellationToken ct)
     {
         var builtIn = catalog.BuiltIns.FirstOrDefault(p => p.Manifest.Id == id);
         if (builtIn is { Manifest.IsMaster: false }) return BuiltInOf(builtIn);
         var imported = await ImportedAsync(id, ct);
-        if (imported is not null && builtIn is not null && !imported.Package.Manifest.IsMaster) imported = null;
-        if (builtIn is null) return imported;
-        return imported is not null && !PackageVersion.IsNewer(builtIn.Manifest.Version, imported.Package.Manifest.Version)
-            ? imported : BuiltInOf(builtIn);
+        if (imported is not null && (builtIn is null || imported.Package.Manifest.IsMaster)) return imported;
+        return builtIn is null ? null : BuiltInOf(builtIn);
     }
 
     /// <summary>
-    /// 已開啟的應用程式的候選新版（§7.1）：一般應用程式不跨來源，內建開的只看目錄、匯入的只看匯入表；共用主檔照 <see cref="FindAsync"/>。
-    /// 不判斷版號，呼叫端自己比 <c>App.PackageVersion</c>。
+    /// 已開啟的應用程式的候選新版（§7.1）：一般應用程式不跨來源，內建開的只看目錄、匯入的只看匯入表；
+    /// 共用主檔取內建與匯入兩份裡版號較大的，同版號取匯入的（只用在升級候選，合併副本不會永遠遮住內建新版；開啟與合併仍照 <see cref="FindAsync"/>）。
+    /// 不判斷版號是否比已開啟的新，呼叫端自己比 <c>App.PackageVersion</c>。
     /// </summary>
     public async Task<SourcedPackage?> CandidateForAsync(App app, CancellationToken ct)
     {
-        if (app.Kind == AppKind.Master) return await FindAsync(app.Key, ct);
+        if (app.Kind == AppKind.Master)
+        {
+            var builtIn = catalog.BuiltIns.FirstOrDefault(p => p.Manifest.Id == app.Key) is { Manifest.IsMaster: true } mb ? BuiltInOf(mb) : null;
+            var imported = await ImportedAsync(app.Key, ct) is { Package.Manifest.IsMaster: true } mi ? mi : null;
+            if (builtIn is null || imported is null) return imported ?? builtIn;
+            return PackageVersion.IsNewer(builtIn.Package.Manifest.Version, imported.Package.Manifest.Version) ? builtIn : imported;
+        }
         if (app.Source == BuiltIn)
             return catalog.BuiltIns.FirstOrDefault(p => p.Manifest.Id == app.Key) is { Manifest.IsMaster: false } b ? BuiltInOf(b) : null;
         return await ImportedAsync(app.Key, ct) is { Package.Manifest.IsMaster: false } i ? i : null;
@@ -58,7 +64,7 @@ public sealed class AppPackageSource(AppCatalog catalog, TemplateCatalog templat
         return new(package, Imported, parsed.V1 is null ? row.Json : JsonSerializer.Serialize(package, TemplateJson.Options));
     }
 
-    /// <summary>內建在前、各自依 id 排序；匯入的壞資料略過。內建主檔有合併過的匯入版、且版號不比內建小時以匯入的取代，同一個 id 只列一次。</summary>
+    /// <summary>內建在前、各自依 id 排序；匯入的壞資料略過。內建主檔有合併過的匯入版時以匯入的取代（同 <see cref="FindAsync"/>），同一個 id 只列一次。</summary>
     public async Task<IReadOnlyList<SourcedPackage>> ListAsync(CancellationToken ct)
     {
         var list = catalog.BuiltIns.OrderBy(p => p.Manifest.Id, StringComparer.Ordinal).Select(p => new SourcedPackage(p, BuiltIn)).ToList();
@@ -67,9 +73,7 @@ public sealed class AppPackageSource(AppCatalog catalog, TemplateCatalog templat
             if ((await ReadAsync(row.Json, ct)).Package is not { } p) continue;
             var index = list.FindIndex(x => x.Package.Manifest.Id == p.Manifest.Id);
             if (index < 0) list.Add(new(p, Imported));
-            // 主檔：版號較大的那份，同版號取匯入的（同 FindAsync）
-            else if (list[index].Package.Manifest.IsMaster && p.Manifest.IsMaster
-                && !PackageVersion.IsNewer(list[index].Package.Manifest.Version, p.Manifest.Version)) list[index] = new(p, Imported);
+            else if (list[index].Package.Manifest.IsMaster && p.Manifest.IsMaster) list[index] = new(p, Imported);
         }
         return list;
     }

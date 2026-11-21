@@ -29,6 +29,8 @@ public sealed class AppUpgradePreviewer(
     {
         var app = await apps.GetByKeyAsync(key, ct);
         if (app is null) return ServiceResult.NotFound(AppMessages.NotFound);
+        // 主檔的新版從使用它的應用程式更新頁看（Q10），直接預覽主檔與開啟、關閉主檔一樣回 409
+        if (app.Kind == AppKind.Master) return ServiceResult.Conflict(AppMessages.MasterManaged);
         var candidate = await packages.CandidateForAsync(app, ct);
         var masters = await MasterCandidatesAsync(app, ct);
         if (candidate is not null && PackageVersion.Compare(candidate.Package.Manifest.Version, app.PackageVersion) < 0)

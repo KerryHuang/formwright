@@ -144,4 +144,16 @@ public class AppUpgradePreviewApiTests : IDisposable
 
         (await Preview(_app.AsUser("sales01"))).StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
+
+    /// <summary>直接預覽共用主檔回 409 MasterManaged（§8.1、Q10）：主檔的新版從使用它的應用程式更新頁看（審查 S8）。</summary>
+    [Fact]
+    public async Task MasterKey_Preview_IsMasterManaged_409()
+    {
+        await OpenCrmAsync();
+        SetOpenedVersion("partner", "1.0.0");
+
+        var res = await _admin.PostAsJsonAsync($"{Apps}/partner/upgrade/preview", new { });
+        res.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await res.Content.ReadAsStringAsync()).Should().Contain("共用主檔");
+    }
 }
