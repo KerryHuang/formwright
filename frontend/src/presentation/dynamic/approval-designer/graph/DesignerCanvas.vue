@@ -4,6 +4,7 @@ import { VueFlow, useVueFlow, type Edge, type Node } from '@vue-flow/core';
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { NODE_H, NODE_W } from 'src/domain/dynamic/approval-graph-layout';
+import { initialMinZoom } from './initial-fit';
 import DesignerEdge from './DesignerEdge.vue';
 import DesignerNode from './DesignerNode.vue';
 import type { DesignerEdgeData, DesignerNodeData } from './designer-graph';
@@ -19,13 +20,14 @@ const flow = useVueFlow(props.canvasId);
 const GRID = 8;
 const FIT_PADDING = 0.12;
 
-// 手機的首屏（J66，使用者 11-16 確認）：整張圖縮進 390px 只剩約 38px 寬的節點，所以改成只框住起點附近的 `initialNodes`（縮放 0.6–1）；
+// 手機的首屏（J66，使用者 11-16 確認）：整張圖縮進 390px 只剩約 38px 寬的節點，所以改成只框住起點附近的 `initialNodes`（縮放 0.6–1，聚焦的節點在 0.6 下比畫布寬時往下降，不被左右切掉）；
 // 節點量好尺寸後（nodesInitialized）才能 fitView，只做第一次。「全圖」鈕、平板以上不受影響。
 let fittedInitial = false;
 function fitInitial() {
   if (fittedInitial || !props.initialNodes?.length) return;
   fittedInitial = true;
-  void flow.fitView({ nodes: props.initialNodes, padding: 0.2, minZoom: 0.6, maxZoom: 1 });
+  const focused = props.nodes.filter((n) => props.initialNodes?.includes(n.id));
+  void flow.fitView({ nodes: props.initialNodes, padding: 0.2, minZoom: initialMinZoom(focused, NODE_W, flow.dimensions.value.width), maxZoom: 1 });
 }
 const fitAll = () => { void flow.fitView({ padding: FIT_PADDING, duration: 200 }); };
 /** 把節點移到畫布可見區中央；`rightInset` 是右側被抽屜擋住的寬度（平板的屬性抽屜）。 */

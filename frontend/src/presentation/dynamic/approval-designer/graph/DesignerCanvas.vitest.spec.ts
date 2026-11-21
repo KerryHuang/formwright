@@ -10,7 +10,7 @@ import type { DesignerEdgeData, DesignerNodeData } from './designer-graph';
 
 // 真實的拖拉、縮放只能在瀏覽器驗；這裡換成會記錄呼叫的替身（其餘匯出仍用真的）。
 const flowFns = vi.hoisted(() => ({ fitView: vi.fn(), setCenter: vi.fn(), zoomIn: vi.fn(), zoomOut: vi.fn() }));
-vi.mock('@vue-flow/core', async (orig) => ({ ...(await orig<typeof import('@vue-flow/core')>()), useVueFlow: () => ({ ...flowFns, viewport: ref({ x: 0, y: 0, zoom: 1 }) }) }));
+vi.mock('@vue-flow/core', async (orig) => ({ ...(await orig<typeof import('@vue-flow/core')>()), useVueFlow: () => ({ ...flowFns, viewport: ref({ x: 0, y: 0, zoom: 1 }), dimensions: ref({ width: 390, height: 600 }) }) }));
 
 const VueFlowStub = defineComponent({
   name: 'VueFlow', inheritAttrs: false,
