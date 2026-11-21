@@ -40,8 +40,9 @@ COPY --from=frontend /work/sourcemaps ./sourcemaps
 ENV ConnectionStrings__Dynamic="Data Source=/app/data/poc.db" \
     ASPNETCORE_ENVIRONMENT=Production \
     Demo__LoginEnabled=true \
+    Backup__Root=/app/backups \
     PORT=8080
 # 金鑰不留在映像裡：執行時會重新產生
-RUN dotnet DynamicModules.WebAPI.dll --generate-demo-data && rm -rf /app/data/keys
+RUN dotnet DynamicModules.WebAPI.dll --generate-demo-data && rm -rf /app/data/keys && mkdir -p /app/backups
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "DynamicModules.WebAPI.dll"]
