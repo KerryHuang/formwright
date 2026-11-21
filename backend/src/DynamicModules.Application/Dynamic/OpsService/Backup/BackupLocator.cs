@@ -4,7 +4,10 @@ using Microsoft.Extensions.Logging;
 
 namespace DynamicModules.Application.Dynamic.OpsService.Backup;
 
-/// <summary><see cref="Unwritable"/>：沒有標記檔、寫不進去，而且這個資料庫從沒採用過位置（只有執行器採用時會出現）。</summary>
+/// <summary>
+/// <see cref="Unwritable"/>：沒有標記檔、寫不進去，而且這個資料庫從沒採用過位置。執行器採用時寫不進標記檔，
+/// 或只讀（新鮮度、畫面、立即備份）時探測檔寫不進去，都回這個（複核 N1）。
+/// </summary>
 public enum BackupLocationStatus { NotConfigured, ProviderUnsupported, Invalid, Mismatch, Unwritable, Ok }
 
 /// <summary>位置檢查的結果；<see cref="LocationId"/> 是目前採用的位置識別碼（Ok 時才有，還沒採用過可能是 null）。</summary>
@@ -27,7 +30,7 @@ public sealed record BackupLocationState(BackupLocationStatus Status, string? Lo
 /// <summary>
 /// 位置與位置標記檔（備份設計 §7.4，T20）。標記檔 <c>.formwright-backup-location</c> 放位置識別碼，<c>Dynamic_BackupState</c> 記目前採用的：
 /// 沒有標記檔就建一個新的並採用（後寫的覆蓋先寫的，記 Warning「備份位置換新」）；相同照常；不同就是 <c>locationMismatch</c>，這台不備份。
-/// 只讀（新鮮度）時不建標記檔、不改採用。
+/// 只讀（新鮮度）時不建標記檔、不改採用；但沒有標記檔又從沒採用過時，會寫一個探測檔再刪掉，確認位置寫得進去。
 /// </summary>
 public sealed class BackupLocator(BackupSettings settings, IServiceProvider services, IBackupRepository runs, TimeProvider time, ILogger<BackupLocator> logger)
 {
@@ -52,7 +55,12 @@ public sealed class BackupLocator(BackupSettings settings, IServiceProvider serv
                 if (adopt) await runs.AdoptLocationAsync(marker, Now, instanceId, ct);
                 return new(BackupLocationStatus.Ok, marker);
             }
-            if (!adopt) return new(BackupLocationStatus.Ok, adopted);
+            if (!adopt)
+            {
+                // 只讀、沒有標記檔、從沒採用過（新安裝）：探一次寫入權限，寫不進去要讓新鮮度判嚴重、畫面不說「準備中」（複核 N1）
+                if (adopted is null && !await CanWriteAsync(store, ct)) return new(BackupLocationStatus.Unwritable);
+                return new(BackupLocationStatus.Ok, adopted);
+            }
 
             var fresh = Guid.NewGuid().ToString("N");
             try
@@ -75,6 +83,34 @@ public sealed class BackupLocator(BackupSettings settings, IServiceProvider serv
             return new(BackupLocationStatus.Ok, fresh);
         }
     }
+
+    /// <summary>寫一個探測檔再刪掉；不能刪的儲存不探（之後雲端儲存另訂）。</summary>
+    private static async Task<bool> CanWriteAsync(IBackupStore store, CancellationToken ct)
+    {
+        if (!store.CanDelete) return true;
+        var probe = $"{ProbePrefix}{Guid.NewGuid():N}";
+        try
+        {
+            using (var content = new MemoryStream([]))
+                await store.PutAsync(probe, content, ct);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+        try
+        {
+            await store.DeleteAsync(probe, ct);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // 寫得進、刪不掉：仍算可寫；殘檔由 .partial／探測檔清理收（N4）
+        }
+        return true;
+    }
+
+    /// <summary>寫入權限探測檔的檔名前綴（位置根目錄，不在任何清單裡）。</summary>
+    public const string ProbePrefix = ".formwright-write-probe-";
 
     private DateTime Now => Common.StorageTime.ToMicroseconds(time.GetUtcNow().UtcDateTime);
 

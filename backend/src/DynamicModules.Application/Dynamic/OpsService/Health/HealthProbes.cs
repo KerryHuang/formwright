@@ -202,7 +202,7 @@ public sealed class BackupFreshnessProbe : IHealthProbe
         {
             case BackupLocationStatus.NotConfigured: return new ProbeResult(HealthStatus.NotConfigured);
             case BackupLocationStatus.ProviderUnsupported: return new ProbeResult(HealthStatus.NotConfigured, null, location.Code);
-            case BackupLocationStatus.Invalid or BackupLocationStatus.Mismatch: return new ProbeResult(HealthStatus.Critical, null, location.Code);
+            case BackupLocationStatus.Invalid or BackupLocationStatus.Mismatch or BackupLocationStatus.Unwritable: return new ProbeResult(HealthStatus.Critical, null, location.Code);
         }
         var runs = location.LocationId is { } id ? await c.Services.GetRequiredService<IBackupRepository>().ListForLocationAsync(id, ct) : [];
         return BackupFreshness.Evaluate(runs, c.NowUtc, c.Definition, c.Settings, BackupLimits.Default);
