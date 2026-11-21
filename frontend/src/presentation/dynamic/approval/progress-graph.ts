@@ -259,3 +259,22 @@ export function graphHeight(layout: Pick<LayoutResult, 'width' | 'height'>, widt
 export function viewportTransform(plan: ViewportPlan, width: number, height: number): { x: number; y: number; zoom: number } {
   return { x: width / 2 - plan.center.x * plan.zoom, y: height / 2 - plan.center.y * plan.zoom, zoom: plan.zoom };
 }
+
+export interface NodeRect { x: number; y: number; width: number; height: number }
+
+/**
+ * 鍵盤 Tab 到畫面外的節點時，要把視角平移到剛好看得到它（不改縮放）。
+ * 節點完整落在視窗內回傳 null；否則回傳新的視角：只在超出的那個方向平移，並留 margin（畫面 px）邊距。
+ */
+export function revealViewport(node: NodeRect, vp: { x: number; y: number; zoom: number }, width: number, height: number, margin = GRAPH_PAD): { x: number; y: number; zoom: number } | null {
+  const shift = (pos: number, size: number, offset: number, view: number): number => {
+    const lo = offset + pos * vp.zoom;
+    const hi = lo + size * vp.zoom;
+    const m = Math.min(margin, Math.max(0, (view - size * vp.zoom) / 2));
+    if (lo >= 0 && hi <= view) return offset;
+    return lo < 0 ? offset - lo + m : offset - (hi - view) - m;
+  };
+  const x = shift(node.x, node.width, vp.x, width);
+  const y = shift(node.y, node.height, vp.y, height);
+  return x === vp.x && y === vp.y ? null : { x, y, zoom: vp.zoom };
+}

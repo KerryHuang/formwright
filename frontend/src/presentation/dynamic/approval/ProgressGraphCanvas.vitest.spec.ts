@@ -10,7 +10,7 @@ import canvasSource from './ProgressGraphCanvas.vue?raw';
 import type { ProgressNodeData, ViewportPlan } from './progress-graph';
 
 // 真正的 store 只在瀏覽器裡驗；這裡換成會記錄呼叫的替身（其餘匯出，例如 BaseEdge、getSmoothStepPath，仍用真的）。
-const flowFns = vi.hoisted(() => ({ setViewport: vi.fn(), fitView: vi.fn(), zoomIn: vi.fn(), zoomOut: vi.fn() }));
+const flowFns = vi.hoisted(() => ({ getViewport: vi.fn(() => ({ x: 0, y: 0, zoom: 0.8 })), setViewport: vi.fn(), fitView: vi.fn(), zoomIn: vi.fn(), zoomOut: vi.fn() }));
 vi.mock('@vue-flow/core', async (orig) => ({ ...(await orig<typeof import('@vue-flow/core')>()), useVueFlow: () => flowFns }));
 
 const edgeProps = {
@@ -125,4 +125,18 @@ describe('ProgressGraphCanvas', () => {
   it('a thumbnail canvas ignores pointer events in CSS', () => {
     expect(canvasSource).toMatch(/\.pg-canvas\.pg-thumb\s*\{[^}]*pointer-events:\s*none/);
   });
+});
+
+describe('ProgressGraphCanvas keyboard focus', () => {
+  it('pans to a focused node that is outside the view without changing zoom', async () => {
+    const nodes = [{ id: 'far', position: { x: 2000, y: 10 }, data: { ...nodeData, width: 168, height: 84 } }] as unknown as Node<ProgressNodeData>[];
+    const w = mountCanvas();
+    await w.setProps({ nodes });
+    const el = document.createElement('div');
+    el.className = 'vue-flow__node'; el.setAttribute('data-id', 'far');
+    w.get('[data-testid="pg-canvas"]').element.appendChild(el);
+    el.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    expect(flowFns.setViewport).toHaveBeenCalledWith(expect.objectContaining({ zoom: 0.8 }), expect.anything());
+  });
+
 });

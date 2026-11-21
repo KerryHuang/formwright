@@ -4,7 +4,7 @@ import { ADDSIGN_H, ADDSIGN_W, NODE_H, NODE_W } from 'src/domain/dynamic/approva
 import enUS from 'shared/i18n/en-US/ui.json';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import { stageColor, stageIcon } from './approval-display';
-import { buildProgressGraph, EDGE_LABEL_MAX_PX, focusNodeId, graphHeight, initialViewport, stateView, truncateEdgeLabel, viewportTransform } from './progress-graph';
+import { buildProgressGraph, EDGE_LABEL_MAX_PX, focusNodeId, graphHeight, initialViewport, revealViewport, stateView, truncateEdgeLabel, viewportTransform } from './progress-graph';
 
 const lookup = (messages: Record<string, unknown>) => (key: string) => key.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown> | undefined)?.[k], messages) as string ?? key;
 const t = lookup(zhTW);
@@ -348,5 +348,30 @@ describe('graphHeight', () => {
   });
   it('the thumbnail is 180px', () => {
     expect(graphHeight({ width: 5000, height: 300 }, 358, 'thumb', 800)).toBe(180);
+  });
+});
+
+describe('revealViewport', () => {
+  const vp = { x: 0, y: 0, zoom: 0.8 };
+  it('returns null when the node is fully inside the view', () => {
+    expect(revealViewport({ x: 100, y: 20, width: 168, height: 84 }, vp, 800, 200)).toBeNull();
+  });
+  it('pans right when the node is beyond the right edge, keeping zoom', () => {
+    const r = revealViewport({ x: 1500, y: 20, width: 168, height: 84 }, vp, 800, 200)!;
+    expect(r.zoom).toBe(0.8);
+    expect(r.x + (1500 + 168) * 0.8).toBeLessThanOrEqual(800);
+    expect(r.x + 1500 * 0.8).toBeGreaterThanOrEqual(0);
+    expect(r.y).toBe(0);
+  });
+  it('pans left when the node is before the left edge', () => {
+    const r = revealViewport({ x: 100, y: 20, width: 168, height: 84 }, { x: -600, y: 0, zoom: 0.8 }, 800, 200)!;
+    expect(r.x + 100 * 0.8).toBeGreaterThanOrEqual(0);
+  });
+  it('pans vertically when below the view', () => {
+    const r = revealViewport({ x: 100, y: 600, width: 168, height: 84 }, vp, 800, 200)!;
+    expect(r.y + (600 + 84) * 0.8).toBeLessThanOrEqual(200);
+  });
+  it('treats a partially clipped node as outside', () => {
+    expect(revealViewport({ x: 900 / 0.8 - 100, y: 20, width: 168, height: 84 }, vp, 800, 200)).not.toBeNull();
   });
 });

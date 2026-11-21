@@ -4,7 +4,7 @@ import { BaseEdge, VueFlow, getSmoothStepPath, useVueFlow, type Edge, type EdgeP
 import { computed, h, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import ProgressGraphNode from './ProgressGraphNode.vue';
-import { MAX_ZOOM, viewportTransform, type GraphMode, type ProgressEdgeData, type ProgressNodeData, type ViewportPlan } from './progress-graph';
+import { MAX_ZOOM, revealViewport, viewportTransform, type GraphMode, type ProgressEdgeData, type ProgressNodeData, type ViewportPlan } from './progress-graph';
 
 // 唯讀的進度圖畫布（fg4 計畫 J12）。Vue Flow 只在這個檔案與 ProgressGraphNode.vue 出現，由 ApprovalProgressGraph 動態載入。
 const props = defineProps<{
@@ -35,6 +35,16 @@ function ProgressEdge(p: EdgeProps<ProgressEdgeData>) {
   const label = short && full !== short ? () => [h('title', full), short] : short;
   return h(BaseEdge, { id: p.id, path, labelX, labelY, label: label || undefined, interactionWidth: 0, labelBgPadding: [4, 2] });
 }
+// 鍵盤 Tab 到畫面外的節點：瀏覽器只會捲動 overflow 容器，不會動 Vue Flow 的視角，所以自己平移到看得到（縮放不變）。
+function onFocusIn(e: FocusEvent) {
+  const el = (e.target as HTMLElement | null)?.closest?.('.vue-flow__node');
+  const node = props.nodes.find((n) => n.id === el?.getAttribute('data-id'));
+  if (!node) return;
+  const root = e.currentTarget as HTMLElement;
+  root.querySelectorAll<HTMLElement>('.vue-flow, .vue-flow__viewport, .vue-flow__transformationpane').forEach((n) => { n.scrollLeft = 0; n.scrollTop = 0; });
+  const next = revealViewport({ x: node.position.x, y: node.position.y, width: node.data?.width ?? 0, height: node.data?.height ?? 0 }, flow.getViewport(), props.width, props.height);
+  if (next) void flow.setViewport(next, { duration: 150 });
+}
 const fit = () => { void flow.fitView({ padding: 0.08, duration: 200 }); };
 const zoomIn = () => { void flow.zoomIn({ duration: 150 }); };
 const zoomOut = () => { void flow.zoomOut({ duration: 150 }); };
@@ -44,7 +54,7 @@ const zoomOut = () => { void flow.zoomOut({ duration: 150 }); };
   <!-- 縮圖不能操作，也不讓讀屏與鍵盤進去：整個畫布 inert、aria-hidden，由外層的「放大檢視」按鈕代表它。 -->
   <div
     class="pg-canvas" :class="{ 'pg-thumb': !interactive }" role="group" :aria-label="t('approval.graph.label')" :aria-hidden="interactive ? undefined : 'true'"
-    :inert="interactive ? undefined : true" data-testid="pg-canvas"
+    :inert="interactive ? undefined : true" data-testid="pg-canvas" @focusin="onFocusIn"
   >
     <VueFlow
       :id="id" :nodes="nodes" :edges="edges" :default-viewport="transform" :min-zoom="plan.minZoom" :max-zoom="MAX_ZOOM"
