@@ -153,7 +153,7 @@ public sealed class BackupWorker(
         }
         catch (Exception e)
         {
-            finish = Failed("failed", e);
+            finish = Failed("unexpected", e);
         }
         finally
         {

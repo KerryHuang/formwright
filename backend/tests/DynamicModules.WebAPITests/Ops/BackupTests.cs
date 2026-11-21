@@ -393,6 +393,135 @@ public class BackupTests
         app.Logs.Entries.Should().NotContain(e => e.Message.Contains("hunter2"));
     }
 
+    /// <summary>快照停在閘門，直到測試放行（模擬跑很久的 VACUUM INTO）。</summary>
+    internal sealed class SnapshotGate
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private sealed class GatedDatabase(IDatabaseBackup inner, SnapshotGate gate) : IDatabaseBackup
+    {
+        public string FileName => inner.FileName;
+        public string Provider => inner.Provider;
+        public Task<long> SizeBytesAsync(CancellationToken ct) => inner.SizeBytesAsync(ct);
+        public Task<string> LatestMigrationAsync(CancellationToken ct) => inner.LatestMigrationAsync(ct);
+        public async Task SnapshotAsync(string path, CancellationToken ct)
+        {
+            gate.Entered.TrySetResult();
+            await gate.Release.Task.WaitAsync(ct);
+            await inner.SnapshotAsync(path, ct);
+        }
+        public Task VerifyAsync(string path, string expectedMigration, CancellationToken ct) => inner.VerifyAsync(path, expectedMigration, ct);
+    }
+
+    private static void Gate(TestApp app, SnapshotGate gate) => app.ExtraServices = s =>
+    {
+        var real = s.Single(d => d.ServiceType == typeof(IDatabaseBackup));
+        s.Remove(real);
+        s.AddScoped<IDatabaseBackup>(sp => new GatedDatabase((IDatabaseBackup)ActivatorUtilities.CreateInstance(sp, real.ImplementationType!), gate));
+    };
+
+    /// <summary>把時鐘一分鐘一分鐘往前推，每一步等背景的心跳與續鎖寫完（它們在別的執行緒上跑）。</summary>
+    private static async Task AdvanceMinutes(TestApp app, ManualClock clock, int minutes, long runId)
+    {
+        for (var i = 0; i < minutes; i++)
+        {
+            clock.Advance(TimeSpan.FromMinutes(1));
+            var expected = clock.GetUtcNow().UtcDateTime.AddSeconds(-1);
+            await Until(() => Runs(app).GetAwaiter().GetResult().Single(r => r.Id == runId).HeartbeatUtc >= expected);
+        }
+    }
+
+    /// <summary>B14、S9：快照單一呼叫跑超過 5 分鐘，心跳照常（獨立計時），別台判定中斷時不會判到它；放行後照常成功。</summary>
+    [Fact]
+    public async Task LongSnapshot_HeartbeatKeepsRunAlive()
+    {
+        using var app = new BackupApp();
+        var gate = new SnapshotGate();
+        Gate(app, gate);
+        var clock = new ManualClock(app.Time.GetUtcNow());
+        var tick = Worker(app, clock).TickAsync(CancellationToken.None);
+        await Within(gate.Entered.Task);
+        var run = (await Runs(app)).Single();
+        await AdvanceMinutes(app, clock, 7, run.Id);
+        await using (var scope = app.Services.CreateAsyncScope())
+        {
+            var now = clock.GetUtcNow().UtcDateTime;
+            (await scope.ServiceProvider.GetRequiredService<IBackupRepository>().InterruptStaleAsync(now - BackupLimits.Default.Stale, now, default))
+                .Should().BeEmpty("心跳一直在寫");
+        }
+        gate.Release.SetResult();
+        await Within(tick);
+        (await Runs(app)).Single().Status.Should().Be(BackupRunStatus.Succeeded);
+    }
+
+    /// <summary>S2：附件鎖過期被別人接手（續鎖落空）→ 這份中止、failed／lockLost，不和清孤兒附件同時動附件。</summary>
+    [Fact]
+    public async Task LockTakenOver_BackupAborts_LockLost()
+    {
+        using var app = new BackupApp();
+        var gate = new SnapshotGate();
+        Gate(app, gate);
+        var clock = new ManualClock(app.Time.GetUtcNow());
+        var tick = Worker(app, clock).TickAsync(CancellationToken.None);
+        await Within(gate.Entered.Task);
+        await using (var scope = app.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<DynamicDbContext>();
+            var row = await db.Set<OpsLock>().SingleAsync(l => l.Key == OpsLock.Attachments);
+            row.Owner = "sweep-other";
+            await db.SaveChangesAsync();
+        }
+        clock.Advance(BackupLimits.Default.LockRenew);
+        await Within(tick);
+        var run = (await Runs(app)).Single();
+        run.Status.Should().Be(BackupRunStatus.Failed);
+        run.ErrorCode.Should().Be("lockLost");
+        Sets(app).Should().BeEmpty();
+    }
+
+    /// <summary>S3：已經搬進 sets/ 之後才關站：這份是完整的，記成功；同一天不再多排一份。</summary>
+    [Fact]
+    public async Task ShutdownAfterPublish_RecordedSucceeded_NoExtraRunToday()
+    {
+        using var app = new BackupApp();
+        using var cts = new CancellationTokenSource();
+        app.ExtraServices = s =>
+        {
+            var real = s.Single(d => d.ServiceType == typeof(IBackupStore));
+            s.Remove(real);
+            s.AddSingleton<IBackupStore>(sp => new CancelAfterPublish((IBackupStore)real.ImplementationFactory!(sp), cts));
+        };
+        await Worker(app).TickAsync(cts.Token);
+        var run = (await Runs(app)).Single();
+        run.Status.Should().Be(BackupRunStatus.Succeeded, run.ErrorCode);
+        Sets(app).Should().ContainSingle();
+        await Worker(app).TickAsync(CancellationToken.None);
+        (await Runs(app)).Should().ContainSingle();
+    }
+
+    private sealed class CancelAfterPublish(IBackupStore inner, CancellationTokenSource cts) : IBackupStore
+    {
+        public string Kind => inner.Kind;
+        public string DisplayLocation => inner.DisplayLocation;
+        public bool Isolated => inner.Isolated;
+        public bool CanDelete => inner.CanDelete;
+        public string? LocalRoot => inner.LocalRoot;
+        public Task<bool> ExistsAsync(string path, CancellationToken ct) => inner.ExistsAsync(path, ct);
+        public Task PutAsync(string path, Stream content, CancellationToken ct) => inner.PutAsync(path, content, ct);
+        public Task<Stream?> OpenReadAsync(string path, CancellationToken ct) => inner.OpenReadAsync(path, ct);
+        public Task<IReadOnlyList<BackupObject>> ListAsync(string prefix, CancellationToken ct) => inner.ListAsync(prefix, ct);
+        public Task DeleteAsync(string path, CancellationToken ct) => inner.DeleteAsync(path, ct);
+        public string PrepareStaging(string runKey) => inner.PrepareStaging(runKey);
+        public async Task PublishAsync(string runKey, string setName, CancellationToken ct)
+        {
+            await inner.PublishAsync(runKey, setName, ct);
+            await cts.CancelAsync();
+        }
+        public void ClearStaging(string? runKey = null, string? keepRunKey = null) => inner.ClearStaging(runKey, keepRunKey);
+    }
+
     private sealed class BrokenVerify(IDatabaseBackup inner) : IDatabaseBackup
     {
         public string FileName => inner.FileName;
@@ -429,6 +558,29 @@ public class BackupTests
         run.ErrorDetail.Should().Contain(BackupWorker.RootPlaceholder).And.NotContain(app.Root);
         var detail = await app.AsUser().GetFromJsonAsync<JsonElement>($"{Base}/backups/{run.Id}");
         detail.GetProperty("errorDetail").GetString().Should().NotContain(app.Root);
+    }
+
+    /// <summary>S4：上一份留下、刪不掉的暫存（位置權限壞了）歸 destinationUnwritable，不是兜底的 unexpected。</summary>
+    [Fact]
+    public async Task LeftoverStagingUndeletable_DestinationUnwritable()
+    {
+        if (OperatingSystem.IsWindows() || Environment.UserName == "root") return;
+        using var app = new BackupApp();
+        var old = Path.Combine(app.Root, ".staging", "0123456789abcdef0123456789abcdef");
+        Directory.CreateDirectory(old);
+        await File.WriteAllTextAsync(Path.Combine(old, "database.sqlite"), "half");
+        File.SetUnixFileMode(old, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        try
+        {
+            await Worker(app).TickAsync(CancellationToken.None);
+        }
+        finally
+        {
+            File.SetUnixFileMode(old, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        var run = (await Runs(app)).Single();
+        run.Status.Should().Be(BackupRunStatus.Failed);
+        run.ErrorCode.Should().Be("destinationUnwritable");
     }
 
     private sealed class TinyDisk : IDiskSpace
