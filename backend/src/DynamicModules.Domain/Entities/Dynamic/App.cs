@@ -107,6 +107,25 @@ public class AppIntegration
     public string ItemsJson { get; set; } = "{}";
 }
 
+/// <summary>
+/// 升級的基準（套件更新設計 §5）：開啟時（或上一次套用升級後）的套件原文與開啟選擇，一個應用程式一列、不留歷史。
+/// 只有升級預覽與套用會讀；開啟後的執行期不讀它。刪除應用程式時隨外鍵 cascade 刪除。
+/// </summary>
+public class AppBaseline
+{
+    public long AppId { get; set; }
+    /// <summary>套件原文：內建的是目錄檔（去 BOM）、匯入的是收到的原文；v1 範本檔例外，存開啟當下升級後的 v2（§5.2）。</summary>
+    public string PackageJson { get; set; } = "";
+    /// <summary>套件群組代號 → 群組 id（JSON 物件）；開啟時略過或沒列出的代號值為 null（§5.3）。</summary>
+    public string GroupMapJson { get; set; } = "{}";
+    /// <summary>開啟時取消勾選的限定欄位名（JSON 字串陣列）。</summary>
+    public string ExcludedFieldsJson { get; set; } = "[]";
+    /// <summary>上一次升級列出、可以勾卻沒勾的項目（JSON 陣列，§9.2）；pkg1c 起才寫入。</summary>
+    public string SkippedJson { get; set; } = "[]";
+    /// <summary>寫入基準的時間（牆上時間，取 IBusinessTime.Now）。</summary>
+    public DateTime CapturedTime { get; set; }
+}
+
 /// <summary>匯入的套件；Json 是收到的原文（每次讀取才升級，不回寫）。</summary>
 public class AppPackage : AuditableEntity
 {

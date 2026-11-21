@@ -105,6 +105,21 @@ public class AppIntegrationConfiguration : IEntityTypeConfiguration<AppIntegrati
     }
 }
 
+public class AppBaselineConfiguration : IEntityTypeConfiguration<AppBaseline>
+{
+    public void Configure(EntityTypeBuilder<AppBaseline> b)
+    {
+        b.ToTable("Dynamic_AppBaseline");
+        b.HasKey(x => x.AppId);
+        b.Property(x => x.AppId).ValueGeneratedNever();
+        b.Property(x => x.PackageJson).IsRequired();
+        b.Property(x => x.GroupMapJson).IsRequired();
+        b.Property(x => x.ExcludedFieldsJson).IsRequired();
+        b.Property(x => x.SkippedJson).IsRequired();
+        b.HasOne<App>().WithOne().HasForeignKey<AppBaseline>(x => x.AppId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
 public class AppPackageConfiguration : IEntityTypeConfiguration<AppPackage>
 {
     public void Configure(EntityTypeBuilder<AppPackage> b)
