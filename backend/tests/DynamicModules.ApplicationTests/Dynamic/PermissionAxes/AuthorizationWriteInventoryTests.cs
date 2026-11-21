@@ -67,6 +67,16 @@ public class AuthorizationWriteInventoryTests
     private static readonly HashSet<BatchMethod> NonGuardBatchMethods =
     [
         new($"{Repo}AlertRepositories.cs", "LockAsync"),              // 告警通道（AlertChannel）搶鎖
+        new($"{Repo}BackupRepository.cs", "TryClaimAsync"),         // 備份歷程（BackupRun）領工
+        new($"{Repo}BackupRepository.cs", "HeartbeatAsync"),        // 備份心跳與步驟
+        new($"{Repo}BackupRepository.cs", "RecordSnapshotAsync"),   // 備份快照完成
+        new($"{Repo}BackupRepository.cs", "FinishAsync"),           // 備份結束
+        new($"{Repo}BackupRepository.cs", "InterruptStaleAsync"),   // 心跳逾時判定中斷
+        new($"{Repo}BackupRepository.cs", "TrimAsync"),             // 備份歷程修剪
+        new($"{Repo}BackupRepository.cs", "AdoptLocationAsync"),    // 備份狀態（BackupState）採用新位置
+        new($"{Repo}BackupRepository.cs", "AcquireAsync"),          // 維運鎖（OpsLock）取得
+        new($"{Repo}BackupRepository.cs", "RenewAsync"),            // 維運鎖續鎖
+        new($"{Repo}BackupRepository.cs", "ReleaseAsync"),          // 維運鎖放鎖
         new($"{Repo}LocalePackRepository.cs", "DeleteForLocaleAsync"), // 語系覆寫層與預覽（LocalePack／LocalePackPreview）移除語系時清除
         new($"{Repo}LocalePackRepository.cs", "PrunePreviewsAsync"),  // 語系包預覽暫存逾期與超量清除
         new($"{Repo}AlertRepositories.cs", "RecordSuccessAsync"),     // 告警通道送出成功的狀態

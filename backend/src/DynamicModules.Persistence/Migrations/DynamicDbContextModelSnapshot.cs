@@ -1092,6 +1092,158 @@ namespace DynamicModules.Persistence.Migrations
                     b.ToTable("Dynamic_AuditLog", (string)null);
                 });
 
+            modelBuilder.Entity("DynamicModules.Domain.Entities.Dynamic.BackupRun", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("ActiveSlot")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AppVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("AttachmentCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("DatabaseBytes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ErrorDetail")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("FinishedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("HeartbeatUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LocationId")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MigrationId")
+                        .HasMaxLength(150)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("NewAttachmentBytes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("NewAttachmentCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("OwnerInstanceId")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PruneError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("PrunedSets")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("QueuedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RequestedUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RunKey")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ScheduleSlot")
+                        .HasMaxLength(10)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SetName")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("SkippedAttachments")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("SnapshotUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Stage")
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("StartedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("StoreKind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("TotalAttachmentBytes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActiveSlot")
+                        .IsUnique();
+
+                    b.HasIndex("RunKey")
+                        .IsUnique();
+
+                    b.HasIndex("ScheduleSlot");
+
+                    b.HasIndex("LocationId", "Status", "FinishedUtc");
+
+                    b.ToTable("Dynamic_BackupRun", (string)null);
+                });
+
+            modelBuilder.Entity("DynamicModules.Domain.Entities.Dynamic.BackupState", b =>
+                {
+                    b.Property<string>("Kind")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AdoptedByInstanceId")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("AdoptedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LocationId")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Kind");
+
+                    b.ToTable("Dynamic_BackupState", (string)null);
+                });
+
             modelBuilder.Entity("DynamicModules.Domain.Entities.Dynamic.Block", b =>
                 {
                     b.Property<long>("Id")
@@ -2759,6 +2911,24 @@ namespace DynamicModules.Persistence.Migrations
                     b.HasIndex("IncidentId", "OccurredUtc");
 
                     b.ToTable("Dynamic_OpsIncidentSample", (string)null);
+                });
+
+            modelBuilder.Entity("DynamicModules.Domain.Entities.Dynamic.OpsLock", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Owner")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UntilUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Key");
+
+                    b.ToTable("Dynamic_OpsLock", (string)null);
                 });
 
             modelBuilder.Entity("DynamicModules.Domain.Entities.Dynamic.PermissionGroup", b =>
