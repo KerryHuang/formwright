@@ -128,6 +128,11 @@
   color: var(--t-text);
 }
 
+.bg-warning-soft {
+  background: var(--t-warning-soft);
+  color: var(--t-text);
+}
+
 .text-h6 {
   font-size: var(--t-title-size);
 }
