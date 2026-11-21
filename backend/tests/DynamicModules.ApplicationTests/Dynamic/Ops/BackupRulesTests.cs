@@ -98,6 +98,20 @@ public class BackupRulesTests
         BackupPlan.NextScheduledUtc(done, At(22, 3), Taipei, 2, L).Should().Be(At(23, 2));
     }
 
+    /// <summary>S8 邊界：今天的時段還沒到、已中斷 2 次＝今天；中斷 3 次（上限）＝明天；剛好整點＝現在。</summary>
+    [Fact]
+    public void NextScheduled_InterruptLimitReachedBeforeHour_IsTomorrow()
+    {
+        var ok = Run(BackupRunStatus.Succeeded, "2026-11-21", snapshot: At(21, 2), finished: At(21, 2, 5));
+        var two = new[] { ok, Run(BackupRunStatus.Interrupted, "2026-11-22"), Run(BackupRunStatus.Interrupted, "2026-11-22") };
+        BackupPlan.NextScheduledUtc(two, At(22, 1), Taipei, 2, L).Should().Be(At(22, 2));
+        var three = two.Append(Run(BackupRunStatus.Interrupted, "2026-11-22")).ToArray();
+        BackupPlan.NextScheduledUtc(three, At(22, 1), Taipei, 2, L).Should().Be(At(23, 2));
+        BackupPlan.NextScheduledUtc(three, At(22, 3), Taipei, 2, L).Should().Be(At(23, 2));
+        BackupPlan.NextScheduledUtc([ok], At(22, 2), Taipei, 2, L).Should().Be(At(22, 2), "整點當下＝現在");
+        BackupPlan.NextScheduledUtc([ok], At(22, 1, 59), Taipei, 2, L).Should().Be(At(22, 2));
+    }
+
     // ── 新鮮度（§9.1） ─────────────────────────────────────────
 
     private static readonly HealthCheckDefinition Def = HealthCheckCatalog.Find(HealthCheckCatalog.BackupFreshness)!;
