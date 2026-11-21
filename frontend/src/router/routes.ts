@@ -45,6 +45,7 @@ export const routes: RouteRecordRaw[] = [
       { path: 'system/ai-access', component: () => import('src/pages/system/AiAccessPage.vue') },
       { path: 'system/mail', component: () => import('src/pages/system/MailSettingsPage.vue') },
       { path: 'system/apps', component: () => import('src/pages/system/AppsPage.vue') },
+      { path: 'system/apps/:key/upgrade', component: () => import('src/pages/system/AppUpgradePage.vue') },
       { path: 'system/demo-data', component: () => import('src/pages/system/DemoDataPage.vue') },
     ],
   },

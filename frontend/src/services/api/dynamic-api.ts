@@ -99,6 +99,84 @@ export interface AppPackageSummary {
   /** Import only: re-importing a shared master merges into it; warnings list what was kept, renamed or not merged. */
   merged?: boolean;
   warnings?: string[];
+  /** Set when the opened (or closed) app or a shared master it uses has a newer candidate package. */
+  upgrade?: AppUpgradeHint | null;
+}
+
+export interface AppUpgradeHint {
+  /** Null when only a shared master has a new version. */
+  toVersion: string | null;
+  masters: { id: string; toVersion: string }[];
+}
+
+export interface UpgradeProperty {
+  name: string;
+  locale: string | null;
+  base: unknown;
+  new: unknown;
+  current: unknown;
+  result: string;
+}
+
+export interface AttachedPermission {
+  groupId: number;
+  groupName: string;
+  effect: string;
+  grants: boolean;
+  scope?: string | null;
+}
+
+export type UpgradeCategory = 'newOnly' | 'customerOnly' | 'both' | 'added' | 'customerDeleted' | 'removedInNew'
+  | 'excludedAtOpen' | 'skippedBefore' | 'noBaseline' | 'unmatched';
+
+export interface UpgradeItem {
+  id: string;
+  section: string;
+  module: string | null;
+  label: I18nText | null;
+  category: UpgradeCategory;
+  defaultSelected: boolean;
+  applicable: boolean;
+  reason: string | null;
+  dependsOn: string[];
+  properties: UpgradeProperty[];
+  attachedPermissions: AttachedPermission[];
+}
+
+export interface UpgradeGroup {
+  code: string;
+  name: I18nText;
+  reason: 'new' | 'stale' | 'skipped';
+  choice: { mode: string; groupId?: number | null };
+}
+
+export interface UpgradeMasterPreview {
+  id: string;
+  name: I18nText;
+  fromVersion: string;
+  toVersion: string;
+  hasBaseline: boolean;
+  groups: UpgradeGroup[];
+  items: UpgradeItem[];
+  counts: Record<string, number>;
+}
+
+export interface UpgradePreview {
+  app: string;
+  name: I18nText;
+  fromVersion: string;
+  toVersion: string;
+  hasBaseline: boolean;
+  token: string;
+  canApply: boolean;
+  blockers: { code: string; detail?: string | null }[];
+  groups: UpgradeGroup[];
+  keyConflicts: { moduleCode: string; key: string }[];
+  items: UpgradeItem[];
+  counts: Record<string, number>;
+  masters: UpgradeMasterPreview[];
+  warnings: string[];
+  vendor?: string | null;
 }
 export interface AppModuleInfo { code: string; key: string; id: number; name: I18nText; status: string }
 export interface AppInfo {
@@ -514,6 +592,8 @@ export const dynamicApi = {
   openApp: (id: string, body: OpenAppBody) =>
     http.post<AppInfo>(`/apps/packages/${encodeURIComponent(id)}/open`, body).then(data),
   getApps: () => http.get<AppInfo[]>('/apps').then(data),
+  previewAppUpgrade: (key: string) =>
+    http.post<UpgradePreview>(`/apps/${encodeURIComponent(key)}/upgrade/preview`, {}).then(data),
   closeApp: (key: string, cascade: boolean) =>
     http.post<CloseAppResult>(`/apps/${encodeURIComponent(key)}/close`, { cascade }).then(data),
   reopenApp: (key: string) => http.post<AppInfo>(`/apps/${encodeURIComponent(key)}/reopen`).then(data),

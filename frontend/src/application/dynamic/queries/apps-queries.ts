@@ -9,6 +9,11 @@ export function useAppPackages() {
   return useQuery({ queryKey: ['app-packages'], queryFn: dynamicApi.getAppPackages });
 }
 
+/** Read-only upgrade preview (pkg1b); a 409 means up to date / no candidate / downgrade. */
+export function useAppUpgradePreview(key: string) {
+  return useQuery({ queryKey: ['app-upgrade', key], queryFn: () => dynamicApi.previewAppUpgrade(key), retry: false });
+}
+
 export function useApps() {
   return useQuery({ queryKey: ['apps'], queryFn: dynamicApi.getApps });
 }
