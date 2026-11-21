@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using DynamicModules.Application.Common;
 using DynamicModules.Application.Common.Audit;
 using DynamicModules.Application.Common.Localization;
+using DynamicModules.Application.Common.Security;
 using DynamicModules.Application.Common.Time;
 using DynamicModules.Application.Dynamic.AccountService.Commands.CreateGroup;
 using DynamicModules.Application.Dynamic.AccountService.Data;
@@ -21,7 +22,7 @@ using DynamicModules.Application.Dynamic.ModuleService.Commands.UpdateModule;
 using DynamicModules.Application.Dynamic.ModuleService.Data;
 using DynamicModules.Application.Dynamic.ReportService.Commands.CreateReport;
 using DynamicModules.Application.Dynamic.ReportService.Commands.SetReportShares;
-using DynamicModules.Application.Dynamic.ReportService.Commands.UpdateReport;
+using DynamicModules.Application.Dynamic.ReportService;
 using DynamicModules.Application.Dynamic.ReportService.Data;
 using DynamicModules.Application.Dynamic.RuleService.Commands.SaveRules;
 using DynamicModules.Application.Dynamic.TemplateService;
@@ -31,6 +32,7 @@ using DynamicModules.Application.Dynamic.ViewService.Commands.CreateView;
 using DynamicModules.Application.Dynamic.ViewService.Commands.UpdateView;
 using DynamicModules.Application.Dynamic.ViewService.Data;
 using DynamicModules.Domain.Entities.Dynamic;
+using DynamicModules.Domain.Reports;
 using DynamicModules.Domain.Repositories.Dynamic;
 using DynamicModules.Domain.ValueObjects;
 using MediatR;
@@ -45,7 +47,8 @@ public sealed class AppUpgrader(
     AppUpgradePreviewer previewer, IAppRepository apps, IModuleRepository modules, IPermissionRepository permissions,
     IListViewRepository views, IRecordRepository records, TemplateInstantiator instantiator, MasterSymbols symbols,
     AppDependencyChecker dependencies, ISender sender, IUnitOfWork uow, IBusinessTime time, AppResponseBuilder builder,
-    RequestLocale requestLocale, AuditContext audit, IAuditLog auditLog, IMessageCatalog messages)
+    RequestLocale requestLocale, AuditContext audit, IAuditLog auditLog, IMessageCatalog messages,
+    IReportRepository reports, ReportDefinitionValidator reportValidator, ICurrentUser user)
 {
     private static readonly IReadOnlyDictionary<string, long> None = new Dictionary<string, long>();
 
@@ -77,6 +80,7 @@ public sealed class AppUpgrader(
         var n = ctx.New;
         var lc = requestLocale.Current;
         var warnings = new List<string>();
+        var grants = new List<JsonObject>();
         var chosen = mine.Items.Where(i => selected.Contains(i.Id)).ToList();
         bool Picked(string section, out List<UpgradeItemResponse> list) => (list = chosen.Where(i => i.Section == section).ToList()).Count > 0;
         bool IsNew(UpgradeItemResponse i) => !ctx.C.ContainsKey(i.Id);
@@ -124,14 +128,17 @@ public sealed class AppUpgrader(
             apps.AddBindings([], [], [new AppBlock { AppId = app.Id, Name = $"{moduleCode}.{blockCode}", BlockId = response.Id }]);
         }
 
+        var excluded = ctx.Baseline is null ? new HashSet<string>()
+            : (JsonSerializer.Deserialize<List<string>>(ctx.Baseline.ExcludedFieldsJson) ?? []).ToHashSet(StringComparer.Ordinal);
         var contributions = new List<ContributionInput>();
         var addedFields = new List<(string Module, string Block, TemplateField Field)>();
         foreach (var m in n.Modules.Where(m => state.Modules.ContainsKey(m.Code)))
             foreach (var b in m.Blocks)
             {
                 var blockName = $"{m.Code}.{b.Code}";
+                // 新區塊帶出它底下現況沒有的欄位，開啟時排除的不建（審查 S3）
                 var fresh = newBlocks.ContainsKey(blockName)
-                    ? b.Fields.Where(f => !state.Fields.ContainsKey($"{m.Code}.{f.Code}")).ToList()
+                    ? b.Fields.Where(f => !state.Fields.ContainsKey($"{m.Code}.{f.Code}") && !excluded.Contains($"{m.Code}.{f.Code}")).ToList()
                     : b.Fields.Where(f => selected.Contains($"field:{m.Code}.{f.Code}") && !ctx.C.ContainsKey($"field:{m.Code}.{f.Code}")).ToList();
                 if (fresh.Count == 0) continue;
                 // 新版的區塊在現況可能不在（客戶刪了或換了），欄位就放進模組的第一個區塊
@@ -165,6 +172,17 @@ public sealed class AppUpgrader(
                 if (!activated.IsSuccess) return activated;
             }
             foreach (var m in result.Modules) app.Modules.Add(new AppModule { AppId = app.Id, Code = m.Code, ModuleId = m.Id });
+            // 新模組附帶的權限也進稽核明細（審查 S2）
+            foreach (var m in sub.Modules)
+            {
+                foreach (var p in m.Permissions.Where(p => groupIds.ContainsKey(p.Group)))
+                    grants.Add(Grant($"permission:{m.Code}:{groupIds[p.Group]}", "privileges",
+                        JsonSerializer.SerializeToNode(new { p.Privileges, p.Scope }, TemplateJson.Options)));
+                foreach (var a in n.FieldAccess.Where(a => Split(a.Field).Module == m.Code && groupIds.ContainsKey(a.Group)))
+                    grants.Add(Grant($"fieldAccess:{a.Field}:{groupIds[a.Group]}", "access", JsonValue.Create(a.Access.ToString())));
+                foreach (var o in n.OptionScopes.Where(o => Split(o.Option).Module == m.Code && o.Groups.Any(groupIds.ContainsKey)))
+                    grants.Add(Grant($"optionScope:{o.Option}", "groups", ToNode(o.Groups.Where(groupIds.ContainsKey).Select(g => groupIds[g]).Distinct().Order())));
+            }
             var ids = result.Ids!;
             apps.AddBindings(
                 ids.FieldIds.Where(x => !state.Fields.ContainsKey(x.Key) && !masterSeeds.Fields.ContainsKey(x.Key))
@@ -209,6 +227,11 @@ public sealed class AppUpgrader(
                     var titleTemplate = merged.TitleTemplate is null ? null : Domain.Modules.TitleTemplate.Map(merged.TitleTemplate,
                         code => map.Fields.TryGetValue(TemplateGraph.Qualify(merged.Code, code), out var id) ? id.ToString(CultureInfo.InvariantCulture) : null);
                     long? titleField = merged.TitleField is { } tf && map.Fields.TryGetValue(TemplateGraph.Qualify(merged.Code, tf), out var tid) ? tid : null;
+                    // 找不到標題欄位或樣板裡的欄位：回 400，不送 null 清掉客戶現有的標題設定（審查 M2）
+                    if (merged.TitleField is not null && titleField is null)
+                        return ServiceResult.Invalid(new Dictionary<string, string[]> { [$"{item.Id}.titleField"] = [AppMessages.UpgradeTitleFieldMissing(merged.TitleField)] });
+                    if (merged.TitleTemplate is not null && titleTemplate is null)
+                        return ServiceResult.Invalid(new Dictionary<string, string[]> { [$"{item.Id}.titleTemplate"] = [AppMessages.UpgradeTitleFieldMissing(merged.TitleTemplate)] });
                     if ((failed = Fail(await sender.Send(new UpdateModuleRequest(state.Modules[merged.Code].Key, merged.Name, merged.Icon, merged.Section,
                             titleField, titleTemplate, merged.TasksEnabled), ct), item.Id)) is not null) return failed;
                     break;
@@ -264,7 +287,7 @@ public sealed class AppUpgrader(
                 if ((failed = await SaveViewAsync(item, n, ctx, state, map, ct)) is not null) return failed;
 
         // 7. 既有模組上新欄位、新選項附帶的欄位例外與選項範圍（Q12）：從現有權限列出發加上去，既有列一筆都不改
-        if ((failed = await AttachPermissionsAsync(n, state, contributions, chosen, groupIds, ct)) is not null) return failed;
+        if ((failed = await AttachPermissionsAsync(n, state, contributions, chosen.Where(IsNew).ToList(), groupIds, grants, ct)) is not null) return failed;
 
         // 8. 報表
         if (Picked("reports", out var reportItems))
@@ -277,7 +300,7 @@ public sealed class AppUpgrader(
         app.Requires = AppOpenPlanner.RequiresOf(n);
         app.TouchRowVersion();
         WriteBaseline(app, built.Candidate, ctx, mine, selected, groupIds);
-        WriteAudit(app, from, chosen, mine.Items.Count(i => i.Applicable && !selected.Contains(i.Id)));
+        WriteAudit(app, from, chosen, mine.Items.Count(i => i.Applicable && !selected.Contains(i.Id)), grants);
         await uow.CommitAsync(ct);
         return ServiceResult.Success(await builder.BuildAsync(app, withDependents: false, warnings, ct));
     }
@@ -433,12 +456,20 @@ public sealed class AppUpgrader(
         return f with { Config = JsonSerializer.SerializeToElement(node) };
     }
 
+    /// <summary>附帶權限的稽核明細：這次新加的，舊值一律是 null（既有的權限列不動）。</summary>
+    private static JsonObject Grant(string item, string property, JsonNode? value) =>
+        new() { ["item"] = item, ["property"] = property, ["locale"] = null, ["old"] = null, ["new"] = value };
+
+    private static JsonNode? ToNode<T>(T value) => JsonSerializer.SerializeToNode(value);
+
     private static ServiceResult? Fail(ServiceResult r, string itemId)
     {
         if (r.IsSuccess) return null;
         if (r.IsForbidden) return r;
         if (r.IsNotFound) return ServiceResult.NotFound($"{itemId}：{r.Message}");
         if (r.IsConflict) return ServiceResult.Conflict($"{itemId}：{r.Message}");
+        // 沒有逐欄錯誤的其他失敗：訊息掛在項目識別上，不變成空的 400（審查 S10）
+        if (!r.IsInvalid) return ServiceResult.Invalid(new Dictionary<string, string[]> { [itemId] = [r.Message ?? AppMessages.UpgradeItemNotApplicable] });
         return ServiceResult.Invalid(r.Errors.ToDictionary(e => $"{itemId}.{e.Key}", e => e.Value));
     }
 
@@ -517,11 +548,12 @@ public sealed class AppUpgrader(
     }
 
     private async Task<ServiceResult?> AttachPermissionsAsync(
-        AppPackageData n, State s, List<ContributionInput> contributions, List<UpgradeItemResponse> chosen, IReadOnlyDictionary<string, long> groupIds,
-        CancellationToken ct)
+        AppPackageData n, State s, List<ContributionInput> contributions, List<UpgradeItemResponse> added, IReadOnlyDictionary<string, long> groupIds,
+        List<JsonObject> grants, CancellationToken ct)
     {
         var newFields = contributions.SelectMany(c => c.Fields.Select(f => $"{c.Prefix}.{f.Code}")).ToHashSet(StringComparer.Ordinal);
-        var newOptions = chosen.Where(i => i.Section == "options").Select(i => i.Id["option:".Length..]).ToHashSet(StringComparer.Ordinal);
+        // 只有這次新加的選項（既有欄位上的、新欄位底下的）帶選項範圍；既有選項的範圍一筆都不動（Q5、審查 M1）
+        var newOptions = added.Where(i => i.Section == "options").Select(i => i.Id["option:".Length..]).ToHashSet(StringComparer.Ordinal);
         foreach (var f in contributions.SelectMany(c => c.Fields.Select(f => (c.Prefix, f))))
             foreach (var o in f.f.Options) newOptions.Add($"{f.Prefix}.{o.Code}");
         var access = n.FieldAccess.Where(a => newFields.Contains(a.Field) && groupIds.ContainsKey(a.Group)).ToList();
@@ -535,17 +567,19 @@ public sealed class AppUpgrader(
             foreach (var g in access.Where(a => Split(a.Field).Module == moduleCode).GroupBy(a => (Field: s.Fields[a.Field], Group: groupIds[a.Group])))
             {
                 fieldRows.RemoveAll(x => x.FieldId == g.Key.Field && x.GroupId == g.Key.Group);
-                fieldRows.Add(new FieldPermission
-                {
-                    FieldId = g.Key.Field, GroupId = g.Key.Group,
-                    Access = g.Any(a => a.Access == FieldAccess.Hidden) ? FieldAccess.Hidden : FieldAccess.ReadOnly
-                });
+                var fieldAccess = g.Any(a => a.Access == FieldAccess.Hidden) ? FieldAccess.Hidden : FieldAccess.ReadOnly;
+                fieldRows.Add(new FieldPermission { FieldId = g.Key.Field, GroupId = g.Key.Group, Access = fieldAccess });
+                grants.Add(Grant($"fieldAccess:{g.First().Field}:{g.Key.Group}", "access", JsonValue.Create(fieldAccess.ToString())));
             }
             var optionRows = rows.OptionScopes.ToList();
             foreach (var scope in scopes.Where(o => Split(o.Option).Module == moduleCode))
-                foreach (var gid in scope.Groups.Where(groupIds.ContainsKey).Select(g => groupIds[g]).Distinct())
+            {
+                var gids = scope.Groups.Where(groupIds.ContainsKey).Select(g => groupIds[g]).Distinct().Order().ToList();
+                foreach (var gid in gids)
                     if (!optionRows.Any(x => x.OptionId == s.Options[scope.Option] && x.GroupId == gid))
                         optionRows.Add(new FieldOptionScope { OptionId = s.Options[scope.Option], GroupId = gid });
+                if (gids.Count > 0) grants.Add(Grant($"optionScope:{scope.Option}", "groups", ToNode(gids)));
+            }
             await permissions.ReplaceModuleRowsAsync(module, rows with { FieldPermissions = fieldRows, OptionScopes = optionRows }, ct);
         }
         await uow.CommitAsync(ct);
@@ -561,6 +595,7 @@ public sealed class AppUpgrader(
             name => s.Fields.TryGetValue(name, out var id) ? id : null,
             name => s.Options.TryGetValue(name, out var id) ? id : null,
             AppReportCodec.TypesOf(n.Modules));
+        ServiceResult? failed;
         foreach (var item in items)
         {
             var code = item.Id["report:".Length..];
@@ -578,18 +613,47 @@ public sealed class AppUpgrader(
                 reportId = ((ReportDetail)created.Data!).Id;
                 app.Reports.Add(new AppReport { AppId = app.Id, Code = code, ReportId = reportId });
             }
-            else
-            {
-                reportId = app.Reports.First(r => r.Code == code).ReportId;
-                if (props.Any(p => p != "shareWith") && Fail(await sender.Send(new UpdateReportRequest(reportId, report.Name, definition), ct), item.Id) is { } f)
-                    return f;
-            }
-            if (current is not null && !props.Contains("shareWith")) continue;
+            else reportId = app.Reports.First(r => r.Code == code).ReportId;
             var shares = incoming.ShareWith.Where(groupIds.ContainsKey).Select(g => groupIds[g]).Distinct().ToList();
-            if (incoming.ShareWith.Count > shares.Count) warnings.Add($"報表「{report.Name}」有分享群組沒有對應，已略過");
-            if ((shares.Count > 0 || current is not null) && Fail(await sender.Send(new SetReportSharesRequest(reportId, shares), ct), item.Id) is { } shareFailure)
-                return shareFailure;
+            if (incoming.ShareWith.Count > shares.Count && (current is null || props.Contains("shareWith")))
+                warnings.Add($"報表「{report.Name}」有分享群組沒有對應，已略過");
+            if (current is null)
+            {
+                if (shares.Count > 0 && Fail(await sender.Send(new SetReportSharesRequest(reportId, shares), ct), item.Id) is { } shareFailure)
+                    return shareFailure;
+                continue;
+            }
+            if ((failed = await UpdateExistingReportAsync(reportId, item.Id, report.Name, definition, props, shares, ct)) is not null) return failed;
         }
+        return null;
+    }
+
+    /// <summary>
+    /// 既有報表：直接寫實體，不經 UpdateReport／SetReportShares（兩者只讓擁有者改）。套用者是系統管理員，不必是擁有者；
+    /// 定義照樣走報表驗證，擁有者不變（§9.4、審查 M3）。
+    /// </summary>
+    private async Task<ServiceResult?> UpdateExistingReportAsync(
+        long reportId, string itemId, string name, ReportDefinition definition, IReadOnlySet<string> props, List<long> shares, CancellationToken ct)
+    {
+        var entity = await reports.GetAsync(reportId, ct);
+        if (entity is null) return ServiceResult.NotFound($"{itemId}：{ReportRules.ReportNotFound}");
+        if (props.Any(p => p != "shareWith"))
+        {
+            var (valid, failure) = await reportValidator.ValidateAsync(name, definition, ct);
+            if (valid is null) return Fail(failure!, itemId);
+            entity.Name = name.Trim();
+            entity.DefinitionJson = ReportDefinition.Serialize(valid);
+        }
+        if (props.Contains("shareWith"))
+        {
+            // 只動差異：同一個 key 先刪再加會讓追蹤中的實體衝突（同 SetReportShares）
+            entity.Shares.RemoveAll(x => !shares.Contains(x.GroupId));
+            foreach (var id in shares.Where(id => entity.Shares.All(x => x.GroupId != id)))
+                entity.Shares.Add(new ReportShare { ReportId = entity.Id, GroupId = id });
+        }
+        entity.RowVersion = Guid.NewGuid().ToString();
+        entity.StampModified(user.UserId, time.Now);
+        await uow.CommitAsync(ct);
         return null;
     }
 
@@ -619,24 +683,25 @@ public sealed class AppUpgrader(
     }
 
     /// <summary>稽核（§9.3）：摘要帶版號與數量，逐項記舊值 → 新值；放不下時拆成多筆 app.upgrade.items（同一個請求），不截斷（T25）。</summary>
-    private void WriteAudit(App app, string from, List<UpgradeItemResponse> chosen, int skippedCount)
+    private void WriteAudit(App app, string from, List<UpgradeItemResponse> chosen, int skippedCount, List<JsonObject> grants)
     {
+        const int budget = AuditLogEntry.SummaryMax - 2000;
         var summary = messages.Get(requestLocale.SystemDefault, MessageText.AppUpgradeSummary, from, app.PackageVersion, chosen.Count, skippedCount);
         var entries = chosen.SelectMany(i => i.Properties.Where(p => p.Result != UpgradeClassifier.CustomerOnly)
-            .Select(p => new { item = i.Id, property = p.Name, locale = p.Locale, old = p.Current, @new = p.New })).ToList<object>();
+            .Select(p => new JsonObject { ["item"] = i.Id, ["property"] = p.Name, ["locale"] = p.Locale, ["old"] = p.Current?.DeepClone(), ["new"] = p.New?.DeepClone() }))
+            .Concat(grants).Select(e => Fit(e, budget)).ToList();
         audit.Target(app.Key, app.NameI18n.Resolve(requestLocale.SystemDefault));
         audit.Detail("summary", summary);
         audit.Detail("from", from);
         audit.Detail("to", app.PackageVersion);
         audit.Detail("applied", chosen.Count);
         audit.Detail("skipped", skippedCount);
-        const int budget = AuditLogEntry.SummaryMax - 2000;
         if (JsonSerializer.Serialize(entries).Length <= budget) { audit.Detail("items", entries); return; }
-        var chunks = new List<List<object>> { new() };
+        var chunks = new List<List<JsonObject>> { new() };
         var size = 0;
         foreach (var e in entries)
         {
-            var length = JsonSerializer.Serialize(e).Length + 1;
+            var length = e.ToJsonString().Length + 1;
             if (size + length > budget && chunks[^1].Count > 0) { chunks.Add([]); size = 0; }
             chunks[^1].Add(e);
             size += length;
@@ -645,5 +710,27 @@ public sealed class AppUpgrader(
         for (var k = 0; k < chunks.Count; k++)
             auditLog.Add(new AuditEntry("app.upgrade.items", AuditResult.Success, AuditTargets.App, app.Key, null,
                 Summary: JsonSerializer.Serialize(new { part = k + 1, parts = chunks.Count, items = chunks[k] })));
+    }
+
+    /// <summary>
+    /// 一項明細：先遮蔽（同 AuditSummary）；單項本身就超過一筆的上限時（例如很大的規則組），舊值與新值改記長度與雜湊、標 truncated，
+    /// 不讓分出來的那筆超過欄位上限（審查 S1）。
+    /// </summary>
+    private static JsonObject Fit(JsonObject entry, int budget)
+    {
+        AuditSummary.Mask(entry);
+        if (entry.ToJsonString().Length <= budget) return entry;
+        foreach (var key in new[] { "old", "new" })
+            if (entry[key] is { } value)
+            {
+                var text = value.ToJsonString();
+                entry[key] = new JsonObject
+                {
+                    ["length"] = text.Length,
+                    ["sha256"] = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text)))
+                };
+            }
+        entry["truncated"] = true;
+        return entry;
     }
 }

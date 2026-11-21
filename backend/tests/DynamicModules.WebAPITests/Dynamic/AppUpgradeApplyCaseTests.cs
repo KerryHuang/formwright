@@ -459,6 +459,282 @@ public class AppUpgradeApplyCaseTests : IDisposable
         Query((db, _) => db.Set<App>().Single(a => a.Key == Key).PackageVersion).Should().Be("1.0.0");
     }
 
+    // ---- 審查修正（pkg1c 審查 M1–M4、S1、S3、S12） ----
+
+    private static JsonNode Nick() => JsonNode.Parse("""
+        { "code": "nick", "type": "text", "label": { "zh-TW": "簡稱" }, "config": { "maxLength": 50 } }
+        """)!;
+
+    private static JsonNode Vip() => JsonNode.Parse("""{ "code": "vip", "label": { "zh-TW": "重要" }, "color": null }""")!;
+
+    private static JsonNode ExtraBlock() => JsonNode.Parse("""
+        { "code": "extra", "label": { "zh-TW": "折扣" }, "collapsed": false, "columns": 2, "fields": [
+          { "code": "discount", "type": "integer", "label": { "zh-TW": "折扣" }, "config": {} } ] }
+        """)!;
+
+    private static JsonNode RuleOn(string target, string value) => JsonNode.Parse($$"""
+        { "kind": "visibility", "targets": ["{{target}}"], "active": true, "options": [],
+          "condition": { "all": [ { "field": "status", "op": "eq", "value": "{{value}}" } ] } }
+        """)!;
+
+    /// <summary>M1：既有選項只改顏色、客戶已拿掉它的選項範圍（大家都能選），套用後仍然沒有範圍列。</summary>
+    [Fact]
+    public async Task ExistingOption_ColorOnly_DoesNotBringBackRemovedScope_M1()
+    {
+        await OpenAsync();
+        Query((db, b) =>
+        {
+            db.Set<FieldOptionScope>().RemoveRange(db.Set<FieldOptionScope>().Where(s => s.OptionId == b.Options["customer.dormant"]));
+            return DynamicModules.TestSupport.TestPermits.SaveForTests(db);
+        });
+        await NewVersionAsync(p => FieldNode(p, "customer", "status")["options"]![2]!["color"] = "red");
+
+        var preview = await PreviewAsync();
+        Item(preview, "option:customer.dormant").GetProperty("category").GetString().Should().Be("newOnly");
+        await ApplyOkAsync(Token(preview), "option:customer.dormant");
+        Query((db, b) => db.Set<FieldOptionScope>().Count(s => s.OptionId == b.Options["customer.dormant"])).Should().Be(0, "既有選項的範圍不動（Q5）");
+    }
+
+    /// <summary>
+    /// M2：只勾依賴者、沒勾它引用的新項目 → 400 帶缺的項目，什麼都沒寫（不是 500、也不會清掉標題）。
+    /// 標題欄位、標題樣板引用新欄位；規則 target 寫 field:／block: 前綴；規則條件用新選項；新區塊底下的欄位被檢視、規則引用。
+    /// </summary>
+    [Theory]
+    [InlineData("titleField", "module:customer", "field:customer.nick")]
+    [InlineData("titleTemplate", "module:customer", "field:customer.nick")]
+    [InlineData("ruleTarget", "rules:customer", "field:customer.nick")]
+    [InlineData("ruleOption", "rules:customer", "option:customer.vip")]
+    [InlineData("blockTarget", "rules:customer", "block:customer.extra")]
+    [InlineData("blockFieldInRule", "rules:customer", "block:customer.extra")]
+    [InlineData("blockFieldInView", "view:customer:全部客戶", "block:customer.extra")]
+    public async Task DependentWithoutItsNewDependency_Is400_M2(string @case, string dependent, string dependency)
+    {
+        await OpenAsync();
+        await NewVersionAsync(p =>
+        {
+            var module = ModuleNode(p, "customer");
+            switch (@case)
+            {
+                case "titleField": FieldsOf(p, "customer").Add(Nick()); module["titleField"] = "nick"; break;
+                case "titleTemplate": FieldsOf(p, "customer").Add(Nick()); module["titleTemplate"] = "{name}-{nick}"; break;
+                case "ruleTarget": FieldsOf(p, "customer").Add(Nick()); module["rules"]!.AsArray().Add(RuleOn("field:nick", "opt_lead")); break;
+                case "ruleOption":
+                    FieldNode(p, "customer", "status")["options"]!.AsArray().Add(Vip());
+                    module["rules"]!.AsArray().Add(RuleOn("field:phone", "opt_vip"));
+                    break;
+                case "blockTarget": module["blocks"]!.AsArray().Add(ExtraBlock()); module["rules"]!.AsArray().Add(RuleOn("block:extra", "opt_lead")); break;
+                case "blockFieldInRule": module["blocks"]!.AsArray().Add(ExtraBlock()); module["rules"]!.AsArray().Add(RuleOn("field:discount", "opt_lead")); break;
+                case "blockFieldInView": module["blocks"]!.AsArray().Add(ExtraBlock()); module["views"]![0]!["columns"]!.AsArray().Add("discount"); break;
+            }
+        });
+
+        var preview = await PreviewAsync();
+        Item(preview, dependent).GetProperty("dependsOn").EnumerateArray().Select(d => d.GetString()).Should().Contain(dependency, @case);
+        var res = await ApplyAsync(Token(preview), [dependent]);
+        var body = await res.Content.ReadAsStringAsync();
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, $"{@case}: {body}");
+        body.Should().Contain(dependency);
+        Query((db, _) => db.Set<App>().Single(a => a.Key == Key).PackageVersion).Should().Be("1.0.0");
+        Query((db, _) => db.Set<Module>().Single(m => m.Key == "crm-customer").TitleFieldId).Should().NotBeNull("標題欄位沒被清掉");
+    }
+
+    /// <summary>M2：依賴一起勾時照常套用，標題欄位指到新欄位。</summary>
+    [Fact]
+    public async Task TitleFieldOnNewField_AppliesWithTheField_M2()
+    {
+        await OpenAsync();
+        await NewVersionAsync(p => { FieldsOf(p, "customer").Add(Nick()); ModuleNode(p, "customer")["titleField"] = "nick"; });
+        var preview = await PreviewAsync();
+        await ApplyOkAsync(Token(preview), "module:customer", "field:customer.nick");
+        Query((db, b) => db.Set<Module>().Single(m => m.Key == "crm-customer").TitleFieldId == b.Fields["customer.nick"]).Should().BeTrue();
+    }
+
+    /// <summary>M3：報表由甲開啟時建立，之後另一位系統管理員套用改名稱與分享：成功，擁有者仍是甲。</summary>
+    [Fact]
+    public async Task ExistingReport_AppliedByAnotherAdmin_KeepsOwner_M3()
+    {
+        await OpenAsync();
+        await NewVersionAsync(p => p["reports"] = new JsonArray(Report("byStatus", CountMain, "sales")));
+        await ApplyOkAsync(Token(await PreviewAsync()), "report:byStatus");
+        Query((db, _) =>
+        {
+            db.Set<AppUser>().Add(new AppUser { UserId = "admin2", DisplayName = "admin2", IsSystemAdmin = true });
+            return DynamicModules.TestSupport.TestPermits.SaveForTests(db);
+        });
+        var admin2 = _app.AsUser("admin2");
+
+        var p2 = V1();
+        p2["manifest"]!["version"] = "1.2.0";
+        var report = Report("byStatus", CountMain, "sales", "salesLead");
+        report["name"] = "客戶狀態";
+        p2["reports"] = new JsonArray(report);
+        (await Import(p2)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var preview = await JsonOf(await admin2.PostAsJsonAsync($"{Apps}/{Key}/upgrade/preview", new { }));
+        var res = await admin2.PostAsJsonAsync($"{Apps}/{Key}/upgrade", new { token = Token(preview), items = new[] { "report:byStatus" } });
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+
+        var reportId = Query((db, _) => db.Set<App>().Include(a => a.Reports).Single(a => a.Key == Key).Reports.Single().ReportId);
+        var saved = Query((db, _) => db.Set<Report>().Single(r => r.Id == reportId));
+        saved.OwnerUserId.Should().Be("admin", "擁有者不變（§9.4）");
+        saved.Name.Should().Be("客戶狀態");
+        Query((db, _) => db.Set<ReportShare>().Count(s => s.ReportId == reportId)).Should().Be(2);
+    }
+
+    /// <summary>M4：客戶把必填欄位改成非必填（customerOnly），新版只改標籤：可以套用，不算影響既有資料，套用後仍非必填。</summary>
+    [Fact]
+    public async Task CustomerRelaxedRequired_OtherChange_IsApplicable_M4()
+    {
+        await OpenAsync();
+        Change((db, b) => { var f = FieldOf(db, b, "customer.name"); f.Config = f.Config with { Required = false }; });
+        var phone = Query((db, b) => FieldOf(db, b, "customer.phone").Key);
+        (await _admin.PostAsJsonAsync($"{Base}/modules/crm-customer/records", new { values = new Dictionary<string, object?> { [phone] = "02-1234-5678" } }))
+            .StatusCode.Should().Be(HttpStatusCode.Created);
+        await NewVersionAsync(p => FieldNode(p, "customer", "name")["label"]!["en-US"] = "Name");
+
+        var preview = await PreviewAsync();
+        var item = Item(preview, "field:customer.name");
+        item.GetProperty("applicable").GetBoolean().Should().BeTrue(item.ToString());
+        await ApplyOkAsync(Token(preview), "field:customer.name");
+        var field = Query((db, b) => FieldOf(db, b, "customer.name"));
+        field.Config.Required.Should().BeFalse("客戶改的必填保留");
+        Text(field.LabelI18n, "en-US").Should().Be("Name");
+    }
+
+    /// <summary>S1：單一項目的明細（很大的規則組）超過稽核摘要上限，分筆後每一筆仍放得進欄位（PostgreSQL 是 varchar）。</summary>
+    [Fact]
+    public async Task HugeSingleItem_AuditRowsStayWithinTheLimit_S1()
+    {
+        await OpenAsync();
+        var text = string.Concat(Enumerable.Repeat("很長的條件值", 15));
+        await NewVersionAsync(p =>
+        {
+            for (var r = 0; r < 3; r++)
+            {
+                var clauses = new JsonArray(Enumerable.Range(0, 20)
+                    .Select(i => (JsonNode)JsonNode.Parse($$"""{ "field": "name", "op": "eq", "value": "{{text}}{{r}}-{{i}}" }""")!).ToArray());
+                var rule = RuleOn("field:phone", "opt_lead");
+                rule["condition"] = new JsonObject { ["any"] = clauses };
+                ModuleNode(p, "customer")["rules"]!.AsArray().Add(rule);
+            }
+        });
+        var preview = await PreviewAsync();
+        await ApplyOkAsync(Token(preview), "rules:customer");
+        var lengths = Query((db, _) => db.Set<AuditLogEntry>().Where(a => a.Action.StartsWith("app.upgrade")).Select(a => a.SummaryJson!.Length).ToList());
+        lengths.Should().NotBeEmpty().And.OnlyContain(l => l <= AuditLogEntry.SummaryMax);
+    }
+
+    /// <summary>S3：開啟時排除的欄位被新版移到新區塊，套用新區塊時不建它。</summary>
+    [Fact]
+    public async Task NewBlock_DoesNotCreateFieldsExcludedAtOpen_S3()
+    {
+        (await Import(V1())).StatusCode.Should().Be(HttpStatusCode.Created);
+        var open = await _admin.PostAsJsonAsync($"{Apps}/packages/{Key}/open", new
+        {
+            excludeFields = new[] { "customer.phone" },
+            groupMap = new Dictionary<string, object> { ["sales"] = new { mode = "create" }, ["salesLead"] = new { mode = "create" } }
+        });
+        open.StatusCode.Should().Be(HttpStatusCode.Created, await open.Content.ReadAsStringAsync());
+        await NewVersionAsync(p =>
+        {
+            var phone = FieldNode(p, "customer", "phone");
+            FieldsOf(p, "customer").Remove(phone);
+            var extra = ExtraBlock();
+            extra["fields"]!.AsArray().Add(phone);
+            ModuleNode(p, "customer")["blocks"]!.AsArray().Add(extra);
+        });
+
+        var preview = await PreviewAsync();
+        await ApplyOkAsync(Token(preview), "block:customer.extra");
+        Query((db, b) => (b.Fields.ContainsKey("customer.discount"), b.Fields.ContainsKey("customer.phone"))).Should().Be((true, false));
+    }
+
+    /// <summary>A7：不是系統管理員套用 → 403，什麼都沒改。</summary>
+    [Fact]
+    public async Task NotSystemAdmin_CannotApply_A7()
+    {
+        await OpenAsync();
+        await NewVersionAsync(p => FieldNode(p, "customer", "phone")["label"]!["en-US"] = "Phone");
+        var preview = await PreviewAsync();
+        var res = await _app.AsUser("sales01").PostAsJsonAsync($"{Apps}/{Key}/upgrade", new { token = Token(preview), items = new[] { "field:customer.phone" } });
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        Query((db, _) => db.Set<App>().Single(a => a.Key == Key).PackageVersion).Should().Be("1.0.0");
+    }
+
+    /// <summary>A12：新增必填欄位、模組已有記錄 → 建成非必填並回 warning。</summary>
+    [Fact]
+    public async Task NewRequiredField_OnModuleWithRecords_IsCreatedOptional_A12()
+    {
+        await OpenAsync();
+        var name = Query((db, b) => FieldOf(db, b, "customer.name").Key);
+        (await _admin.PostAsJsonAsync($"{Base}/modules/crm-customer/records", new { values = new Dictionary<string, object?> { [name] = "甲公司" } }))
+            .StatusCode.Should().Be(HttpStatusCode.Created);
+        await NewVersionAsync(p => { var nick = Nick(); nick["config"]!["required"] = true; FieldsOf(p, "customer").Add(nick); });
+
+        var preview = await PreviewAsync();
+        var res = await ApplyAsync(Token(preview), ["field:customer.nick"]);
+        var body = await res.Content.ReadAsStringAsync();
+        res.StatusCode.Should().Be(HttpStatusCode.OK, body);
+        System.Text.RegularExpressions.Regex.Unescape(body).Should().Contain("改成非必填");
+        Query((db, b) => FieldOf(db, b, "customer.nick").Config.Required).Should().BeFalse();
+    }
+
+    /// <summary>A5b：上次略過的項目客戶之後又改過 → 不再是「上次略過」，照一般規則分類（這裡是兩邊都改）。</summary>
+    [Fact]
+    public async Task SkippedThenCustomerChanged_IsClassifiedNormally_A5b()
+    {
+        await OpenAsync();
+        await NewVersionAsync(p =>
+        {
+            FieldNode(p, "customer", "phone")["label"]!["zh-TW"] = "聯絡電話";
+            FieldNode(p, "customer", "name")["config"]!["maxLength"] = 200;
+        });
+        await ApplyOkAsync(Token(await PreviewAsync()), "field:customer.name");
+        Change((db, b) => { var f = FieldOf(db, b, "customer.phone"); f.LabelI18n = With(f.LabelI18n, "zh-TW", "客戶電話"); });
+        var p2 = V1();
+        p2["manifest"]!["version"] = "1.2.0";
+        FieldNode(p2, "customer", "phone")["label"]!["zh-TW"] = "公司電話";
+        FieldNode(p2, "customer", "name")["config"]!["maxLength"] = 200;
+        (await Import(p2)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        Item(await PreviewAsync(), "field:customer.phone").GetProperty("category").GetString().Should().Be("both");
+    }
+
+    /// <summary>A11：新模組的 key 和現有模組衝突，預覽列出；帶 moduleKeys 換一個 key 後可以套用。</summary>
+    [Fact]
+    public async Task NewModuleKeyConflict_ResolvedWithModuleKeys_A11()
+    {
+        await OpenAsync();
+        (await _admin.PostAsJsonAsync($"{Base}/modules", new { key = "crm-visit", name = Zh("別人的拜訪") })).StatusCode.Should().Be(HttpStatusCode.Created);
+        await NewVersionAsync(p => p["modules"]!.AsArray().Add(Visit("sales")));
+
+        var conflicted = await PreviewAsync();
+        conflicted.GetProperty("keyConflicts").EnumerateArray().Select(k => k.GetProperty("moduleCode").GetString()).Should().Contain("visit");
+        conflicted.GetProperty("canApply").GetBoolean().Should().BeFalse();
+        var moduleKeys = new Dictionary<string, string> { ["visit"] = "crm-visit2" };
+        var preview = await PreviewAsync(new { moduleKeys });
+        preview.GetProperty("canApply").GetBoolean().Should().BeTrue();
+        var res = await _admin.PostAsJsonAsync($"{Apps}/{Key}/upgrade", new { token = Token(preview), items = new[] { "module:visit" }, moduleKeys });
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        Query((db, _) => db.Set<Module>().Any(m => m.Key == "crm-visit2")).Should().BeTrue();
+    }
+
+    /// <summary>§18 並行：兩個請求同時拿同一個 token 套用，只有一個成功、另一個 409，版號只換一次（PostgreSQL 全庫鎖、SQLite BEGIN IMMEDIATE）。</summary>
+    [Fact]
+    public async Task ConcurrentApplies_WithTheSameToken_OnlyOneWins()
+    {
+        await OpenAsync();
+        await NewVersionAsync(p =>
+        {
+            FieldNode(p, "customer", "phone")["label"]!["en-US"] = "Phone";
+            FieldsOf(p, "customer").Add(Tier());
+        });
+        var token = Token(await PreviewAsync());
+        var results = await Task.WhenAll(ApplyAsync(token, ["field:customer.phone"]),
+            _app.AsUser().PostAsJsonAsync($"{Apps}/{Key}/upgrade", new { token, items = new[] { "field:customer.tier" } }));
+        results.Select(r => r.StatusCode).Should().BeEquivalentTo([HttpStatusCode.OK, HttpStatusCode.Conflict]);
+        Query((db, _) => db.Set<AuditLogEntry>().Count(a => a.Action == "app.upgrade")).Should().Be(1);
+    }
+
     // ---- 已知限制（pkg1c 交辦 2） ----
 
     /// <summary>

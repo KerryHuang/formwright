@@ -268,6 +268,7 @@ public sealed class AppUpgradePreviewer(
         var counts = new Dictionary<string, int>();
         var affected = new Dictionary<string, int>();
         var secondBatch = false;
+        var subsumedNew = new List<UpgradeItem>();
         var memberIds = app.Modules.ToDictionary(m => m.Code, m => m.ModuleId);
         var reportCodes = app.Reports.Select(r => r.Code).ToHashSet(StringComparer.Ordinal);
         foreach (var id in N.Keys.Concat(C.Keys).Concat(B.Keys).Distinct().Order(StringComparer.Ordinal))
@@ -276,6 +277,7 @@ public sealed class AppUpgradePreviewer(
             var item = nv ?? cv ?? b!;
             if (Subsumed(item))
             {
+                if (nv is not null && cv is null) subsumedNew.Add(item);
                 // 新模組底下的第二批項目（狀態機等）隨模組一起，pkg1c 套不了：一樣擋下整個套用
                 if (nv is not null && cv is null && IsSecondBatch(item)) secondBatch = true;
                 continue;
@@ -311,8 +313,10 @@ public sealed class AppUpgradePreviewer(
                 r = r with { Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonNotYetSupported };
                 secondBatch = true;
             }
-            // 既有欄位改成必填、有記錄沒填（§6.4、A12b）：會影響既有資料，不能套
+            // 既有欄位改成必填、有記錄沒填（§6.4、A12b）：會影響既有資料，不能套。
+            // 只看這次真的會寫入的必填：客戶改成非必填（customerOnly，套用時保留）不算（審查 M4）
             if (r.Applicable && item.Section == "fields" && nv is not null && cv is not null
+                && r.Properties.Any(p => p.Name == "config.required" && p.Result != UpgradeClassifier.CustomerOnly)
                 && nv.Props.GetValueOrDefault("config.required")?.ToString() == "true" && cv.Props.GetValueOrDefault("config.required")?.ToString() != "true"
                 && await MissingAsync(item) is > 0 and var missingCount)
             {
@@ -324,9 +328,21 @@ public sealed class AppUpgradePreviewer(
         }
         counts["customerAdded"] = customerAdded;
 
-        // 相依（§6.5）：引用到「現況還不存在、這次列出」的項目
-        var missing = results.Where(x => !C.ContainsKey(x.Item.Id) && N.ContainsKey(x.Item.Id)).Select(x => x.Item).ToList();
-        List<string> DependsOn(UpgradeItem item) => missing.Where(m => m.Id != item.Id && UpgradeItems.References(item, m)).Select(m => m.Id).ToList();
+        // 相依（§6.5）：引用到「現況還不存在、這次列出」的項目。新區塊、新模組底下的項目不另列，
+        // 被引用時依賴指向列出的那個上層（審查 M2）；開啟時排除的欄位套用時不建，不當依賴
+        var listedIds = results.Select(x => x.Item.Id).ToHashSet(StringComparer.Ordinal);
+        var missing = results.Where(x => !C.ContainsKey(x.Item.Id) && N.ContainsKey(x.Item.Id)).Select(x => (Target: x.Item, Listed: x.Item.Id)).ToList();
+        foreach (var sub in subsumedNew.Where(x => !excluded.Contains(x.Id)))
+            if (ListedAncestor(sub) is { } top && listedIds.Contains(top)) missing.Add((sub, top));
+        List<string> DependsOn(UpgradeItem item) => missing
+            .Where(m => m.Listed != item.Id && m.Target.Id != item.Id && UpgradeItems.References(item, m.Target)).Select(m => m.Listed).Distinct().ToList();
+        string? ListedAncestor(UpgradeItem item)
+        {
+            string? top = null;
+            for (var parent = item.Parent; parent is not null; parent = (N.GetValueOrDefault(parent) ?? C.GetValueOrDefault(parent))?.Parent)
+                if (N.ContainsKey(parent) != C.ContainsKey(parent)) top = parent;
+            return top;
+        }
 
         var items = results.Select(x => new UpgradeItemResponse(
             x.Item.Id, x.Item.Section, x.Item.Module, x.Item.Label ?? N.GetValueOrDefault(x.Item.Id)?.Label, x.Result.Category,
