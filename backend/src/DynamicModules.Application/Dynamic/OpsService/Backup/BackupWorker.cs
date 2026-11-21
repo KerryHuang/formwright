@@ -45,7 +45,11 @@ public sealed class BackupWorker(
 
     public BackupLimits Limits => _limits;
 
-    private DateTime Now => time.GetUtcNow().UtcDateTime;
+    /// <summary>
+    /// 截到微秒（資料庫的精度，PostgreSQL 也是微秒）：健康檢查的「現在」也截到微秒，快照時間若帶 100 奈秒的零頭，
+    /// 「27 小時前」會差一點點而取整成 26。備份寫進歷程的時間一律從這裡（與 <see cref="BackupJob"/> 同一個規則）取。
+    /// </summary>
+    private DateTime Now => Common.StorageTime.ToMicroseconds(time.GetUtcNow().UtcDateTime);
 
     public async Task TickAsync(CancellationToken ct)
     {

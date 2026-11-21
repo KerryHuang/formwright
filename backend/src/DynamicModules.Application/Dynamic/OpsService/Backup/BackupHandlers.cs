@@ -46,7 +46,7 @@ public sealed class GetBackupsHandler(
 
     public async Task<ServiceResult> Handle(GetBackupsRequest request, CancellationToken ct)
     {
-        var now = time.GetUtcNow().UtcDateTime;
+        var now = Common.StorageTime.ToMicroseconds(time.GetUtcNow().UtcDateTime);
         var location = await locator.ResolveAsync(adopt: false, "", ct);
         var store = sp.GetService<IBackupStore>();
         var database = sp.GetService<IDatabaseBackup>();
@@ -104,7 +104,7 @@ public sealed class RequestBackupHandler(
             await Audit(AuditResult.Denied, null, "backupNotConfigured", ct);
             return ServiceResult.Conflict(MessageRef.Of(MessageText.BackupNotConfigured), "backupNotConfigured", new { location = location.Code });
         }
-        var run = await BackupQueue.TryEnqueueAsync(sp, locationId, BackupTrigger.Manual, null, user.UserId, time.GetUtcNow().UtcDateTime, ct);
+        var run = await BackupQueue.TryEnqueueAsync(sp, locationId, BackupTrigger.Manual, null, user.UserId, Common.StorageTime.ToMicroseconds(time.GetUtcNow().UtcDateTime), ct);
         if (run is null)
         {
             await Audit(AuditResult.Denied, null, "backupInProgress", ct);

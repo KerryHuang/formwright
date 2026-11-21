@@ -28,7 +28,7 @@ public sealed class OpsLockLease : IAsyncDisposable
     public static async Task<OpsLockLease?> TryAcquireAsync(IServiceScopeFactory scopes, string key, string owner, TimeProvider time, BackupLimits limits,
         ILogger logger, CancellationToken ct)
     {
-        var now = time.GetUtcNow().UtcDateTime;
+        var now = Common.StorageTime.ToMicroseconds(time.GetUtcNow().UtcDateTime);
         await using (var scope = scopes.CreateAsyncScope())
             if (!await scope.ServiceProvider.GetRequiredService<IOpsLockRepository>().TryAcquireAsync(key, owner, now, now + limits.LockDuration, ct))
                 return null;
@@ -46,7 +46,7 @@ public sealed class OpsLockLease : IAsyncDisposable
                 {
                     await using var scope = _scopes.CreateAsyncScope();
                     if (!await scope.ServiceProvider.GetRequiredService<IOpsLockRepository>()
-                            .RenewAsync(_key, _owner, time.GetUtcNow().UtcDateTime + limits.LockDuration, stop))
+                            .RenewAsync(_key, _owner, Common.StorageTime.ToMicroseconds(time.GetUtcNow().UtcDateTime) + limits.LockDuration, stop))
                         logger.LogWarning("維運鎖 {Key} 續鎖時已不是持有者 {Owner}", _key, _owner);
                 }
                 catch (Exception e) when (!stop.IsCancellationRequested)

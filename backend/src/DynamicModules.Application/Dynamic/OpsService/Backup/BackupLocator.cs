@@ -68,7 +68,7 @@ public sealed class BackupLocator(BackupSettings settings, IServiceProvider serv
         return new(BackupLocationStatus.Ok, fresh);
     }
 
-    private DateTime Now => time.GetUtcNow().UtcDateTime;
+    private DateTime Now => Common.StorageTime.ToMicroseconds(time.GetUtcNow().UtcDateTime);
 
     private static async Task<string?> ReadMarkerAsync(IBackupStore store, CancellationToken ct)
     {
