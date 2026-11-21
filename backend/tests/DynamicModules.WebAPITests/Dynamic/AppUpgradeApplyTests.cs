@@ -126,6 +126,9 @@ public class AppUpgradeApplyTests : IDisposable
         System.Text.RegularExpressions.Regex.Unescape(audit.SummaryJson!).Should().Contain($"1.0.0 → {catalogVersion}").And.Contain("lead.company").And.Contain(OldThai, "逐項記舊值");
 
         (await _admin.PostAsJsonAsync($"{Apps}/crm-sales/upgrade/preview", new { })).StatusCode.Should().Be(HttpStatusCode.Conflict, "套用後已是最新");
+        var again = await ApplyAsync(preview.GetProperty("token").GetString()!, "field:lead.company");
+        again.StatusCode.Should().Be(HttpStatusCode.Conflict, "另一個分頁拿舊 token 再套用");
+        (await JsonOf(again)).GetProperty("code").GetString().Should().Be("upgradeUnavailable", "畫面依代碼重新預覽、收起舊清單（M5）");
     }
 
     [Fact]

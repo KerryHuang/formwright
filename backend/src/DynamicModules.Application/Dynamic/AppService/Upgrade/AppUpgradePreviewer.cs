@@ -60,10 +60,10 @@ public sealed class AppUpgradePreviewer(
         var candidate = await packages.CandidateForAsync(app, ct);
         var masters = await MasterCandidatesAsync(app, ct);
         if (candidate is not null && PackageVersion.Compare(candidate.Package.Manifest.Version, app.PackageVersion) < 0)
-            return Fail(ServiceResult.Conflict(AppMessages.UpgradeDowngrade));
+            return Fail(ServiceResult.Conflict(AppMessages.UpgradeDowngrade, AppMessages.UpgradeUnavailableCode));
         var own = candidate is not null && PackageVersion.IsNewer(candidate.Package.Manifest.Version, app.PackageVersion);
         if (!own && masters.Count == 0)
-            return Fail(ServiceResult.Conflict(candidate is null ? AppMessages.UpgradeNoCandidate : AppMessages.UpgradeUpToDate));
+            return Fail(ServiceResult.Conflict(candidate is null ? AppMessages.UpgradeNoCandidate : AppMessages.UpgradeUpToDate, AppMessages.UpgradeUnavailableCode));
         if (await GroupMapErrorsAsync(app, body, ct) is { } groupErrors) return Fail(groupErrors);
 
         var blockers = new List<UpgradeBlocker>();
