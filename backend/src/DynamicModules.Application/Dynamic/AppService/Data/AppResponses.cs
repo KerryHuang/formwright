@@ -102,6 +102,15 @@ public static class AppMessages
     public const string UpgradeUpToDate = "已是最新";
     public const string UpgradeNoCandidate = "沒有可用的新版";
     public const string UpgradeDowngrade = "新版的版號比目前的小，不支援降版";
+    public const string UpgradeStale = "內容已變更，請重新預覽";
+    public const string UpgradeBlocked = "目前不能套用這次更新";
+    public const string UpgradeGroupMapped = "已對應好的群組不能在更新頁改，請到權限分頁調整";
+    public const string UpgradeGroupMissing = "對應的群組不存在";
+    public const string UpgradeItemUnknown = "這一項不在預覽的清單裡";
+    public const string UpgradeItemNotApplicable = "這一項不能套用";
+    public static string UpgradeItemMissingDependency(string ids) => $"要一起套用：{ids}";
+    public const string ImportedNewVersion = "已匯入新版，已開啟的應用程式可以到更新頁套用";
+    public static string ImportVersionNotNewer(string id, string version) => $"套件代碼已存在：{id}（目前版號 {version}）";
 
     public static string FlowCodeTaken(string code) => $"approvalFlows.{code}: 流程代碼已被使用";
 
