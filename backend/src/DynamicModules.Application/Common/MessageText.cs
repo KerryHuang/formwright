@@ -144,7 +144,8 @@ public static class MessageText
         McpIdempotencyKeyRequired = nameof(McpIdempotencyKeyRequired), McpWriteLoop = nameof(McpWriteLoop),
         McpTokenScopeMissingRequired = nameof(McpTokenScopeMissingRequired),
         // 產品內備份（備份設計 §11、§5.5）
-        BackupInProgress = nameof(BackupInProgress), BackupNotConfigured = nameof(BackupNotConfigured);
+        BackupInProgress = nameof(BackupInProgress), BackupNotConfigured = nameof(BackupNotConfigured),
+        BackupLocationPending = nameof(BackupLocationPending);
 
     private static readonly Dictionary<string, (string Zh, string En, string Th, string Vi)> Table = new()
     {
@@ -631,6 +632,9 @@ public static class MessageText
             "เมื่อเลือกขอบเขตการเขียน ต้องเลือกขอบเขตการอ่านประเภทเดียวกันด้วย", "Khi chọn phạm vi ghi, hãy chọn cả phạm vi đọc cùng loại"),
         [BackupInProgress] = ("備份進行中，請等這一份完成後再試", "A backup is in progress. Try again after it finishes",
             "กำลังสำรองข้อมูลอยู่ โปรดลองอีกครั้งหลังจากเสร็จสิ้น", "Đang sao lưu, vui lòng thử lại sau khi hoàn tất"),
+        [BackupLocationPending] = ("備份位置還在準備中（伺服器啟動後一分鐘內），請稍後再試", "The backup location is still being set up (within a minute after the server starts). Try again shortly",
+            "ตำแหน่งสำรองข้อมูลยังเตรียมไม่เสร็จ (ภายในหนึ่งนาทีหลังเซิร์ฟเวอร์เริ่มทำงาน) โปรดลองอีกครั้งในอีกสักครู่",
+            "Vị trí sao lưu vẫn đang được chuẩn bị (trong vòng một phút sau khi máy chủ khởi động), vui lòng thử lại sau"),
         [BackupNotConfigured] = ("備份位置沒設定或目前無法使用，請先看維運監控的「備份」檢查", "The backup location is not set or cannot be used right now. Check the Backup item in Operations monitoring first",
             "ยังไม่ได้ตั้งค่าตำแหน่งสำรองข้อมูลหรือใช้งานไม่ได้ในขณะนี้ โปรดตรวจสอบรายการสำรองข้อมูลในการตรวจสอบระบบก่อน",
             "Chưa đặt vị trí sao lưu hoặc hiện không dùng được, vui lòng xem mục Sao lưu trong giám sát vận hành trước"),

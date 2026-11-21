@@ -213,6 +213,14 @@ public class BackupTests
     public async Task ManualRequest_202_Duplicate409_Audited_OverviewShowsCurrent()
     {
         using var app = new BackupApp();
+        // M2：執行器還沒採用位置（啟動後第一輪之前）：立即備份不替這台採用，回 409、按鈕先停用
+        (await app.AsUser().GetFromJsonAsync<JsonElement>($"{Base}/backups")).GetProperty("manualDisabledReason").GetString().Should().Be("locationPending");
+        var early = await Request(app);
+        early.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await early.Content.ReadAsStringAsync()).Should().Contain("backupLocationPending");
+        File.Exists(Path.Combine(app.Root, BackupLocator.MarkerPath)).Should().BeFalse("立即備份不建標記檔");
+        await Worker(app).TickAsync(CancellationToken.None);
+
         var first = await Request(app);
         first.StatusCode.Should().Be(HttpStatusCode.Accepted, await first.Content.ReadAsStringAsync());
         (await first.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("trigger").GetString().Should().Be("manual");
@@ -232,18 +240,37 @@ public class BackupTests
         overview.GetProperty("schedule").GetProperty("hour").GetInt32().Should().Be(2);
         overview.GetProperty("retentionCount").GetInt32().Should().Be(7);
 
-        // 執行器領走：立即備份占住時段前的第一份（已有手動排隊時，排程這輪排不進去）
+        // 執行器領走
         await Worker(app).TickAsync(CancellationToken.None);
         var runs = await Runs(app);
-        runs.Should().ContainSingle().Which.Status.Should().Be(BackupRunStatus.Succeeded);
-        var detail = await app.AsUser().GetFromJsonAsync<JsonElement>($"{Base}/backups/{runs[0].Id}");
-        detail.GetProperty("setName").GetString().Should().Be(runs[0].SetName);
+        runs.Should().HaveCount(2).And.OnlyContain(r => r.Status == BackupRunStatus.Succeeded);
+        runs[1].Trigger.Should().Be(BackupTrigger.Manual);
+        var detail = await app.AsUser().GetFromJsonAsync<JsonElement>($"{Base}/backups/{runs[1].Id}");
+        detail.GetProperty("setName").GetString().Should().Be(runs[1].SetName);
         (await app.AsUser().GetAsync($"{Base}/backups/999999")).StatusCode.Should().Be(HttpStatusCode.NotFound);
 
         var audits = await Audits(app, "backup.request");
-        audits.Select(x => x.Result).Should().Equal(AuditResult.Success, AuditResult.Denied);
-        audits[1].ReasonCode.Should().Be("backupInProgress");
+        audits.Select(x => x.Result).Should().Equal(AuditResult.Denied, AuditResult.Success, AuditResult.Denied);
+        audits.Select(x => x.ReasonCode).Should().Equal("backupLocationPending", null, "backupInProgress");
         audits.Should().OnlyContain(x => x.TargetKind == "backup");
+    }
+
+    /// <summary>
+    /// M2（L2 變體）：背景工作關閉的那台，備份位置指到自己的本機目錄（沒有標記檔），資料庫已採用另一台的位置 MA。
+    /// 這台收到立即備份：排進 MA（給真正在跑的那台領）、不建標記檔、不改採用。
+    /// </summary>
+    [Fact]
+    public async Task ManualRequest_OnInstanceWithoutWorker_DoesNotAdoptOrWriteMarker()
+    {
+        using var app = new BackupApp();
+        await using (var scope = app.Services.CreateAsyncScope())
+            await scope.ServiceProvider.GetRequiredService<IBackupRepository>().AdoptLocationAsync("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", DateTime.UtcNow, "other", default);
+        var r = await Request(app);
+        r.StatusCode.Should().Be(HttpStatusCode.Accepted, await r.Content.ReadAsStringAsync());
+        (await Runs(app)).Single().LocationId.Should().Be("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        File.Exists(Path.Combine(app.Root, BackupLocator.MarkerPath)).Should().BeFalse();
+        await using (var scope = app.Services.CreateAsyncScope())
+            (await scope.ServiceProvider.GetRequiredService<IBackupRepository>().GetStateAsync(default))!.LocationId.Should().Be("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     }
 
     /// <summary>E2、S6：沒設位置 → GET 未設定、POST 409 backupNotConfigured、新鮮度未設定；非系統管理員 403。</summary>

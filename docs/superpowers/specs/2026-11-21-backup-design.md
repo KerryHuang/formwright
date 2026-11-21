@@ -416,14 +416,17 @@ bk1 驗收時兩種資料庫各演練一次（§22 D1、D2）。
 |---|---|---|
 | GET | `backups` | 狀態與最近 20 筆歷程（`cursor` 往下翻）：`configured`、`locationValid`、`storeKind`、`displayLocation`、`isolated`、`edition`、`canDelete`、`provider`、`includesKeys`（false）、`schedule`（`hour`、營運時區偏移、`nextScheduledUtc`）、`retentionCount`、`manualRetentionDays`、`lastSuccess`、`current`（排隊中或執行中的那筆）、`runs`、`nextCursor`、`manualAllowed`、`manualDisabledReason` |
 | GET | `backups/{id}` | 單筆詳細（含錯誤摘要、各項統計、set 名稱） |
-| POST | `backups` | 立即備份：成功 202 回那一筆；已有排隊或執行中 409 `backupInProgress`；位置沒設、不合法或不一致 409 `backupNotConfigured`；Demo 站 403（Q8） |
+| POST | `backups` | 立即備份：成功 202 回那一筆；已有排隊或執行中 409 `backupInProgress`；位置沒設、不合法或不一致 409 `backupNotConfigured`；執行器還沒採用過位置 409 `backupLocationPending`；Demo 站 403（Q8） |
 
 - Demo 站的判斷依據是 `AuthSettings.DemoLoginEnabled`，回 `ServiceResult.Forbidden()`，和寄信設定、測試信同一種寫法（`AlertChannelHandlers.cs:59`、`:131`）。`GET backups` 的 `manualAllowed: false`、`manualDisabledReason: "demoSite"` 讓前端先把按鈕停用。
 - `displayLocation`：雲端版（`Ops:Edition = Cloud`）只回儲存種類，不回路徑，避免客戶管理員看到廠商主機的路徑（Q12）；地端版回路徑。
   - `Ops:Edition` 只接受 `Cloud`、`OnPrem`（區分大小寫），其他值退回 `OnPrem` 並記 Warning（`OpsEnvironment.cs:9-12`）。所以雲端主機填錯（例如 `cloud`）會顯示路徑；交付說明與 `deploy.md` 要列出這一點。
+- 立即備份不採用位置（bk1a 審查 M2，主控裁決）：只排進目前採用的位置識別碼，不建標記檔。採用只由執行器做。
+  - 理由：背景工作關閉的那台，`Backup:Root` 可能指到自己的本機磁碟；替它採用，真正在跑的那台下一輪就判 `locationMismatch`，排進去的那筆也沒人領。
+  - 代價：全新安裝、執行器第一輪之前（啟動後至多 60 秒）按立即備份回 409 `backupLocationPending`；`GET backups` 的 `manualDisabledReason` 是 `locationPending`。
 - 沒有刪除、下載、改位置的 API（§19）。
 - 既有的 `POST attachments/sweep`：備份持有 `attachments` 鎖時回 409 `backupInProgress`（T30、§5.5）。
-- 新訊息進 `MessageText` 四語表（`backupInProgress`、`backupNotConfigured`）；超過上限類的訊息不適用。
+- 新訊息進 `MessageText` 四語表（`backupInProgress`、`backupNotConfigured`、`backupLocationPending`）；超過上限類的訊息不適用。
 
 ## 12. 權限與稽核
 
