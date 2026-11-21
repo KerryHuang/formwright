@@ -209,6 +209,10 @@ public sealed class AppUpgradePreviewer(
                 r = r with { Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonTypeChanged };
             else if (r.Applicable && nv is not null && cv is not null && (Changed(nv, cv, "kind") || Changed(nv, cv, "hostEntityKey")))
                 r = r with { Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonKindChanged };
+            // 參照對象與關聯方式建立後不能改（FieldConfig，UpdateField 不允許），比照型別（審查 S2）
+            else if (r.Applicable && nv is not null && cv is not null && item.Section == "fields"
+                     && (Changed(nv, cv, "config.refTarget") || Changed(nv, cv, "config.relation")))
+                r = r with { Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonReferenceChanged };
             results.Add((item, r));
             counts[r.Category] = counts.GetValueOrDefault(r.Category) + 1;
         }
@@ -216,7 +220,7 @@ public sealed class AppUpgradePreviewer(
 
         // 相依（§6.5）：引用到「現況還不存在、這次列出」的項目
         var missing = results.Where(x => !C.ContainsKey(x.Item.Id) && N.ContainsKey(x.Item.Id)).Select(x => x.Item).ToList();
-        List<string> DependsOn(UpgradeItem item) => missing.Where(m => m.Id != item.Id && References(item, m)).Select(m => m.Id).ToList();
+        List<string> DependsOn(UpgradeItem item) => missing.Where(m => m.Id != item.Id && UpgradeItems.References(item, m)).Select(m => m.Id).ToList();
 
         var items = results.Select(x => new UpgradeItemResponse(
             x.Item.Id, x.Item.Section, x.Item.Module, x.Item.Label ?? N.GetValueOrDefault(x.Item.Id)?.Label, x.Result.Category,
@@ -232,17 +236,6 @@ public sealed class AppUpgradePreviewer(
 
     private static bool Changed(UpgradeItem a, UpgradeItem b, string prop) =>
         !UpgradeItems.Same(a.Props.GetValueOrDefault(prop), b.Props.GetValueOrDefault(prop));
-
-    /// <summary>item 的內容有沒有引用 target：限定名（m.x）或同模組裡的裸代號都算。</summary>
-    private static bool References(UpgradeItem item, UpgradeItem target)
-    {
-        var colon = target.Id.IndexOf(':');
-        var name = target.Id[(colon + 1)..];
-        if (target.Section is "modules") return item.Refs.Contains(target.Module!) && item.Module != target.Module;
-        if (target.Section is not ("fields" or "options" or "blocks")) return item.Refs.Contains(name);
-        var code = name[(name.LastIndexOf('.') + 1)..];
-        return item.Refs.Contains(name) || (item.Module == target.Module && item.Refs.Contains(code));
-    }
 
     /// <summary>新物件附帶的權限（Q12）：掛在它本身或它底下物件上的權限類項目。</summary>
     private static List<AttachedPermission> Attached(string ownerId, Dictionary<string, UpgradeItem> n, Dictionary<long, string> groupNames)

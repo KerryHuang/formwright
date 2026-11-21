@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using DynamicModules.Domain.Data;
 using DynamicModules.Domain.Entities.Dynamic;
+using DynamicModules.Domain.ValueObjects;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -100,6 +101,39 @@ public class AppUpgradePreviewApiTests : IDisposable
         var res = await Preview();
         res.StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await res.Content.ReadAsStringAsync()).Should().Contain("降版");
+    }
+
+    /// <summary>
+    /// 既有欄位的參照對象建立後不能改（審查 S2）：新版改了 refTarget 時比照型別標「無法套用」、不能勾。
+    /// 做法是把基準與現況一起改成指向報價單，目錄版（新版）仍指向潛在客戶，等於只有新版改。
+    /// </summary>
+    [Fact]
+    public async Task ExistingFieldRefTargetChanged_IsNotApplicable()
+    {
+        await OpenCrmAsync();
+        SetOpenedVersion("crm-sales", "1.0.0");
+        using (var scope = _app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<DynamicDbContext>();
+            var app = db.Set<App>().Single(a => a.Key == "crm-sales");
+            var bindings = await scope.ServiceProvider.GetRequiredService<Domain.Repositories.Dynamic.IAppRepository>().GetBindingsAsync(app.Id, default);
+            var field = db.Set<Field>().Single(f => f.Id == bindings.Fields["opportunity.fromLead"]);
+            field.Config = field.Config with { RefTarget = new ReferenceTarget(ReferenceTarget.ModuleKind, "crm-quote") };
+            var baseline = db.Set<AppBaseline>().Single(b => b.AppId == app.Id);
+            var package = System.Text.Json.Nodes.JsonNode.Parse(baseline.PackageJson)!;
+            var fromLead = package["modules"]!.AsArray().Single(m => (string?)m!["code"] == "opportunity")!["blocks"]!.AsArray()
+                .SelectMany(b => b!["fields"]!.AsArray()).Single(f => (string?)f!["code"] == "fromLead")!;
+            fromLead["config"]!["refTarget"]!["key"] = "quote";
+            baseline.PackageJson = package.ToJsonString();
+            db.SaveChanges();
+        }
+
+        var body = await JsonOf(await Preview());
+        var item = body.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("id").GetString() == "field:opportunity.fromLead");
+        item.GetProperty("category").GetString().Should().Be("newOnly");
+        item.GetProperty("applicable").GetBoolean().Should().BeFalse();
+        item.GetProperty("defaultSelected").GetBoolean().Should().BeFalse();
+        item.GetProperty("reason").GetString().Should().Be("referenceChanged");
     }
 
     [Fact]

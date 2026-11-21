@@ -51,10 +51,15 @@ public static class UpgradeItems
                 ("TaskRules", "逐個展開"), ("ApprovalFlows", "逐個展開")),
             [nameof(AppManifest)] = Reasons(
                 ("Id", "識別"), ("Version", "版號判斷（§7.2）"), ("Description", "只在開啟前的清單顯示，開啟後不存"),
-                ("Vendor", "只顯示，不同時預覽提醒（§7.1）"), ("Requires", "前置條件，在 §8.2 檢查"), ("Kind", "開啟後不能改")),
+                ("Vendor", "只顯示，不同時預覽提醒（§7.1）"), ("Requires", "前置條件，在 §8.2 檢查"), ("Kind", "開啟後不能改"),
+                ("IsMaster", "由 Kind 推導的計算屬性")),
+            [nameof(AppManifestRequires)] = Reasons(("Apps", "前置條件，在 §8.2 檢查"), ("Entities", "前置條件，在 §8.2 檢查"), ("Masters", "前置條件，在 §8.2 檢查")),
+            [nameof(AppRequirementData)] = Reasons(("Id", "前置條件，在 §8.2 檢查"), ("Modules", "前置條件，在 §8.2 檢查")),
+            [nameof(AppGroup)] = Reasons(("Code", "群組段的識別（§6.2.1）"), ("Name", "只在群組段顯示；開啟後是客戶群組，名稱由客戶管")),
             [nameof(TemplateModule)] = Reasons(
                 ("Code", "識別"), ("Key", "模組 key 開啟時可改，之後不能改"), ("Blocks", "逐區塊展開"), ("Rules", "另成規則組項目（Q7）"),
-                ("Views", "逐檢視展開"), ("Permissions", "展開成模組權限項目")),
+                ("Views", "逐檢視展開"), ("Permissions", "展開成模組權限項目"),
+                ("Extensible", "不存資料庫，執行期直接讀目前套件；現況匯出也取自候選新版，比了永遠一致（審查 S3）")),
             [nameof(TemplateBlock)] = Reasons(("Code", "識別"), ("Fields", "逐欄位展開；欄位所在區塊與排序不比（T7）")),
             [nameof(TemplateField)] = Reasons(("Code", "識別"), ("Options", "逐選項展開；選項排序不比（T7）")),
             [nameof(TemplateOption)] = Reasons(("Code", "識別")),
@@ -77,6 +82,35 @@ public static class UpgradeItems
             [nameof(AppContribution)] = Reasons(
                 ("Master", "識別"), ("Module", "識別"), ("Fields", "逐欄位展開"), ("Permissions", "展開成權限項目"), ("FieldAccess", "展開成欄位例外項目")),
         };
+
+    /// <summary>
+    /// 手工挑屬性比對的 record（覆蓋率測試用，審查 M2）：這些 record 不走 <see cref="Generic"/>，比哪些屬性寫在 <see cref="Extract"/>，
+    /// 每個公開屬性都必須在這裡或 <see cref="NotCompared"/>，新增屬性沒歸類測試就失敗。
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> HandCompared = new Dictionary<string, IReadOnlySet<string>>
+    {
+        [nameof(AppPackageData)] = new HashSet<string>(),
+        [nameof(AppManifest)] = new HashSet<string> { "Name", "Icon" },
+        [nameof(AppManifestRequires)] = new HashSet<string>(),
+        [nameof(AppRequirementData)] = new HashSet<string>(),
+        [nameof(AppGroup)] = new HashSet<string>(),
+        [nameof(TemplateField)] = new HashSet<string> { "Type", "Label", "Config", "Active" },
+        [nameof(TemplatePermission)] = new HashSet<string> { "Privileges", "Scope" },
+        [nameof(AppFieldAccess)] = new HashSet<string> { "Access" },
+        [nameof(AppOptionScope)] = new HashSet<string> { "Groups" },
+    };
+
+    /// <summary>
+    /// 整份序列化比對的 record（走 <see cref="Generic"/> 或整個值當一個屬性）：扣掉 <see cref="NotCompared"/> 的屬性一律自動比，
+    /// 新屬性不會被漏掉；它們底下的 record 隨序列化一起比。
+    /// </summary>
+    public static readonly IReadOnlySet<string> AutoCompared = new HashSet<string>
+    {
+        nameof(TemplateModule), nameof(TemplateBlock), nameof(TemplateOption), nameof(TemplateView), nameof(TemplateRule),
+        nameof(AppPackageReport), nameof(AppWorkflow), nameof(AppWorkflowState), nameof(AppWorkflowTransition), nameof(AppConversion),
+        nameof(AppEvent), nameof(AppCheck), nameof(AppPrintTemplate), nameof(AppTaskRule), nameof(AppApprovalFlow), nameof(AppLedger),
+        nameof(AppIntegrationDecl), nameof(AppContribution),
+    };
 
     /// <summary>只在套件有寫時才比的屬性：省略代表「用建立當時的系統預設」（例如區塊欄數取政策預設），現況一定有值，不算客戶改。</summary>
     public static readonly IReadOnlySet<string> DeclaredOnly = new HashSet<string> { "columns" };
@@ -107,10 +141,7 @@ public static class UpgradeItems
         foreach (var m in p.Modules)
         {
             var moduleId = $"module:{m.Code}";
-            var moduleProps = Generic(m);
-            // 主檔模組沒寫 extensible 等於可擴充（匯出照這個預設寫出 true）
-            if (p.Manifest.IsMaster && !moduleProps.ContainsKey("extensible")) moduleProps["extensible"] = JsonValue.Create(true);
-            Add(new UpgradeItem(moduleId, "modules", m.Code, m.Name, moduleProps));
+            Add(new UpgradeItem(moduleId, "modules", m.Code, m.Name, Generic(m)));
             AddBlocks(m.Code, m.Blocks, moduleId);
             if (m.Rules.Count > 0)
                 Add(new UpgradeItem($"rules:{m.Code}", "rules", m.Code, m.Name, Single("rules", m.Rules)) { Parent = moduleId, Refs = RefsOf(m.Rules) });
@@ -165,7 +196,7 @@ public static class UpgradeItems
                 var props = Generic(t with { Groups = [], Approval = approval });
                 props["groups"] = Normalize(JsonSerializer.SerializeToNode(transitionGroups));
                 Add(new UpgradeItem($"transition:{w.Module}:{t.From}>{t.To}", "workflows", w.Module, null, props)
-                    { Parent = workflowId, Refs = RefsOf(w.Module, t.From, t.To) });
+                    { Parent = workflowId, Refs = RefsOf(w.Module, t.From, t.To, $"{w.Module}.{t.From}", $"{w.Module}.{t.To}") });
             }
         }
 
@@ -274,15 +305,28 @@ public static class UpgradeItems
     }
 
     /// <summary>
+    /// FieldConfig 裡不可為 null、預設 false 的旗標：匯出會寫出 false、原文多半省略，所以這幾個的 false 當成缺漏。
+    /// 其他鍵的 false 照比（例如布林欄位的 defaultValue）；fullWidth 是 bool?，另外解析成有效值再比（審查 M1）。
+    /// </summary>
+    public static readonly IReadOnlySet<string> FalseIsDefault = new HashSet<string>(StringComparer.Ordinal)
+        { "required", "readOnly", "defaultToday", "showInList", "isFilterable", "isSortable" };
+
+    /// <summary>
     /// 欄位設定的每個鍵是一個屬性（§6.2「config 的每個鍵」），值正規化；缺漏與 null、空陣列視為相同。
-    /// 去掉預設值：FieldConfig 的布林旗標預設都是 false（沒有預設 true 的），匯出會寫出 false、原文多半省略，所以 false 當成缺漏。
+    /// 去掉預設值：<see cref="FalseIsDefault"/> 的 false；fullWidth 省略時依型別（多行文字預設佔滿，同前端 form-layout），
+    /// 有效值等於型別預設就當缺漏，所以多行文字改成不佔滿、單行文字改成佔滿都會比出來。
     /// </summary>
     private static Dictionary<string, JsonNode?> ConfigProps(JsonElement config, FieldType type)
     {
         var result = new Dictionary<string, JsonNode?>();
         if (config.ValueKind != JsonValueKind.Object) return result;
         foreach (var p in config.EnumerateObject())
-            if (p.Value.ValueKind != JsonValueKind.False && Normalize(JsonNode.Parse(p.Value.GetRawText())) is { } v) result[$"config.{p.Name}"] = v;
+            if (!(p.Value.ValueKind == JsonValueKind.False && FalseIsDefault.Contains(p.Name)) && p.Name != "fullWidth"
+                && Normalize(JsonNode.Parse(p.Value.GetRawText())) is { } v) result[$"config.{p.Name}"] = v;
+        var typeDefault = type == FieldType.Textarea;
+        var fullWidth = config.TryGetProperty("fullWidth", out var fw) && fw.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? fw.GetBoolean() : typeDefault;
+        if (fullWidth != typeDefault) result["config.fullWidth"] = JsonValue.Create(fullWidth);
         // 彙總的結果型別與小數位由來源欄位推導，存檔時系統補上（來源欄位本身的設定照比）
         if (type == FieldType.Rollup) { result.Remove("config.resultType"); result.Remove("config.scale"); }
         // 明細關聯（relation: detail）一定必填、刪單頭連帶刪除，存檔時系統補上；原文多半不寫，這兩個值不算差異
@@ -356,7 +400,20 @@ public static class UpgradeItems
 
     public static bool Same(JsonNode? a, JsonNode? b) => JsonNode.DeepEquals(a, b);
 
-    /// <summary>內容裡出現的所有字串（含物件鍵值），給相依判斷比對新項目的代號用。</summary>
+    /// <summary>相依（§6.5）：item 的內容有沒有引用 target。限定名（m.x）或同模組裡的裸代號都算。</summary>
+    public static bool References(UpgradeItem item, UpgradeItem target)
+    {
+        var colon = target.Id.IndexOf(':');
+        var name = target.Id[(colon + 1)..];
+        if (target.Section is "modules") return item.Refs.Contains(target.Module!) && item.Module != target.Module;
+        if (target.Section is not ("fields" or "options" or "blocks")) return item.Refs.Contains(name);
+        var code = name[(name.LastIndexOf('.') + 1)..];
+        return item.Refs.Contains(name) || (item.Module == target.Module && item.Refs.Contains(code));
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex Placeholder = new(@"\{([A-Za-z0-9_./-]+)\}");
+
+    /// <summary>內容裡出現的所有字串（含物件鍵值）與字串裡的 {代號}，給相依判斷比對新項目的代號用。</summary>
     private static HashSet<string> RefsOf(params object?[] values)
     {
         var refs = new HashSet<string>(StringComparer.Ordinal);
@@ -374,7 +431,12 @@ public static class UpgradeItems
                     foreach (var (_, v) in o) Collect(v, refs);
                     break;
                 case JsonArray a: foreach (var x in a) Collect(x, refs); break;
-                case JsonValue v when v.GetValueKind() == JsonValueKind.String: refs.Add(v.GetValue<string>()); break;
+                case JsonValue v when v.GetValueKind() == JsonValueKind.String:
+                    var text = v.GetValue<string>();
+                    refs.Add(text);
+                    // 公式與樣板裡的 {代號}（例如 {subtotal} * {taxRate}）：逐個記下，新欄位被公式引用時才連得上（審查 S1）
+                    foreach (System.Text.RegularExpressions.Match match in Placeholder.Matches(text)) refs.Add(match.Groups[1].Value);
+                    break;
             }
         }
     }

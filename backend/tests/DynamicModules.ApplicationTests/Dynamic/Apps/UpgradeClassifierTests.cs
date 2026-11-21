@@ -89,29 +89,62 @@ public class UpgradeClassifierTests
     public void Version_ComparesNumerically(string a, string b, int sign) => Math.Sign(PackageVersion.Compare(a, b)).Should().Be(sign);
 
     /// <summary>
-    /// 覆蓋率（§13、§18）：AppPackageData 以下每個 record 的屬性，自動比對或列在「不比對」清單；清單裡的名字必須是真的屬性，
-    /// 免得改名後清單默默失效。新增的屬性預設會被比對，不會被基準換新吞掉。
+    /// 覆蓋率（§13、§18，審查 M2）：從 AppPackageData 沿「不比對」的屬性往下走（比對的屬性整份序列化，底下的 record 一起比），
+    /// 走到的每個 record 必須是整份比對（AutoCompared）或手工比對（HandCompared）其中之一；手工比對的 record 每個公開屬性
+    /// 都要在手工比對清單或不比對清單裡。新增屬性或 section 沒歸類就失敗，不會被基準換新默默吞掉。清單裡的名字也必須是真的屬性。
     /// </summary>
     [Fact]
-    public void NotComparedList_OnlyNamesRealProperties_OfPackageRecords()
+    public void EveryPackageProperty_IsCompared_OrListedAsNotCompared_BothDirections()
     {
-        var types = new Dictionary<string, Type>();
+        var (reached, problems) = Coverage(typeof(AppPackageData), InPackage);
+
+        problems.Should().BeEmpty();
+        reached.Should().ContainKeys(nameof(TemplateField), nameof(AppApprovalFlow), nameof(AppContribution), nameof(TemplatePermission));
+        foreach (var name in UpgradeItems.NotCompared.Keys.Concat(UpgradeItems.HandCompared.Keys).Concat(UpgradeItems.AutoCompared))
+            reached.Should().ContainKey(name, "清單裡的 record 名稱要對得上");
+        foreach (var (type, names) in UpgradeItems.NotCompared)
+            names.Keys.Should().BeSubsetOf(UpgradeItems.ComparedProperties(reached[type]).Select(p => p.Name), type);
+        foreach (var (type, names) in UpgradeItems.HandCompared)
+            names.Should().BeSubsetOf(UpgradeItems.ComparedProperties(reached[type]).Select(p => p.Name), type);
+    }
+
+    /// <summary>覆蓋率測試自己會擋：手工比對的 record 多一個沒歸類的屬性就要紅（模擬 i3c 在欄位上加 excludeFromAi，§13）。</summary>
+    [Fact]
+    public void Coverage_FlagsAnUnlistedProperty_OnAHandComparedRecord()
+    {
+        var (_, problems) = Coverage(typeof(Fake.TemplateField), t => t == typeof(Fake.TemplateField) || InPackage(t));
+        problems.Should().Equal("TemplateField.ExcludeFromAi 沒有歸類");
+    }
+
+    private static bool InPackage(Type t) => t.Namespace?.StartsWith("DynamicModules.Application.Dynamic") == true;
+
+    private static (Dictionary<string, Type> Reached, List<string> Problems) Coverage(Type root, Func<Type, bool> inScope)
+    {
+        var reached = new Dictionary<string, Type>();
+        var problems = new List<string>();
         void Walk(Type t)
         {
-            if (t.Namespace is null || !t.Namespace.StartsWith("DynamicModules.Application.Dynamic") || !types.TryAdd(t.Name, t)) return;
+            if (!t.IsClass || !inScope(t) || !reached.TryAdd(t.Name, t)) return;
+            var auto = UpgradeItems.AutoCompared.Contains(t.Name);
+            var hand = UpgradeItems.HandCompared.GetValueOrDefault(t.Name);
+            if (auto == (hand is not null)) { problems.Add($"{t.Name} 必須恰好屬於 AutoCompared 或 HandCompared 其中之一"); return; }
+            var skip = UpgradeItems.NotCompared.GetValueOrDefault(t.Name) ?? new Dictionary<string, string>();
             foreach (var p in UpgradeItems.ComparedProperties(t))
             {
+                if (hand is not null && !hand.Contains(p.Name) && !skip.ContainsKey(p.Name)) problems.Add($"{t.Name}.{p.Name} 沒有歸類");
+                if (hand is not null && hand.Contains(p.Name) && skip.ContainsKey(p.Name)) problems.Add($"{t.Name}.{p.Name} 同時在兩份清單");
+                if (!skip.ContainsKey(p.Name)) continue;
                 var pt = Nullable.GetUnderlyingType(p.PropertyType) ?? p.PropertyType;
                 foreach (var arg in pt.IsGenericType ? pt.GetGenericArguments() : [pt]) Walk(arg.IsGenericType ? arg.GetGenericArguments()[0] : arg);
             }
         }
-        Walk(typeof(AppPackageData));
-        types.Should().ContainKeys(nameof(TemplateField), nameof(AppApprovalFlow), nameof(AppContribution));
-        foreach (var (type, names) in UpgradeItems.NotCompared)
-        {
-            types.Should().ContainKey(type, "不比對清單的 record 名稱要對得上");
-            var props = UpgradeItems.ComparedProperties(types[type]).Select(p => p.Name).ToHashSet();
-            names.Keys.Should().BeSubsetOf(props, type);
-        }
+        Walk(root);
+        return (reached, problems);
+    }
+
+    private static class Fake
+    {
+        public sealed record TemplateField(string Code, DynamicModules.Domain.Entities.Dynamic.FieldType Type, DynamicModules.Domain.ValueObjects.I18nText Label,
+            JsonElement Config, List<TemplateOption> Options, bool? Active, bool ExcludeFromAi);
     }
 }

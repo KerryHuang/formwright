@@ -15,10 +15,7 @@ public static class UpgradeClassifier
 
     /// <summary>原因代碼（前端 apps.upgrade.reason.*）。</summary>
     public const string ReasonCustomerOnly = "customerOnly", ReasonRemovedInNew = "removedInNew", ReasonTypeChanged = "typeChanged",
-        ReasonKindChanged = "kindChanged", ReasonExistingPermission = "existingPermission";
-
-    /// <summary>可以勾的分類（畫面預設篩選顯示這幾類，§10.2 第 4 點）。</summary>
-    public static readonly IReadOnlyList<string> Selectable = [NewOnly, Both, Added, CustomerDeleted, SkippedBefore, NoBaseline, ExcludedAtOpen];
+        ReasonKindChanged = "kindChanged", ReasonExistingPermission = "existingPermission", ReasonReferenceChanged = "referenceChanged";
 
     public sealed record Result(string Category, bool DefaultSelected, bool Applicable, string? Reason, List<UpgradeProperty> Properties);
 
