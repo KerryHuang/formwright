@@ -2,7 +2,7 @@
 # 合併前本機走查用：以全新 Demo 資料啟動後端（5180，開 Demo 一鍵登入）與前端 dev（9180）。
 # 用法：bash scripts/unattended/local-demo.sh [worktree 根目錄，預設目前 repo]
 # DEMO_LOGIN=false 時關掉 Demo 一鍵登入（Demo 登入開著時 MCP 整個停用；MCP 實機驗收用，見 mcp1a 計畫判斷 25）。
-# BACKUP_ROOT 預設 backend/data/local-e2e-backups（啟動前清空），走查備份分頁用；設成空字串＝不設 Backup:Root（走查「未設定」）；
+# BACKUP_ROOT 預設 .tmp/local-e2e-backups（啟動前清空），走查備份分頁用；設成空字串＝不設 Backup:Root（走查「未設定」）；
 # 設成唯讀目錄可走查「寫不進去」（故障注入，備份設計 §15）。
 # 前景執行到被停止為止（請用背景執行）；就緒時印 READY。資料庫另放 local-e2e.db，不碰 poc.db。
 set -u
@@ -28,9 +28,9 @@ dotnet run --project "$API" -- --generate-demo-data >/dev/null 2>&1 || { echo "D
 # 後端輸出寫到 local-e2e.log（走查要看 JSON log 時加環境變數 Logging__Console__FormatterName=json 啟動）
 LOG="$ROOT/backend/data/local-e2e.log"
 rm -f "$LOG"
-BACKUP_ROOT="${BACKUP_ROOT-$ROOT/backend/data/local-e2e-backups}"
+BACKUP_ROOT="${BACKUP_ROOT-$ROOT/.tmp/local-e2e-backups}"
 if [ -n "$BACKUP_ROOT" ]; then
-  [ "$BACKUP_ROOT" = "$ROOT/backend/data/local-e2e-backups" ] && { chmod -R u+w "$BACKUP_ROOT" 2>/dev/null; rm -rf "$BACKUP_ROOT"; mkdir -p "$BACKUP_ROOT"; }
+  [ "$BACKUP_ROOT" = "$ROOT/.tmp/local-e2e-backups" ] && { chmod -R u+w "$BACKUP_ROOT" 2>/dev/null; rm -rf "$BACKUP_ROOT"; mkdir -p "$BACKUP_ROOT"; }
   export Backup__Root="$BACKUP_ROOT"
 fi
 Demo__LoginEnabled="${DEMO_LOGIN:-true}" dotnet run --no-build --project "$API" >"$LOG" 2>&1 &

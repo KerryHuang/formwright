@@ -46,7 +46,6 @@ const disabledText = computed(() => {
   if (v.current) return stepText(v.current);
   return v.manualDisabledReason ? labelOr(t, te, `ops.backup.disabled.${v.manualDisabledReason}`, v.manualDisabledReason) : '';
 });
-const inProgress = computed(() => !!o.value?.current);
 
 const request = useRequestBackup();
 function runNow() {
@@ -193,7 +192,7 @@ const fields = computed<Field[]>(() => {
     <div v-if="o.configured" class="column no-wrap q-gutter-y-xs">
       <div>
         <q-btn
-          color="primary" no-caps icon="backup" :label="t('ops.backup.runNow')" :disable="!o.manualAllowed" :loading="request.isPending.value || inProgress"
+          color="primary" no-caps icon="backup" :label="t('ops.backup.runNow')" :disable="!o.manualAllowed" :loading="request.isPending.value"
           data-testid="backup-run" @click="runNow"
         />
       </div>
@@ -211,8 +210,8 @@ const fields = computed<Field[]>(() => {
           <q-tr class="cursor-pointer" tabindex="0" :data-testid="`backup-row-${row.id}`" @click="openId = row.id" @keydown.enter.self.prevent="openId = row.id">
             <template v-for="c in cols" :key="c.name">
               <q-td v-if="c.name === 'status'">
-                <q-badge :color="STATUS_COLOR[row.status as string] ?? 'grey'">{{ c.value }}</q-badge>
-                <q-badge v-if="isOldLocation(row)" outline color="grey" class="q-ml-xs" data-testid="backup-old-location">{{ t('ops.backup.oldLocation') }}</q-badge>
+                <q-badge :color="STATUS_COLOR[row.status as string] ?? 'info'">{{ c.value }}</q-badge>
+                <q-badge v-if="isOldLocation(row)" outline color="info" class="q-ml-xs" data-testid="backup-old-location">{{ t('ops.backup.oldLocation') }}</q-badge>
               </q-td>
               <q-td v-else-if="c.name === 'error'" style="white-space: normal; overflow-wrap: anywhere">{{ c.value }}</q-td>
               <q-td v-else :align="c.align">{{ c.value }}</q-td>
@@ -224,8 +223,8 @@ const fields = computed<Field[]>(() => {
             <q-card flat bordered class="cursor-pointer" tabindex="0" :data-testid="`backup-card-${row.id}`" @click="openId = row.id" @keydown.enter.self.prevent="openId = row.id">
               <q-card-section class="q-py-sm">
                 <div class="row items-center q-gutter-xs">
-                  <q-badge :color="STATUS_COLOR[row.status as string] ?? 'grey'">{{ statusText(row) }}</q-badge>
-                  <q-badge v-if="isOldLocation(row)" outline color="grey" data-testid="backup-old-location">{{ t('ops.backup.oldLocation') }}</q-badge>
+                  <q-badge :color="STATUS_COLOR[row.status as string] ?? 'info'">{{ statusText(row) }}</q-badge>
+                  <q-badge v-if="isOldLocation(row)" outline color="info" data-testid="backup-old-location">{{ t('ops.backup.oldLocation') }}</q-badge>
                   <span class="text-caption text-muted">{{ formatTime(row.queuedUtc) }}</span>
                 </div>
                 <div class="text-caption">{{ triggerText(row) }} · {{ size(row.databaseBytes) }} · {{ attachmentsText(row) }} · {{ duration(row) }}</div>
