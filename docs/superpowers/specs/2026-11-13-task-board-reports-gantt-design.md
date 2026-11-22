@@ -1263,7 +1263,7 @@ schedule
 - **GT-T4** 新系統事件 `startChanged`（人直接改）與 `startFollowedDue`（被到期日推動，人或規則）；一次改兩個日期各寫一筆。
 - **GT-T5** T21 只改 `TaskWriter.SyncFromRuleAsync`；往後移、清空到期日都不動開始日。
 - **GT-T6** 「只改到期日早於開始日 → 開始日跟著移」寫在 `ApplyAsync`，看板 U12 自動得到；卡片加 `startDate`，看板提示由前端比對前後值，不加新回應欄位。
-- **GT-T7** 拖拉與日期對話框走新的 `POST /tasks/{id}/schedule {startDate, dueDate, expectedVersion}`，兩個日期一律都送；版本檢查與認領照 `move`；不回 `visible`、`undoToken`。PATCH 不加版本檢查（既有行為不在範圍）。
+- **GT-T7** 拖拉與日期對話框走新的 `POST /tasks/{id}/schedule {startDate, dueDate, expectedVersion}`，兩個日期一律都送；版本檢查與認領照 `move`；不回 `visible`、`undoToken`。PATCH 不加版本檢查（既有行為不在範圍）；票 #18 已補選填 `expectedVersion`，見 §11.5.9 第 1 項。
 - **GT-T8** 甘特設定是獨立的 `TaskGanttConfig`（`groupBy` none／parent／assignee、`scale`、沿用 `TaskBoardFilters` 但禁止 `dueRange`、`showSubtasks`）；`version` 1，升版規則同 §6.1；預設甘特圖不顯示取消。
 - **GT-T9** `task-views` 依 `Kind` 解析設定；看板端點拿到甘特 Id、甘特端點拿到看板 Id 一律 404；甘特檢視用自己的一組訊息，看板的字不動。
 - **GT-T10** `POST /tasks/gantt` 回平鋪 `rows`＋`parents`＋`spans`＋`unscheduled`，分組在前端做（純函式，vitest 覆蓋）。
@@ -1318,7 +1318,7 @@ gt1 估計約 2,000 行 diff（不含 EF 產生的 migration Designer）、gt2 �
 #### 11.5.9 與現有程式或設計的不一致（勘察發現）
 
 1. **PATCH 沒有版本檢查**：`UpdateTaskHandler` 不收版本，任務詳細改任何欄位都是最後寫入者贏；§11.3 要求拖拉「併發同 §5.6」，所以另開 `schedule`（GT-T7）。任務詳細改日期仍沒有併發保護，屬既有缺口，不在 gt 範圍，已在 `docs/todo.md`「其他」追蹤。
-   - 2026-11-22 補上（票 #18）：`UpdateTaskRequest` 加選填 `ExpectedVersion`（REST 讀 PATCH 主體的 `expectedVersion`，該鍵不算要改的欄位、主管只改負責人時也可帶）；有帶且不符 409 `stale`（`Stale`），寫入前走 `TryClaimVersionAsync`；沒帶照舊最後寫入者贏（MCP `update_task`、Demo 種子）。任務詳細一律帶載入時的 `version`，409 時重抓、沒改過的欄位跟著更新。
+   - 2026-11-22 補上（票 #18）：`UpdateTaskHandler` 讀 PATCH 主體的選填 `expectedVersion`（該鍵不算要改的欄位，主管只改負責人時也可帶）。檢查順序：404（不存在或看不到，帶什麼版本都一樣）→ 凍結 409 → 不是字串 400 鍵 `expectedVersion` → 不符 409 `stale`（`Stale`）→ 權限 403；寫入前走 `TryClaimVersionAsync`。沒帶、null、空字串都等同沒帶，照舊最後寫入者贏（MCP `update_task`、Demo 種子）。409 `subtasksOpen` 整筆回滾、版本不變，帶 `cascade` 重送用同一個版本。任務詳細一律帶目前查詢的 `version`：409 時重抓，沒改過的欄位跟著更新；背景重抓（留言、新增子任務等）讓版本前進時，若使用者改過的欄位伺服器也改成別的值，同樣顯示 stale 提示並保留使用者的值，再按儲存即知情覆寫。
 2. **`task-views` 只認看板**：`TaskViewRules.KindError` 只收 `board`、`CreateTaskViewHandler` 寫死 `Kind = Board`、`Detail`／`Copy`／`Update` 一律 `TaskBoardConfig.Read`。更要緊的是看板的 `ResolveAsync` 不檢查 `view.Kind`：甘特檢視一出現，`POST /task-board/columns {viewId:<甘特>}` 會把甘特設定寬鬆讀成預設看板而不報錯。gt1b 修正：`ResolveAsync` 檢查 `view.Kind`，甘特 Id 一律 404。
 3. **`TaskViewMessages` 的字都是「看板」**：gt1b 另立一組甘特用字，看板既有的字不動。
 4. **§12 的 move 主體寫 `expectedModifiedTime`**，實作是 `expectedVersion`（`TaskVersion` 字串）：§12 原文已同步改成 `expectedVersion`，`schedule` 照實作。
@@ -1334,7 +1334,7 @@ gt1 估計約 2,000 行 diff（不含 EF 產生的 migration Designer）、gt2 �
 - `GET /task-views?kind=board|gantt`：我的與分享給我的。`POST /task-views`、`GET/PUT/DELETE /task-views/{id}`、`POST /task-views/{id}/copy`、`PUT /task-views/{id}/shares`、`GET /task-views/share-targets`（使用者、部門、群組的 Id 與名稱）。
 - `POST /task-board/columns`：收看板設定（存過的或未存的），回各欄總數與第一頁卡片。`POST /task-board/columns/{column}/page`：載入更多。
 - `POST /tasks/{id}/move`：`{ groupBy, toColumn, dueDate?, expectedVersion }`，伺服器依欄算新值（§5.3），回更新後的卡片與 `visible`；`visible=false` 時另回一次性的 `undoToken`（§5.4）。
-- `PATCH /tasks/{id}` 既有：主管重派走這裡，只允許改 `assigneeUserId`（§4.2），同樣回 `visible` 與 `undoToken`。
+- `PATCH /tasks/{id}` 既有：主管重派走這裡，只允許改 `assigneeUserId`（§4.2），同樣回 `visible` 與 `undoToken`。主體可帶選填 `expectedVersion`，不符 409 `stale`、不是字串 400（票 #18，§11.5.9 第 1 項）。
 - `POST /tasks/{id}/undo-reassign`：收 `undoToken`，把負責人改回原負責人。
 - `GET /tasks?tab=subordinates`：任務清單的「部屬的任務」分頁（§4.2）。
 - `POST /tasks/{id}/subtasks`；`PATCH /tasks/{id}` 的狀態連動選項（`cascade: complete|cancel`）。
