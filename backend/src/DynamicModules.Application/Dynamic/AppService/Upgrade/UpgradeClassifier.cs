@@ -16,7 +16,14 @@ public static class UpgradeClassifier
     /// <summary>原因代碼（前端 apps.upgrade.reason.*）。</summary>
     public const string ReasonCustomerOnly = "customerOnly", ReasonRemovedInNew = "removedInNew", ReasonTypeChanged = "typeChanged",
         ReasonKindChanged = "kindChanged", ReasonExistingPermission = "existingPermission", ReasonReferenceChanged = "referenceChanged",
-        ReasonNotYetSupported = "notYetSupported", ReasonAffectsData = "affectsData", ReasonUnmatched = "unmatched";
+        ReasonNotYetSupported = "notYetSupported", ReasonAffectsData = "affectsData", ReasonUnmatched = "unmatched",
+        // 第二批（§9.6.4，pkg1d1a）：狀態機與簽核流程
+        ReasonStatusFieldChanged = "statusFieldChanged", ReasonUnlocksRecords = "unlocksRecords", ReasonTransitionGroups = "transitionGroups",
+        ReasonApprovalInFlight = "approvalInFlight", ReasonFlowInUse = "flowInUse", ReasonPriorityTaken = "priorityTaken",
+        ReasonApproverGroups = "approverGroups", ReasonWorkflowInvalid = "workflowInvalid";
+
+    /// <summary>不擋、只說明的影響代碼（§9.6.4 impacts，前端 apps.upgrade.impact.*）。</summary>
+    public const string ImpactRecordsInState = "recordsInState", ImpactInFlightApprovals = "inFlightApprovals";
 
     public sealed record Result(string Category, bool DefaultSelected, bool Applicable, string? Reason, List<UpgradeProperty> Properties);
 

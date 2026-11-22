@@ -226,7 +226,7 @@ public static class UpgradeItems
             refs.Add($"{f.Module}.{f.To}");
             if (f.RejectTo is { } rt) refs.Add($"{f.Module}.{rt}");
             // 關卡與備援的群組代號換成客戶群組 id（§6.2.1 第 4 點）
-            Add(new UpgradeItem($"approvalFlow:{f.Code}", "approvalFlows", f.Module, f.Name, props.ToDictionary(x => x.Key, x => MapGroups(x.Value, groupOf)))
+            Add(new UpgradeItem($"approvalFlow:{f.Code}", "approvalFlows", f.Module, f.Name, props.ToDictionary(x => x.Key, x => Normalize(MapGroups(x.Value, groupOf))))
                 { Refs = refs });
         }
         foreach (var l in p.Ledgers)

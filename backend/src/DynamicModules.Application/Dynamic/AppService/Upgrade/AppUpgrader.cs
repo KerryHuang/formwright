@@ -48,7 +48,7 @@ public sealed class AppUpgrader(
     IListViewRepository views, IRecordRepository records, TemplateInstantiator instantiator, MasterSymbols symbols,
     AppDependencyChecker dependencies, ISender sender, IUnitOfWork uow, IBusinessTime time, AppResponseBuilder builder,
     RequestLocale requestLocale, AuditContext audit, IAuditLog auditLog, IMessageCatalog messages,
-    IReportRepository reports, ReportDefinitionValidator reportValidator, ICurrentUser user)
+    IReportRepository reports, ReportDefinitionValidator reportValidator, ICurrentUser user, AppFlowUpgrader flowUpgrader)
 {
     private static readonly IReadOnlyDictionary<string, long> None = new Dictionary<string, long>();
 
@@ -297,7 +297,11 @@ public sealed class AppUpgrader(
         // 7. 既有模組上新欄位、新選項附帶的欄位例外與選項範圍（Q12）：從現有權限列出發加上去，既有列一筆都不改
         if ((failed = await AttachPermissionsAsync(n, state, contributions, chosen.Where(IsNew).ToList(), groupIds, grants, ct)) is not null) return failed;
 
-        // 8. 報表
+        // 8. 狀態機、簽核流程（pkg1d1a，T31：狀態機第一趟 → 簽核流程 → 狀態機第二趟；報表在後）
+        var idMap = new TemplateIdMap(map.Fields, map.FieldKeys, map.Options, map.Blocks, map.Modules.ToDictionary(x => x.Key, x => x.Value.Key));
+        if ((failed = await flowUpgrader.ApplyAsync(chosen, ctx, idMap, groupIds, newModules, lc, warnings, ct)) is not null) return failed;
+
+        // 報表
         if (Picked("reports", out var reportItems))
             if ((failed = await SaveReportsAsync(app, reportItems, n, ctx, state, groupIds, warnings, ct)) is not null) return failed;
 
