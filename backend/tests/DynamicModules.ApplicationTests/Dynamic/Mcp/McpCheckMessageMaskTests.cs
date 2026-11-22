@@ -557,6 +557,13 @@ public sealed class McpCheckMessageMaskTests : EffectsTestBase
             _channel.Channel = RequestChannel.Ui;
         }
 
+        // 陽性對照：同一套資料、條件改用一般欄位（數量）的 count 檢查照給數字，證明上面是因為彙總才被遮
+        var plainDef = new CheckDefinition([o.HeadRef], "count", null, J($$"""{"all":[{"field":{{o.Qty}},"op":"gte","value":0}]}"""),
+            new CheckAssert("gte", new CheckLimit(100, null, null)), Text("共 {value} 列，下限 {limit}"));
+        var plain = await Send(new CreateCheckRequest(new CheckInput("mco9-plain", Text("plain"), o.Line, true, plainDef)));
+        plain.IsCreated.Should().BeTrue(plain.Message + string.Join(";", plain.Errors.Select(e => e.Key + e.Value[0])));
+        (await EvaluateAsSales(o.Line, "mco9-plain", Vals((o.HeadRef, "999999999"), (o.Qty, "0")))).Should().Be("共 0 列，下限 100");
+
         (await EvaluateAsSales(o.Line, "mco9-min", Vals((o.HeadRef, "999999999"), (rollup, "0")))).Should().Be("共 … 列，下限 100");
     }
 
@@ -564,7 +571,7 @@ public sealed class McpCheckMessageMaskTests : EffectsTestBase
     [Fact]
     public void Prepared_IsNotRecord()
     {
-        typeof(CheckEvaluator.Prepared).GetMethod("<Clone>$").Should().BeNull();
+        typeof(CheckEvaluator.Prepared).Should().NotImplement<IEquatable<CheckEvaluator.Prepared>>();
     }
 
     // ---- 快取：同一次求值（同一個 Prepared）內，各違規組共用一次遮罩判斷 ----
