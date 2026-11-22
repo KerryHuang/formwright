@@ -381,6 +381,8 @@ s2e-a 把 `CurrentFormatVersion` 提高到 **7**，s2e-b 再提高到 **8**（s2
 | `workflows[].transitions[]` | `auto: { lines, match, field, op, compareTo }` | 依履約量自動轉移（§4.9） | 8 |
 | 整合欄位 `config` | `fillFrom: { via, field }` | 整合新增的 `lineTrace` 從同模組參照的目標複製（§4.3） | 8 |
 
+**套件更新的比對（套件更新設計 §22.2，pkg1d1a 先合併，由 s2e-a 補）：** 狀態的 `cancelled`、`locksDownstream` 是新屬性，`UpgradeItems` 的狀態項目要一起比（覆蓋率測試會擋沒比的屬性）；狀態上有記錄時改 `cancelled` 會改變已轉量與履約量，升級預覽歸「會影響既有資料」、不能勾（比照 `unlocksRecords`，沒有記錄才能套）。
+
 ### 5.2 整合層擴充（缺口 1～4，s2e-b）
 
 **成對整合（缺口 1）。** 兩份套件各宣告一個同 `code`、`"pair": true` 的整合，`with` 只能有一項，就是對方。規則：
