@@ -331,6 +331,23 @@ public class SubtaskCascadeTests : TaskTestBase
         r.Message.Should().Be(TaskMessages.SupervisorOnlyAssignee);
     }
 
+    /// <summary>任務詳細帶版本改完成：409 subtasksOpen 時整筆回滾、版本不變，用同一個版本帶 cascade 重送 → 200（票 #18）。</summary>
+    [Fact]
+    public async Task Patch_WithVersion_SubtasksOpen_RetrySameVersionWithCascade()
+    {
+        var parent = await SeedTask("辦行銷活動", createdBy: "sales01", assignee: "sales01", status: TaskItemStatus.InProgress);
+        var c1 = await SeedChild(parent, "訂場地", assignee: "sales02");
+        var version = TaskVersion.Of(await Load(parent.Id));
+
+        var refused = await Patch("sales01", parent.Id, $$"""{"status":"done","expectedVersion":"{{version}}"}""");
+        refused.IsConflict.Should().BeTrue();
+        refused.Code.Should().Be("subtasksOpen");
+
+        await MustPatch("sales01", parent.Id, $$"""{"status":"done","cascade":"complete","expectedVersion":"{{version}}"}""");
+        (await Load(parent.Id)).Status.Should().Be(TaskItemStatus.Done);
+        (await Load(c1.Id)).Status.Should().Be(TaskItemStatus.Done);
+    }
+
     [Fact]
     public async Task C25_BoardDropToDone_409ThenRetryWithSameVersion()
     {

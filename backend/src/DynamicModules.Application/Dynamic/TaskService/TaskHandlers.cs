@@ -155,8 +155,12 @@ public class UpdateTaskHandler(ITaskRepository tasks, TaskSupport support, TaskW
         var p = await access.EvaluateAsync(task, ct);
         if (!p.CanSee) return ServiceResult.NotFound(TaskMessages.NotFound);
         if (p.Frozen) return ServiceResult.Conflict(ModuleGate.ClosedMessage);
-        var checkVersion = !string.IsNullOrEmpty(request.ExpectedVersion);
-        if (checkVersion && request.ExpectedVersion != TaskVersion.Of(task)) return ServiceResult.Conflict(MessageRef.Literal(TaskMessages.Stale), "stale");
+        // 版本檢查在可見性之後：看不到的人不論帶什麼版本都是 404；型別錯 400、不符 409 stale，都在權限 403 之前（同 move、schedule）
+        var (versionOk, expected) = TaskEditParser.ReadExpectedVersion(request.Patch);
+        if (!versionOk)
+            return ServiceResult.Invalid(new Dictionary<string, string[]> { [UpdateTaskRequest.ExpectedVersionKey] = [TaskEditParser.BadTypeMessage] });
+        var checkVersion = expected is not null;
+        if (checkVersion && expected != TaskVersion.Of(task)) return ServiceResult.Conflict(MessageRef.Literal(TaskMessages.Stale), "stale");
         if (!p.CanEdit)
         {
             if (!p.CanReassign) return ServiceResult.Forbidden();

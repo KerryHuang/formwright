@@ -13,12 +13,12 @@ public sealed record CreateRecordTaskRequest(long RecordId, TaskInput Input) : I
 /// <summary>在 ParentId 底下新增子任務（看板設計 §10.7.2）；記錄與模組從父任務複製。</summary>
 public sealed record CreateSubtaskRequest(long ParentId, TaskInput Input) : IRequest<ServiceResult>, IIdempotentRequest;
 
-/// <summary>Patch 是原始 JSON：沒送的欄位不改，送 null 代表清除。</summary>
 /// <summary>
-/// ExpectedVersion 是任務詳細載入時的 version（票 #18）：有帶且不符 409 stale（同看板、甘特拖拉）；沒帶照舊最後寫入者贏（MCP、Demo 種子）。
-/// REST 從 PATCH 主體的 <c>expectedVersion</c> 鍵取出，該鍵不算要改的欄位。
+/// Patch 是原始 JSON：沒送的欄位不改，送 null 代表清除。Patch 的 <c>expectedVersion</c> 鍵是任務詳細載入時的 version（票 #18），
+/// 不算要改的欄位：有帶且不符 409 stale（同看板、甘特拖拉）；沒帶、null 或空字串都等同沒帶，照舊最後寫入者贏（MCP、Demo 種子）；
+/// 不是字串 400，鍵 <c>expectedVersion</c>。
 /// </summary>
-public sealed record UpdateTaskRequest(long Id, JsonElement Patch, string? ExpectedVersion = null) : IRequest<ServiceResult>, IIdempotentRequest
+public sealed record UpdateTaskRequest(long Id, JsonElement Patch) : IRequest<ServiceResult>, IIdempotentRequest
 {
     /// <summary>PATCH 主體裡帶版本的鍵名。</summary>
     public const string ExpectedVersionKey = "expectedVersion";

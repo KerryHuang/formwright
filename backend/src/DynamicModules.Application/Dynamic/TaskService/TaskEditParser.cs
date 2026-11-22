@@ -84,6 +84,23 @@ public static class TaskEditParser
             : (new TaskEdit(title, setDescription, description, setAssignee, assignee, setDue, due, status, cascade, setStart, start), errors);
     }
 
+    /// <summary>
+    /// 讀 PATCH 主體的 expectedVersion（票 #18）：沒帶、null、空字串回 (true, null)，代表不比對版本；字串回 (true, 值)；其他型別回 (false, null)。
+    /// </summary>
+    public static (bool Ok, string? Version) ReadExpectedVersion(JsonElement patch)
+    {
+        if (patch.ValueKind != JsonValueKind.Object || !patch.TryGetProperty(UpdateTaskRequest.ExpectedVersionKey, out var v)) return (true, null);
+        return v.ValueKind switch
+        {
+            JsonValueKind.Null => (true, null),
+            JsonValueKind.String => (true, string.IsNullOrEmpty(v.GetString()) ? null : v.GetString()),
+            _ => (false, null),
+        };
+    }
+
+    /// <summary>型別錯的錯誤訊息（同欄位解析的「格式不正確」）。</summary>
+    public static string BadTypeMessage => BadType;
+
     /// <summary>合法的 status 字串（MCP 工具的參數列舉據此產生，與 <see cref="TryParseStatus"/> 同步）。</summary>
     public static IReadOnlyList<string> StatusValues { get; } = Enum.GetValues<TaskItemStatus>().Select(TaskWriter.StatusText).ToList();
 

@@ -31,12 +31,12 @@ public class TaskWriteTests : TaskTestBase
         // 種子的建立時間早於測試時鐘，第一次寫入後版本才會前進（測試時鐘固定）
         var created = await SeedTask(assignee: "sales01");
         var stale = TaskVersion.Of(created);
-        var first = await Send(new UpdateTaskRequest(created.Id, J("""{"status":"inProgress"}"""), stale));
+        var first = await Send(new UpdateTaskRequest(created.Id, J($$"""{"status":"inProgress","expectedVersion":"{{stale}}"}""")));
         first.IsSuccess.Should().BeTrue(first.Message);
         ((TaskDetailResponse)first.Data!).Version.Should().NotBe(stale);
         var before = (await Entries(created.Id)).Count;
 
-        var r = await Send(new UpdateTaskRequest(created.Id, J("""{"status":"done","title":"後到的人"}"""), stale));
+        var r = await Send(new UpdateTaskRequest(created.Id, J($$"""{"status":"done","title":"後到的人","expectedVersion":"{{stale}}"}""")));
 
         r.IsConflict.Should().BeTrue();
         r.Code.Should().Be("stale");
@@ -59,8 +59,25 @@ public class TaskWriteTests : TaskTestBase
         (await Load(created.Id)).Status.Should().Be(TaskItemStatus.Done);
     }
 
+    /// <summary>expectedVersion 不是字串 → 400 鍵 expectedVersion（同 move、schedule 的模型繫結），不改值；空字串、null 等同沒帶。</summary>
+    [Fact]
+    public async Task Patch_ExpectedVersionNotString_400_EmptyMeansAbsent()
+    {
+        var created = await SeedTask(assignee: "sales01");
+
+        var bad = await Patch(created.Id, """{"expectedVersion":123,"title":"x"}""");
+
+        bad.IsInvalid.Should().BeTrue();
+        bad.Errors.Should().ContainKey("expectedVersion");
+        (await Load(created.Id)).Title.Should().Be("準備資料");
+        (await Patch(created.Id, """{"expectedVersion":"","title":"空字串"}""")).IsSuccess.Should().BeTrue();
+        (await Patch(created.Id, """{"expectedVersion":null,"title":"null"}""")).IsSuccess.Should().BeTrue();
+        (await Load(created.Id)).Title.Should().Be("null");
+    }
+
     /// <summary>讀完之後、寫入之前別人已推進版本：記憶體比對通過，條件式認領要擋下（同看板拖拉）。</summary>
     [Fact]
+    [Trait("Category", "Postgres")]
     public async Task Patch_VersionChangedAfterRead_409()
     {
         var created = await MustCreate();
@@ -70,7 +87,7 @@ public class TaskWriteTests : TaskTestBase
         await Db.Context.Set<TaskItem>().Where(t => t.Id == created.Id)
             .ExecuteUpdateAsync(s => s.SetProperty(t => t.Status, TaskItemStatus.Done).SetProperty(t => t.ModifiedTime, new DateTime(2026, 11, 4, 9, 30, 0)));
 
-        var r = await Send(new UpdateTaskRequest(created.Id, J("""{"title":"後到的人"}"""), version));
+        var r = await Send(new UpdateTaskRequest(created.Id, J($$"""{"title":"後到的人","expectedVersion":"{{version}}"}""")));
 
         r.IsConflict.Should().BeTrue();
         r.Code.Should().Be("stale");
@@ -224,6 +241,23 @@ public class TaskWriteTests : TaskTestBase
         (await Db.Context.Set<TaskItem>().CountAsync()).Should().Be(0);
         (await Db.Context.Set<TaskComment>().CountAsync()).Should().Be(0);
         (await Db.Context.Set<TaskParticipant>().CountAsync()).Should().Be(0);
+    }
+
+    /// <summary>看不到任務的人帶亂填（或型別錯）的版本 → 一律 404，不回 409／400，不透露任務存在（票 #18）。</summary>
+    [Fact]
+    public async Task InvisibleTask_AnyExpectedVersion_404()
+    {
+        var t = await BuildTarget();
+        var rec = await NewRecord(t, "sales01");
+        var seeded = await SeedTask(createdBy: "admin", target: t, recordId: rec);
+
+        As("floor01");
+        var garbage = await Patch(seeded.Id, """{"title":"x","expectedVersion":"19990101000000000"}""");
+        var badType = await Patch(seeded.Id, """{"title":"x","expectedVersion":1}""");
+        As("admin");
+
+        garbage.IsNotFound.Should().BeTrue();
+        badType.IsNotFound.Should().BeTrue();
     }
 
     [Fact]

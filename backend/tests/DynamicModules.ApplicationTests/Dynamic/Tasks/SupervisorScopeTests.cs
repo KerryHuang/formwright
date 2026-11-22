@@ -80,11 +80,30 @@ public class SupervisorScopeTests : TaskTestBase
         var version = TaskVersion.Of(await Load(task.Id));
 
         As("manager01");
-        var r = await Send(new UpdateTaskRequest(task.Id, J($$"""{"assigneeUserId":"sales02","expectedVersion":"{{version}}"}"""), version));
+        var r = await Send(new UpdateTaskRequest(task.Id, J($$"""{"assigneeUserId":"sales02","expectedVersion":"{{version}}"}""")));
         As("admin");
 
         r.IsSuccess.Should().BeTrue(r.Message);
         (await Load(task.Id)).AssigneeUserId.Should().Be("sales02");
+    }
+
+    /// <summary>主管帶舊版本：改負責人、改標題都是 409 stale（版本檢查在權限 403 之前，同 move、schedule），不改值。</summary>
+    [Fact]
+    public async Task Supervisor_StaleVersion_409_BeforeForbidden()
+    {
+        var task = await SeedTask("整理名片", createdBy: "sales01", assignee: "sales01");
+        const string stale = "19990101000000000";
+
+        var reassign = await Patch("manager01", task.Id, $$"""{"assigneeUserId":"sales02","expectedVersion":"{{stale}}"}""");
+        var title = await Patch("manager01", task.Id, $$"""{"title":"改標題","expectedVersion":"{{stale}}"}""");
+
+        reassign.IsConflict.Should().BeTrue();
+        reassign.Code.Should().Be("stale");
+        title.IsConflict.Should().BeTrue();
+        title.Code.Should().Be("stale");
+        var after = await Load(task.Id);
+        after.AssigneeUserId.Should().Be("sales01");
+        after.Title.Should().Be("整理名片");
     }
 
     [Fact]

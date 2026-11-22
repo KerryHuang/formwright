@@ -46,7 +46,6 @@ public class TasksApiTests : IDisposable
     /// 沒帶 expectedVersion 照舊（MCP 與既有呼叫端），最後寫入者贏。
     /// </summary>
     [Fact]
-    [Trait("Category", "Postgres")]
     public async Task Patch_SameVersionTwice_SecondIsStale()
     {
         var created = await JsonOf(await _admin.PostAsJsonAsync($"{Base}/tasks", new { title = "整理報價", assigneeUserId = "sales01" }));
@@ -66,6 +65,9 @@ public class TasksApiTests : IDisposable
         var withNew = await _admin.PatchAsync($"{Base}/tasks/{id}", JsonContent.Create(new { title = "帶新版本", expectedVersion = newVersion }));
         withNew.StatusCode.Should().Be(HttpStatusCode.OK, await withNew.Content.ReadAsStringAsync());
         (await _admin.PatchAsync($"{Base}/tasks/{id}", Body("""{"title":"沒帶版本"}"""))).StatusCode.Should().Be(HttpStatusCode.OK);
+        var badType = await _admin.PatchAsync($"{Base}/tasks/{id}", Body("""{"title":"型別錯","expectedVersion":123}"""));
+        badType.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await JsonOf(badType)).GetProperty("errors").TryGetProperty("expectedVersion", out _).Should().BeTrue();
     }
 
     private Task<HttpResponseMessage> SendIn(string? locale, HttpMethod method, string url, string json)
