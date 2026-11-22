@@ -113,8 +113,13 @@ public static partial class AppApprovalFlowCodec
     /// （呼叫端讓整份匯出 409，不略過流程：略過會讓 direct 入口在重新匯入後少簽，計畫 U7）。空的可編輯欄位不寫出。
     /// </summary>
     /// <param name="groupCode">群組 Id → 套件群組代號；群組已不存在回 null。</param>
+    /// <param name="compare">
+    /// 比對模式（升級預覽的現況 C，套件更新設計 T42）：開啟時略過、由備援頂替的群組不算錯，只寫出對應到的群組；
+    /// 基準與新版比對前套同一份頂替（<see cref="Upgrade.UpgradeItems"/>），所以兩邊一致。一般匯出仍擋下（重新匯入會少簽）。
+    /// </param>
     public static (AppApprovalFlow? Flow, List<string> Errors) ToPackage(
-        ApprovalFlow flow, ApprovalDefinition current, string moduleCode, long statusFieldId, AppReportCodec.Names n, Func<long, string?> groupCode, LocaleContext lc)
+        ApprovalFlow flow, ApprovalDefinition current, string moduleCode, long statusFieldId, AppReportCodec.Names n, Func<long, string?> groupCode, LocaleContext lc,
+        bool compare = false)
     {
         // 套件格式還沒有流程圖（fg6 升版）：照 stages 匯出會變成沒有關卡的流程，所以整份擋下並指名流程（U3）
         if (current.Shape == ApprovalShapes.Graph)
@@ -142,7 +147,7 @@ public static partial class AppApprovalFlowCodec
         AppApproverSource Source(ApproverSource a, string where)
         {
             if (a.Source == ApprovalSources.Users) Add(AppMessages.ExportFlowUsers(where));
-            if (a.UnmatchedGroups is { Count: > 0 } || a.CandidatesUnmatched) Add(AppMessages.ExportFlowUnmatched(where));
+            if (!compare && (a.UnmatchedGroups is { Count: > 0 } || a.CandidatesUnmatched)) Add(AppMessages.ExportFlowUnmatched(where));
             return new AppApproverSource(a.Source,
                 a.Source == ApprovalSources.Group ? Groups(a.GroupIds) : null, a.Level,
                 a.Source == ApprovalSources.UserField && a.FieldId is { } field ? Field(field) : null,

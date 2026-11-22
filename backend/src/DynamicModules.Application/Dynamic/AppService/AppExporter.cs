@@ -212,7 +212,7 @@ public sealed partial class AppExporter(
         var taskRuleList = await ExportTaskRulesAsync(app, isMaster, members, codeOfModule, masterTargets, names, warnings, ct);
         // 主檔不帶狀態機，流程也不匯出（主檔模組本來就沒有套件帶來的狀態機，沿用下面的警告）
         var (approvalList, approvalErrors) = isMaster ? (new List<AppApprovalFlow>(), new List<string>()) : await ExportApprovalFlowsAsync(members, codeOfModule, names,
-            workflows.Select(w => w.Module).ToHashSet(), id => groupList.Any(g => g.Id == id) ? GroupCode(id) : null, warnings, ct);
+            workflows.Select(w => w.Module).ToHashSet(), id => groupList.Any(g => g.Id == id) ? GroupCode(id) : null, warnings, compare, ct);
         if (isMaster && workflows.Count + conversionList.Count + printList.Count + ledgerList.Count + eventList.Count + checkList.Count > 0)
         {
             // 主檔套件不收流程（§4.1）：客戶在設計器加的就留在資料庫，不寫進檔案，否則匯出的檔案會被匯入驗證退回
@@ -253,7 +253,7 @@ public sealed partial class AppExporter(
     /// </summary>
     private async Task<(List<AppApprovalFlow> Flows, List<string> Errors)> ExportApprovalFlowsAsync(
         List<Module> members, Dictionary<long, string> codeOf, AppReportCodec.Names names, IReadOnlySet<string> exportedWorkflows,
-        Func<long, string?> groupCode, List<string> warnings, CancellationToken ct)
+        Func<long, string?> groupCode, List<string> warnings, bool compare, CancellationToken ct)
     {
         var flows = new List<AppApprovalFlow>();
         var errors = new List<string>();
@@ -277,7 +277,7 @@ public sealed partial class AppExporter(
                     warnings.Add($"簽核流程「{s.Flow.NameI18n.Resolve(requestLocale.Current)}」使用流程圖格式，套件格式升版前不能匯出，已略過（流程已停用）");
                     continue;
                 }
-                var (flow, flowErrors) = AppApprovalFlowCodec.ToPackage(s.Flow, s.Definition, module, w.StatusFieldId, names, groupCode, requestLocale.Current);
+                var (flow, flowErrors) = AppApprovalFlowCodec.ToPackage(s.Flow, s.Definition, module, w.StatusFieldId, names, groupCode, requestLocale.Current, compare);
                 if (flow is null) errors.AddRange(flowErrors);
                 else flows.Add(flow);
             }
