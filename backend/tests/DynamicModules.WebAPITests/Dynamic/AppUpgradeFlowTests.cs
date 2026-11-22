@@ -2,8 +2,13 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using DynamicModules.Domain.Approvals;
 using DynamicModules.Domain.Entities.Dynamic;
+using DynamicModules.Application.Common;
+using DynamicModules.Application.Dynamic.WorkflowService.Commands.SaveWorkflow;
 using FluentAssertions;
+using MediatR;
+using Microsoft.Extensions.DependencyInjection;
 using Record = DynamicModules.Domain.Entities.Dynamic.Record;
 using static DynamicModules.WebAPITests.Dynamic.ApiTestKit;
 
@@ -19,7 +24,7 @@ public class AppUpgradeFlowTests : IDisposable
     private const string Id = "uf";
     private const string DealKey = "uf-deal";
     private const string Perm = """{ "read": true, "add": true, "edit": true, "delete": true, "printExport": true, "pricing": true, "approve": true }""";
-    private readonly SharedMasterRig _rig = new();
+    private SharedMasterRig _rig = new();
 
     public void Dispose() => _rig.Dispose();
 
@@ -64,7 +69,7 @@ public class AppUpgradeFlowTests : IDisposable
         }
         """)!.AsObject();
 
-    private async Task OpenAsync(Action<JsonObject>? customize = null)
+    private async Task OpenAsync(Action<JsonObject>? customize = null, bool skipWh = false)
     {
         var v1 = V1();
         customize?.Invoke(v1);
@@ -73,7 +78,7 @@ public class AppUpgradeFlowTests : IDisposable
         {
             ["lead"] = new { mode = "map", groupId = _rig.GroupId("ops-manager") },
             ["sales"] = new { mode = "map", groupId = _rig.GroupId("sales-manager") },
-            ["wh"] = new { mode = "map", groupId = _rig.GroupId("warehouse") }
+            ["wh"] = skipWh ? (object)new { mode = "skip" } : new { mode = "map", groupId = _rig.GroupId("warehouse") }
         };
         await _rig.OpenOkAsync(Id, new { groupMap = map });
     }
@@ -133,13 +138,15 @@ public class AppUpgradeFlowTests : IDisposable
     });
 
     /// <summary>建 count 筆記錄，直接把狀態寫成 state。</summary>
-    private async Task RecordsAsync(string state, int count)
+    private async Task<List<long>> RecordsAsync(string state, int count)
     {
         var status = _rig.FieldKey(Id, "deal.status");
+        var ids = new List<long>();
         for (var k = 0; k < count; k++)
         {
             var created = await _rig.CreateRecordAsync(_rig.Admin, DealKey, new Dictionary<string, object> { [_rig.FieldKey(Id, "deal.title")] = $"D-{state}-{k}" });
             var id = created.GetProperty("id").GetInt64();
+            ids.Add(id);
             var option = Option(state);
             _rig.Db(db =>
             {
@@ -149,6 +156,7 @@ public class AppUpgradeFlowTests : IDisposable
                 r.ValuesJson = values.ToJsonString();
             });
         }
+        return ids;
     }
 
     private async Task MoveAllAsync(string state)
@@ -426,5 +434,319 @@ public class AppUpgradeFlowTests : IDisposable
         var item = Item(await PreviewAsync(), "transition:deal:draft>sent");
         Reason(item).Should().Be("workflowInvalid");
         item.GetProperty("detail").GetString().Should().Contain("已退回");
+    }
+
+    // ---- 共用：直接寫資料庫構造簽核實例與流程定義 ----
+
+    private void Instance(long recordId, string flowKey, string from, string to, string status = ApprovalInstanceStatus.Pending) => _rig.Db(db =>
+    {
+        var flow = db.Set<ApprovalFlow>().Single(f => f.Key == flowKey);
+        db.Set<ApprovalInstance>().Add(new ApprovalInstance
+        {
+            RecordId = recordId, ModuleId = flow.ModuleId, FlowId = flow.Id, FlowVersionId = flow.CurrentVersionId,
+            FromOptionId = Option(from), ToOptionId = Option(to), Status = status, TitleSnapshot = "D",
+            SubmittedTime = DateTime.Now, RowVersion = "x", OperationId = Guid.NewGuid().ToString()
+        });
+    });
+
+    private void EditDefinition(string flowKey, Func<ApprovalDefinition, ApprovalDefinition> change) => _rig.Db(db =>
+    {
+        var flow = db.Set<ApprovalFlow>().Single(f => f.Key == flowKey);
+        var version = db.Set<ApprovalFlowVersion>().Single(v => v.Id == flow.CurrentVersionId);
+        version.Definition = change(version.Definition);
+    });
+
+    private ApprovalDefinition DefinitionOf(string flowKey) => _rig.Db(db =>
+    {
+        var flow = db.Set<ApprovalFlow>().Single(f => f.Key == flowKey);
+        return db.Set<ApprovalFlowVersion>().Single(v => v.Id == flow.CurrentVersionId).Definition;
+    });
+
+    private static List<string> Blockers(JsonElement preview) =>
+        preview.GetProperty("blockers").EnumerateArray().Select(b => b.GetProperty("code").GetString()!).ToList();
+
+    private (string Version, string Baseline) VersionAndBaseline() => _rig.Db(db =>
+    {
+        var app = db.Set<App>().Single(a => a.Key == Id);
+        return (app.PackageVersion, db.Set<AppBaseline>().Single(b => b.AppId == app.Id).PackageJson);
+    });
+
+    // ---- A16a ----
+
+    [Fact]
+    public async Task A16a_SecondBatchChange_NotYetSupported_FlowOnlyChange_Applies()
+    {
+        await OpenAsync();
+        await NewVersionAsync(p =>
+        {
+            p["printTemplates"] = JsonNode.Parse("""[ { "module": "deal", "code": "uf-print", "name": { "zh-TW": "案件單" }, "active": true, "body": "<p>案件</p>" } ]""");
+            Flow(p, "uf-win")["stages"]![0]!["name"] = new JsonObject { ["zh-TW"] = "主管核准" };
+        });
+        var blocked = await PreviewAsync();
+        Reason(Item(blocked, "printTemplate:uf-print")).Should().Be("notYetSupported");
+        Blockers(blocked).Should().Contain("secondBatch");
+        blocked.GetProperty("canApply").GetBoolean().Should().BeFalse();
+
+        await NewVersionAsync(p => { p["manifest"]!["version"] = "1.2.0"; Flow(p, "uf-win")["stages"]![0]!["name"] = new JsonObject { ["zh-TW"] = "主管核准" }; });
+        var preview = await PreviewAsync();
+        Blockers(preview).Should().NotContain("secondBatch");
+        preview.GetProperty("canApply").GetBoolean().Should().BeTrue();
+        await ApplyOkAsync(preview, Defaults(preview));
+    }
+
+    // ---- A29、A30 ----
+
+    [Fact]
+    public async Task A29_ApprovalRemoved_InFlight_ThenLocked_ThenApplies()
+    {
+        await OpenAsync();
+        var ids = await RecordsAsync("sent", 2);
+        foreach (var id in ids) Instance(id, "uf-win", "sent", "won");
+        await NewVersionAsync(p => Transition(p, "sent", "won").Remove("approval"));
+        var inFlight = Item(await PreviewAsync(), "transition:deal:sent>won");
+        Reason(inFlight).Should().Be("approvalInFlight");
+        inFlight.GetProperty("affectedRecords").GetInt32().Should().Be(2);
+
+        // 兩張簽完：記錄停在成交（簽核鎖定）
+        _rig.Db(db => { foreach (var i in db.Set<ApprovalInstance>()) i.Status = ApprovalInstanceStatus.Approved; });
+        await MoveAllAsync("won");
+        var locked = Item(await PreviewAsync(), "transition:deal:sent>won");
+        Reason(locked).Should().Be("unlocksRecords");
+        locked.GetProperty("affectedRecords").GetInt32().Should().Be(2);
+
+        await MoveAllAsync("draft");
+        var preview = await PreviewAsync();
+        Item(preview, "transition:deal:sent>won").GetProperty("applicable").GetBoolean().Should().BeTrue();
+        await ApplyOkAsync(preview, ["transition:deal:sent>won"]);
+        WorkflowOf().RequiresApproval(Option("sent"), Option("won")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A30_StagesChanged_InFlight_Applicable_NewVersion_InstanceKeepsOld()
+    {
+        await OpenAsync();
+        var ids = await RecordsAsync("sent", 1);
+        Instance(ids[0], "uf-win", "sent", "won");
+        var oldVersion = _rig.Db(db => db.Set<ApprovalFlow>().Single(f => f.Key == "uf-win").CurrentVersionId);
+        await NewVersionAsync(p => Flow(p, "uf-win")["stages"]![0]!["dueHours"] = 24);
+        var preview = await PreviewAsync();
+        var item = Item(preview, "approvalFlow:uf-win");
+        item.GetProperty("applicable").GetBoolean().Should().BeTrue();
+        item.GetProperty("impacts")[0].GetProperty("code").GetString().Should().Be("inFlightApprovals");
+        item.GetProperty("impacts")[0].GetProperty("count").GetInt32().Should().Be(1);
+
+        await ApplyOkAsync(preview, ["approvalFlow:uf-win"]);
+        var (current, versions, bound) = _rig.Db(db =>
+        {
+            var flow = db.Set<ApprovalFlow>().Single(f => f.Key == "uf-win");
+            return (flow.CurrentVersionId, db.Set<ApprovalFlowVersion>().Count(v => v.FlowId == flow.Id), db.Set<ApprovalInstance>().Single().FlowVersionId);
+        });
+        versions.Should().Be(2, "被用過的版本另開新版本");
+        current.Should().NotBe(oldVersion);
+        bound.Should().Be(oldVersion, "簽核中的單照原版本走完");
+        DefinitionOf("uf-win").Stages[0].DueHours.Should().Be(24);
+    }
+
+    // ---- A32、A61 ----
+
+    [Fact]
+    public async Task A32_NewFlowPriorityTakenByCustomerFlow_ThenCustomerChangesPriority_Applicable()
+    {
+        await OpenAsync();
+        // 客戶自建的流程：檢查狀態、優先序 2
+        _rig.Db(db =>
+        {
+            var src = db.Set<ApprovalFlow>().Single(f => f.Key == "uf-check");
+            var flow = new ApprovalFlow { Key = "my-check", NameI18n = src.NameI18n, ModuleId = src.ModuleId, ToOptionId = src.ToOptionId, Priority = 2, Active = true };
+            db.Set<ApprovalFlow>().Add(flow);
+            db.SaveChanges();
+            var version = new ApprovalFlowVersion
+            {
+                FlowId = flow.Id, Version = 1, CreatedTime = DateTime.Now,
+                Definition = db.Set<ApprovalFlowVersion>().Single(v => v.Id == src.CurrentVersionId).Definition
+            };
+            db.Set<ApprovalFlowVersion>().Add(version);
+            db.SaveChanges();
+            flow.CurrentVersionId = version.Id;
+        });
+        await NewVersionAsync(p => p["approvalFlows"]!.AsArray().Add(JsonNode.Parse("""
+            { "code": "uf-check2", "name": { "zh-TW": "檢查二" }, "active": true, "module": "deal", "to": "check", "priority": 2, "shape": "sequence",
+              "stages": [ { "code": "lead", "name": { "zh-TW": "主管" }, "approvers": { "source": "group", "groups": ["lead"] }, "mode": "any" } ] }
+            """)));
+        Reason(Item(await PreviewAsync(), "approvalFlow:uf-check2")).Should().Be("priorityTaken");
+
+        _rig.Db(db => { db.Set<ApprovalFlow>().Single(f => f.Key == "my-check").Priority = 3; });
+        var preview = await PreviewAsync();
+        Item(preview, "approvalFlow:uf-check2").GetProperty("applicable").GetBoolean().Should().BeTrue(Item(preview, "approvalFlow:uf-check2").ToString());
+        await ApplyOkAsync(preview, ["approvalFlow:uf-check2"]);
+        _rig.Db(db => db.Set<ApprovalFlow>().Single(f => f.Key == "uf-check2").Priority).Should().Be(2);
+    }
+
+    private static void SecondWinFlow(JsonObject p) => p["approvalFlows"]!.AsArray().Add(JsonNode.Parse("""
+        { "code": "uf-win-b", "name": { "zh-TW": "成交簽核乙" }, "active": true, "module": "deal", "to": "won", "priority": 2, "shape": "sequence",
+          "rejectTo": "sent",
+          "stages": [ { "code": "lead", "name": { "zh-TW": "主管" }, "approvers": { "source": "group", "groups": ["lead"] }, "mode": "any" } ] }
+        """));
+
+    [Fact]
+    public async Task A61_PrioritiesSwapped_BothPriorityTaken_SwappedInDesigner_DifferenceGone()
+    {
+        await OpenAsync(SecondWinFlow);
+        await NewVersionAsync(p => { Flow(p, "uf-win")["priority"] = 2; Flow(p, "uf-win-b")["priority"] = 1; }, SecondWinFlow);
+        var preview = await PreviewAsync();
+        Reason(Item(preview, "approvalFlow:uf-win")).Should().Be("priorityTaken");
+        Reason(Item(preview, "approvalFlow:uf-win-b")).Should().Be("priorityTaken");
+
+        // 設計器互換：中間先挪到沒人用的優先序
+        _rig.Db(db => { db.Set<ApprovalFlow>().Single(f => f.Key == "uf-win").Priority = 9; });
+        _rig.Db(db => { db.Set<ApprovalFlow>().Single(f => f.Key == "uf-win-b").Priority = 1; });
+        _rig.Db(db => { db.Set<ApprovalFlow>().Single(f => f.Key == "uf-win").Priority = 2; });
+        var after = await PreviewAsync();
+        after.GetProperty("items").EnumerateArray()
+            .Where(i => i.GetProperty("id").GetString() is "approvalFlow:uf-win" or "approvalFlow:uf-win-b")
+            .SelectMany(i => i.GetProperty("properties").EnumerateArray()).Select(x => x.GetProperty("name").GetString())
+            .Should().NotContain("priority", after.GetProperty("items").ToString());
+    }
+
+    // ---- A51 ----
+
+    [Fact]
+    public async Task A51_StateAndPlainTransitionAdded_ExistingApprovalAndLocksKept()
+    {
+        await OpenAsync();
+        var sent = await RecordsAsync("sent", 1);
+        Instance(sent[0], "uf-win", "sent", "won");
+        await RecordsAsync("won", 3);
+        await NewVersionAsync(p =>
+        {
+            AddOption(p, "hold", "暫緩");
+            Wf(p)["states"]!.AsArray().Add(JsonNode.Parse("""{ "option": "hold" }"""));
+            Wf(p)["transitions"]!.AsArray().Add(JsonNode.Parse("""{ "from": "draft", "to": "hold", "groups": ["sales"] }"""));
+        });
+        var preview = await PreviewAsync();
+        foreach (var id in new[] { "state:deal.hold", "transition:deal:draft>hold" })
+            Item(preview, id).GetProperty("applicable").GetBoolean().Should().BeTrue(id);
+        await ApplyOkAsync(preview, Defaults(preview));
+        var wf = WorkflowOf();
+        wf.RequiresApproval(Option("sent"), Option("won")).Should().BeTrue("第一趟不拿掉需簽核（T31）");
+        ApprovalTopology.LockedStates(wf).Should().Contain(Option("won"), "鎖定的 3 筆仍鎖定");
+        _rig.Db(db => db.Set<ApprovalInstance>().Single().Status).Should().Be(ApprovalInstanceStatus.Pending);
+    }
+
+    // ---- A57 ----
+
+    /// <summary>
+    /// 測試替身：存狀態機時，同一份輸入同時含兩條指定的轉移就回 409，模擬「兩項各自判斷都能套、合起來才違反設計器守衛」
+    /// （套件驗證看的是整份新版，真實守衛很難構造出只在現況上才成立的組合，設計 A57 指定用替身）。
+    /// </summary>
+    private sealed class PairConflict(Func<(long From, long To)[]?> pair) : IPipelineBehavior<SaveWorkflowRequest, ServiceResult>
+    {
+        public Task<ServiceResult> Handle(SaveWorkflowRequest request, RequestHandlerDelegate<ServiceResult> next, CancellationToken ct) =>
+            pair() is { } p && p.All(x => request.Workflow.Transitions.Any(t => t.From == x.From && t.To == x.To))
+                ? Task.FromResult(ServiceResult.Conflict("測試替身：兩條轉移合起來違反守衛"))
+                : next();
+    }
+
+    [Fact]
+    public async Task A57_TwoItemsValidAloneConflictTogether_409WithPassItems_RolledBack()
+    {
+        (long, long)[]? pair = null;
+        _rig.Dispose();
+        _rig = new SharedMasterRig(new TestApp { ExtraServices = s => s.AddTransient<IPipelineBehavior<SaveWorkflowRequest, ServiceResult>>(_ => new PairConflict(() => pair)) });
+        await OpenAsync();
+        var before = VersionAndBaseline();
+        await NewVersionAsync(p =>
+        {
+            Wf(p)["transitions"]!.AsArray().Add(JsonNode.Parse("""{ "from": "check", "to": "returned", "groups": ["wh"] }"""));
+            Wf(p)["transitions"]!.AsArray().Add(JsonNode.Parse("""{ "from": "returned", "to": "sent", "groups": ["sales"] }"""));
+        });
+        var preview = await PreviewAsync();
+        string[] items = ["transition:deal:check>returned", "transition:deal:returned>sent"];
+        foreach (var id in items) Item(preview, id).GetProperty("applicable").GetBoolean().Should().BeTrue(id);
+
+        pair = [(Option("check"), Option("returned")), (Option("returned"), Option("sent"))];
+        var res = await ApplyAsync(preview, items);
+        res.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var message = await res.Content.ReadAsStringAsync();
+        message.Should().Contain("transition:deal:check>returned、transition:deal:returned>sent", "訊息前面是這一趟包含的項目清單（複核 R3）");
+        message.Should().Contain("測試替身");
+        VersionAndBaseline().Should().Be(before, "整批回滾，基準與版號不變");
+        WorkflowOf().Transitions.Should().NotContain(t => t.From == Option("check") && t.To == Option("returned"));
+    }
+
+    // ---- A64 ----
+
+    [Fact]
+    public async Task A64_ApproversChanged_ApproverGroups_NameOnly_NewOnlyApplies()
+    {
+        await OpenAsync();
+        await NewVersionAsync(p =>
+        {
+            Flow(p, "uf-win")["stages"]![0]!["approvers"]!["groups"] = new JsonArray("sales", "lead");
+            Flow(p, "uf-check")["stages"]![0]!["name"] = new JsonObject { ["zh-TW"] = "主管確認" };
+        });
+        var preview = await PreviewAsync();
+        Reason(Item(preview, "approvalFlow:uf-win")).Should().Be("approverGroups");
+        var nameOnly = Item(preview, "approvalFlow:uf-check");
+        nameOnly.GetProperty("category").GetString().Should().Be("newOnly");
+        nameOnly.GetProperty("applicable").GetBoolean().Should().BeTrue();
+        await ApplyOkAsync(preview, ["approvalFlow:uf-check"]);
+        DefinitionOf("uf-check").Stages[0].Name.Resolve("zh-TW").Should().Be("主管確認");
+    }
+
+    [Fact]
+    public async Task A64_CustomerChangedApprovers_NewNameOnly_AppliesKeepsCustomerApprovers()
+    {
+        await OpenAsync();
+        var wh = _rig.GroupId("warehouse");
+        EditDefinition("uf-check", d => d with { Stages = [d.Stages[0] with { Approvers = d.Stages[0].Approvers with { GroupIds = [wh] } }] });
+        await NewVersionAsync(p => Flow(p, "uf-check")["stages"]![0]!["name"] = new JsonObject { ["zh-TW"] = "主管確認" });
+        var preview = await PreviewAsync();
+        Item(preview, "approvalFlow:uf-check").GetProperty("applicable").GetBoolean().Should().BeTrue();
+        await ApplyOkAsync(preview, ["approvalFlow:uf-check"]);
+        var stage = DefinitionOf("uf-check").Stages[0];
+        stage.Name.Resolve("zh-TW").Should().Be("主管確認");
+        stage.Approvers.GroupIds.Should().Equal(wh);
+    }
+
+    [Fact]
+    public async Task A64_CustomerAddedStage_NewRenamesFirst_ApproverGroups()
+    {
+        await OpenAsync();
+        EditDefinition("uf-check", d => d with { Stages = [.. d.Stages, d.Stages[0] with { Code = "extra" }] });
+        await NewVersionAsync(p => Flow(p, "uf-check")["stages"]![0]!["name"] = new JsonObject { ["zh-TW"] = "主管確認" });
+        Reason(Item(await PreviewAsync(), "approvalFlow:uf-check")).Should().Be("approverGroups", "關卡代號集合不同（複核 N3）");
+    }
+
+    [Fact]
+    public async Task A64_NoBaseline_ApproversDiffer_ApproverGroups()
+    {
+        await OpenAsync();
+        _rig.Db(db => db.Set<AppBaseline>().RemoveRange(db.Set<AppBaseline>()));
+        await NewVersionAsync(p => Flow(p, "uf-win")["stages"]![0]!["approvers"]!["groups"] = new JsonArray("lead"));
+        Reason(Item(await PreviewAsync(), "approvalFlow:uf-win")).Should().Be("approverGroups", "沒有基準也擋（複核 N4）");
+    }
+
+    // ---- A72 前一格 ----
+
+    [Fact]
+    public async Task A72_StatusFieldChanged_StatusFieldChanged()
+    {
+        await OpenAsync();
+        await NewVersionAsync(p =>
+        {
+            p["modules"]![0]!["blocks"]![0]!["fields"]!.AsArray().Add(JsonNode.Parse("""
+                { "code": "phase", "type": "enum", "label": { "zh-TW": "階段" }, "config": {},
+                  "options": [ { "code": "p1", "label": { "zh-TW": "一" } }, { "code": "p2", "label": { "zh-TW": "二" } } ] }
+                """));
+            p["workflows"] = JsonNode.Parse("""
+                [ { "module": "deal", "statusField": "phase", "initial": "p1", "states": [ { "option": "p1" }, { "option": "p2" } ],
+                    "transitions": [ { "from": "p1", "to": "p2", "groups": ["sales"] } ] } ]
+                """);
+            p["approvalFlows"] = new JsonArray();
+        });
+        var item = Item(await PreviewAsync(), "workflow:deal");
+        Reason(item).Should().Be("statusFieldChanged");
+        item.GetProperty("applicable").GetBoolean().Should().BeFalse();
     }
 }
