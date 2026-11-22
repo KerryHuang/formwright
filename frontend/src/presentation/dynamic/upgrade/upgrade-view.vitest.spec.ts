@@ -103,4 +103,18 @@ describe('apply errors (§8.3, review M5)', () => {
   it('is empty without errors', () => {
     expect(applyErrorLines(undefined, items, labelOf)).toEqual([]);
   });
+  // S5（套件更新設計 T43、複核 N5）：新模組與它的新簽核流程互相依賴，一起勾、一起取消，不會無限遞迴
+  it('a new module and its new approval flow depending on each other toggle together and stay stable', () => {
+    const pair = [
+      item('module:complaint', 'added', { section: 'modules', module: 'complaint', dependsOn: ['approvalFlow:complaint-review'] }),
+      item('approvalFlow:complaint-review', 'added', { section: 'approvalFlows', module: 'complaint', dependsOn: ['module:complaint'] }),
+    ];
+    const ticked = toggleItem(pair, new Set(), 'module:complaint', true);
+    expect([...ticked.selected].sort()).toEqual(['approvalFlow:complaint-review', 'module:complaint']);
+    const unticked = toggleItem(pair, ticked.selected, 'approvalFlow:complaint-review', false);
+    expect([...unticked.selected]).toEqual([]);
+    const again = toggleItem(pair, unticked.selected, 'approvalFlow:complaint-review', true);
+    expect([...again.selected].sort()).toEqual(['approvalFlow:complaint-review', 'module:complaint']);
+    expect(again.together).toEqual(['module:complaint']);
+  });
 });
