@@ -19,17 +19,15 @@ public sealed class ApprovalHiddenFields(IPermissionRepository permissions, Roll
     }
 
     /// <summary>
-    /// 明細模組看不到的欄位，比照 <see cref="IDynamicAccessGuard.AuthorizeDetailAsync"/>：動作軸、Pricing 取表頭，欄位例外取明細；
-    /// 「不提供給 AI」與彙總來源遮罩照常併入。任一邊讀不到權限輸入回 null（全部隱藏）。
+    /// 明細模組看不到的欄位，與 <see cref="IDynamicAccessGuard.AuthorizeDetailAsync"/> 同一條規則（<see cref="PermissionResolver.ResolveDetail"/>）：
+    /// 動作軸、Pricing 取表頭，欄位例外取明細，「不提供給 AI」照常併入，有加總對象或條件的彙總一律隱藏。任一邊讀不到權限輸入回 null（全部隱藏）。
     /// </summary>
     public async Task<IReadOnlySet<long>?> ForDetailUserAsync(Module parent, Module child, string userId, CancellationToken ct)
     {
         var parentInputs = await permissions.LoadInputsAsync(userId, parent, ct);
         var childInputs = await permissions.LoadInputsAsync(userId, child, ct);
         if (parentInputs is null || childInputs is null) return null;
-        var inputs = DetailInputs(parentInputs, childInputs);
-        var (ok, source) = await SourceAsync(child, inputs, userId, ct);
-        return ok ? PermissionResolver.Resolve(child, inputs, parent, source).HiddenFieldIds : null;
+        return PermissionResolver.ResolveDetail(parent, child, parentInputs, childInputs).HiddenFieldIds;
     }
 
     /// <summary>使用者自己的群組欄位例外下不能寫的欄位（隱藏＋唯讀）；讀不到權限輸入回 null（全部不能寫）。</summary>
@@ -46,7 +44,4 @@ public sealed class ApprovalHiddenFields(IPermissionRepository permissions, Roll
     /// <summary>彙總來源的遮罩（<see cref="RollupSourceMasks"/>）；任一來源讀不到權限輸入回 (false, null)（不放行）。</summary>
     public Task<(bool Ok, RollupSourceMask? Source)> SourceAsync(Module module, PermissionInputs inputs, string userId, CancellationToken ct) =>
         sources.LoadAsync(module, inputs, userId, ct);
-
-    public static PermissionInputs DetailInputs(PermissionInputs parentInputs, PermissionInputs childInputs) =>
-        parentInputs with { FieldPermissions = childInputs.FieldPermissions, OptionScopes = childInputs.OptionScopes, FieldGrants = childInputs.FieldGrants };
 }

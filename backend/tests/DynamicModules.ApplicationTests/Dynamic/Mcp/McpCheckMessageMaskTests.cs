@@ -290,7 +290,7 @@ public sealed class McpCheckMessageMaskTests : EffectsTestBase
 
     // ---- 明細模組：權限輸入用表頭（動作軸、Pricing），欄位例外用明細 ----
 
-    private sealed record Order(string Head, string Line, long LineTitle, long Qty, long Price, long SalesGroupId, long OrderId);
+    private sealed record Order(string Head, string Line, long LineTitle, long HeadRef, long Qty, long Price, long SalesGroupId, long OrderId);
 
     /// <summary>訂單（表頭）＋明細（數量、金額）；明細已有兩列金額 60、90，之後才建「同一張訂單金額合計不超過 100」的檢查。sales 群組只被授權表頭。</summary>
     private async Task<Order> OrderRig(string p, bool pricing)
@@ -326,7 +326,7 @@ public sealed class McpCheckMessageMaskTests : EffectsTestBase
             new CheckAssert("lte", new CheckLimit(100, null, null)), Text("合計 {value}，上限 {limit}"));
         var check = await Send(new CreateCheckRequest(new CheckInput(p + "-cap", Text("cap"), line, true, def)));
         check.IsCreated.Should().BeTrue(string.Join(";", check.Errors.Select(e => e.Key + e.Value[0])));
-        return new Order(head, line, lineTitle, qty, price, sales.Id, orderId);
+        return new Order(head, line, lineTitle, headRef, qty, price, sales.Id, orderId);
     }
 
     /// <summary>sales01 經 MCP 在訂單加一列只有數量的明細（金額不動）：合計仍是 150，違規。</summary>
@@ -391,6 +391,180 @@ public sealed class McpCheckMessageMaskTests : EffectsTestBase
         var o = await OrderRig("mco4", pricing: true);
         await Exclude(o.Price);
         Violation(await AddLineAsSales(o)).Should().Be("合計 …，上限 100");
+    }
+
+    [Fact]
+    public async Task Mcp_DetailCheck_RestrictedAmountWithoutGrant_ValueElided()
+    {
+        // 限定可見的金額：sales 群組不在可見列裡就看不到（欄位例外取明細），即使表頭給了 Pricing
+        var o = await OrderRig("mco6", pricing: true);
+        await RestrictPrice(o, grant: false);
+        Violation(await AddLineAsSales(o)).Should().Be("合計 …，上限 100");
+    }
+
+    [Fact]
+    public async Task Mcp_DetailCheck_RestrictedAmountGranted_ShowsNumbers()
+    {
+        var o = await OrderRig("mco7", pricing: true);
+        await RestrictPrice(o, grant: true);
+        Violation(await AddLineAsSales(o)).Should().Be("合計 150，上限 100");
+    }
+
+    private async Task RestrictPrice(Order o, bool grant)
+    {
+        var price = await Db.Context.Set<Field>().SingleAsync(f => f.Id == o.Price);
+        price.VisibilityRestricted = true;
+        if (grant) Db.Context.Set<FieldGrant>().Add(new FieldGrant { SourceKind = GrantSource.Manual, FieldId = o.Price, GroupId = o.SalesGroupId });
+        await Db.Context.SaveForTestsAsync();
+        Db.Context.ChangeTracker.Clear();
+    }
+
+    /// <summary>直接呼叫 evaluator（MCP 通道、sales01）：端到端時讀不到表頭權限會先被 guard 擋下，到不了檢查。</summary>
+    private async Task<string?> EvaluateAsSales(string moduleKey, string checkKey, Dictionary<string, JsonElement?> values)
+    {
+        _channel.Channel = RequestChannel.Mcp;
+        As("sales01");
+        try
+        {
+            using var scope = NewScope();
+            var sp = scope.ServiceProvider;
+            var module = (await sp.GetRequiredService<IModuleRepository>().GetByKeyAsync(moduleKey, true, default))!;
+            var check = (await sp.GetRequiredService<ICheckRepository>().ListActiveByModuleAsync(module.Id, default)).Single(c => c.Key == checkKey);
+            var evaluator = sp.GetRequiredService<CheckEvaluator>();
+            var (prepared, failure) = await evaluator.PrepareAsync(module, check, default);
+            failure.Should().BeNull();
+            var group = evaluator.GroupOf(prepared!, values)!;
+            return (await evaluator.EvaluateAsync(prepared!, group, default)).Violation;
+        }
+        finally
+        {
+            As("admin");
+            _channel.Channel = RequestChannel.Ui;
+        }
+    }
+
+    [Fact]
+    public async Task Mcp_DetailCheck_HeaderUnreadable_AllElided()
+    {
+        // 表頭讀不到權限輸入：明細的遮罩無從判斷，{value} 與（讀自本筆的）{limit} 都不給（fail closed）
+        var o = await OrderRig("mco8", pricing: true);
+        var def = new CheckDefinition([o.HeadRef], "sum", o.Price, null,
+            new CheckAssert("lte", new CheckLimit(null, o.Qty, null)), Text("合計 {value}，上限 {limit}"));
+        (await Send(new CreateCheckRequest(new CheckInput("mco8-own", Text("own"), o.Line, true, def)))).IsCreated.Should().BeTrue();
+        var values = Vals((o.HeadRef, o.OrderId.ToString()), (o.Qty, "100"));
+        (await EvaluateAsSales(o.Line, "mco8-own", values)).Should().Be("合計 150，上限 100", "對照組：讀得到權限時照給");
+        _perm.Unreadable.Add(o.Head);
+        try
+        {
+            (await EvaluateAsSales(o.Line, "mco8-own", values)).Should().Be("合計 …，上限 …");
+        }
+        finally { _perm.Unreadable.Clear(); }
+    }
+
+    /// <summary>
+    /// 設計器不讓參照欄位指向明細模組（<c>FieldRules.IsValidRefTargetAsync</c>）；直接改資料模擬舊資料或匯入留下的參照，
+    /// 驗證檢查訊息遮罩這道防線在目標是明細模組時仍用表頭的權限判斷。
+    /// </summary>
+    private async Task RetargetTo(long fieldId, string moduleKey)
+    {
+        var field = await Db.Context.Set<Field>().SingleAsync(f => f.Id == fieldId);
+        field.Config = field.Config with { RefTarget = new ReferenceTarget(ReferenceTarget.ModuleKind, moduleKey) };
+        await Db.Context.SaveForTestsAsync();
+        Db.Context.ChangeTracker.Clear();
+    }
+
+    /// <summary>報價模組經參照讀明細列的金額當上限：被參照的是明細模組，Pricing 要看它的表頭。</summary>
+    private async Task<(string Quote, long QuoteLine, long QuoteAmount, DynamicRecordResponse Row)> QuoteRig(string p, Order o)
+    {
+        var quote = await NewModule($"{p}-quote");
+        var placeholder = await NewModule($"{p}-ph");
+        var quoteLine = (await MustAdd(quote, FieldType.Reference, RefTo(placeholder) with { IsFilterable = true }, "明細列")).Id;
+        await RetargetTo(quoteLine, o.Line);
+        var amount = (await MustAdd(quote, FieldType.Integer, new FieldConfig { IsFilterable = true }, "報價")).Id;
+        (await Send(new ActivateModuleRequest(quote))).IsSuccess.Should().BeTrue();
+        var def = new CheckDefinition([quoteLine], "sum", amount, null,
+            new CheckAssert("lte", new CheckLimit(null, o.Price, quoteLine)), Text("報價 {value}，上限 {limit}"));
+        var check = await Send(new CreateCheckRequest(new CheckInput(p + "-qcap", Text("cap"), quote, true, def)));
+        check.IsCreated.Should().BeTrue(check.Message + string.Join(";", check.Errors.Select(e => e.Key + e.Value[0])));
+        var lineModuleId = (await Db.Context.Set<Module>().AsNoTracking().SingleAsync(m => m.Key == o.Line)).Id;
+        // 第一列明細的金額是 60
+        var lineId = (await Db.Context.Set<DynamicModules.Domain.Entities.Dynamic.Record>().AsNoTracking()
+            .Where(r => r.ModuleId == lineModuleId).OrderBy(r => r.Id).FirstAsync()).Id;
+        var row = await MustCreate(quote, Vals(((await Detail(quote)).TitleFieldId!.Value, "\"q\""), (quoteLine, lineId.ToString()), (amount, "10")));
+        return (quote, quoteLine, amount, row);
+    }
+
+    [Theory]
+    [InlineData(true, "報價 70，上限 60")]
+    [InlineData(false, "報價 70，上限 …")]
+    public async Task Mcp_LimitViaReferenceToDetailModule_UsesHeaderPricing(bool pricing, string expected)
+    {
+        var o = await OrderRig(pricing ? "mcq1" : "mcq2", pricing);
+        var q = await QuoteRig(pricing ? "mcq1" : "mcq2", o);
+        var quoteProgram = (await Detail(q.Quote)).ProgramCode;
+        Db.Context.Set<GroupProgramPrivilege>().Add(new GroupProgramPrivilege
+        {
+            GroupId = o.SalesGroupId, ProgramCode = quoteProgram, CanRead = true, CanAdd = true, CanEdit = true, CanDelete = true
+        });
+        await Db.Context.SaveForTestsAsync();
+        Db.Context.ChangeTracker.Clear();
+        As("sales01");
+        try
+        {
+            var r = await Run(RequestChannel.Mcp, new UpdateRecordRequest(q.Row.Id, Vals((q.QuoteAmount, "70")), q.Row.RowVersion));
+            Violation(r).Should().Be(expected);
+        }
+        finally { As("admin"); }
+    }
+
+    /// <summary>
+    /// #96：讀明細時有加總對象或條件的彙總欄位一律隱藏（AuthorizeDetailAsync 不給來源遮罩）。檢查條件用到這種彙總時，
+    /// 訊息不得露得比讀取時多：即使來源欄位本身看得到，{value} 也要遮。
+    /// </summary>
+    [Fact]
+    public async Task Mcp_DetailCheck_ConditionOnDetailRollup_ValueElidedLikeRead()
+    {
+        var o = await OrderRig("mco9", pricing: true);
+        var lot = await NewModule("mco9-lot");
+        var placeholder = await NewModule("mco9-ph");
+        var lotRef = (await MustAdd(lot, FieldType.Reference, RefTo(placeholder), "明細列")).Id;
+        await RetargetTo(lotRef, o.Line);
+        var lotQty = (await MustAdd(lot, FieldType.Integer, label: "批量")).Id;
+        (await Send(new ActivateModuleRequest(lot))).IsSuccess.Should().BeTrue();
+        var rollup = (await MustAdd(o.Line, FieldType.Rollup,
+            new FieldConfig { Rollup = new RollupConfig(lotRef, RollupFunction.Sum, lotQty, null), IsFilterable = true }, "批量合計")).Id;
+        var def = new CheckDefinition([o.HeadRef], "count", null, J($$"""{"all":[{"field":{{rollup}},"op":"gte","value":0}]}"""),
+            new CheckAssert("gte", new CheckLimit(100, null, null)), Text("共 {value} 列，下限 {limit}"));
+        var check = await Send(new CreateCheckRequest(new CheckInput("mco9-min", Text("min"), o.Line, true, def)));
+        check.IsCreated.Should().BeTrue(string.Join(";", check.Errors.Select(e => e.Key + e.Value[0])));
+
+        // 讀取規則對照：sales01 經 MCP 讀明細時看不到這個彙總
+        _channel.Channel = RequestChannel.Mcp;
+        As("sales01");
+        try
+        {
+            using var scope = NewScope();
+            var sp = scope.ServiceProvider;
+            var moduleRepo = sp.GetRequiredService<IModuleRepository>();
+            var head = (await moduleRepo.GetByKeyAsync(o.Head, false, default))!;
+            var line = (await moduleRepo.GetByKeyAsync(o.Line, true, default))!;
+            var read = await sp.GetRequiredService<IDynamicAccessGuard>().AuthorizeDetailAsync(head, line, PermissionAction.Read, default);
+            read.Permissions!.HiddenFieldIds.Should().Contain(rollup);
+        }
+        finally
+        {
+            As("admin");
+            _channel.Channel = RequestChannel.Ui;
+        }
+
+        (await EvaluateAsSales(o.Line, "mco9-min", Vals((o.HeadRef, "999999999"), (rollup, "0")))).Should().Be("共 … 列，下限 100");
+    }
+
+    /// <summary>#96：Prepared 帶可變的遮罩快取，不能是 record（快取會參與相等比較、<c>with</c> 會連快取一起複製）。</summary>
+    [Fact]
+    public void Prepared_IsNotRecord()
+    {
+        typeof(CheckEvaluator.Prepared).GetMethod("<Clone>$").Should().BeNull();
     }
 
     // ---- 快取：同一次求值（同一個 Prepared）內，各違規組共用一次遮罩判斷 ----

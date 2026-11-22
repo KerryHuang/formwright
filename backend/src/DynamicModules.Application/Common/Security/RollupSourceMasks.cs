@@ -54,7 +54,7 @@ public sealed class RollupSourceMasks(IPermissionRepository permissions, IModule
                 var sourceInputs = await permissions.LoadInputsAsync(userId, source, ct);
                 if (sourceInputs is null) return (false, null);
                 hidden.UnionWith((detail
-                    ? PermissionResolver.Resolve(source, DetailInputs(inputs, sourceInputs), module)
+                    ? PermissionResolver.ResolveDetail(module, source, inputs, sourceInputs)
                     : PermissionResolver.Resolve(source, sourceInputs)).HiddenFieldIds);
             }
 
@@ -70,9 +70,6 @@ public sealed class RollupSourceMasks(IPermissionRepository permissions, IModule
         }
         return (true, new RollupSourceMask(hidden, conditionRefs));
     }
-
-    private static PermissionInputs DetailInputs(PermissionInputs parentInputs, PermissionInputs childInputs) =>
-        parentInputs with { FieldPermissions = childInputs.FieldPermissions, OptionScopes = childInputs.OptionScopes, FieldGrants = childInputs.FieldGrants };
 
     private static HashSet<long> FieldIdsOf(ConditionNode? node)
     {

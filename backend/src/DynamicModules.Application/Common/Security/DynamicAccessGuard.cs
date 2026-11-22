@@ -43,7 +43,7 @@ public class DynamicAccessGuard(
         if (parentInputs is null || childInputs is null) return Deny();
 
         // 動作軸與資料範圍來自表頭的授權列；欄位例外與選項範圍來自明細模組
-        var effective = PermissionResolver.Resolve(child, DetailInputs(parentInputs, childInputs), parent, forAction: action);
+        var effective = PermissionResolver.ResolveDetail(parent, child, parentInputs, childInputs, action);
         return effective.Can(action) ? new AccessResult(await locks.ApplyAsync(child, effective, ct), null) : Deny();
     }
 
@@ -53,9 +53,6 @@ public class DynamicAccessGuard(
     /// </summary>
     private static bool ClosedBlocks(Module module, PermissionAction action) =>
         module.Status == ModuleStatus.Closed && action is not (PermissionAction.Read or PermissionAction.PrintExport);
-
-    private static PermissionInputs DetailInputs(PermissionInputs parentInputs, PermissionInputs childInputs) =>
-        parentInputs with { FieldPermissions = childInputs.FieldPermissions, OptionScopes = childInputs.OptionScopes, FieldGrants = childInputs.FieldGrants };
 
     /// <summary>
     /// 判斷順序固定為「不存在 → 停用 → 系統管理員 → 授權列」（權限軸設計 T5，fail closed）：停用的系統管理員也是空集合。

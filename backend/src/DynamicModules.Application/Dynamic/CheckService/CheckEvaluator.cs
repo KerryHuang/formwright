@@ -35,9 +35,14 @@ public class CheckEvaluator(IRecordRepository records, IModuleRepository modules
     /// <summary>
     /// 一次求值（寫入後的 CheckStage 一輪、或一次試跑）的準備結果，只活在那一次呼叫裡。
     /// <see cref="HiddenSources"/> 快取 MCP 通道的遮罩判斷：同一個檢查、同一位使用者，各違規組共用（票 #89）。
+    /// 帶可變快取所以是 class 不是 record：快取不參與相等比較，也不會被 <c>with</c> 複製（#96）。
     /// </summary>
-    public sealed record Prepared(Module Module, ModuleCheck Check, ConditionNode? Where, Dictionary<long, Field> Fields)
+    public sealed class Prepared(Module module, ModuleCheck check, ConditionNode? where, Dictionary<long, Field> fields)
     {
+        public Module Module { get; } = module;
+        public ModuleCheck Check { get; } = check;
+        public ConditionNode? Where { get; } = where;
+        public Dictionary<long, Field> Fields { get; } = fields;
         internal (bool Value, bool Limit)? HiddenSources { get; set; }
     }
 
@@ -104,7 +109,7 @@ public class CheckEvaluator(IRecordRepository records, IModuleRepository modules
     /// <summary>
     /// 只在 MCP 通道判斷：彙總用到的欄位（加總對象、條件、組鍵）有任一看不到，<c>{value}</c> 就不給；上限讀自看不到的欄位
     /// （本筆的上限欄位、參照欄位、或被參照記錄的上限欄位）時 <c>{limit}</c> 不給。看不到的欄位沿用權限解析（<see cref="ApprovalHiddenFields"/>，
-    /// MCP 通道已併入「不提供給 AI」與依賴它的公式、彙總；明細模組比照 AuthorizeDetailAsync 用表頭的動作軸與 Pricing）；
+    /// MCP 通道已併入「不提供給 AI」與依賴它的公式、彙總；明細模組與 AuthorizeDetailAsync 同一條規則，見 <see cref="PermissionResolver.ResolveDetail"/>）；
     /// 讀不到權限輸入、找不到表頭或上限來源模組一律不給（fail closed）。結果只看檢查定義與使用者，快取在 <see cref="Prepared"/>。
     /// </summary>
     private async Task<(bool Value, bool Limit)> HiddenSourcesAsync(Prepared p, string message, CancellationToken ct) =>

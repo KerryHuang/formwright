@@ -82,6 +82,18 @@ public static class PermissionResolver
         return Build(actions, scope, owners, hidden, readOnly, unselectable);
     }
 
+    /// <summary>
+    /// 明細模組的有效權限：動作軸、資料範圍、Pricing 取表頭，欄位例外、選項範圍、限定可見的可見列取明細。
+    /// 讀明細、簽核臨時讀取、檢查訊息遮罩、彙總來源遮罩共用這一條規則（#96：檢查訊息不得露得比讀取時多）；
+    /// 不給彙總來源遮罩，明細上有加總對象或條件的彙總一律隱藏（fail closed）。
+    /// </summary>
+    public static EffectivePermissions ResolveDetail(
+        Module parent, Module child, PermissionInputs parentInputs, PermissionInputs childInputs, PermissionAction? forAction = null) =>
+        Resolve(child, parentInputs with
+        {
+            FieldPermissions = childInputs.FieldPermissions, OptionScopes = childInputs.OptionScopes, FieldGrants = childInputs.FieldGrants
+        }, parent, null, forAction);
+
     private static HashSet<long> AiExcluded(Module module) =>
         module.Blocks.SelectMany(b => b.Fields).Where(f => f.ExcludeFromAi).Select(f => f.Id).ToHashSet();
 

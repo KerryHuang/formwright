@@ -55,8 +55,7 @@ public sealed class ApprovalReadGrant(
         var parentInputs = await permissions.LoadInputsAsync(user.UserId, parent, ct);
         var childInputs = await permissions.LoadInputsAsync(user.UserId, child, ct);
         if (parentInputs is null || childInputs is null) return null;
-        var effective = PermissionResolver.Resolve(child, ApprovalHiddenFields.DetailInputs(Elevate(parentInputs, parent), childInputs), parent,
-            forAction: PermissionAction.Read);
+        var effective = PermissionResolver.ResolveDetail(parent, child, Elevate(parentInputs, parent), childInputs, PermissionAction.Read);
         return await locks.ApplyAsync(child, Grant(effective), ct);
     }
 
