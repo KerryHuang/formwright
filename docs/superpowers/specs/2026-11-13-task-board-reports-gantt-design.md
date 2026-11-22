@@ -1318,6 +1318,7 @@ gt1 估計約 2,000 行 diff（不含 EF 產生的 migration Designer）、gt2 �
 #### 11.5.9 與現有程式或設計的不一致（勘察發現）
 
 1. **PATCH 沒有版本檢查**：`UpdateTaskHandler` 不收版本，任務詳細改任何欄位都是最後寫入者贏；§11.3 要求拖拉「併發同 §5.6」，所以另開 `schedule`（GT-T7）。任務詳細改日期仍沒有併發保護，屬既有缺口，不在 gt 範圍，已在 `docs/todo.md`「其他」追蹤。
+   - 2026-11-22 補上（票 #18）：`UpdateTaskRequest` 加選填 `ExpectedVersion`（REST 讀 PATCH 主體的 `expectedVersion`，該鍵不算要改的欄位、主管只改負責人時也可帶）；有帶且不符 409 `stale`（`Stale`），寫入前走 `TryClaimVersionAsync`；沒帶照舊最後寫入者贏（MCP `update_task`、Demo 種子）。任務詳細一律帶載入時的 `version`，409 時重抓、沒改過的欄位跟著更新。
 2. **`task-views` 只認看板**：`TaskViewRules.KindError` 只收 `board`、`CreateTaskViewHandler` 寫死 `Kind = Board`、`Detail`／`Copy`／`Update` 一律 `TaskBoardConfig.Read`。更要緊的是看板的 `ResolveAsync` 不檢查 `view.Kind`：甘特檢視一出現，`POST /task-board/columns {viewId:<甘特>}` 會把甘特設定寬鬆讀成預設看板而不報錯。gt1b 修正：`ResolveAsync` 檢查 `view.Kind`，甘特 Id 一律 404。
 3. **`TaskViewMessages` 的字都是「看板」**：gt1b 另立一組甘特用字，看板既有的字不動。
 4. **§12 的 move 主體寫 `expectedModifiedTime`**，實作是 `expectedVersion`（`TaskVersion` 字串）：§12 原文已同步改成 `expectedVersion`，`schedule` 照實作。
