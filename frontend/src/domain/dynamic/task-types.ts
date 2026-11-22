@@ -156,6 +156,8 @@ export type TaskPatch = {
   status?: TaskStatus;
   /** Only used when a parent with open subtasks is marked done; ignored otherwise. */
   cascade?: TaskCascade;
+  /** The task's version when it was loaded; a mismatch is a 409 `stale`. Left out, the last writer wins. */
+  expectedVersion?: string;
 };
 
 /** PATCH reply when the writer can no longer see the task (a manager moved it out of scope): no task content, only a one-shot undo token. */

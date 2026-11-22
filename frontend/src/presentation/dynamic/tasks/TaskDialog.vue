@@ -10,6 +10,7 @@ import {
   isParentCancelled, isTaskHidden, startAfterDue, subtasksOpenCount, type TaskCascade, type TaskPatch, type TaskStatus,
 } from 'src/domain/dynamic/task-types';
 import type { ApiError } from 'src/services/api/http';
+import { isStale } from 'src/presentation/dynamic/designer/api-error';
 import MentionInput from './MentionInput.vue';
 import SubtaskSection from './SubtaskSection.vue';
 import SubtasksOpenDialog from './SubtasksOpenDialog.vue';
@@ -96,6 +97,8 @@ const assigneeReadonly = computed(() => !data.value?.canEdit && !data.value?.can
 function failureText(e: unknown): string {
   const err = e as ApiError;
   if (isParentCancelled(err)) return t('tasks.subtask.parentCancelled');
+  // 別人先改過（票 #18）：查詢已重抓，沒改過的欄位跟著更新、改到一半的保留，可以再存一次
+  if (isStale(err)) return t('taskBoard.stale');
   // 開始日的伺服器訊息掛在欄位下，不重複顯示在底下
   const { startDate: startErrors, ...others } = err.errors ?? {};
   startServerError.value = startErrors?.[0] ?? '';
@@ -108,7 +111,9 @@ async function save(cascade?: TaskCascade) {
   error.value = '';
   try {
     const id = props.taskId!;
-    const result = await update.mutateAsync({ id, patch: cascade ? { ...patch.value, cascade } : patch.value });
+    // 帶載入時的版本：別人先改過就 409 stale，不蓋掉對方的修改；cascade 重送時任務沒寫入，版本不變
+    const expectedVersion = data.value!.version;
+    const result = await update.mutateAsync({ id, patch: { ...patch.value, ...(cascade ? { cascade } : {}), expectedVersion } });
     openChoice.value = false;
     // The writer lost sight of the task (a manager handed it outside their scope): close and offer the undo
     if (isTaskHidden(result)) {

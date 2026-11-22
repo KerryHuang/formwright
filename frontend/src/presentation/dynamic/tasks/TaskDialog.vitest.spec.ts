@@ -32,6 +32,8 @@ const showNotice = vi.hoisted(() => vi.fn());
 vi.mock('./use-moved-out-notice', () => ({ useMovedOutNotice: () => ({ show: showNotice }) }));
 
 let calls: Call[];
+/** taskWire 的 version：任務詳細儲存一律帶載入時的版本（票 #18）。 */
+const V = '20261101020000000';
 const body = () => document.body;
 
 async function mountDialog(o: Opts = {}) {
@@ -281,7 +283,7 @@ describe('TaskDialog', () => {
     await flushPromises();
     body().querySelector<HTMLElement>('[data-testid="task-save"]')!.click();
     await flushPromises();
-    expect(bodyOf(calls.find((c) => c.method === 'patch'))).toEqual({ description: null });
+    expect(bodyOf(calls.find((c) => c.method === 'patch'))).toEqual({ description: null, expectedVersion: V });
     w.unmount();
   });
 
@@ -292,7 +294,7 @@ describe('TaskDialog', () => {
     await flushPromises();
     body().querySelector<HTMLElement>('[data-testid="task-save"]')!.click();
     await flushPromises();
-    expect(bodyOf(calls.find((c) => c.method === 'patch'))).toEqual({ dueDate: null });
+    expect(bodyOf(calls.find((c) => c.method === 'patch'))).toEqual({ dueDate: null, expectedVersion: V });
     w.unmount();
   });
 
@@ -306,7 +308,7 @@ describe('TaskDialog', () => {
       await flushPromises();
       save().click();
       await flushPromises();
-      expect(bodyOf(calls.find((c) => c.method === 'patch'))).toEqual({ startDate: '2026-11-20' });
+      expect(bodyOf(calls.find((c) => c.method === 'patch'))).toEqual({ startDate: '2026-11-20', expectedVersion: V });
       w.unmount();
     });
 
@@ -326,7 +328,7 @@ describe('TaskDialog', () => {
       expect(body().querySelector('[data-testid="task-start-follows"]')!.textContent).toContain('儲存後開始日會一併改為 2026-11-19');
       save().click();
       await flushPromises();
-      expect(bodyOf(calls.find((c) => c.method === 'patch'))).toEqual({ dueDate: '2026-11-19' });
+      expect(bodyOf(calls.find((c) => c.method === 'patch'))).toEqual({ dueDate: '2026-11-19', expectedVersion: V });
       w.unmount();
     });
 
@@ -531,7 +533,41 @@ describe('TaskDialog', () => {
     await flushPromises();
     const patch = calls.find((c) => c.method === 'patch');
     expect(patch?.url).toBe('/tasks/5');
-    expect(bodyOf(patch)).toEqual({ title: '新標題' });
+    expect(bodyOf(patch)).toEqual({ title: '新標題', expectedVersion: V });
+    w.unmount();
+  });
+
+  it('別人先改過（409 stale）時顯示「已被別人修改」，重抓後帶新版本再存，改到一半的標題保留', async () => {
+    const NEW = '20261101030000000';
+    // 別人改了說明：伺服器上的版本前進；第一次儲存帶舊版本被擋
+    const server: Record<string, unknown> = {};
+    const w = await mountDialog({
+      task: server,
+      onPatch: (c) => ((bodyOf(c) as { expectedVersion?: string }).expectedVersion === NEW
+        ? taskDetailWire({ ...server, title: '新標題' })
+        : new HttpFail(409, { code: 'stale', message: '任務已被別人修改，已重新整理' })),
+    });
+    Object.assign(server, { description: '別人改的說明', version: NEW });
+    const title = body().querySelector<HTMLInputElement>('input[data-testid="task-title"]')!;
+    title.value = '新標題';
+    title.dispatchEvent(new Event('input'));
+    await flushPromises();
+    const save = () => body().querySelector<HTMLElement>('[data-testid="task-save"]')!;
+    save().click();
+    await flushPromises();
+    await new Promise((r) => setTimeout(r, 20));
+    await flushPromises();
+    expect(body().querySelector('[data-testid="task-error"]')!.textContent).toContain('任務已被別人修改，已重新整理');
+    expect(body().querySelector<HTMLInputElement>('input[data-testid="task-title"]')!.value).toBe('新標題');
+    expect(body().querySelector<HTMLTextAreaElement>('textarea[data-testid="task-description"]')!.value).toBe('別人改的說明');
+
+    save().click();
+    await flushPromises();
+    const patches = calls.filter((c) => c.method === 'patch');
+    expect(patches).toHaveLength(2);
+    expect(bodyOf(patches[0])).toEqual({ title: '新標題', expectedVersion: V });
+    expect(bodyOf(patches[1])).toEqual({ title: '新標題', expectedVersion: NEW });
+    expect(body().querySelector('[data-testid="task-error"]')).toBeNull();
     w.unmount();
   });
 
@@ -569,7 +605,7 @@ describe('TaskDialog', () => {
       body().querySelector<HTMLElement>('[data-testid="task-save"]')!.click();
       await flushPromises();
       const patch = calls.find((c) => c.method === 'patch');
-      expect(bodyOf(patch)).toEqual({ assigneeUserId: 'sales02' });
+      expect(bodyOf(patch)).toEqual({ assigneeUserId: 'sales02', expectedVersion: V });
       w.unmount();
     });
 
@@ -698,8 +734,8 @@ describe('TaskDialog subtasks', () => {
     await click('subtasks-open-cancel');
     const patches = calls.filter((c) => c.method === 'patch');
     expect(patches).toHaveLength(2);
-    expect(bodyOf(patches[0])).toEqual({ status: 'done' });
-    expect(bodyOf(patches[1])).toEqual({ status: 'done', cascade: 'cancel' });
+    expect(bodyOf(patches[0])).toEqual({ status: 'done', expectedVersion: V });
+    expect(bodyOf(patches[1])).toEqual({ status: 'done', cascade: 'cancel', expectedVersion: V });
     expect(q('subtasks-open')).toBeNull();
     w.unmount();
   });

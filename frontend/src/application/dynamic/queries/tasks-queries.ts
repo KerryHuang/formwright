@@ -2,6 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClie
 import { computed, toValue, type MaybeRefOrGetter } from 'vue';
 import { isTaskHidden, type TaskInput, type TaskListFilter, type TaskListTab, type TaskPatch } from 'src/domain/dynamic/task-types';
 import { dynamicApi } from 'src/services/api/dynamic-api';
+import type { ApiError } from 'src/services/api/http';
 
 export function useMyTasks(tab: MaybeRefOrGetter<TaskListTab>, filter: MaybeRefOrGetter<TaskListFilter>, page: MaybeRefOrGetter<number>, enabled: MaybeRefOrGetter<boolean> = true) {
   return useQuery({
@@ -100,6 +101,11 @@ export function useUpdateTask() {
       qc.removeQueries({ queryKey: ['task', i.id] });
       qc.removeQueries({ queryKey: ['task-comments', i.id] });
       return invalidateTasks(qc);
+    },
+    // Someone else changed the task first (409 stale): refetch so the next save carries the new version
+    onError: (e, i) => {
+      const err = e as unknown as ApiError | null;
+      if (err?.status === 409 && err.code === 'stale') void invalidateTasks(qc, i.id);
     },
   });
 }
