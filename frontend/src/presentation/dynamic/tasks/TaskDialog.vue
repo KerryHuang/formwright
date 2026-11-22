@@ -43,7 +43,11 @@ const openChoice = ref(false);
 const draftOf = (d: NonNullable<typeof data.value>) => ({
   title: d.title, description: d.description ?? '', assignee: d.assigneeUserId, startDate: d.startDate, dueDate: d.dueDate, status: d.status,
 });
-// 同一個任務重抓（例如新增子任務後）只同步沒被使用者改過的欄位，改到一半的內容不能被蓋掉；換成別的任務才整份重新初始化
+// 標題、說明送出前會去頭尾空白，比對時也一樣，否則自己存完後的重抓會被當成別人改的
+const norm = (v: unknown) => (typeof v === 'string' ? v.trim() : v);
+// 同一個任務重抓（例如留言、新增子任務後）只同步沒被使用者改過的欄位，改到一半的內容不能被蓋掉；換成別的任務才整份重新初始化。
+// 重抓會讓下次儲存帶的版本前進：使用者改過的欄位若伺服器也改成別的值（票 #18），先提示已被別人修改、保留使用者的值，
+// 再按儲存就是知情覆寫
 watch(data, (d, prev) => {
   if (!d) return;
   const next = draftOf(d);
@@ -53,9 +57,12 @@ watch(data, (d, prev) => {
   }
   const before = draftOf(prev);
   const cur = draft.value as Record<string, unknown>;
+  let conflict = false;
   for (const k of Object.keys(next) as (keyof typeof next)[]) {
     if (cur[k] === before[k]) cur[k] = next[k];
+    else if (norm(next[k]) !== norm(before[k]) && norm(next[k]) !== norm(cur[k])) conflict = true;
   }
+  if (conflict) error.value = t('taskBoard.stale');
 }, { immediate: true });
 
 const userOptions = computed(() => (users.data.value ?? []).map((u) => ({ value: u.userId, label: u.displayName })));

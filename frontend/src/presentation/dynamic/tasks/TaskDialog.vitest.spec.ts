@@ -571,6 +571,70 @@ describe('TaskDialog', () => {
     w.unmount();
   });
 
+  describe('背景重抓時的同欄位衝突（票 #18 審查 C1）', () => {
+    const NEW = '20261101030000000';
+    const typeTitle = async (v: string) => {
+      const title = body().querySelector<HTMLInputElement>('input[data-testid="task-title"]')!;
+      title.value = v;
+      title.dispatchEvent(new Event('input'));
+      await flushPromises();
+    };
+    // 留言送出後任務查詢會重抓（版本跟著前進）
+    const comment = async () => {
+      const ta = body().querySelector<HTMLTextAreaElement>('textarea[data-testid="mention-input"]')!;
+      ta.value = '收到';
+      ta.dispatchEvent(new Event('input'));
+      await flushPromises();
+      body().querySelector<HTMLElement>('[data-testid="comment-send"]')!.click();
+      await flushPromises();
+      await new Promise((r) => setTimeout(r, 20));
+      await flushPromises();
+    };
+    const save = async () => {
+      body().querySelector<HTMLElement>('[data-testid="task-save"]')!.click();
+      await flushPromises();
+    };
+
+    it('自己改過的標題伺服器也改成別的值：提示已被別人修改、保留自己的值，再存帶新版本', async () => {
+      const server: Record<string, unknown> = {};
+      const w = await mountDialog({ task: server });
+      await typeTitle('我的標題');
+      Object.assign(server, { title: '別人的標題', version: NEW });
+      await comment();
+      expect(body().querySelector('[data-testid="task-error"]')!.textContent).toContain('任務已被別人修改，已重新整理');
+      expect(body().querySelector<HTMLInputElement>('input[data-testid="task-title"]')!.value).toBe('我的標題');
+
+      await save();
+      expect(bodyOf(calls.find((c) => c.method === 'patch'))).toEqual({ title: '我的標題', expectedVersion: NEW });
+      expect(body().querySelector('[data-testid="task-error"]')).toBeNull();
+      w.unmount();
+    });
+
+    it('伺服器只改了別的欄位：不提示，那個欄位跟著更新，照常存', async () => {
+      const server: Record<string, unknown> = {};
+      const w = await mountDialog({ task: server });
+      await typeTitle('我的標題');
+      Object.assign(server, { description: '別人改的說明', version: NEW });
+      await comment();
+      expect(body().querySelector('[data-testid="task-error"]')).toBeNull();
+      expect(body().querySelector<HTMLTextAreaElement>('textarea[data-testid="task-description"]')!.value).toBe('別人改的說明');
+
+      await save();
+      expect(bodyOf(calls.find((c) => c.method === 'patch'))).toEqual({ title: '我的標題', expectedVersion: NEW });
+      w.unmount();
+    });
+
+    it('伺服器改成和自己相同的值（含頭尾空白差異）：不算衝突', async () => {
+      const server: Record<string, unknown> = {};
+      const w = await mountDialog({ task: server });
+      await typeTitle('我的標題 ');
+      Object.assign(server, { title: '我的標題', version: NEW });
+      await comment();
+      expect(body().querySelector('[data-testid="task-error"]')).toBeNull();
+      w.unmount();
+    });
+  });
+
   it('沒有編輯權限時欄位唯讀、沒有儲存鈕；沒有留言權限時沒有留言框', async () => {
     const w = await mountDialog({ task: { canEdit: false, canReassign: false, canComment: false, canDelete: false } });
     expect(body().querySelector('[data-testid="task-save"]')).toBeNull();
