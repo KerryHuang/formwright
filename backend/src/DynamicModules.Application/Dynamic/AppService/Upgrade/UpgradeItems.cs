@@ -5,6 +5,7 @@ using DynamicModules.Application.Dynamic.AppService.Data;
 using DynamicModules.Application.Dynamic.PermissionService.Data;
 using DynamicModules.Application.Dynamic.TemplateService;
 using DynamicModules.Application.Dynamic.TemplateService.Data;
+using DynamicModules.Domain.Approvals;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.ValueObjects;
 
@@ -212,8 +213,9 @@ public static class UpgradeItems
         foreach (var t in p.PrintTemplates) Add(Coded("printTemplates", "printTemplate", t.Code, t.Module, t.Name, t, EachRefs(t.Body)));
         // 任務規則的 repeat 省略等於 once（匯出寫出 null）
         foreach (var t in p.TaskRules) Add(Coded("taskRules", "taskRule", t.Code, t.Module, t.Name, t with { Repeat = t.Repeat ?? AppTaskRule.Once }));
-        foreach (var f in p.ApprovalFlows)
+        foreach (var raw in p.ApprovalFlows)
         {
+            var f = Substituted(raw, groupOf);
             // 簽核人拆成獨立的 approvers 屬性（Q27、T59）：stages 是每關去掉簽核人後的內容，approvers 以關卡代號為鍵
             // onEmpty 省略等於 fallback（開啟時寫入，匯出寫出 fallback）
             var stages = f.Stages?.Select(s => s with { Approvers = null!, OnEmpty = s.OnEmpty ?? Domain.Approvals.ApprovalOnEmpty.Fallback }).ToList();
@@ -324,6 +326,21 @@ public static class UpgradeItems
 
     private static List<long> GroupSet(IEnumerable<string> codes, Func<string, long?> groupOf) =>
         codes.Select(groupOf).Where(g => g is not null).Select(g => g!.Value).Distinct().Order().ToList();
+
+    /// <summary>
+    /// 開啟時略過的群組由備援頂替（§6.2.1 第 4 點、T42）：照開啟的同一份規則（<see cref="AppApprovalFlowCodec.ToInput"/>）先換，
+    /// 基準與新版才和現況一致——關卡有略過的群組時「找不到人就略過」改成交給備援，備援群組有略過的整份改用政策預設。
+    /// 現況匯出的群組都對得到，套這一步不會變。
+    /// </summary>
+    private static AppApprovalFlow Substituted(AppApprovalFlow f, Func<string, long?> groupOf)
+    {
+        bool Skipped(IEnumerable<string>? codes) => (codes ?? []).Any(c => groupOf(c) is null);
+        bool Unmatched(AppApproverSource? a) => a is not null
+            && (a.Source == ApprovalSources.Group && Skipped(a.Groups)
+                || a.Source is ApprovalSources.UserField or ApprovalSources.InitiatorPick && Skipped(a.CandidateGroups));
+        var stages = f.Stages?.Select(s => s is { OnEmpty: ApprovalOnEmpty.Skip } && Unmatched(s.Approvers) ? s with { OnEmpty = ApprovalOnEmpty.Fallback } : s).ToList();
+        return f with { Stages = stages, FallbackApprovers = f.FallbackApprovers is { } fb && Skipped(fb.Groups) ? null : f.FallbackApprovers };
+    }
 
     /// <summary>簽核流程裡 groups、candidateGroups 的代號換成客戶群組 id；對不上的拿掉。</summary>
     private static JsonNode? MapGroups(JsonNode? node, Func<string, long?> groupOf)

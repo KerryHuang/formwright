@@ -766,4 +766,38 @@ public class AppUpgradeFlowTests : IDisposable
         Reason(item).Should().Be("statusFieldChanged");
         item.GetProperty("applicable").GetBoolean().Should().BeFalse();
     }
+
+    // ---- T42：關卡群組被頂替 ----
+
+    /// <summary>
+    /// 開啟時略過「倉管」：檢查簽核的關卡（主管、倉管，找不到人時略過）由備援頂替、onEmpty 改成 fallback，備援群組含倉管整份改用政策預設。
+    /// 基準與新版比對前套同一份頂替正規化（T42），新版只改關卡名稱時不會被當成客戶改過簽核人或關卡；套用後頂替仍在。
+    /// </summary>
+    [Fact]
+    public async Task T42_SubstitutedGroups_NormalizedOnBaseAndNew_NameOnlyApplies_SubstitutionKept()
+    {
+        static void Substituted(JsonObject p)
+        {
+            var flow = Flow(p, "uf-check");
+            flow["fallbackApprovers"] = JsonNode.Parse("""{ "source": "group", "groups": ["lead", "wh"] }""");
+            flow["stages"]![0]!["approvers"]!["groups"] = new JsonArray("lead", "wh");
+            flow["stages"]![0]!["onEmpty"] = "skip";
+        }
+        await OpenAsync(Substituted, skipWh: true);
+        await NewVersionAsync(p => Flow(p, "uf-check")["stages"]![0]!["name"] = new JsonObject { ["zh-TW"] = "主管確認" }, Substituted);
+        var preview = await PreviewAsync();
+        Blockers(preview).Should().BeEmpty(preview.GetProperty("blockers").ToString());
+        var item = Item(preview, "approvalFlow:uf-check");
+        item.GetProperty("category").GetString().Should().Be("newOnly", item.ToString());
+        item.GetProperty("properties").EnumerateArray().Select(x => x.GetProperty("name").GetString()).Should().Equal("stages");
+        item.GetProperty("applicable").GetBoolean().Should().BeTrue();
+
+        await ApplyOkAsync(preview, ["approvalFlow:uf-check"]);
+        var d = DefinitionOf("uf-check");
+        d.Stages[0].Name.Resolve("zh-TW").Should().Be("主管確認");
+        d.Stages[0].Approvers.GroupIds.Should().Equal(_rig.GroupId("ops-manager"));
+        d.Stages[0].Approvers.UnmatchedGroups.Should().NotBeNullOrEmpty("被略過的群組仍由備援頂替");
+        d.Stages[0].OnEmpty.Should().Be(ApprovalOnEmpty.Fallback);
+        d.FallbackApprovers.Should().BeNull("備援群組有略過的，整份改用政策預設");
+    }
 }

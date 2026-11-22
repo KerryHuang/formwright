@@ -195,15 +195,22 @@ public sealed class AppFlowUpgrader(ISender sender, IModuleRepository modules, I
             if (string.IsNullOrEmpty(text)) name.Remove(p.Locale!);
             else name[p.Locale!] = text;
         }
-        var cd = current.Definition;
+        // 現況以資料庫的定義為底：比對模式匯出只寫出對應到的群組，被略過、由備援頂替的來源（UnmatchedGroups）要從資料庫保留（T42）
+        var cd = await flows.GetByKeyAsync(key, ct) is { CurrentVersionId: { } versionId } && await flows.GetVersionAsync(versionId, ct) is { } version
+            ? version.Definition : current.Definition;
         var nd = incoming.Definition;
         var approvers = cd.Stages.ToDictionary(s => s.Code, s => s.Approvers);
+        static bool Unmatched(ApproverSource a) => a.UnmatchedGroups is { Count: > 0 } || a.CandidatesUnmatched;
         var definition = cd with
         {
             Shape = props.Contains("shape") ? nd.Shape : cd.Shape,
             When = props.Contains("when") ? nd.When : cd.When,
             RejectTo = props.Contains("rejectTo") ? nd.RejectTo : cd.RejectTo,
-            Stages = props.Contains("stages") ? nd.Stages.Select(s => approvers.TryGetValue(s.Code, out var a) ? s with { Approvers = a } : s).ToList() : cd.Stages
+            // 略過群組不能變成少簽（簽核設計 §14.4）：保留的簽核人有頂替時，新版的「找不到人就略過」改成交給備援
+            Stages = props.Contains("stages")
+                ? nd.Stages.Select(s => approvers.TryGetValue(s.Code, out var a)
+                    ? s with { Approvers = a, OnEmpty = Unmatched(a) && s.OnEmpty == ApprovalOnEmpty.Skip ? ApprovalOnEmpty.Fallback : s.OnEmpty } : s).ToList()
+                : cd.Stages
         };
         var input = current with
         {
