@@ -215,7 +215,8 @@ public static class UpgradeItems
         foreach (var f in p.ApprovalFlows)
         {
             // 簽核人拆成獨立的 approvers 屬性（Q27、T59）：stages 是每關去掉簽核人後的內容，approvers 以關卡代號為鍵
-            var stages = f.Stages?.Select(s => s with { Approvers = null! }).ToList();
+            // onEmpty 省略等於 fallback（開啟時寫入，匯出寫出 fallback）
+            var stages = f.Stages?.Select(s => s with { Approvers = null!, OnEmpty = s.OnEmpty ?? Domain.Approvals.ApprovalOnEmpty.Fallback }).ToList();
             var props = Generic(f with { FallbackApprovers = null, Stages = stages });
             var approvers = new JsonObject();
             foreach (var s in f.Stages ?? []) approvers[s.Code] = JsonSerializer.SerializeToNode(s.Approvers, TemplateJson.Options);
