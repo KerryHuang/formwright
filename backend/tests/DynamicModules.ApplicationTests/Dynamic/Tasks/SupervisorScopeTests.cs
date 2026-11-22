@@ -6,6 +6,7 @@ using DynamicModules.Application.Dynamic.AttachmentService;
 using DynamicModules.Application.Dynamic.DemoService;
 using DynamicModules.Application.Dynamic.EventService;
 using DynamicModules.Domain.Entities.Dynamic;
+using DynamicModules.Domain.Tasks;
 using DynamicModules.Domain.Policies;
 using DynamicModules.Persistence.Seed;
 using FluentAssertions;
@@ -69,6 +70,21 @@ public class SupervisorScopeTests : TaskTestBase
         detail.Supervised.Should().BeTrue();
         status.IsForbidden.Should().BeTrue();
         (await Load(task.Id)).Status.Should().Be(TaskItemStatus.Todo);
+    }
+
+    /// <summary>任務詳細的 PATCH 主體帶 expectedVersion（票 #18）：主管改負責人不因多這個鍵被當成改其他欄位。</summary>
+    [Fact]
+    public async Task Reassign_WithExpectedVersionKey_Allowed()
+    {
+        var task = await SeedTask("整理名片", createdBy: "sales01", assignee: "sales01");
+        var version = TaskVersion.Of(await Load(task.Id));
+
+        As("manager01");
+        var r = await Send(new UpdateTaskRequest(task.Id, J($$"""{"assigneeUserId":"sales02","expectedVersion":"{{version}}"}"""), version));
+        As("admin");
+
+        r.IsSuccess.Should().BeTrue(r.Message);
+        (await Load(task.Id)).AssigneeUserId.Should().Be("sales02");
     }
 
     [Fact]

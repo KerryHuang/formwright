@@ -1,6 +1,7 @@
 using DynamicModules.Application.Common;
 using DynamicModules.Application.Dynamic.TaskService;
 using DynamicModules.Domain.Entities.Dynamic;
+using DynamicModules.Domain.Tasks;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 
@@ -21,6 +22,62 @@ public class TaskWriteTests : TaskTestBase
     {
         Db.Context.ChangeTracker.Clear();
         return await Db.Context.Set<TaskComment>().AsNoTracking().Where(c => c.TaskId == taskId).OrderBy(c => c.Id).ToListAsync();
+    }
+
+    /// <summary>票 #18：任務詳細帶載入時的版本；別人先改過（版本已前進）→ 409 stale，不改值、不寫系統記錄。</summary>
+    [Fact]
+    public async Task Patch_StaleExpectedVersion_409_NothingWritten()
+    {
+        // 種子的建立時間早於測試時鐘，第一次寫入後版本才會前進（測試時鐘固定）
+        var created = await SeedTask(assignee: "sales01");
+        var stale = TaskVersion.Of(created);
+        var first = await Send(new UpdateTaskRequest(created.Id, J("""{"status":"inProgress"}"""), stale));
+        first.IsSuccess.Should().BeTrue(first.Message);
+        ((TaskDetailResponse)first.Data!).Version.Should().NotBe(stale);
+        var before = (await Entries(created.Id)).Count;
+
+        var r = await Send(new UpdateTaskRequest(created.Id, J("""{"status":"done","title":"後到的人"}"""), stale));
+
+        r.IsConflict.Should().BeTrue();
+        r.Code.Should().Be("stale");
+        r.Message.Should().Be(TaskMessages.Stale);
+        var after = await Load(created.Id);
+        after.Status.Should().Be(TaskItemStatus.InProgress);
+        after.Title.Should().Be("準備資料");
+        (await Entries(created.Id)).Should().HaveCount(before);
+    }
+
+    /// <summary>沒帶版本（MCP、Demo 種子等既有呼叫端）照舊：最後寫入者贏。</summary>
+    [Fact]
+    public async Task Patch_WithoutExpectedVersion_StillWrites()
+    {
+        var created = await MustCreate();
+        (await Patch(created.Id, """{"status":"inProgress"}""")).IsSuccess.Should().BeTrue();
+
+        (await Patch(created.Id, """{"status":"done"}""")).IsSuccess.Should().BeTrue();
+
+        (await Load(created.Id)).Status.Should().Be(TaskItemStatus.Done);
+    }
+
+    /// <summary>讀完之後、寫入之前別人已推進版本：記憶體比對通過，條件式認領要擋下（同看板拖拉）。</summary>
+    [Fact]
+    public async Task Patch_VersionChangedAfterRead_409()
+    {
+        var created = await MustCreate();
+        var version = TaskVersion.Of(await Load(created.Id));
+        var tracked = await Db.Context.Set<TaskItem>().SingleAsync(t => t.Id == created.Id);
+        tracked.Status.Should().Be(TaskItemStatus.Todo);
+        await Db.Context.Set<TaskItem>().Where(t => t.Id == created.Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.Status, TaskItemStatus.Done).SetProperty(t => t.ModifiedTime, new DateTime(2026, 11, 4, 9, 30, 0)));
+
+        var r = await Send(new UpdateTaskRequest(created.Id, J("""{"title":"後到的人"}"""), version));
+
+        r.IsConflict.Should().BeTrue();
+        r.Code.Should().Be("stale");
+        Db.Context.ChangeTracker.Clear();
+        var after = await Load(created.Id);
+        after.Title.Should().Be("準備資料");
+        after.Status.Should().Be(TaskItemStatus.Done);
     }
 
     [Fact]

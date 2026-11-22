@@ -41,6 +41,33 @@ public class TasksApiTests : IDisposable
         after.GetProperty("assigneeUserId").GetString().Should().Be("sales01");
     }
 
+    /// <summary>
+    /// 任務詳細改欄位帶 expectedVersion（票 #18）：兩次帶同一個舊版本，第二次 409 stale、不改值；成功回應帶新的 version。
+    /// 沒帶 expectedVersion 照舊（MCP 與既有呼叫端），最後寫入者贏。
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Postgres")]
+    public async Task Patch_SameVersionTwice_SecondIsStale()
+    {
+        var created = await JsonOf(await _admin.PostAsJsonAsync($"{Base}/tasks", new { title = "整理報價", assigneeUserId = "sales01" }));
+        var id = created.GetProperty("id").GetInt64();
+        var version = created.GetProperty("version").GetString();
+
+        var first = await _admin.PatchAsync($"{Base}/tasks/{id}", JsonContent.Create(new { title = "第一個人改", expectedVersion = version }));
+        first.StatusCode.Should().Be(HttpStatusCode.OK, await first.Content.ReadAsStringAsync());
+        var newVersion = (await JsonOf(first)).GetProperty("version").GetString();
+        newVersion.Should().NotBe(version);
+
+        var second = await _admin.PatchAsync($"{Base}/tasks/{id}", JsonContent.Create(new { title = "第二個人改", expectedVersion = version }));
+        second.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await JsonOf(second)).GetProperty("code").GetString().Should().Be("stale");
+        (await JsonOf(await _admin.GetAsync($"{Base}/tasks/{id}"))).GetProperty("title").GetString().Should().Be("第一個人改");
+
+        var withNew = await _admin.PatchAsync($"{Base}/tasks/{id}", JsonContent.Create(new { title = "帶新版本", expectedVersion = newVersion }));
+        withNew.StatusCode.Should().Be(HttpStatusCode.OK, await withNew.Content.ReadAsStringAsync());
+        (await _admin.PatchAsync($"{Base}/tasks/{id}", Body("""{"title":"沒帶版本"}"""))).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
     private Task<HttpResponseMessage> SendIn(string? locale, HttpMethod method, string url, string json)
     {
         var req = new HttpRequestMessage(method, url) { Content = Body(json) };

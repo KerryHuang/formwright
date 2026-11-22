@@ -34,10 +34,18 @@ public class TasksController(IMediator mediator) : ControllerBase
     public async Task<IActionResult> Get(long id) =>
         (await mediator.Send(new GetTaskRequest(id))).ToActionResult(this);
 
-    /// <summary>沒送的欄位不改，送 null 代表清除；所以收原始 JSON，不綁定成 DTO。</summary>
+    /// <summary>
+    /// 沒送的欄位不改，送 null 代表清除；所以收原始 JSON，不綁定成 DTO。主體的 expectedVersion（選填）是載入時的版本，不符 409 stale；
+    /// 不是字串時原樣轉成文字比對（一定不符）。
+    /// </summary>
     [HttpPatch("tasks/{id:long}")]
     public async Task<IActionResult> Update(long id, [FromBody] JsonElement body) =>
-        (await mediator.Send(new UpdateTaskRequest(id, body))).ToActionResult(this);
+        (await mediator.Send(new UpdateTaskRequest(id, body, ExpectedVersionOf(body)))).ToActionResult(this);
+
+    private static string? ExpectedVersionOf(JsonElement body) =>
+        body.ValueKind == JsonValueKind.Object && body.TryGetProperty(UpdateTaskRequest.ExpectedVersionKey, out var v)
+            ? v.ValueKind switch { JsonValueKind.String => v.GetString(), JsonValueKind.Null => null, _ => v.GetRawText() }
+            : null;
 
     /// <summary>復原主管重派：憑證來自 PATCH 回應的 undoToken。</summary>
     [HttpPost("tasks/{id:long}/undo-reassign")]

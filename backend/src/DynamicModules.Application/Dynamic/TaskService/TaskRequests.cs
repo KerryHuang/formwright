@@ -14,7 +14,15 @@ public sealed record CreateRecordTaskRequest(long RecordId, TaskInput Input) : I
 public sealed record CreateSubtaskRequest(long ParentId, TaskInput Input) : IRequest<ServiceResult>, IIdempotentRequest;
 
 /// <summary>Patch 是原始 JSON：沒送的欄位不改，送 null 代表清除。</summary>
-public sealed record UpdateTaskRequest(long Id, JsonElement Patch) : IRequest<ServiceResult>, IIdempotentRequest;
+/// <summary>
+/// ExpectedVersion 是任務詳細載入時的 version（票 #18）：有帶且不符 409 stale（同看板、甘特拖拉）；沒帶照舊最後寫入者贏（MCP、Demo 種子）。
+/// REST 從 PATCH 主體的 <c>expectedVersion</c> 鍵取出，該鍵不算要改的欄位。
+/// </summary>
+public sealed record UpdateTaskRequest(long Id, JsonElement Patch, string? ExpectedVersion = null) : IRequest<ServiceResult>, IIdempotentRequest
+{
+    /// <summary>PATCH 主體裡帶版本的鍵名。</summary>
+    public const string ExpectedVersionKey = "expectedVersion";
+}
 
 public sealed record DeleteTaskRequest(long Id) : IRequest<ServiceResult>, ITransactionalRequest;
 

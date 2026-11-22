@@ -155,12 +155,14 @@ public class UpdateTaskHandler(ITaskRepository tasks, TaskSupport support, TaskW
         var p = await access.EvaluateAsync(task, ct);
         if (!p.CanSee) return ServiceResult.NotFound(TaskMessages.NotFound);
         if (p.Frozen) return ServiceResult.Conflict(ModuleGate.ClosedMessage);
+        var checkVersion = !string.IsNullOrEmpty(request.ExpectedVersion);
+        if (checkVersion && request.ExpectedVersion != TaskVersion.Of(task)) return ServiceResult.Conflict(MessageRef.Literal(TaskMessages.Stale), "stale");
         if (!p.CanEdit)
         {
             if (!p.CanReassign) return ServiceResult.Forbidden();
-            // 主管身分：只能改負責人，其他欄位一律拒絕（看板設計 §4.3）
+            // 主管身分：只能改負責人，其他欄位一律拒絕（看板設計 §4.3）；版本鍵不算欄位
             if (request.Patch.ValueKind == JsonValueKind.Object
-                && request.Patch.EnumerateObject().Any(x => x.Name != "assigneeUserId"))
+                && request.Patch.EnumerateObject().Any(x => x.Name is not ("assigneeUserId" or UpdateTaskRequest.ExpectedVersionKey)))
                 return ServiceResult.Forbidden(MessageRef.Literal(TaskMessages.SupervisorOnlyAssignee));
         }
         var (edit, errors) = TaskEditParser.Parse(request.Patch);
@@ -169,6 +171,8 @@ public class UpdateTaskHandler(ITaskRepository tasks, TaskSupport support, TaskW
             && !await support.IsActiveUserAsync(assignee, ct))
             return ServiceResult.Invalid(new Dictionary<string, string[]> { ["assigneeUserId"] = [TaskMessages.AssigneeInvalid] });
         var from = task.AssigneeUserId;
+        // 帶版本時比對與寫入要原子（同 MoveTaskHandler）：讀完後別人已改過這一列就認領失敗，整筆交易回滾
+        if (checkVersion && !await tasks.TryClaimVersionAsync(task, ct)) return ServiceResult.Conflict(MessageRef.Literal(TaskMessages.Stale), "stale");
         if (await writer.ApplyAsync(task, edit, ct) is { } refused) return refused;
         await writer.FlushAsync(ct);
         var after = await access.EvaluateAsync(task, ct);
