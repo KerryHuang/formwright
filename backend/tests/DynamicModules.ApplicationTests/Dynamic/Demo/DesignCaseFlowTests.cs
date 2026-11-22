@@ -80,7 +80,7 @@ public class DesignCaseFlowTests(DemoGeneratedFixture fx)
         var mod = await fx.Module(Case);
         var titleKey = $"f_{mod.TitleFieldId}";
 
-        (await fx.Records(Case, "designer01")).Should().HaveCount(3, "設計群組讀得到三筆設計案");
+        (await fx.Records(Case, "designer01")).Should().HaveCount(4, "設計群組讀得到四筆設計案");
         using (ActingScope.Begin("designer01"))
         {
             var create = await fx.Host.Send(new CreateRecordRequest(Case, new Dictionary<string, System.Text.Json.JsonElement?>

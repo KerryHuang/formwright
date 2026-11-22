@@ -9,11 +9,12 @@ using DynamicModules.Application.Dynamic.TaskService;
 namespace DynamicModules.Application.Dynamic.DemoService.Scenarios;
 
 /// <summary>
-/// 「CRM 與銷售」的設計案：三筆，示範產品設計與簽核。全部走一般的建立、更新、上傳、留言、任務完成、送簽、同意指令。
+/// 「CRM 與銷售」的設計案：四筆，示範產品設計與簽核。全部走一般的建立、更新、上傳、留言、任務完成、送簽、同意指令。
 /// <list type="bullet">
 /// <item>感測器外殼改版：走完兩輪設計與客戶確認、送簽、同意、結案（看完整歷程）。</item>
 /// <item>控制箱面板改版：停在第二輪的客戶確認中，「將設計圖交客戶確認」待辦在業務手上（現場示範送簽、同意或退回）。</item>
 /// <item>展示架結構設計：停在第一輪設計中，設計人員有「繪製設計圖」待辦，還沒有圖。</item>
+/// <item>門市燈箱改版：第一版客戶確認後送簽，主管還沒核（簽核中，停在客戶確認中；套件更新預覽示範「簽核中的單照原版本走完」，套件更新設計 §9.6.5）。</item>
 /// </list>
 /// 設計圖是程式產生的虛構示意圖（<see cref="DemoDrawings"/>）；人名、案名、需求、客戶意見全是虛構。客戶取自共用主檔的 CRM 客戶。
 /// </summary>
@@ -60,6 +61,17 @@ public sealed class DesignCaseScenario : IDemoScenario
         // 第三筆：第一輪設計中
         var designing = Begin(plan, "展示架結構設計", "展示架改成可拆卸，單人十分鐘內組裝完成", customers[2], -2, out t);
         t = Intake(plan, designing, -1, t);
+
+        // 第四筆：送簽、主管還沒核
+        var awaiting = Begin(plan, "門市燈箱改版", "燈箱改成薄型，背板可單面拆換", customers[0], -7, out t);
+        t = Intake(plan, awaiting, -6, t);
+        t = FirstDrawing(plan, awaiting, "門市燈箱", -5, t);
+        var confirmed = plan.At(Day(plan, -4), t);
+        plan.Run(confirmed, Sales, "設計案 門市燈箱改版 確認完成", (ctx, ct) => CompleteTask(ctx, awaiting, ConfirmTitle, ct));
+        var reread = plan.At(Day(plan, -4), confirmed);
+        plan.Refresh(awaiting, reread, Sales, "設計案 門市燈箱改版 重讀");
+        var sent = plan.At(Day(plan, -4), reread);
+        plan.Run(sent, Sales, "設計案 門市燈箱改版 送簽", (ctx, ct) => DemoApprovalSteps.Submit(ctx, awaiting, ctx.Crm!.Ids.OptionIds["design-case.manager-review"], "客戶已確認第一版", ct));
     }
 
     private static DemoRecord Begin(DemoPlan plan, string name, string requirement, DemoRecord customer, int day, out DateTime at)

@@ -86,8 +86,13 @@ public class DemoStructureTests(DemoGeneratedFixture fx)
             && p.Current!.ToString() == DemoOldCrm.CustomerSubject);
         Item("field:campaign.note").Should().Match<UpgradeItemResponse>(i => i.Category == "customerOnly" && !i.Applicable);
         Item("field:campaign.location").Should().Match<UpgradeItemResponse>(i => i.Category == "customerDeleted" && !i.DefaultSelected);
+        Item(DemoOldCrm.NarrowedTransition).Should().Match<UpgradeItemResponse>(i => i.Category == "newOnly" && !i.Applicable
+            && i.Reason == "transitionGroups", "新版多給群組：既有轉移的群組只列出（Q15）");
+        var flow = Item($"approvalFlow:{DemoOldCrm.RenamedFlow}");
+        flow.Should().Match<UpgradeItemResponse>(i => i.Category == "newOnly" && i.Applicable && i.DefaultSelected, "只改關卡名稱，Q27 下仍可勾");
+        flow.Impacts.Should().ContainSingle(x => x.Code == "inFlightApprovals" && x.Count == 1, "設計案劇本留一張簽核中的單");
         preview.Counts["customerAdded"].Should().Be(1);
-        preview.Items.Should().HaveCount(5, "示範之外不能有假差異");
+        preview.Items.Should().HaveCount(7, "示範之外不能有假差異");
 
         var inventory = await fx.Host.Send(new PreviewAppUpgradeRequest(DemoCatalog.InventoryAppId, new UpgradeBody(null, null)));
         inventory.IsConflict.Should().BeTrue("進銷存照目錄版開啟，已是最新");

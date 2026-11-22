@@ -18,7 +18,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace DynamicModules.ApplicationTests.Dynamic.Demo;
 
-/// <summary>CRM 設計案的三筆 Demo 資料（Today = 2026-11-05）：結案、第二輪客戶確認中、第一輪設計中。</summary>
+/// <summary>CRM 設計案的四筆 Demo 資料（Today = 2026-11-05）：結案、第二輪客戶確認中、第一輪設計中、送簽未核。</summary>
 [Collection(DemoGeneratedCollection.Name)]
 public class DesignCaseScenarioTests(DemoGeneratedFixture fx)
 {
@@ -143,6 +143,21 @@ public class DesignCaseScenarioTests(DemoGeneratedFixture fx)
 
         (await NotificationsOf("manager01")).Should().Contain(n => n.Kind == NotificationKinds.ApprovalPending);
         (await NotificationsOf("sales01")).Should().Contain(n => n.Kind == NotificationKinds.ApprovalApproved);
+    }
+
+    /// <summary>送簽、主管還沒核：套件更新預覽示範「簽核中的單照原版本走完」（套件更新設計 §9.6.5）。</summary>
+    [Fact]
+    public async Task AwaitingCase_SubmittedNotApproved()
+    {
+        var rec = await CaseNamed("門市燈箱改版");
+        (await StatusLabel(rec)).Should().Be("客戶確認中", "簽核中的單停在送簽前的狀態，核准後才進待主管確認");
+        var instance = await fx.Host.Db.Context.Set<ApprovalInstance>().AsNoTracking().SingleAsync(i => i.RecordId == rec.Id);
+        instance.Status.Should().Be("pending");
+        instance.InitiatorUserId.Should().Be("sales01");
+        var open = await fx.Host.Db.Context.Set<ApprovalTask>().AsNoTracking()
+            .Where(t => t.InstanceId == instance.Id && t.Status == ApprovalTaskStatus.Open).Select(t => t.AssigneeUserId).ToListAsync();
+        open.Should().Equal("manager01");
+        (await TasksOf(rec.Id)).Should().OnlyContain(t => t.Status == TaskItemStatus.Done, "繪製與確認都已完成才送簽");
     }
 
     [Fact]
