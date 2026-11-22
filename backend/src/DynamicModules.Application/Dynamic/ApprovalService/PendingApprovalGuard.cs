@@ -45,8 +45,17 @@ public sealed class PendingApprovalGuard(IApprovalInstanceRepository instances, 
     /// </summary>
     public async Task<ServiceResult?> RejectWorkflowChangeAsync(Module module, Workflow? candidate, CancellationToken ct)
     {
+        var violating = await WorkflowViolationsAsync(module, candidate, ct);
+        return violating.Count == 0 ? null : ServiceResult.Conflict(ApprovalMessages.WorkflowBlockedByPending(Titles(violating), violating.Count));
+    }
+
+    /// <summary>
+    /// <see cref="RejectWorkflowChangeAsync"/> 的唯讀判斷：會被這份候選狀態機打斷的進行中實例。設計器與升級預覽共用（套件更新設計 T32）。
+    /// </summary>
+    public async Task<List<PendingInstanceRef>> WorkflowViolationsAsync(Module module, Workflow? candidate, CancellationToken ct)
+    {
         var pending = await instances.ListPendingByModulesAsync([module.Id], ct);
-        if (pending.Count == 0) return null;
+        if (pending.Count == 0) return [];
         var violating = new List<PendingInstanceRef>();
         var active = module.Workflow is { } current
             ? module.Blocks.SelectMany(b => b.Fields).FirstOrDefault(f => f.Id == current.StatusFieldId)?.Options.Where(o => o.Active).Select(o => o.Id).ToHashSet() ?? []
@@ -66,7 +75,7 @@ public sealed class PendingApprovalGuard(IApprovalInstanceRepository instances, 
                 && (!StateKept(candidate, active, rejectTo) || !candidate.Transitions.Any(t => t.From == p.FromOptionId && t.To == rejectTo)))
                 violating.Add(p);
         }
-        return violating.Count == 0 ? null : ServiceResult.Conflict(ApprovalMessages.WorkflowBlockedByPending(Titles(violating), violating.Count));
+        return violating;
     }
 
     /// <summary>停用狀態欄位的選項：進行中實例的 from、to 或綁定版本的退回狀態用到它就回 409。</summary>

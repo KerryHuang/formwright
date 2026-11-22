@@ -15,9 +15,8 @@ using MediatR;
 namespace DynamicModules.Application.Dynamic.WorkflowService.Commands.SaveWorkflow;
 
 public class SaveWorkflowHandler(
-    IModuleRepository modules, IPermissionRepository permissions, IUnitOfWork uow, ICurrentUser user, IBusinessTime time,
-    IApprovalFlowRepository flows, IEventRepository events, WorkflowApprovals approvals, PendingApprovalGuard pending,
-    LockedDataGuard lockedData, IPolicyReader policies, RequestLocale requestLocale)
+    IModuleRepository modules, IUnitOfWork uow, ICurrentUser user, IBusinessTime time, WorkflowApprovals approvals,
+    PendingApprovalGuard pending, LockedDataGuard lockedData, WorkflowSaveValidator validator)
     : IRequestHandler<SaveWorkflowRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(SaveWorkflowRequest request, CancellationToken ct)
@@ -26,41 +25,9 @@ public class SaveWorkflowHandler(
         if (module is null) return ServiceResult.NotFound(MessageRef.Of(MessageText.ModuleNotFound));
         var input = request.Workflow;
 
-        var errors = new Dictionary<string, MessageRef[]>();
-        void Err(string key, string message) => errors.TryAdd(key, [MessageRef.Literal(message)]);
-
-        if (module.Kind != ModuleKind.Standalone || ModuleRelations.IsDetail(module))
-            Err("moduleKey", "明細模組與擴充模組不能設定狀態機");
-
-        var status = module.Blocks.SelectMany(b => b.Fields).FirstOrDefault(f => f.Id == input.StatusFieldId);
-        if (status is not { Status: FieldStatus.Active, Type: FieldType.Enum })
-            Err("statusFieldId", "狀態欄位必須是本模組啟用中的單選下拉欄位");
-        else if (status.Config.ReadOnly)
-            Err("statusFieldId", "狀態欄位不能設為唯讀，否則沒有人能轉移狀態");
-
-        var optionIds = status?.Options.Where(o => o.Active).Select(o => o.Id).ToHashSet() ?? [];
+        if (await validator.StructureErrorsAsync(module, input, null, ct) is { } invalid) return invalid;
         var states = input.States ?? [];
         var transitions = input.Transitions ?? [];
-        // 數量上限（A16）：調低後既有流程照常可改，只有這次比原本多才擋（政策設計 §3.5）
-        var maxStates = await policies.IntAsync(PolicyCatalog.DesignMaxWorkflowStates, null, ct);
-        var maxTransitions = await policies.IntAsync(PolicyCatalog.DesignMaxWorkflowTransitions, null, ct);
-        var oldStates = module.Workflow?.States.Count ?? 0;
-        var oldTransitions = module.Workflow?.Transitions.Count ?? 0;
-        if (states.Count == 0 || (states.Count > maxStates && states.Count > oldStates)
-            || states.Select(s => s.OptionId).Distinct().Count() != states.Count
-            || states.Any(s => !optionIds.Contains(s.OptionId)))
-            Err("states", WorkflowMessages.States(maxStates));
-        var stateIds = states.Select(s => s.OptionId).ToHashSet();
-        if (!stateIds.Contains(input.InitialOptionId)) Err("initialOptionId", "起始狀態必須是狀態清單內的狀態");
-
-        var groupIds = (await permissions.ListGroupsAsync(ct)).Select(g => g.Id).ToHashSet();
-        if (transitions.Count > maxTransitions && transitions.Count > oldTransitions)
-            errors.TryAdd("transitions", [WorkflowMessages.TooManyTransitions(maxTransitions)]);
-        else if (transitions.Any(t => t.From == t.To || !stateIds.Contains(t.From) || !stateIds.Contains(t.To))
-            || transitions.Select(t => (t.From, t.To)).Distinct().Count() != transitions.Count
-            || transitions.Any(t => t.GroupIds is null || t.GroupIds.Any(g => !groupIds.Contains(g))))
-            Err("transitions", WorkflowMessages.Transitions);
-        if (errors.Count > 0) return ServiceResult.Invalid(errors);
 
         var candidate = new Workflow
         {
@@ -70,7 +37,7 @@ public class SaveWorkflowHandler(
         if (await pending.RejectWorkflowChangeAsync(module, candidate, ct) is { } pendingApproval) return pendingApproval;
         if (await lockedData.RejectUnlockAsync(module, candidate, ct) is { } lockedRecords) return lockedRecords;
 
-        if (await ApprovalErrorsAsync(module, input, candidate, ct) is { Count: > 0 } approvalErrors) return ServiceResult.Invalid(approvalErrors);
+        if (await validator.ApprovalErrorsAsync(module, candidate, null, ct) is { } approvalErrors) return approvalErrors;
 
         var now = time.Now;
         var workflow = module.Workflow;
@@ -90,22 +57,5 @@ public class SaveWorkflowHandler(
         await uow.CommitAsync(ct);
         return ServiceResult.Success(workflow.ToResponse(await approvals.LockedFieldIdsAsync(module, workflow, ct),
             await approvals.EditableFieldIdsAsync(module, workflow, ct)));
-    }
-
-    /// <summary>簽核的入口約束與事件交叉檢查（簽核設計 §5.2、§5.3）；沒有需簽核轉移時不查資料庫、一律通過。</summary>
-    private async Task<Dictionary<string, string[]>?> ApprovalErrorsAsync(
-        Module module, WorkflowInput input, Workflow candidate, CancellationToken ct)
-    {
-        if (!candidate.Transitions.Any(t => t.Approval is { Required: true })) return null;
-        if (candidate.Transitions.Any(t => t.Approval is { NoMatch: not (ApprovalNoMatch.Block or ApprovalNoMatch.Direct) }))
-            return new() { ["transitions"] = ["沒有流程符合時的處理只能是 block 或 direct"] };
-
-        var errors = ApprovalConstraints.Validate(module, candidate, await flows.ListCurrentByModuleAsync(module.Id, ct), requestLocale.Current);
-        var labels = module.Blocks.SelectMany(b => b.Fields).Single(f => f.Id == input.StatusFieldId).Options
-            .ToDictionary(o => o.Id, o => o.LabelI18n.Resolve(requestLocale.Current));
-        var active = (await events.ListAsync(ct)).Where(e => e.Active);
-        foreach (var (key, to) in ApprovalEventCrossCheck.Find(module, candidate, active))
-            errors.TryAdd($"events[{key}]", [ApprovalMessages.EventPushes(key, labels.GetValueOrDefault(to) ?? to.ToString())]);
-        return errors;
     }
 }
