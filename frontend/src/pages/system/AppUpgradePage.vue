@@ -73,7 +73,8 @@ const dependsLabel = (ids: string[]) => ids.map((id) => {
   return hit ? labelOf(hit) : id;
 }).join('、');
 const effectLabel = (effect: string) => (te(`apps.upgrade.effect.${effect}`) ? t(`apps.upgrade.effect.${effect}`) : effect);
-const reasonLabel = (reason: string) => (te(`apps.upgrade.reason.${reason}`) ? t(`apps.upgrade.reason.${reason}`) : reason);
+const reasonLabel = (reason: string, n?: number | null, detail?: string | null) =>
+  te(`apps.upgrade.reason.${reason}`) ? t(`apps.upgrade.reason.${reason}`, { n: n ?? 0, detail: detail ?? '' }) : reason;
 
 // 勾選：預覽載入（含改群組對應後重新預覽）時回到後端的預設勾選
 const selected = ref<Set<string>>(new Set());
@@ -228,7 +229,10 @@ const viewing = ref<{ title: string; value: string } | null>(null);
                     <span class="text-caption text-muted">{{ kindOf(i) }}</span>
                     <q-badge outline color="primary" :data-testid="`upgrade-category-${i.category}`">{{ t(`apps.upgrade.category.${i.category}`) }}</q-badge>
                   </div>
-                  <div v-if="i.reason" class="text-caption text-negative">{{ i.reason === 'affectsData' ? t('apps.upgrade.reason.affectsData', { n: i.affectedRecords ?? 0 }) : reasonLabel(i.reason) }}</div>
+                  <div v-if="i.reason" class="text-caption text-negative">{{ reasonLabel(i.reason, i.affectedRecords, i.detail) }}</div>
+                  <div v-for="(m, k) in i.impacts ?? []" :key="`impact-${k}`" class="text-caption text-muted" data-testid="upgrade-impact">
+                    {{ te(`apps.upgrade.impact.${m.code}`) ? t(`apps.upgrade.impact.${m.code}`, { n: m.count ?? 0, detail: m.detail ?? '' }) : m.code }}
+                  </div>
                   <div v-if="i.dependsOn.length" class="text-caption text-muted">{{ t('apps.upgrade.dependsOn', { items: dependsLabel(i.dependsOn) }) }}</div>
                   <div v-if="i.attachedPermissions.length" class="row q-gutter-xs q-mt-xs" data-testid="upgrade-attached">
                     <q-badge v-for="(p, k) in i.attachedPermissions" :key="k" :color="p.grants ? 'warning' : 'secondary'" :outline="!p.grants">

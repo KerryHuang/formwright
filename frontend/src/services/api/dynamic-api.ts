@@ -143,6 +143,10 @@ export interface UpgradeItem {
   attachedPermissions: AttachedPermission[];
   /** reason 是 affectsData 時，沒有值的記錄數（§6.4、A12b）。 */
   affectedRecords?: number | null;
+  /** 給原因文字代入的補充（workflowInvalid 的驗證訊息等，套件更新設計 §9.6.4）。 */
+  detail?: string | null;
+  /** 不擋、只說明的影響（§9.6.4）。 */
+  impacts?: { code: string; count?: number | null; detail?: string | null }[] | null;
 }
 
 export interface UpgradeGroup {
