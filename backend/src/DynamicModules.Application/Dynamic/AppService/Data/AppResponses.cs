@@ -113,6 +113,8 @@ public static class AppMessages
     public const string UpgradeItemUnknown = "這一項不在預覽的清單裡";
     public const string UpgradeItemNotApplicable = "這一項不能套用";
     public static string UpgradeItemMissingDependency(string ids) => $"要一起套用：{ids}";
+    public static string UpgradeStrictMissing(string what) => $"引用的項目不存在：{what}，請一起勾選它";
+    public static string UpgradeModulePass(string ids) => $"這一趟包含的項目：{ids}";
     public static string UpgradeTitleFieldMissing(string title) => $"標題用到的欄位不存在：{title}，請一起勾選它";
     public static string ImportVersionNotNewer(string id, string version) => $"套件代碼已存在：{id}（目前版號 {version}）";
 
