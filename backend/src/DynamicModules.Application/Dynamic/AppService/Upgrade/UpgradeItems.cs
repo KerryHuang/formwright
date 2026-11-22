@@ -182,7 +182,9 @@ public static class UpgradeItems
         foreach (var w in p.Workflows)
         {
             var workflowId = $"workflow:{w.Module}";
-            Add(new UpgradeItem(workflowId, "workflows", w.Module, null, Generic(w)) { Parent = $"module:{w.Module}", Refs = RefsOf(w.Module, w.StatusField, w.Initial) });
+            // 初始狀態要已在狀態機裡（SaveWorkflow 驗證）：限定名讓它依賴得到新狀態（T43 第 6 點）
+            Add(new UpgradeItem(workflowId, "workflows", w.Module, null, Generic(w))
+                { Parent = $"module:{w.Module}", Refs = RefsOf(w.Module, w.StatusField, w.Initial, $"{w.Module}.{w.Initial}") });
             // editable 只有 true 有意義（匯出把 false 寫成省略）
             foreach (var s in w.States)
                 Add(new UpgradeItem($"state:{w.Module}.{s.Option}", "workflows", w.Module, null, Generic(s with { Editable = s.Editable == true ? true : null }))
@@ -201,17 +203,31 @@ public static class UpgradeItems
             }
         }
 
-        foreach (var c in p.Conversions) Add(Coded("conversions", "conversion", c.Code, c.Source, c.Name, c));
-        foreach (var e in p.Events) Add(Coded("events", "event", e.Code, e.Source, e.Name, e));
+        // 可轉狀態、事件的觸發狀態要已在狀態機裡：記成限定名，依賴得到狀態項目（T43 第 6 點）
+        foreach (var c in p.Conversions) Add(Coded("conversions", "conversion", c.Code, c.Source, c.Name, c, c.SourceStates.Select(x => $"{c.Source}.{x}")));
+        foreach (var e in p.Events)
+            Add(Coded("events", "event", e.Code, e.Source, e.Name, e,
+                (e.Trigger.From ?? []).Append(e.Trigger.To).OfType<string>().Select(x => $"{e.Source}.{x}")));
         foreach (var c in p.Checks) Add(Coded("checks", "check", c.Code, c.Module, c.Name, c));
-        foreach (var t in p.PrintTemplates) Add(Coded("printTemplates", "printTemplate", t.Code, t.Module, t.Name, t));
+        foreach (var t in p.PrintTemplates) Add(Coded("printTemplates", "printTemplate", t.Code, t.Module, t.Name, t, EachRefs(t.Body)));
         // 任務規則的 repeat 省略等於 once（匯出寫出 null）
         foreach (var t in p.TaskRules) Add(Coded("taskRules", "taskRule", t.Code, t.Module, t.Name, t with { Repeat = t.Repeat ?? AppTaskRule.Once }));
         foreach (var f in p.ApprovalFlows)
         {
-            var item = Coded("approvalFlows", "approvalFlow", f.Code, f.Module, f.Name, f);
+            // 簽核人拆成獨立的 approvers 屬性（Q27、T59）：stages 是每關去掉簽核人後的內容，approvers 以關卡代號為鍵
+            var stages = f.Stages?.Select(s => s with { Approvers = null! }).ToList();
+            var props = Generic(f with { FallbackApprovers = null, Stages = stages });
+            var approvers = new JsonObject();
+            foreach (var s in f.Stages ?? []) approvers[s.Code] = JsonSerializer.SerializeToNode(s.Approvers, TemplateJson.Options);
+            if (f.FallbackApprovers is { } fb) approvers["$fallback"] = JsonSerializer.SerializeToNode(fb, TemplateJson.Options);
+            if (Normalize(approvers) is { } a) props["approvers"] = a;
+            // 目標與退回狀態要已在狀態機裡：限定名讓它依賴得到新狀態（T43 第 3 點）
+            var refs = RefsOf(f);
+            refs.Add($"{f.Module}.{f.To}");
+            if (f.RejectTo is { } rt) refs.Add($"{f.Module}.{rt}");
             // 關卡與備援的群組代號換成客戶群組 id（§6.2.1 第 4 點）
-            Add(item with { Props = item.Props.ToDictionary(x => x.Key, x => MapGroups(x.Value, groupOf)) });
+            Add(new UpgradeItem($"approvalFlow:{f.Code}", "approvalFlows", f.Module, f.Name, props.ToDictionary(x => x.Key, x => MapGroups(x.Value, groupOf)))
+                { Refs = refs });
         }
         foreach (var l in p.Ledgers)
             Add(new UpgradeItem($"ledger:{l.Module}", "ledgers", l.Module, null, Generic(l)) { Parent = $"module:{l.Module}", Refs = RefsOf(l) });
@@ -277,8 +293,31 @@ public static class UpgradeItems
                 { IsPermission = true, Owner = $"field:{field}", GroupId = group };
     }
 
-    private static UpgradeItem Coded(string section, string prefix, string code, string module, I18nText? name, object value) =>
-        new($"{prefix}:{code}", section, module, name, Generic(value)) { Refs = RefsOf(value) };
+    private static UpgradeItem Coded(string section, string prefix, string code, string module, I18nText? name, object value, IEnumerable<string>? extra = null)
+    {
+        var refs = RefsOf(value);
+        refs.UnionWith(extra ?? []);
+        return new($"{prefix}:{code}", section, module, name, Generic(value)) { Refs = refs };
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex Each = new(@"\{\{#each\s+([A-Za-z0-9_./-]+)\s*\}\}(.*?)\{\{/each\}\}",
+        System.Text.RegularExpressions.RegexOptions.Singleline);
+    private static readonly System.Text.RegularExpressions.Regex Slot = new(@"\{\{\s*([A-Za-z0-9_]+)\s*\}\}");
+
+    /// <summary>列印範本的 {{#each 明細模組}}：依賴明細模組，迴圈裡的 {{欄位}} 以明細模組為限定名（T43 第 4 點）。</summary>
+    private static IEnumerable<string> EachRefs(string body)
+    {
+        foreach (System.Text.RegularExpressions.Match m in Each.Matches(body ?? ""))
+        {
+            var detail = m.Groups[1].Value;
+            yield return detail;
+            foreach (System.Text.RegularExpressions.Match slot in Slot.Matches(m.Groups[2].Value)) yield return $"{detail}.{slot.Groups[1].Value}";
+        }
+    }
+
+    /// <summary>依賴自己所在模組的種類（T43 第 1 點）：新模組上的這些項目不隨模組一起列，取消勾模組時要連帶取消。</summary>
+    public static readonly IReadOnlySet<string> OwnModuleSections = new HashSet<string>
+        { "reports", "conversions", "events", "checks", "printTemplates", "taskRules", "approvalFlows" };
 
     private static string ModuleOf(string qualified) => qualified[..Math.Max(0, qualified.LastIndexOf('.'))];
 
@@ -406,7 +445,7 @@ public static class UpgradeItems
     {
         var colon = target.Id.IndexOf(':');
         var name = target.Id[(colon + 1)..];
-        if (target.Section is "modules") return item.Refs.Contains(target.Module!) && item.Module != target.Module;
+        if (target.Section is "modules") return item.Refs.Contains(target.Module!) && (item.Module != target.Module || OwnModuleSections.Contains(item.Section));
         if (target.Section is not ("fields" or "options" or "blocks")) return item.Refs.Contains(name);
         var code = name[(name.LastIndexOf('.') + 1)..];
         return item.Refs.Contains(name) || (item.Module == target.Module && item.Refs.Contains(code));
