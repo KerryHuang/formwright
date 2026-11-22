@@ -112,7 +112,7 @@ public class DesignCaseUploadDisabledTests
             var r = await host.Send(new GenerateDemoDataRequest(DemoTestHost.Today));
             r.IsSuccess.Should().BeTrue(r.Message + string.Join(";", r.Errors.Select(e => string.Join(",", e.Value))));
 
-            Directory.GetFiles(root, "*", SearchOption.AllDirectories).Should().HaveCount(8, "前兩案各 v1、v2、標註圖、修改說明，第三案沒有檔");
+            Directory.GetFiles(root, "*", SearchOption.AllDirectories).Should().HaveCount(9, "前兩案各 v1、v2、標註圖、修改說明，第三案沒有檔，第四案只有 v1");
             ServerUploadScopeProbe.Active.Should().BeFalse();
         }
         finally
