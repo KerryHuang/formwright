@@ -101,8 +101,8 @@ public sealed class ApprovalFlowEditor(
         return errors;
     }
 
-    /// <summary>優先序唯一索引含沒有已發布版本的流程，所以這裡要看全部流程列；入口約束只看已發布的。</summary>
-    private async Task<ServiceResult?> PriorityTakenAsync(Module module, long toOptionId, int priority, ApprovalFlow? self, CancellationToken ct) =>
+    /// <summary>優先序唯一索引含沒有已發布版本的流程，所以這裡要看全部流程列；入口約束只看已發布的。設計器與升級預覽共用（套件更新設計 T32）。</summary>
+    public async Task<ServiceResult?> PriorityTakenAsync(Module module, long toOptionId, int priority, ApprovalFlow? self, CancellationToken ct) =>
         (await flows.ListByModuleAsync(module.Id, ct)).Any(f => f.Flow.Id != self?.Id && f.Flow.ToOptionId == toOptionId && f.Flow.Priority == priority)
             ? ServiceResult.Invalid(new Dictionary<string, string[]> { ["priority"] = ["同一目標狀態上的流程優先序不能重複"] })
             : null;

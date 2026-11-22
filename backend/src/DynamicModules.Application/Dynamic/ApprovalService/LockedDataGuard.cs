@@ -21,15 +21,29 @@ public sealed class LockedDataGuard(ApprovalLockService locks, IRecordRepository
     /// </summary>
     public async Task<ServiceResult?> RejectUnlockAsync(Module module, Workflow? candidate, CancellationToken ct)
     {
-        if (module.Workflow is not { } old) return null;
-        var unlocked = ApprovalTopology.LockedStates(old).ToHashSet();
-        if (unlocked.Count == 0) return null;
-        if (candidate is not null && candidate.StatusFieldId == old.StatusFieldId) unlocked.ExceptWith(ApprovalTopology.LockedStates(candidate));
-        if (unlocked.Count == 0) return null;
-        var count = (await records.ListLiveValuesAsync(module.Id, ct))
-            .Count(r => old.StateOf(RecordValueProcessor.Parse(r.ValuesJson)) is { } s && unlocked.Contains(s));
+        var count = await UnlockedRecordsAsync(module, candidate, null, ct);
         return count == 0 ? null : ServiceResult.Conflict(ApprovalMessages.UnlockBlockedByRecords(count));
     }
+
+    /// <summary>
+    /// <see cref="RejectUnlockAsync"/> 的唯讀判斷：會被這份候選狀態機解鎖的記錄數。設計器與升級預覽共用（套件更新設計 T32）；
+    /// <paramref name="states"/> 是呼叫端已讀好的「記錄 → 目前狀態」（預覽按模組快取，T46 第 4 點），null 時自己讀。
+    /// </summary>
+    public async Task<int> UnlockedRecordsAsync(Module module, Workflow? candidate, IReadOnlyList<long?>? states, CancellationToken ct)
+    {
+        if (module.Workflow is not { } old) return 0;
+        var unlocked = ApprovalTopology.LockedStates(old).ToHashSet();
+        if (unlocked.Count == 0) return 0;
+        if (candidate is not null && candidate.StatusFieldId == old.StatusFieldId) unlocked.ExceptWith(ApprovalTopology.LockedStates(candidate));
+        if (unlocked.Count == 0) return 0;
+        states ??= await StatesAsync(module, ct);
+        return states.Count(s => s is { } id && unlocked.Contains(id));
+    }
+
+    /// <summary>模組每筆未刪除記錄目前停在哪個狀態（沒有狀態機時是空清單）。</summary>
+    public async Task<List<long?>> StatesAsync(Module module, CancellationToken ct) =>
+        module.Workflow is not { } wf ? []
+            : (await records.ListLiveValuesAsync(module.Id, ct)).Select(r => wf.StateOf(RecordValueProcessor.Parse(r.ValuesJson))).ToList();
 
     /// <summary>
     /// 刪除欄位或區塊會清掉記錄上的值：被刪的欄位屬於鎖定欄位，而停在鎖定狀態的記錄在這些欄位有值（空字串、空陣列、null 不算）就回 409。

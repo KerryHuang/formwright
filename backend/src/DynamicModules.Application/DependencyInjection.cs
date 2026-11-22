@@ -105,6 +105,7 @@ public static class DependencyInjection
         services.AddScoped<Dynamic.LedgerService.ImmutableDataGuard>();
         services.AddScoped<Dynamic.ModuleService.TitleRewriteGuard>();
         services.AddScoped<Dynamic.ApprovalService.PendingApprovalGuard>();
+        services.AddScoped<Dynamic.WorkflowService.WorkflowSaveValidator>();
         services.AddScoped<Dynamic.ApprovalService.LockedDataGuard>();
         services.AddScoped<Dynamic.ApprovalService.ApprovalClosureRecheck>();
         services.AddScoped<Dynamic.ApprovalService.ApprovalPolicies>();
