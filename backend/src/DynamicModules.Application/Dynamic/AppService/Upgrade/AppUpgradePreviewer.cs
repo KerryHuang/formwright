@@ -373,8 +373,21 @@ public sealed class AppUpgradePreviewer(
             // 這次才加上需簽核的轉移，依賴目標上的流程（T43 第 2 點）；現況目標上已經有流程時第一趟就能帶，不加
             foreach (var flow in sources.Where(x => x.Id.StartsWith("transition:", StringComparison.Ordinal)).SelectMany(ApprovalFlowsFor))
                 if (flow != item.Id && !deps.Contains(flow)) deps.Add(flow);
+            foreach (var entry in sources.Where(x => x.Id.StartsWith("transition:", StringComparison.Ordinal)).SelectMany(SiblingEntries))
+                if (entry != item.Id && !deps.Contains(entry)) deps.Add(entry);
             return deps;
         }
+        // 同一目標上、現況已有而這次也都加上需簽核的其他入口（主控裁決，修正 §22.2 已知限制 1）：「進入簽核目標的入口一律要簽」，
+        // 只勾一個入口時另一個仍不需簽核，各自判斷都會是 workflowInvalid；彼此列進相依，勾一項連帶勾另一項，候選照閉包一起判斷
+        IEnumerable<string> SiblingEntries(UpgradeItem transition)
+        {
+            if (!AddsApproval(transition)) return [];
+            var to = transition.Id[(transition.Id.LastIndexOf('>') + 1)..];
+            return N.Values.Where(t => t.Id != transition.Id && t.Id.StartsWith("transition:", StringComparison.Ordinal) && t.Module == transition.Module
+                    && t.Id[(t.Id.LastIndexOf('>') + 1)..] == to && C.ContainsKey(t.Id) && AddsApproval(t) && listedIds.Contains(t.Id))
+                .Select(t => t.Id);
+        }
+        bool AddsApproval(UpgradeItem t) => Requires(t) && !(C.GetValueOrDefault(t.Id) is { } c && Requires(c));
         // 需簽核轉移的目標上，新版這次才會有的流程：新增的，或既有、這次把 to 改到這裡的（§6.5 唯一的例外，§22.2 最後一格）
         IEnumerable<string> ApprovalFlowsFor(UpgradeItem transition)
         {
