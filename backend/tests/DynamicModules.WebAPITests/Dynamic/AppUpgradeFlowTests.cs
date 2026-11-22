@@ -175,9 +175,6 @@ public class AppUpgradeFlowTests : IDisposable
         await Task.CompletedTask;
     }
 
-    /// <summary>A56 用：只留草稿 → 已送出一個入口（複核 → 已送出拿掉）。</summary>
-    private static void SingleEntry(JsonObject p) => Wf(p)["transitions"]!.AsArray().Remove(Transition(p, "review", "sent"));
-
     // ---- A25 ----
 
     [Fact]
@@ -397,40 +394,60 @@ public class AppUpgradeFlowTests : IDisposable
 
     // ---- A56 ----
 
+    private static void SendFlow(JsonObject p) => p["approvalFlows"]!.AsArray().Add(JsonNode.Parse("""
+        { "code": "uf-send", "name": { "zh-TW": "送出簽核" }, "active": true, "module": "deal", "to": "sent", "priority": 1, "shape": "sequence",
+          "stages": [ { "code": "lead", "name": { "zh-TW": "主管" }, "approvers": { "source": "group", "groups": ["lead"] }, "mode": "any" } ] }
+        """));
+
+    /// <summary>「已送出」的兩個入口（草稿 → 已送出、複核 → 已送出）這次都加上需簽核，並新增以「已送出」為目標的流程。</summary>
+    private static void BothEntriesNeedApproval(JsonObject p)
+    {
+        Transition(p, "draft", "sent")["approval"] = new JsonObject { ["required"] = true };
+        Transition(p, "review", "sent")["approval"] = new JsonObject { ["required"] = true };
+        SendFlow(p);
+    }
+
+    /// <summary>
+    /// A56 前一格：同一目標的兩個入口這次都加上需簽核，彼此列進 dependsOn（主控裁決，修正已知限制 1），
+    /// 候選照相依閉包一起判斷，不會各自被「入口一律要簽」擋成 workflowInvalid。
+    /// </summary>
     [Fact]
     public async Task A56_ApprovalAddedWithNewFlow_RecordsInState_ThenLocked()
     {
-        await OpenAsync(SingleEntry);
+        await OpenAsync();
         await RecordsAsync("sent", 15);
-        await NewVersionAsync(p =>
-        {
-            Transition(p, "draft", "sent")["approval"] = new JsonObject { ["required"] = true };
-            p["approvalFlows"]!.AsArray().Add(JsonNode.Parse("""
-                { "code": "uf-send", "name": { "zh-TW": "送出簽核" }, "active": true, "module": "deal", "to": "sent", "priority": 1, "shape": "sequence",
-                  "stages": [ { "code": "lead", "name": { "zh-TW": "主管" }, "approvers": { "source": "group", "groups": ["lead"] }, "mode": "any" } ] }
-                """));
-        }, SingleEntry);
+        await NewVersionAsync(BothEntriesNeedApproval);
         var preview = await PreviewAsync();
         var item = Item(preview, "transition:deal:draft>sent");
-        Reason(item).Should().BeNull("候選帶上新流程，沒有 NoFlow（T58）；" + item);
-        DependsOn(item).Should().Contain("approvalFlow:uf-send");
+        Reason(item).Should().BeNull("候選帶上新流程與另一個入口，沒有 NoFlow、沒有入口不一致（T58）；" + item);
+        DependsOn(item).Should().Contain(["approvalFlow:uf-send", "transition:deal:review>sent"]);
         item.GetProperty("impacts")[0].GetProperty("count").GetInt32().Should().Be(15);
+        var other = Item(preview, "transition:deal:review>sent");
+        Reason(other).Should().BeNull(other.ToString());
+        DependsOn(other).Should().Contain(["approvalFlow:uf-send", "transition:deal:draft>sent"]);
+
         await ApplyOkAsync(preview, Defaults(preview));
         WorkflowOf().RequiresApproval(Option("draft"), Option("sent")).Should().BeTrue();
+        WorkflowOf().RequiresApproval(Option("review"), Option("sent")).Should().BeTrue();
+    }
+
+    /// <summary>相依互相勾：只勾其中一個入口（加流程）時，套用回 400 並指出缺另一個入口。</summary>
+    [Fact]
+    public async Task A56_OnlyOneOfTwoEntriesTicked_400MissingOtherEntry()
+    {
+        await OpenAsync();
+        await NewVersionAsync(BothEntriesNeedApproval);
+        var preview = await PreviewAsync();
+        var res = await ApplyAsync(preview, ["transition:deal:draft>sent", "approvalFlow:uf-send"]);
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync()).Should().Contain("transition:deal:review>sent");
     }
 
     [Fact]
     public async Task A56_CustomerPlainEntry_WorkflowInvalid()
     {
-        await OpenAsync(p => { SingleEntry(p); Wf(p)["transitions"]!.AsArray().Add(JsonNode.Parse("""{ "from": "returned", "to": "sent", "groups": [] }""")); });
-        await NewVersionAsync(p =>
-        {
-            Transition(p, "draft", "sent")["approval"] = new JsonObject { ["required"] = true };
-            p["approvalFlows"]!.AsArray().Add(JsonNode.Parse("""
-                { "code": "uf-send", "name": { "zh-TW": "送出簽核" }, "active": true, "module": "deal", "to": "sent", "priority": 1, "shape": "sequence",
-                  "stages": [ { "code": "lead", "name": { "zh-TW": "主管" }, "approvers": { "source": "group", "groups": ["lead"] }, "mode": "any" } ] }
-                """));
-        }, SingleEntry);
+        await OpenAsync(p => Wf(p)["transitions"]!.AsArray().Add(JsonNode.Parse("""{ "from": "returned", "to": "sent", "groups": [] }""")));
+        await NewVersionAsync(BothEntriesNeedApproval);
         var item = Item(await PreviewAsync(), "transition:deal:draft>sent");
         Reason(item).Should().Be("workflowInvalid");
         item.GetProperty("detail").GetString().Should().Contain("已退回");
