@@ -18,11 +18,14 @@ namespace DynamicModules.Application.Dynamic.AppService.Upgrade;
 public sealed class AppUpgradePreviewer(
     IAppRepository apps, AppPackageSource packages, AppExporter exporter, IPermissionRepository permissions,
     IModuleRepository modules, ISharedMasterRepository shared, AppDependencyChecker dependencies, PackageLimitReader limits,
-    RequestLocale requestLocale, FieldService.FieldChangeImpact impact)
+    RequestLocale requestLocale, FieldService.FieldChangeImpact impact, UpgradeFlowGuards flowGuards)
 {
-    /// <summary>第二批項目（§15 第 3 點）：pkg1d 之前有差異時預覽照列、整個套用被擋（A16）。貢獻的區塊、欄位、權限看模組符號含不含 /。</summary>
+    /// <summary>
+    /// 還不能套用的第二批項目（§15 第 3 點、§9.6.7 blocker 狀態表）：有差異時預覽照列、整個套用被擋（A16a）。
+    /// 狀態機與簽核流程在 pkg1d1a 開放；貢獻的區塊、欄位、權限看模組符號含不含 /。
+    /// </summary>
     public static readonly IReadOnlySet<string> SecondBatch = new HashSet<string>
-        { "workflows", "conversions", "events", "checks", "ledgers", "printTemplates", "taskRules", "approvalFlows", "contributions", "integrations" };
+        { "conversions", "events", "checks", "ledgers", "printTemplates", "taskRules", "contributions", "integrations" };
 
     public static bool IsSecondBatch(UpgradeItem item) => SecondBatch.Contains(item.Section) || item.Module?.Contains('/') == true;
 
@@ -30,7 +33,11 @@ public sealed class AppUpgradePreviewer(
     public sealed record CompareContext(
         AppPackageData New, AppPackageData Current, AppBaseline? Baseline, IReadOnlyDictionary<string, UpgradeItem> B,
         IReadOnlyDictionary<string, UpgradeItem> N, IReadOnlyDictionary<string, UpgradeItem> C,
-        IReadOnlyDictionary<string, long?> PackageGroups, IReadOnlyDictionary<string, long> Pseudo, AppBindings Bindings);
+        IReadOnlyDictionary<string, long?> PackageGroups, IReadOnlyDictionary<string, long> Pseudo, AppBindings Bindings)
+    {
+        /// <summary>現況匯出的群組代號（客戶群組的 Key）→ 群組 id；現況的物件以它換回 id，再和新版在 id 層合併（T44）。</summary>
+        public IReadOnlyDictionary<string, long> CurrentGroups { get; init; } = new Dictionary<string, long>();
+    }
 
     /// <summary>一份應用程式（或一起更新的主檔）的比對結果。</summary>
     public sealed record Comparison(
@@ -308,6 +315,15 @@ public sealed class AppUpgradePreviewer(
             else if (r.Applicable && nv is not null && cv is not null && item.Section == "fields"
                      && (Changed(nv, cv, "config.refTarget") || Changed(nv, cv, "config.relation")))
                 r = r with { Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonReferenceChanged };
+            // 換狀態欄位等於換掉整個流程（§9.6.2 狀態機，比照欄位型別）
+            else if (r.Applicable && nv is not null && cv is not null && item.Id.StartsWith("workflow:", StringComparison.Ordinal) && Changed(nv, cv, "statusField"))
+                r = r with { Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonStatusFieldChanged };
+            // 既有轉移的群組、既有流程的簽核人是客戶的授權與內控決定，只列出（Q15、Q27）：會寫入的（不是只有客戶改）就擋，沒有基準也一樣（複核 N4）
+            else if (r.Applicable && nv is not null && cv is not null && item.Id.StartsWith("transition:", StringComparison.Ordinal) && Writes(r, "groups"))
+                r = r with { Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonTransitionGroups };
+            else if (r.Applicable && nv is not null && cv is not null && item.Section == "approvalFlows"
+                     && (Writes(r, "approvers") || (Writes(r, "stages") && !StageCodes(nv).SetEquals(StageCodes(cv)))))
+                r = r with { Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonApproverGroups };
             if (r.Applicable && IsSecondBatch(item))
             {
                 r = r with { Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonNotYetSupported };
@@ -354,8 +370,22 @@ public sealed class AppUpgradePreviewer(
             var deps = missing.Where(m => m.Listed != item.Id && sources.Any(s => m.Target.Id != s.Id && UpgradeItems.References(s, m.Target)))
                 .Select(m => m.Listed).Distinct().ToList();
             if (promoted.Contains(item.Id) && ListedAncestor(item) is { } block && !deps.Contains(block)) deps.Insert(0, block);
+            // 這次才加上需簽核的轉移，依賴目標上的流程（T43 第 2 點）；現況目標上已經有流程時第一趟就能帶，不加
+            foreach (var flow in sources.Where(x => x.Id.StartsWith("transition:", StringComparison.Ordinal)).SelectMany(ApprovalFlowsFor))
+                if (flow != item.Id && !deps.Contains(flow)) deps.Add(flow);
             return deps;
         }
+        // 需簽核轉移的目標上，新版這次才會有的流程：新增的，或既有、這次把 to 改到這裡的（§6.5 唯一的例外，§22.2 最後一格）
+        IEnumerable<string> ApprovalFlowsFor(UpgradeItem transition)
+        {
+            if (!Requires(transition) || (C.GetValueOrDefault(transition.Id) is { } ct0 && Requires(ct0))) return [];
+            var to = transition.Id[(transition.Id.LastIndexOf('>') + 1)..];
+            if (C.Values.Any(f => f.Section == "approvalFlows" && f.Module == transition.Module && f.Props.GetValueOrDefault("to")?.ToString() == to)) return [];
+            return N.Values.Where(f => f.Section == "approvalFlows" && f.Module == transition.Module && f.Props.GetValueOrDefault("to")?.ToString() == to
+                    && listedIds.Contains(f.Id))
+                .Select(f => f.Id);
+        }
+        static bool Requires(UpgradeItem t) => t.Props.GetValueOrDefault("approval") is JsonObject a && a["required"]?.GetValue<bool>() == true;
         // 最近的「另列出來」的上層：排除欄位另列後，它底下的選項指向它；否則是最上層那個存在與否不同的上層
         string? ListedAncestor(UpgradeItem item)
         {
@@ -374,8 +404,11 @@ public sealed class AppUpgradePreviewer(
             N.ContainsKey(x.Item.Id) ? DependsOn(N[x.Item.Id]) : [], x.Result.Properties,
             C.ContainsKey(x.Item.Id) || !N.ContainsKey(x.Item.Id) ? [] : Attached(x.Item.Id, N, groupNames))
             { AffectedRecords = affected.TryGetValue(x.Item.Id, out var a) ? a : null }).ToList();
+        var context = new CompareContext(n, exported.Package, baselineRow, B, N, C, packageGroup, pseudo, bindings) { CurrentGroups = exported.GroupIds };
+        // 狀態機與簽核流程的守衛（T32、T46、T47、T58）：用設計器同一份判斷先算，不能套的標原因
+        items = await flowGuards.CheckAsync(app, context, items, ct);
         // 預設勾選要能直接套用：依賴另列的排除欄位（預設不勾）的項目，連同依賴它們的，預設也不勾，由管理員決定
-        var off = new HashSet<string>(promoted, StringComparer.Ordinal);
+        var off = new HashSet<string>(promoted.Concat(items.Where(i => !i.Applicable).Select(i => i.Id)), StringComparer.Ordinal);
         for (var changed = off.Count > 0; changed;)
         {
             changed = false;
@@ -394,7 +427,7 @@ public sealed class AppUpgradePreviewer(
         return new Comparison(hasBaseline, items, counts, groups, exported.Errors, exported.Warnings, tokenPart, addedModules)
         {
             SecondBatchPending = secondBatch,
-            Context = new CompareContext(n, exported.Package, baselineRow, B, N, C, packageGroup, pseudo, bindings)
+            Context = context
         };
 
         async Task<int> MissingAsync(UpgradeItem field)
@@ -443,6 +476,13 @@ public sealed class AppUpgradePreviewer(
         return used;
     }
 
+    /// <summary>這個屬性有差異、而且套用時會寫入（不是只有客戶改）。</summary>
+    private static bool Writes(UpgradeClassifier.Result r, string prop) =>
+        r.Properties.Any(p => p.Name == prop && p.Result != UpgradeClassifier.CustomerOnly);
+
+    private static HashSet<string> StageCodes(UpgradeItem flow) =>
+        (flow.Props.GetValueOrDefault("stages") as JsonArray ?? []).Select(s => s?["code"]?.ToString() ?? "").ToHashSet(StringComparer.Ordinal);
+
     private static bool Changed(UpgradeItem a, UpgradeItem b, string prop) =>
         !UpgradeItems.Same(a.Props.GetValueOrDefault(prop), b.Props.GetValueOrDefault(prop));
 
@@ -459,9 +499,13 @@ public sealed class AppUpgradePreviewer(
             return false;
         }
         var list = new List<AttachedPermission>();
+        string Name(long id) => groupNames.GetValueOrDefault(id) ?? id.ToString();
+        // 新轉移的群組是推轉移的權限，標「給權」（T57，比照 Q12）
+        if (ownerId.StartsWith("transition:", StringComparison.Ordinal))
+            foreach (var g in n[ownerId].Props.GetValueOrDefault("groups") as JsonArray ?? [])
+                if (g?.GetValue<long>() is { } gid) list.Add(new AttachedPermission(gid, Name(gid), "transition", true));
         foreach (var p in n.Values.Where(p => p.IsPermission && Under(p.Owner)).OrderBy(p => p.Id, StringComparer.Ordinal))
         {
-            string Name(long id) => groupNames.GetValueOrDefault(id) ?? id.ToString();
             switch (p.Section)
             {
                 case "permissions":

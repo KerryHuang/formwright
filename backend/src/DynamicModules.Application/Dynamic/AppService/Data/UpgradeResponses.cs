@@ -29,9 +29,20 @@ public record UpgradeItemResponse(
     string Id, string Section, string? Module, I18nText? Label, string Category, bool DefaultSelected, bool Applicable,
     string? Reason, List<string> DependsOn, List<UpgradeProperty> Properties, List<AttachedPermission> AttachedPermissions)
 {
-    /// <summary>原因是 affectsData（既有欄位改必填、有記錄沒填）時，沒有值的記錄數（§6.4、A12b）。</summary>
+    /// <summary>
+    /// 受影響的筆數（§6.4、§9.6.4）：affectsData 是沒有值的記錄數；unlocksRecords 是會被解鎖的記錄數；approvalInFlight 是簽核中的張數。
+    /// </summary>
     public int? AffectedRecords { get; init; }
+
+    /// <summary>給原因文字代入的補充（§9.6.4），例如 workflowInvalid 的驗證訊息。</summary>
+    public string? Detail { get; init; }
+
+    /// <summary>不擋、只說明的影響（§9.6.4，T34）；沒有時是 null。</summary>
+    public List<UpgradeImpact>? Impacts { get; init; }
 }
+
+/// <summary>一則影響說明：Code 給前端翻譯（apps.upgrade.impact.*），Count 是筆數或張數。</summary>
+public record UpgradeImpact(string Code, int? Count = null, string? Detail = null);
 
 /// <summary>
 /// 套用（§8.3）：Token 是預覽回的雜湊；Items 是勾選的項目識別；GroupMap、ModuleKeys 同預覽；Masters 是共用主檔 id → 勾選的項目（pkg1d 才開放）。
