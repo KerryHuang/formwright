@@ -60,6 +60,7 @@ FORMWRIGHT_TEST_DB=postgres dotnet test tests/DynamicModules.WebAPITests --filte
 - 公開 repo：推分支前先跑外洩掃描。
 - 本機完整 gate `bash scripts/unattended/gate.sh <worktree 絕對路徑>` 留作備援；跑的時候同一台機器不跑其他測試或 build。
 - 細節與失敗處理見 `formwright-ship` skill（`.claude/skills/formwright-ship/SKILL.md`）。
+- 三條 workflow（gate、Demo 每日部署、官網）的整體流程見 [CI 流程](../ci.md)。
 
 ## 異常判讀
 
