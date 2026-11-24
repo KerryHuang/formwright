@@ -65,6 +65,12 @@
     "th": "ไม่มีอีเมลที่รอการยืนยัน",
     "vi": "Không có email nào đang chờ xác minh"
   },
+  "EmailUseAccountPage": {
+    "zh-TW": "自己的 Email 請到「帳號安全」頁變更",
+    "en-US": "To change your own email, use the Account security page",
+    "th": "หากต้องการเปลี่ยนอีเมลของคุณเอง โปรดไปที่หน้า \"ความปลอดภัยของบัญชี\"",
+    "vi": "Để đổi email của chính bạn, hãy vào trang \"Bảo mật tài khoản\""
+  },
   "accountMail.intro.emailVerify": {
     "zh-TW": "請開啟下面的連結驗證這個 Email。驗證之後，重設密碼與安全通知才會寄到這裡：",
     "en-US": "Open the link below to verify this email. Password resets and security notices are sent here only after it is verified:",

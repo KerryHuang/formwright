@@ -116,7 +116,7 @@ public static class MessageText
         // 帳號 Email 與重新驗證（帳號安全設計 §6.5、§8.9；組 MessageRef 在 AccountService/AccountSecurityMessages.cs）
         EmailVerifyLinkInvalid = nameof(EmailVerifyLinkInvalid), ReauthPasswordRequired = nameof(ReauthPasswordRequired),
         ReauthPasswordWrong = nameof(ReauthPasswordWrong), ReauthThrottled = nameof(ReauthThrottled), EmailResendTooSoon = nameof(EmailResendTooSoon),
-        EmailNotPending = nameof(EmailNotPending),
+        EmailNotPending = nameof(EmailNotPending), EmailUseAccountPage = nameof(EmailUseAccountPage),
         PermissionAdminRequired = nameof(PermissionAdminRequired),
         EventHiddenSourceNeedsPermissionAdmin = nameof(EventHiddenSourceNeedsPermissionAdmin),
         McpPermissionAdminDenied = nameof(McpPermissionAdminDenied),
@@ -529,6 +529,8 @@ public static class MessageText
             "เพิ่งส่งอีเมลยืนยันไป โปรดลองใหม่ใน {0} วินาที", "Vừa gửi email xác minh, vui lòng thử lại sau {0} giây"),
         [EmailNotPending] = ("沒有等待驗證的 Email", "There is no email waiting to be verified", "ไม่มีอีเมลที่รอการยืนยัน",
             "Không có email nào đang chờ xác minh"),
+        [EmailUseAccountPage] = ("自己的 Email 請到「帳號安全」頁變更", "To change your own email, use the Account security page",
+            "หากต้องการเปลี่ยนอีเมลของคุณเอง โปรดไปที่หน้า \"ความปลอดภัยของบัญชี\"", "Để đổi email của chính bạn, hãy vào trang \"Bảo mật tài khoản\""),
         [LocalePackImportDisabled] = ("這個環境不允許匯入語系包", "Importing language packs is not allowed in this environment",
             "สภาพแวดล้อมนี้ไม่อนุญาตให้นำเข้าชุดภาษา", "Môi trường này không cho phép nhập gói ngôn ngữ"),
         [LocalePackTooLarge] = ("語系包不能超過 {0} MB", "The language pack cannot exceed {0} MB",

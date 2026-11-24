@@ -437,8 +437,11 @@ public class AccountMailTests
         (await SetEmail(app, "sales01", "s@example.com")).EnsureSuccessStatusCode();
         (await SetEmail(app, "sales01", null)).EnsureSuccessStatusCode();
         (await Incident(app, fingerprint)).OccurrenceCount.Should().Be(2, "一般使用者的 Email 不開");
-        // 管理員改自己的 Email 不算「另一位」
-        (await SetEmail(app, "admin", "me@example.com")).EnsureSuccessStatusCode();
+        // 管理員對自己：擋下（409 useAccountPage），要到「帳號安全」頁輸入密碼改（au1a 審查 M2）
+        var self = await SetEmail(app, "admin", "me@example.com");
+        self.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await Json(self)).GetProperty("code").GetString().Should().Be("useAccountPage");
+        (await User(app, "admin")).Email.Should().BeNull();
         (await Incident(app, fingerprint)).OccurrenceCount.Should().Be(2);
     }
 
@@ -486,6 +489,17 @@ public class AccountMailTests
         (await VerifyLink(app, valid)).StatusCode.Should().Be(HttpStatusCode.OK);
         spy.Begins.Should().Be(before + 1);
         (await User(app, "sales01")).EmailVerifiedUtc.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Review_M2_AdminCannotResendOwnVerifyFromAdminEndpoint()
+    {
+        using var app = App(new FakeMailSender());
+        await SetUserRow(app, "admin", u => u.Email = "me@example.com");
+        var res = await app.AsUser().PostAsync($"{Users}/admin/email/resend", null);
+        res.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await Json(res)).GetProperty("code").GetString().Should().Be("useAccountPage");
+        (await Rows(app)).Should().BeEmpty();
     }
 
     [Fact]
