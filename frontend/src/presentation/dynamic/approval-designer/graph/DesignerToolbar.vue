@@ -1,31 +1,36 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 // 設計頁工具列（§10.2）：唯讀者只有「全圖」、節點清單、試算；手機只留圖示。
+// 平板（`compact`）的次要按鈕（全圖、節點清單、試算、流程屬性、驗證）也只留圖示加滑鼠提示，儲存草稿與發布保留文字：820 寬英文版全部帶字時流程名稱被擠到只剩一個字。
 // 結構編輯（fg3e）：整理排版與刪除只在 `structure`（平板以上、有編輯權）時出現，手機與唯讀不顯示（§10.5、U62）。
 // 捨棄草稿只在「已發布過、而且有草稿」時出現；只有草稿、從未發布的流程沒有版本可回，改在更多選單提供「刪除流程」（U64）。
-defineProps<{
+const props = defineProps<{
   readonly: boolean; phone: boolean; showFlowProps: boolean; undoable: boolean; redoable: boolean; dirty: boolean; busy: boolean;
-  errorCount: number; canDiscard: boolean; canDelete: boolean; listOpen?: boolean; trialOpen?: boolean; structure?: boolean; removable?: boolean;
+  errorCount: number; canDiscard: boolean; canDelete: boolean; listOpen?: boolean; trialOpen?: boolean; structure?: boolean; removable?: boolean; compact?: boolean;
 }>();
 const emit = defineEmits<{ fit: []; flowProps: []; undo: []; redo: []; validate: []; save: []; publish: []; discard: []; deleteFlow: []; issues: []; nodeList: []; trial: []; relayout: []; remove: [] }>();
 const { t } = useI18n();
+const short = computed(() => props.phone || props.compact);
+/** 只有圖示時給滑鼠提示（觸控與讀屏用 aria-label）。 */
+const tip = (key: string) => (short.value ? t(key) : undefined);
 </script>
 
 <template>
   <div class="row items-center no-wrap q-gutter-x-xs de-toolbar" role="toolbar" :aria-label="t('approval.designer.graph.title')" data-testid="de-toolbar">
-    <q-btn flat dense no-caps icon="fit_screen" :label="phone ? undefined : t('approval.designer.graph.fit')" :aria-label="t('approval.designer.graph.fit')" data-testid="tb-fit" @click="emit('fit')" />
+    <q-btn flat dense no-caps icon="fit_screen" :label="short ? undefined : t('approval.designer.graph.fit')" :title="tip('approval.designer.graph.fit')" :aria-label="t('approval.designer.graph.fit')" data-testid="tb-fit" @click="emit('fit')" />
     <q-btn
-      flat dense no-caps icon="format_list_numbered" :label="phone ? undefined : t('approval.designer.graph.nodeList')" :aria-label="t('approval.designer.graph.nodeList')" :aria-pressed="listOpen ? 'true' : 'false'"
+      flat dense no-caps icon="format_list_numbered" :label="short ? undefined : t('approval.designer.graph.nodeList')" :title="tip('approval.designer.graph.nodeList')" :aria-label="t('approval.designer.graph.nodeList')" :aria-pressed="listOpen ? 'true' : 'false'"
       :style="listOpen ? { background: 'var(--t-selected-bg)' } : undefined" data-testid="tb-nodelist" @click="emit('nodeList')"
     />
     <q-btn
-      flat dense no-caps icon="play_circle_outline" :label="phone ? undefined : t('approval.designer.graph.trial')" :aria-label="t('approval.designer.graph.trial')" :aria-pressed="trialOpen ? 'true' : 'false'"
+      flat dense no-caps icon="play_circle_outline" :label="short ? undefined : t('approval.designer.graph.trial')" :title="tip('approval.designer.graph.trial')" :aria-label="t('approval.designer.graph.trial')" :aria-pressed="trialOpen ? 'true' : 'false'"
       :style="trialOpen ? { background: 'var(--t-selected-bg)' } : undefined" data-testid="tb-trial" @click="emit('trial')"
     />
     <slot name="after-fit" />
     <q-btn
-      v-if="showFlowProps" flat dense no-caps icon="tune" :label="phone ? undefined : t('approval.designer.graph.flowProps')" :aria-label="t('approval.designer.graph.flowProps')"
+      v-if="showFlowProps" flat dense no-caps icon="tune" :label="short ? undefined : t('approval.designer.graph.flowProps')" :title="tip('approval.designer.graph.flowProps')" :aria-label="t('approval.designer.graph.flowProps')"
       data-testid="tb-flow-props" @click="emit('flowProps')"
     />
     <template v-if="!readonly">
@@ -35,7 +40,7 @@ const { t } = useI18n();
         <q-btn flat dense round icon="delete_outline" :disable="!removable" :aria-label="t('approval.designer.graph.remove')" :title="t('approval.designer.graph.remove')" data-testid="tb-remove" @click="emit('remove')" />
         <q-btn flat dense round icon="account_tree" :aria-label="t('approval.designer.graph.relayout')" :title="t('approval.designer.graph.relayout')" data-testid="tb-relayout" @click="emit('relayout')" />
       </template>
-      <q-btn flat dense no-caps icon="rule" :label="phone ? undefined : t('approval.designer.graph.validate')" :aria-label="t('approval.designer.graph.validate')" :disable="busy" data-testid="tb-validate" @click="emit('validate')" />
+      <q-btn flat dense no-caps icon="rule" :label="short ? undefined : t('approval.designer.graph.validate')" :title="tip('approval.designer.graph.validate')" :aria-label="t('approval.designer.graph.validate')" :disable="busy" data-testid="tb-validate" @click="emit('validate')" />
       <q-btn
         v-if="errorCount > 0" flat dense no-caps color="negative" icon="error" :label="String(errorCount)" :aria-label="t('approval.designer.graph.errorsBadge', { n: errorCount })"
         data-testid="tb-errors" @click="emit('issues')"

@@ -236,7 +236,7 @@ onBeforeUnmount(() => { window.removeEventListener('beforeunload', onBeforeUnloa
         <div class="col q-px-sm ellipsis text-subtitle1" data-testid="de-title">{{ title }}</div>
         <q-badge v-if="designer.dirty.value" color="warning" text-color="dark" class="q-mr-sm" :label="t('approval.designer.graph.unsaved')" data-testid="de-unsaved" />
         <DesignerToolbar
-          :readonly="!canEdit" :phone="phone" :show-flow-props="!docked" :undoable="designer.undoable.value" :redoable="designer.redoable.value"
+          :readonly="!canEdit" :phone="phone" :compact="tablet" :show-flow-props="!docked" :undoable="designer.undoable.value" :redoable="designer.redoable.value"
           :list-open="listOpen" :trial-open="trialOpen" :dirty="designer.dirty.value" :busy="actions.busy.value" :error-count="actions.errorCount.value"
           :can-discard="designer.server.value.published && designer.server.value.hasDraft" :can-delete="!designer.server.value.isNew && !designer.server.value.published"
           :structure="structure" :removable="edit.removable.value"

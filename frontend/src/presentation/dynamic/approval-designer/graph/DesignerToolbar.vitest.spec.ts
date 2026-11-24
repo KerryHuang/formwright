@@ -5,7 +5,7 @@ import { createI18n } from 'vue-i18n';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import DesignerToolbar from './DesignerToolbar.vue';
 
-const base = { readonly: false, phone: false, showFlowProps: false, undoable: false, redoable: false, dirty: false, busy: false, errorCount: 0, canDiscard: false, canDelete: false, trialOpen: false, structure: false, removable: false };
+const base = { readonly: false, phone: false, showFlowProps: false, undoable: false, redoable: false, dirty: false, busy: false, errorCount: 0, canDiscard: false, canDelete: false, trialOpen: false, structure: false, removable: false, compact: false };
 function mountBar(props: Partial<typeof base> = {}) {
   const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
   return mount(DesignerToolbar, { props: { ...base, ...props }, attachTo: document.body, global: { plugins: [[quasar.Quasar, { components: quasar }], i18n] } });
@@ -83,6 +83,16 @@ describe('DesignerToolbar', () => {
     expect(document.body.querySelector('[data-testid="tb-delete"]')?.textContent).toContain('刪除流程');
     expect(document.body.querySelector('[data-testid="tb-discard"]')).toBeNull();
     w.unmount();
+  });
+
+  it('tablet (compact) keeps only icons and tooltips on the secondary buttons, so the flow name still fits at 820; save and publish keep their words', () => {
+    const w = mountBar({ compact: true, structure: true });
+    for (const [id, name] of [['tb-fit', '全圖'], ['tb-nodelist', '節點清單'], ['tb-trial', '試算'], ['tb-validate', '驗證']]) {
+      expect(w.get(`[data-testid="${id}"]`).text()).not.toContain(name);
+      expect(w.get(`[data-testid="${id}"]`).attributes('title')).toBe(name);
+    }
+    expect(w.get('[data-testid="tb-save"]').text()).toContain('儲存草稿');
+    expect(w.get('[data-testid="tb-publish"]').text()).toContain('發布');
   });
 
   it('a flow with neither has no more menu', () => {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import '@vue-flow/core/dist/style.css';
-import { VueFlow, useVueFlow, type Connection, type Edge, type Node } from '@vue-flow/core';
+import { ConnectionMode, VueFlow, useVueFlow, type Connection, type Edge, type Node } from '@vue-flow/core';
 import { computed, onBeforeUnmount, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { NODE_H, NODE_W } from 'src/domain/dynamic/approval-graph-layout';
@@ -84,7 +84,7 @@ const editable = computed(() => props.draggable);
   <div ref="root" class="de-canvas" role="group" :aria-label="t('approval.designer.graph.canvasLabel')" data-testid="de-canvas">
     <VueFlow
       :id="canvasId" :nodes="nodes" :edges="edges" :min-zoom="0.2" :max-zoom="1.5" :fit-view-on-init="!initialNodes?.length" :snap-to-grid="true" :snap-grid="[GRID, GRID]"
-      :nodes-draggable="editable" :nodes-connectable="editable" :connect-on-click="editable" connection-mode="strict" :elements-selectable="true" :nodes-focusable="false" :edges-focusable="false" :disable-keyboard-a11y="true"
+      :nodes-draggable="editable" :nodes-connectable="editable" :connect-on-click="editable" :connection-mode="ConnectionMode.Strict" :elements-selectable="true" :nodes-focusable="false" :edges-focusable="false" :disable-keyboard-a11y="true"
       :zoom-on-scroll="true" :pan-on-scroll="false" :zoom-on-pinch="true" :pan-on-drag="true" :zoom-on-double-click="false" :delete-key-code="null"
       :selection-key-code="null" :multi-selection-key-code="null"
       @node-click="(e) => emit('node-open', e.node.id)" @edge-click="(e) => emit('edge-open', e.edge.id)" @pane-click="emit('pane-click')" @nodes-initialized="fitInitial"
