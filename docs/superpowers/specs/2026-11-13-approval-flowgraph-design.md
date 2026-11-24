@@ -1009,14 +1009,16 @@
 1. 動作集中在 `use-structure-edit.ts`（放置、插入、連線、刪除、分支詢問、整理排版、新增上限），每個動作走 `designer.edit` 成為一步復原；唯讀或手機時全部不動（不只靠畫面藏起來）。不 import Vue Flow。
 2. 畫面用的純函式加在 `designer-graph.ts`：`addable`（各型別能不能新增）、`dropPosition`（指標→節點左上角，對齊 8px）、`freeSpot`（中央有節點就往下找空位）、`edgeAt`（拖到線上的判斷）、`addedNode`（新增後要選取的節點）。
 3. 拖到線上的判斷不用 DOM 的 `elementsFromPoint`：依節點座標與 `bendX` 把線近似成「起點右緣 → 轉折欄 → 終點高度 → 終點左緣」三段折線（J74 同一套畫法），取 12px 內最近的一條；指標落在節點框內不算線上。可以單元測試，觸控拖曳時也不會被拖曳中的提示框擋住。
-4. 畫布（J75）：`nodesConnectable`、`connectOnClick` 跟著 `draggable`（平板以上、有編輯權）；`isValidConnection` 接呼叫端的 `canConnect`；連好、插入只發事件（`connect`、`edge-insert`），畫布不自己加線。`dropAt`、`centerPosition` 用 Vue Flow 的 `screenToFlowCoordinate`，以 `defineExpose` 提供。
+4. 畫布（J75）：`nodesConnectable`、`connectOnClick` 跟著 `draggable`（平板以上、有編輯權）；`canConnect` 掛在節點把手的 `is-valid-connection`（拖曳與 connectOnClick 都走它），不掛 VueFlow 的全域 `isValidConnection`——全域那個在 Vue Flow 重設 edges 時也拿來驗 props 傳進來的既有線，既有線會被判成重複而全部丟掉（走查發現：任何修改後線全消失）；`connectionMode` 用 strict，只能出線把手連入線把手；連好、插入只發事件（`connect`、`edge-insert`），畫布不自己加線。`dropAt`、`centerPosition` 用 Vue Flow 的 `screenToFlowCoordinate`，以 `defineExpose` 提供。
 5. 節點把手：可編輯時顯示 14px 圓點（外加一圈透明點擊範圍），開始沒有入線把手、結束沒有出線把手；點把手 `stopPropagation`，否則平板點出發點會觸發「點節點」打開屬性抽屜蓋住畫布。節點外框改 `overflow: visible`（把手凸出一半），內容各列自己裁。
 6. 線上「＋」用 `EdgeLabelRenderer`，放在轉折欄到終點那段的中點（兄弟線共用起點那段，終點那段每條線各自一段，不會疊在一起）；選取的線一直顯示（觸控），滑鼠移上顯示、離開 400ms 後收，選單開著時不收。Vue Flow runtime import 仍只在 J69 清單內的檔案（`DesignerEdge.vue` 多 import `EdgeLabelRenderer`），原始碼守門測試與 build 檢查（`vue-flow-chunks.js`）都過。
 7. 節點面板 `DesignerPalette.vue` 用 pointer events（J79）：`setPointerCapture`、拖超過 6px 才算拖、放開時回報螢幕座標，拖過之後瀏覽器補發的 click 吞掉；`touch-action: none` 讓觸控拖曳不被捲動吃掉。沒拖動的點一下（含鍵盤 Enter、空白鍵）走 click，加在畫面中央。
 8. 新增上限（J81）：`useApprovalLimits` 多 `ready`（生效值讀回或讀取失敗）；讀回前受上限限制的型別（簽核、條件、分支）先停用、不寫原因（前端畫面通則）；之後依「改嚴只管之後」比 `max(approval.maxStages, 已發布版本的簽核節點數)`，條件帶 1 個、分支帶 2 個簽核節點；`approval.maxBranches` 小於 2 時不能放分支。從分支節點再拉一條線增加的分支數不在前端擋：G13 要和舊版比，前端無法確定一定被擋（前端畫面通則「只在一定會被後端擋時先擋」），由乾跑驗證與發布擋。結束節點不受上限。
-9. 刪除鍵：頁面層聽 `keydown`（Vue Flow `deleteKeyCode = null`），焦點在輸入框、文字區、下拉、可編輯區、對話框、選單內時不攔；輸入法組字中不攔。
+9. 刪除鍵：頁面層聽 `keydown`（Vue Flow `deleteKeyCode = null`），只在焦點在畫布內或沒有焦點（body）時才刪；屬性面板、工具列、對話框、選單裡的任何控制項都不攔，畫布內的輸入框也不攔；輸入法組字中不攔。
 10. 復原（U60）「離開欄位時才記」：`useGraphDesigner` 多 `cut()`，屬性面板捲動區 `focusout` 時呼叫，之後回到同一欄再打字算新的一步；其他規則沿用 fg3b（同一個 `coalesce` 鍵連續修改合成一步、存草稿不清、發布或捨棄清空）。
 11. 測試（J82）：純函式與 composable 完整測；元件 spec 以替身換掉 `VueFlow`、`EdgeLabelRenderer`、`useVueFlow`；真實拖拉、點選連線、觸控只在瀏覽器走查驗。
+12. 選取的節點或線因復原、重做、刪除而不存在時，`useGraphDesigner` 以同步 watch 把選取改回流程層，屬性面板不會空白。
+13. 新節點代號（`allocator`）把匯合的 `forkId` 也算已用：只刪分支節點留下的匯合仍指著舊代號，新分支若重用就會被它配走。刪節點自動接回時不接出自己連自己；整理排版座標沒變時回原物件、不記空步。
 
 **使用者行為（代做）**
 
@@ -1030,6 +1032,8 @@
 8. 刪分支節點的詢問有三個選項：「一併刪除」（紅色主按鈕）、「只刪分支節點」、「取消」；按對話框外面等於取消。只有配對的匯合還在時才問。
 9. 有標籤但還沒設條件的條件出線（插入時帶的「條件 1」、拉線帶的「條件 n」）以灰字顯示「條件 1 · 未設定條件」：U49 要求這條線先顯示灰色「未設定條件」，fg3b 的 `edgeText` 有標籤時只顯示標籤、不帶提示，fg3e 補上。例：插入條件後一眼看得出哪條線還沒設。選錯代價：線上文字較長，手排時可能被截斷（完整文字在滑鼠提示）。
 10. 被政策上限擋住的型別：面板項目與「＋」選單項目停用，寫「已達簽核節點數上限」（面板放在滑鼠提示，選單放在項目第二行）。
+11. 平板工具列的次要按鈕（全圖、節點清單、試算、流程屬性、驗證）只留圖示加滑鼠提示，儲存草稿與發布保留文字。例：820 寬英文版全部帶字時流程名稱被擠到只剩一個字。選錯代價：平板使用者要靠圖示或提示辨認那五個按鈕。
+12. 分支、條件節點面板的名稱欄標「名稱」（新鍵 `approval.designer.graph.nodeName`），不沿用簽核節點的「關卡名稱」。
 
 **主控裁決待確認**
 
@@ -1044,4 +1048,5 @@
 **已知限制**
 
 - 點選連線要點到目標節點的入線把手（左側圓點），點節點本體不會完成連線。
+- 小地圖（§10.3「桌機與筆電預設顯示」）沒做：Vue Flow 的小地圖是另一個套件 `@vue-flow/minimap`，fg3e 不加新依賴；需要時另開工作段。
 - 拖到線上的判斷用折線近似：終點在起點左邊的線（手排成往回的線）實際畫法與近似不同，要拖到轉折附近才算線上。
