@@ -16,7 +16,7 @@ public static class AdminBootstrap
 
     /// <param name="minPasswordLength">密碼最短長度的政策生效值（<c>auth.passwordMinLength</c>，帳號安全設計 §7.6）。</param>
     /// <param name="passwordChanged">救援真的改掉 admin 密碼後（原本不是救援密碼）的共用步驟（作廢重設連結、取消還沒寄的重設信、寄「密碼已變更」，§7.1 第 7 點）。</param>
-    /// <param name="clearTwoFactor">救援時清除 admin 的雙因素（金鑰、復原碼、記住的裝置、帳號層計數與寬限，帳號安全設計 §8.11）；跟著下一次 SaveChanges 寫入。</param>
+    /// <param name="clearTwoFactor">救援時清除 admin 的雙因素（金鑰、復原碼、記住的裝置、帳號層計數與寬限，帳號安全設計 §8.11）：欄位跟著下一次 SaveChanges 寫入，復原碼與記住的裝置以 ExecuteDelete 立即刪除，不跟著 SaveChanges（審查次要 3）。</param>
     public static async Task EnsureAsync(
         DynamicDbContext db, IPasswordService passwords, IConfiguration config, ILogger logger, int minPasswordLength,
         Func<AppUser, CancellationToken, Task> passwordChanged, Func<AppUser, CancellationToken, Task> clearTwoFactor, CancellationToken ct = default)
