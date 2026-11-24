@@ -17,7 +17,7 @@ namespace DynamicModules.Application.Dynamic.AppService.Upgrade;
 /// </summary>
 public sealed class UpgradeFlowGuards(
     IModuleRepository modules, IApprovalFlowRepository flows, PendingApprovalGuard pending, LockedDataGuard locked,
-    WorkflowSaveValidator validator, ApprovalFlowEditor editor)
+    WorkflowSaveValidator validator, ApprovalFlowEditor editor, ApprovalDefinitionValidator definitionValidator)
 {
     public async Task<List<UpgradeItemResponse>> CheckAsync(App app, AppUpgradePreviewer.CompareContext ctx, List<UpgradeItemResponse> items, CancellationToken ct)
     {
@@ -76,7 +76,7 @@ public sealed class UpgradeFlowGuards(
                 var flowSet = FlowSet(ctx, module, code, closure, byId, current, rows, lookups, groups, Temp);
                 result[k] = item.Section == "workflows"
                     ? await JudgeWorkflowAsync(item, module, code, candidate, flowSet, states, Option, temp, ctx, ct)
-                    : await JudgeFlowAsync(item, module, code, candidate, flowSet, rows, Option, ctx, ct);
+                    : await JudgeFlowAsync(item, module, code, candidate, flowSet, rows, Option, temp, ctx, ct);
             }
         }
         return result;
@@ -111,7 +111,7 @@ public sealed class UpgradeFlowGuards(
 
     private async Task<UpgradeItemResponse> JudgeFlowAsync(
         UpgradeItemResponse item, Module module, string code, Workflow? candidate, List<FlowState> flowSet, List<ApprovalFlow> rows,
-        Func<string, long> option, AppUpgradePreviewer.CompareContext ctx, CancellationToken ct)
+        Func<string, long> option, IReadOnlySet<long> temp, AppUpgradePreviewer.CompareContext ctx, CancellationToken ct)
     {
         var key = item.Id["approvalFlow:".Length..];
         if (ctx.New.ApprovalFlows.FirstOrDefault(f => f.Code == key) is not { } nf) return item;
@@ -125,11 +125,33 @@ public sealed class UpgradeFlowGuards(
             return Block(item, ReasonPriorityTaken, null);
         if ((candidate ?? module.Workflow) is { } wf && await validator.ApprovalErrorsAsync(module, wf, flowSet, ct) is { } invalid)
             return Block(item, ReasonWorkflowInvalid, null, string.Join("；", invalid.Errors.SelectMany(e => e.Value).Distinct()));
+        // 流程定義本身的驗證（關卡數、簽核人數、逾期時數等政策上限，#98 S1）：套用時 UpdateApprovalFlow／CreateApprovalFlow 會跑，預覽先跑同一份。
+        // 定義引用這次才新增的欄位或選項（臨時 id）時查不到實體，不判斷（由套用時兜底）
+        if ((candidate ?? module.Workflow) is { } flowWorkflow && flowSet.FirstOrDefault(f => f.Flow.Key == key)?.Definition is { } definition
+            && !UsesTemp(definition, temp))
+        {
+            var previous = row?.CurrentVersionId is { } versionId ? (await flows.GetVersionAsync(versionId, ct))?.Definition : null;
+            if ((await definitionValidator.ValidateAsync(module, flowWorkflow, definition, previous, ct)) is { Count: > 0 } errors)
+                return Block(item, ReasonWorkflowInvalid, null, string.Join("；", errors.SelectMany(e => e.Value).Distinct()));
+        }
         // 定義有變：被用過的版本會產生新版本，簽核中的單照原版本走完（§9.4）
         if (row is not null && item.Properties.Any(p => p.Result != CustomerOnly && p.Name is not ("name" or "active" or "priority" or "to"))
             && await flows.CountPendingAsync(row.Id, ct) is > 0 and var inFlight)
             return item with { Impacts = [new UpgradeImpact(ImpactInFlightApprovals, inFlight)] };
         return item;
+    }
+
+    private static bool UsesTemp(ApprovalDefinition definition, IReadOnlySet<long> temp)
+    {
+        if (temp.Count == 0) return false;
+        bool Walk(System.Text.Json.JsonElement e) => e.ValueKind switch
+        {
+            System.Text.Json.JsonValueKind.Number => e.TryGetInt64(out var n) && temp.Contains(n),
+            System.Text.Json.JsonValueKind.Array => e.EnumerateArray().Any(Walk),
+            System.Text.Json.JsonValueKind.Object => e.EnumerateObject().Any(p => Walk(p.Value)),
+            _ => false
+        };
+        return Walk(System.Text.Json.JsonSerializer.SerializeToElement(definition));
     }
 
     private static UpgradeItemResponse Block(UpgradeItemResponse item, string reason, int? count, string? detail = null) =>

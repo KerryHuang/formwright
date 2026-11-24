@@ -1016,4 +1016,33 @@ public class AppUpgradeFlowTests : IDisposable
         item.GetProperty("applicable").GetBoolean().Should().BeFalse();
         item.GetProperty("defaultSelected").GetBoolean().Should().BeFalse();
     }
+
+    private async Task SetPolicyAsync(string key, int value) =>
+        (await _rig.Admin.PutAsJsonAsync($"{Base}/system/policies/{key}", new { value })).EnsureSuccessStatusCode();
+
+    /// <summary>#98 S1：新版載入後，系統管理員把逾期時數上限調低；新版流程的逾期時數超標，預覽就標成不能勾（workflowInvalid），不等套用才 400。</summary>
+    [Fact]
+    public async Task S1_FlowOverPolicyLimit_WorkflowInvalidInPreview()
+    {
+        await OpenAsync();
+        await NewVersionAsync(p => Flow(p, "uf-win")["stages"]![0]!["dueHours"] = 100);
+        await SetPolicyAsync("approval.maxDueHours", 24);
+        var preview = await PreviewAsync();
+        var item = Item(preview, "approvalFlow:uf-win");
+        Reason(item).Should().Be("workflowInvalid", item.ToString());
+        item.GetProperty("applicable").GetBoolean().Should().BeFalse();
+        (await ApplyAsync(preview, ["approvalFlow:uf-win"])).StatusCode.Should().Be(HttpStatusCode.Conflict, "不能套用的項目照 upgradeBlocked 擋下");
+    }
+
+    [Fact]
+    public async Task S1_FlowWithinPolicyLimit_StillApplicable()
+    {
+        await OpenAsync();
+        await NewVersionAsync(p => Flow(p, "uf-win")["stages"]![0]!["dueHours"] = 100);
+        await SetPolicyAsync("approval.maxDueHours", 200);
+        var preview = await PreviewAsync();
+        var item = Item(preview, "approvalFlow:uf-win");
+        item.GetProperty("applicable").GetBoolean().Should().BeTrue(item.ToString());
+        await ApplyOkAsync(preview, ["approvalFlow:uf-win"]);
+    }
 }
