@@ -23,7 +23,7 @@ const setName = (name: I18nText) => props.designer.edit((s) => setNode(s, props.
 
 <template>
   <div class="column no-wrap q-gutter-y-md" data-testid="fork-node-panel">
-    <I18nTextInput :model-value="node.name ?? {}" :label="t('approval.designer.stage.name')" optional @update:model-value="setName" />
+    <I18nTextInput :model-value="node.name ?? {}" :label="t('approval.designer.graph.nodeName')" optional @update:model-value="setName" />
     <div>
       <div class="text-subtitle2">{{ t('approval.designer.graph.forkBranches') }}</div>
       <q-list dense>

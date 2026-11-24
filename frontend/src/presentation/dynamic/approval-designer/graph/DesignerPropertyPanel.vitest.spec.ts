@@ -260,6 +260,8 @@ describe('DesignerPropertyPanel', () => {
     await flushPromises();
     expect(w.findAll('[data-testid^="fork-branch-"]').map((x) => x.text())).toEqual(['財務', '匯合']);
     expect(w.get('[data-testid="fork-hint"]').text()).toBe('要新增分支，請從分支節點再拉一條線');
+    expect(w.get('[data-testid="fork-node-panel"]').text()).toContain('名稱');
+    expect(w.get('[data-testid="fork-node-panel"]').text()).not.toContain('關卡名稱'); // 分支不是關卡
     w.unmount();
   });
 

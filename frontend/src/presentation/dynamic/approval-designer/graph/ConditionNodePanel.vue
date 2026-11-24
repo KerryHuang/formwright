@@ -17,7 +17,7 @@ const setName = (name: I18nText) => props.designer.edit((s) => setNode(s, props.
 
 <template>
   <div class="column no-wrap q-gutter-y-md" data-testid="condition-node-panel">
-    <I18nTextInput :model-value="node.name ?? {}" :label="t('approval.designer.stage.name')" optional @update:model-value="setName" />
+    <I18nTextInput :model-value="node.name ?? {}" :label="t('approval.designer.graph.nodeName')" optional @update:model-value="setName" />
     <div class="text-subtitle2">{{ t('approval.designer.graph.condOutEdges') }}</div>
     <div v-if="!out.length" class="text-muted" data-testid="cond-no-edges">{{ t('approval.designer.graph.condNoEdges') }}</div>
     <template v-for="(e, i) in out" :key="e.id">
