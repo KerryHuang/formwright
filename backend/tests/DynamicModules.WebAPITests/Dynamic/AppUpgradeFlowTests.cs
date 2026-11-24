@@ -911,4 +911,80 @@ public class AppUpgradeFlowTests : IDisposable
         d.Stages[0].OnEmpty.Should().Be(ApprovalOnEmpty.Fallback);
         d.FallbackApprovers.Should().BeNull("備援群組有略過的，整份改用政策預設");
     }
+
+    // ---- #98 S8：新模組帶狀態機、既有模組這次才有狀態機（N5 新模組與新流程互相依賴） ----
+
+    /// <summary>新模組 visit：狀態機（需簽核轉移）與以它的狀態為目標的新流程隨新模組一起進套件。</summary>
+    private static void AddVisitWithWorkflow(JsonObject p)
+    {
+        p["modules"]!.AsArray().Add(JsonNode.Parse($$"""
+            { "code": "visit", "key": "uf-visit", "name": { "zh-TW": "拜訪" }, "kind": "standalone", "titleField": "subject",
+              "blocks": [ { "code": "main", "label": { "zh-TW": "內容" }, "fields": [
+                { "code": "subject", "type": "text", "label": { "zh-TW": "主旨" }, "config": { "required": true } },
+                { "code": "stage", "type": "enum", "label": { "zh-TW": "階段" }, "config": {},
+                  "options": [ { "code": "open", "label": { "zh-TW": "進行" } }, { "code": "done", "label": { "zh-TW": "完成" } } ] } ] } ],
+              "permissions": [ { "group": "lead", "scope": "all", "privileges": {{Perm}} } ] }
+            """));
+        p["workflows"]!.AsArray().Add(JsonNode.Parse("""
+            { "module": "visit", "statusField": "stage", "initial": "open",
+              "states": [ { "option": "open" }, { "option": "done", "readOnly": true } ],
+              "transitions": [ { "from": "open", "to": "done", "groups": ["lead"], "approval": { "required": true, "noMatch": "block" } } ] }
+            """));
+        p["approvalFlows"]!.AsArray().Add(JsonNode.Parse("""
+            { "code": "uf-visit-done", "name": { "zh-TW": "拜訪完成簽核" }, "active": true, "module": "visit", "to": "done", "priority": 1, "shape": "sequence",
+              "stages": [ { "code": "lead", "name": { "zh-TW": "主管" }, "approvers": { "source": "group", "groups": ["lead"] }, "mode": "any" } ] }
+            """));
+    }
+
+    private Workflow? WorkflowOfKey(string key) => _rig.Db(db =>
+    {
+        var moduleId = db.Set<Module>().Single(m => m.Key == key).Id;
+        return db.Set<Workflow>().SingleOrDefault(w => w.ModuleId == moduleId);
+    });
+
+    [Fact]
+    public async Task S8_NewModuleWithWorkflowAndFlow_InstalledTogether_ByDefault()
+    {
+        await OpenAsync();
+        await NewVersionAsync(AddVisitWithWorkflow);
+        var preview = await PreviewAsync();
+        Blockers(preview).Should().BeEmpty(preview.GetProperty("blockers").ToString());
+        Item(preview, "module:visit").GetProperty("category").GetString().Should().Be("added");
+        DependsOn(Item(preview, "approvalFlow:uf-visit-done")).Should().Contain("module:visit");
+        preview.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetString()).Should()
+            .NotContain(id => id!.StartsWith("workflow:visit") || id.StartsWith("state:visit") || id.StartsWith("transition:visit"), "新模組底下的狀態機隨模組一起裝，不另列");
+
+        await ApplyOkAsync(preview, Defaults(preview));
+        var wf = WorkflowOfKey("uf-visit");
+        wf.Should().NotBeNull("新模組帶的狀態機一起裝");
+        wf!.Transitions.Should().ContainSingle().Which.Approval!.Required.Should().BeTrue("需簽核的轉移在流程建好後第二趟補上");
+        _rig.Db(db => db.Set<ApprovalFlow>().Any(f => f.Key == "uf-visit-done")).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task S8_NewFlowOnNewModule_WithoutModule_400_ModuleWithoutFlow_Applies()
+    {
+        await OpenAsync();
+        await NewVersionAsync(AddVisitWithWorkflow);
+        var preview = await PreviewAsync();
+        var res = await ApplyAsync(preview, ["approvalFlow:uf-visit-done"]);
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "流程依賴新模組（N5）");
+        (await res.Content.ReadAsStringAsync()).Should().Contain("module:visit");
+    }
+
+    [Fact]
+    public async Task S8_ExistingModuleGetsWorkflowThisTime_WholeMachineInstalled()
+    {
+        await OpenAsync(p => { p["workflows"] = new JsonArray(); p["approvalFlows"] = new JsonArray(); });
+        WorkflowOfKey(DealKey).Should().BeNull();
+        await NewVersionAsync(_ => { });
+        var preview = await PreviewAsync();
+        Blockers(preview).Should().BeEmpty(preview.GetProperty("blockers").ToString());
+        Defaults(preview).Should().Contain(["workflow:deal", "approvalFlow:uf-win"]);
+        await ApplyOkAsync(preview, Defaults(preview));
+        var wf = WorkflowOf();
+        wf.Transitions.Should().HaveCount(6);
+        wf.RequiresApproval(Option("sent"), Option("won")).Should().BeTrue("需簽核在流程建好後補上");
+        _rig.Db(db => db.Set<ApprovalFlow>().Count(f => f.Key.StartsWith("uf-"))).Should().Be(2);
+    }
 }
