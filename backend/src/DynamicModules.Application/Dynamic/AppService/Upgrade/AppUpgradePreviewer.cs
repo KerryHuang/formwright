@@ -40,7 +40,11 @@ public sealed class AppUpgradePreviewer(
     }
 
     /// <summary>一起更新的一份共用主檔：主檔本身、候選新版、比對結果（§9.6.3）。</summary>
-    public sealed record MasterPart(App Master, SourcedPackage Source, Comparison Comparison);
+    public sealed record MasterPart(App Master, SourcedPackage Source, Comparison Comparison)
+    {
+        /// <summary>主檔沒有新版，只列出被依賴、上次略過的項目（T56）：套用時版號與基準原文不變，只從略過紀錄拿掉勾回的。</summary>
+        public bool SkippedOnly { get; init; }
+    }
 
     /// <summary>預覽的完整結果；Failure 不為 null 時是 404／409／400。Masters 依相依排序，被依賴的在前（§9.6.3 主檔之間）。</summary>
     public sealed record Built(ServiceResult? Failure, App? App, UpgradePreview? Preview, Comparison? Mine, SourcedPackage? Candidate)
@@ -119,6 +123,34 @@ public sealed class AppUpgradePreviewer(
                 parts[k].Source.Package.Manifest.Version, linked.HasBaseline, linked.Groups, linked.Items, linked.Counts));
         }
         if (mine is not null) mine = CrossDependencies(mine, parts);
+
+        // 被依賴、但上次略過的主檔項目（T56、A71）：主檔沒有新版時，以主檔自己的基準當候選比一次（只剩上次略過與客戶改的），
+        // 只列應用程式的項目引用到的那幾項（fromVersion 等於 toVersion），預設不勾；依賴它們的應用程式項目預設也不勾
+        if (mine is not null)
+            foreach (var master in await UsedMastersAsync(app, ct))
+            {
+                if (parts.Any(x => x.Master.Key == master.Key) || await apps.GetBaselineAsync(master.Id, ct) is not { } row
+                    || (JsonSerializer.Deserialize<List<SkippedItem>>(row.SkippedJson) ?? []).Count == 0
+                    || (await packages.ReadAsync(row.PackageJson, ct)).Package is not { } basePackage) continue;
+                var source = new SourcedPackage(basePackage, master.Source, row.PackageJson);
+                var c = await CompareAsync(master, source, new UpgradeBody(body.MasterGroupMap.GetValueOrDefault(master.Key), null), ct);
+                var prefix = $"master:{master.Key}/";
+                var wanted = CrossDependencies(mine, [new MasterPart(master, source, c)]).Items.SelectMany(i => i.DependsOn)
+                    .Where(d => d.StartsWith(prefix, StringComparison.Ordinal)).Select(d => d[prefix.Length..]).ToHashSet(StringComparer.Ordinal);
+                var keep = c.Items.Where(i => wanted.Contains(i.Id) && i.Category == UpgradeClassifier.SkippedBefore).ToList();
+                if (keep.Count == 0) continue;
+                var part = new MasterPart(master, source, c with
+                {
+                    Items = keep, Counts = keep.GroupBy(i => i.Category).ToDictionary(g => g.Key, g => g.Count()), Groups = []
+                }) { SkippedOnly = true };
+                parts.Add(part);
+                tokenParts.Add(c.TokenPart);
+                masterPreviews.Add(new UpgradeMasterPreview(master.Key, master.NameI18n, master.PackageVersion, master.PackageVersion,
+                    c.HasBaseline, [], keep, part.Comparison.Counts));
+                var linked = CrossDependencies(mine, [part]);
+                var ids = keep.Select(i => prefix + i.Id).ToHashSet(StringComparer.Ordinal);
+                mine = linked with { Items = linked.Items.Select(i => i.DefaultSelected && i.DependsOn.Any(ids.Contains) ? i with { DefaultSelected = false } : i).ToList() };
+            }
 
         var token = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n", tokenParts)
             + "\n" + JsonSerializer.Serialize(body.GroupMap.OrderBy(x => x.Key, StringComparer.Ordinal))
@@ -215,6 +247,14 @@ public sealed class AppUpgradePreviewer(
             ? candidate.Package.Manifest.Version : null;
         var masters = (await MasterCandidatesAsync(app, ct)).Select(m => new MasterUpgradeHint(m.Master.Key, m.Source.Package.Manifest.Version)).ToList();
         return own is null && masters.Count == 0 ? null : new AppUpgradeHint(own, masters);
+    }
+
+    /// <summary>應用程式用到的共用主檔（已開啟的）。</summary>
+    private async Task<List<App>> UsedMastersAsync(App app, CancellationToken ct)
+    {
+        var all = await apps.ListAsync(ct);
+        return (await shared.ListUsesAsync(ct)).Where(u => u.AppId == app.Id)
+            .Select(u => all.FirstOrDefault(a => a.Id == u.MasterAppId)).OfType<App>().OrderBy(a => a.Key, StringComparer.Ordinal).ToList();
     }
 
     private async Task<List<(App Master, SourcedPackage Source)>> MasterCandidatesAsync(App app, CancellationToken ct)

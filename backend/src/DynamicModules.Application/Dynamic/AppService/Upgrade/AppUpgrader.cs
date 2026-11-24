@@ -96,7 +96,8 @@ public sealed class AppUpgrader(
         var masterApplied = 0;
         foreach (var m in built.Masters)
         {
-            var done = await ApplyOneAsync(m.Master, m.Comparison, m.Source, masterSelected[m.Master.Key], new Dictionary<string, string>(), warnings, ct);
+            var done = await ApplyOneAsync(m.Master, m.Comparison, m.Source, masterSelected[m.Master.Key], new Dictionary<string, string>(), warnings, ct,
+                skippedOnly: m.SkippedOnly);
             if (done.Failure is { } f) return f;
             masterApplied += done.Applied;
         }
@@ -130,7 +131,7 @@ public sealed class AppUpgrader(
     /// </summary>
     private async Task<Outcome> ApplyOneAsync(
         App app, AppUpgradePreviewer.Comparison mine, SourcedPackage candidate, HashSet<string> selected, IReadOnlyDictionary<string, string> moduleKeys,
-        List<string> warnings, CancellationToken ct, int masterApplied = 0)
+        List<string> warnings, CancellationToken ct, int masterApplied = 0, bool skippedOnly = false)
     {
         static Outcome Stop(ServiceResult r) => new(r, 0);
         var ctx = mine.Context!;
@@ -406,12 +407,23 @@ public sealed class AppUpgrader(
 
         // 10. 版號、基準（§9.2）、稽核（§9.3）
         var from = app.PackageVersion;
+        var skippedCount = mine.Items.Count(i => i.Applicable && !selected.Contains(i.Id));
+        app.TouchRowVersion();
+        if (skippedOnly)
+        {
+            // T56：主檔沒有新版，版號與基準原文不變，只從略過紀錄拿掉這次勾回的（A71）
+            var baseline = ctx.Baseline!;
+            baseline.SkippedJson = JsonSerializer.Serialize((JsonSerializer.Deserialize<List<SkippedItem>>(baseline.SkippedJson) ?? [])
+                .Where(x => !selected.Contains(x.Id)).ToList());
+            apps.UpdateBaseline(baseline);
+            WriteMasterAudit(app, from, chosen, skippedCount, grants);
+            await uow.CommitAsync(ct);
+            return new Outcome(null, chosen.Count, touched);
+        }
         app.PackageVersion = n.Manifest.Version;
         app.FormatVersion = n.FormatVersion;
         app.Requires = AppOpenPlanner.RequiresOf(n);
-        app.TouchRowVersion();
         WriteBaseline(app, candidate, ctx, mine, selected, groupIds);
-        var skippedCount = mine.Items.Count(i => i.Applicable && !selected.Contains(i.Id));
         if (app.Kind == AppKind.Master)
         {
             WriteMasterAudit(app, from, chosen, skippedCount, grants);

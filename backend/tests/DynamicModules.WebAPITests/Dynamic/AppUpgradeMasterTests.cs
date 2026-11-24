@@ -185,6 +185,118 @@ public class AppUpgradeMasterTests
         }
     }
 
+    /// <summary>
+    /// A3b：CRM 與進銷存的更新頁都列出往來對象；甲在進銷存頁套了主檔，乙用 CRM 頁的舊 token 套用 → 409 upgradeStale，主檔沒被再改。
+    /// </summary>
+    [Fact]
+    public async Task MasterAppliedFromAnotherApp_OldTokenIsStale_A3b()
+    {
+        using var rig = new SharedMasterRig();
+        await rig.OpenOkAsync("crm-sales", CrmMasterTests.CrmBody);
+        await rig.OpenOkAsync("inventory", new { groupMap = new Dictionary<string, object>() });
+        OlderPartner(rig);
+        var crm = await PreviewAsync(rig);
+        var inventory = await PreviewAsync(rig, "inventory");
+        var applied = await rig.Admin.PostAsJsonAsync($"{SharedMasterRig.Apps}/inventory/upgrade", new
+        {
+            token = inventory.GetProperty("token").GetString(), items = Array.Empty<string>(),
+            masters = new Dictionary<string, string[]> { ["partner"] = ["field:partner.taxId"] }
+        });
+        applied.StatusCode.Should().Be(HttpStatusCode.OK, await applied.Content.ReadAsStringAsync());
+
+        var stale = await ApplyAsync(rig, crm, [], new Dictionary<string, string[]> { ["partner"] = ["field:partner.purchasePaymentTerms"] });
+        stale.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        // CRM 自己沒有新版、主檔已前進：預覽本身已是「已是最新」，回 upgradeUnavailable（同 M5，畫面依代碼重新預覽、收起舊清單）；
+        // CRM 自己也有新版時 token 不同，回 upgradeStale（tokenParts 涵蓋主檔）
+        (await JsonOf(stale)).GetProperty("code").GetString().Should().Be("upgradeUnavailable");
+        rig.Db(db => db.Set<AppField>().Any(f => f.Name == "partner.purchasePaymentTerms")).Should().BeFalse("409 不寫任何東西");
+    }
+
+    /// <summary>A48 前半：往來對象新版多一個群組代號，預覽 body 的 masterGroupMap 對應到既有群組，套用後主檔基準的 GroupMapJson 補上。</summary>
+    [Fact]
+    public async Task MasterGroupMap_NewCodeMapped_IsRecordedInTheBaseline_A48()
+    {
+        using var rig = new SharedMasterRig();
+        await rig.OpenOkAsync("crm-sales", CrmMasterTests.CrmBody);
+        OlderPartner(rig);
+        // 舊版沒有 steward 這個群組代號：從主檔基準的對應拿掉，新版的它就是新代號
+        rig.Db(db =>
+        {
+            var baseline = db.Set<AppBaseline>().Single(b => b.AppId == db.Set<App>().Single(a => a.Key == "partner").Id);
+            var map = JsonSerializer.Deserialize<Dictionary<string, long?>>(baseline.GroupMapJson)!;
+            map.Remove("steward");
+            baseline.GroupMapJson = JsonSerializer.Serialize(map);
+        });
+        var target = rig.Db(db => db.Set<PermissionGroup>().OrderBy(g => g.Id).First().Id);
+        var body = new { masterGroupMap = new { partner = new Dictionary<string, object> { ["steward"] = new { mode = "map", groupId = target } } } };
+        var preview = await PreviewAsync(rig, body: body);
+        MasterOf(preview).GetProperty("groups").EnumerateArray().Select(g => g.GetProperty("code").GetString()).Should().Contain("steward");
+
+        var res = await rig.Admin.PostAsJsonAsync($"{SharedMasterRig.Apps}/crm-sales/upgrade", new
+        {
+            token = preview.GetProperty("token").GetString(), items = Array.Empty<string>(),
+            masters = new Dictionary<string, string[]> { ["partner"] = ["field:partner.taxId"] }, body.masterGroupMap
+        });
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        var saved = rig.Db(db => db.Set<AppBaseline>().Single(b => b.AppId == db.Set<App>().Single(a => a.Key == "partner").Id).GroupMapJson);
+        JsonSerializer.Deserialize<Dictionary<string, long?>>(saved)!["steward"].Should().Be(target);
+    }
+
+    /// <summary>
+    /// A71（T56）：往來對象前進時略過了「地址」（SkippedJson 有它、客戶沒再動），之後 CRM 新版的報價單客戶欄位帶值用到地址，往來對象沒有新版。
+    /// masters 只列出地址一項、上次略過、from 等於 to；只勾 CRM 的項目 400 缺主檔項目；兩個都勾成功，主檔版號與基準原文不變、略過紀錄拿掉地址。
+    /// </summary>
+    [Fact]
+    public async Task SkippedMasterItem_NeededByTheApp_IsListedAndCanBeTakenBack_A71()
+    {
+        using var rig = new SharedMasterRig();
+        await rig.OpenOkAsync("crm-sales", CrmMasterTests.CrmBody);
+        const string Skip = "field:partner.address", Dep = "master:partner/field:partner.address";
+        rig.Db(db =>
+        {
+            var partner = db.Set<App>().Single(a => a.Key == "partner");
+            var crm = db.Set<App>().Single(a => a.Key == "crm-sales");
+            var address = db.Set<AppField>().Single(f => f.AppId == partner.Id && f.Name == "partner.address");
+            var addressId = address.FieldId;
+            var customerId = db.Set<AppField>().Single(f => f.AppId == crm.Id && f.Name == "quote.customer").FieldId;
+            var customer = db.Set<Field>().Single(f => f.Id == customerId);
+            customer.Config = customer.Config with { Fill = customer.Config.Fill! with { Map = customer.Config.Fill.Map.Where(m => m.From != addressId).ToList() } };
+            db.Set<AppField>().Remove(address);
+            db.Set<Field>().Remove(db.Set<Field>().Single(f => f.Id == addressId));
+            db.Set<AppBaseline>().Single(b => b.AppId == partner.Id).SkippedJson =
+                JsonSerializer.Serialize(new[] { new { Id = Skip, Props = new Dictionary<string, object?> { ["type"] = new { Current = (string?)null, New = "text" } } } });
+            crm.PackageVersion = Older;
+            var baseline = db.Set<AppBaseline>().Single(b => b.AppId == crm.Id);
+            var node = JsonNode.Parse(baseline.PackageJson)!;
+            var map = node["modules"]!.AsArray().Single(m => (string?)m!["code"] == "quote")!["blocks"]!.AsArray()
+                .SelectMany(b => b!["fields"]!.AsArray()).Single(f => (string?)f!["code"] == "customer")!["config"]!["fill"]!["map"]!.AsArray();
+            map.Remove(map.Single(x => (string?)x!["from"] == "partner/partner.address"));
+            baseline.PackageJson = node.ToJsonString();
+        });
+        var partnerVersion = rig.Db(db => db.Set<App>().Single(a => a.Key == "partner").PackageVersion);
+        var partnerBaseline = rig.Db(db => db.Set<AppBaseline>().Single(b => b.AppId == db.Set<App>().Single(a => a.Key == "partner").Id).PackageJson);
+
+        var preview = await PreviewAsync(rig);
+        var master = MasterOf(preview);
+        master.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetString()).Should().Equal(Skip);
+        Category(master, Skip).Should().Be("skippedBefore");
+        master.GetProperty("fromVersion").GetString().Should().Be(master.GetProperty("toVersion").GetString());
+        var customerItem = preview.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("id").GetString() == "field:quote.customer");
+        customerItem.GetProperty("dependsOn").EnumerateArray().Select(d => d.GetString()).Should().Contain(Dep);
+
+        var missing = await ApplyAsync(rig, preview, ["field:quote.customer"], new Dictionary<string, string[]>());
+        missing.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await missing.Content.ReadAsStringAsync()).Should().Contain(Dep);
+
+        var res = await ApplyAsync(rig, preview, ["field:quote.customer"], new Dictionary<string, string[]> { ["partner"] = [Skip] });
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        rig.Db(db => db.Set<App>().Single(a => a.Key == "partner").PackageVersion).Should().Be(partnerVersion);
+        var after = rig.Db(db => db.Set<AppBaseline>().Single(b => b.AppId == db.Set<App>().Single(a => a.Key == "partner").Id));
+        after.PackageJson.Should().Be(partnerBaseline, "基準原文不變");
+        after.SkippedJson.Should().NotContain(Skip);
+        rig.Db(db => db.Set<AppField>().Any(f => f.Name == "partner.address")).Should().BeTrue("地址勾回、建好");
+    }
+
     /// <summary>主檔的版號、匯入副本的版號都改小，內建目錄版就是新版（同 BuiltInMasterRoundTripTests 的做法）。</summary>
     private static void MakeMasterOlder(SharedMasterRig rig) => rig.Db(db =>
     {
