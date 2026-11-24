@@ -172,14 +172,15 @@ public static partial class TemplateValidator
             ids[code] = id;
             module.Blocks[0].Fields.Add(new Field
             {
-                Id = id, Type = g.Type, Status = FieldStatus.Active,
+                Id = id, Type = g.Type, Status = g.Active == false ? FieldStatus.Inactive : FieldStatus.Active,
                 Config = new FieldConfig { ResultType = g.Config.ValueKind == JsonValueKind.Object ? ConfigString(g.Config, "resultType") : null }
             });
         }
         var unknown = false;
         var withIds = FormulaReference().Replace(formula, x =>
         {
-            if (ids.TryGetValue(x.Groups[1].Value, out var id)) return $"{{{id}}}";
+            // 彙總欄位的結果型別開啟時由彙總對象重推導（FieldRules），套件寫的不準，引用它的公式不比對
+            if (ids.TryGetValue(x.Groups[1].Value, out var id) && scope[x.Groups[1].Value].Type != FieldType.Rollup) return $"{{{id}}}";
             unknown = true;
             return x.Value;
         });

@@ -327,6 +327,45 @@ public class AppFormat6Tests
         AloneErrors(json.Replace("\"resultType\": \"number\"", "\"resultType\": \"date\"")).Should().BeEmpty();
     }
 
+    private const string PhoneField = "{ \"code\": \"phone\", \"type\": \"phone\", \"label\": { \"zh-TW\": \"電話\" }, \"config\": {} },";
+    private const string SinceField = " { \"code\": \"since\", \"type\": \"date\", \"label\": { \"zh-TW\": \"起始日\" }, \"config\": {} },";
+
+    /// <summary>#99 審查：彙總欄位的結果型別開啟時由彙總對象重推導，套件寫的不準，引用它的公式不比對（不擋原本開得起來的套件）。</summary>
+    [Fact]
+    public void Formula_ReferencingARollup_IsNotCheckedAgainstTheWrittenResultType()
+    {
+        var json = Master(PhoneField, PhoneField
+            + " { \"code\": \"cnt\", \"type\": \"rollup\", \"label\": { \"zh-TW\": \"筆數\" }, \"config\": { \"resultType\": \"date\", \"rollup\": { \"sourceField\": \"partner.no\", \"function\": \"count\" } } },"
+            + " { \"code\": \"dbl\", \"type\": \"formula\", \"label\": { \"zh-TW\": \"兩倍\" }, \"config\": { \"formula\": \"DATEADD({cnt}, 1)\", \"resultType\": \"number\" } },");
+        AloneErrors(json).Should().NotContain(e => e.Contains("結果型別與設定不符"));
+    }
+
+    /// <summary>#99 審查：公式引用停用欄位時只報停用那一句，不再多報型別不符。</summary>
+    [Fact]
+    public void Formula_ReferencingAnInactiveField_DoesNotAlsoReportResultTypeMismatch()
+    {
+        var json = Master(PhoneField, PhoneField
+            + SinceField.Replace("\"config\": {} }", "\"config\": {}, \"active\": false }")
+            + " { \"code\": \"due\", \"type\": \"formula\", \"label\": { \"zh-TW\": \"到期\" }, \"config\": { \"formula\": \"DATEADD({since}, 30)\", \"resultType\": \"number\" } },");
+        var errors = AloneErrors(json);
+        errors.Should().Contain(e => e.Contains("被公式或規則引用，不能停用"));
+        errors.Should().NotContain(e => e.Contains("結果型別與設定不符"));
+    }
+
+    /// <summary>#99 審查：貢獻公式引用主檔基本欄位時，型別不符要報；主檔定義未知時只看本貢獻、不報。</summary>
+    [Fact]
+    public void ContributionFormula_ReferencingABaseField_IsCheckedOnlyWhenTheMasterIsKnown()
+    {
+        var master = Parse(Master(PhoneField, PhoneField + SinceField));
+        var masters = new Dictionary<string, AppPackageData> { ["partner-lite"] = master };
+        var json = Crm("\"formula\": \"{credit} * 2\", \"resultType\": \"number\"", "\"formula\": \"DATEADD({since}, 30)\", \"resultType\": \"number\"");
+        AppPackageValidator.Validate(Parse(json), masters).Errors
+            .Should().Contain("contributions[0].fields[nameLength].config.resultType: 公式不正確：結果型別與設定不符");
+        AloneErrors(json).Should().NotContain(e => e.Contains("結果型別與設定不符"));
+        AppPackageValidator.Validate(Parse(json.Replace("\"resultType\": \"number\" }, \"active\": false", "\"resultType\": \"date\" }, \"active\": false")), masters).Errors
+            .Should().NotContain(e => e.Contains("結果型別與設定不符"));
+    }
+
     /// <summary>#99：欄位 config 是字串或陣列時，格式層直接報錯，不是跳過所有 config 檢查。</summary>
     [Theory]
     [InlineData("\"oops\"")]
