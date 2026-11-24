@@ -128,9 +128,12 @@ public class TwoFactorAccountTests
         var user = await User(app, "tf01");
         using var scope = app.Services.CreateScope();
         var verifier = scope.ServiceProvider.GetRequiredService<SecondFactorVerifier>();
-        var (_, reauth) = await verifier.CheckAsync(user, Code(app, secret), null, ip, "account.reauthFailed", default);
+        var (_, reauth) = await verifier.CheckAsync(user, Code(app, secret), null, ip, SecondFactorFailureAudit.Reauth, default);
         reauth!.Code.Should().Be("reauthThrottled");
-        var (_, login) = await verifier.CheckAsync(user, Code(app, secret), null, ip, SecondFactorVerifier.LoginFailedAction, default);
+        // 登入第二步的寫法只在 TwoFactorLoginHandler 裡（internal，帶登入標記），測試以反射取得
+        var loginFailures = (SecondFactorFailureAudit)typeof(TwoFactorLoginHandler)
+            .GetField("Failures", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetValue(null)!;
+        var (_, login) = await verifier.CheckAsync(user, Code(app, secret), null, ip, loginFailures, default);
         login!.Code.Should().Be("tooManyAttempts");
     }
 

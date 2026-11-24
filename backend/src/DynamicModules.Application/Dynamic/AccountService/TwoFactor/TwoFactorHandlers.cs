@@ -377,11 +377,11 @@ public sealed class ConsumeSecondFactorHandler(SecondFactorVerifier verifier) : 
 }
 
 /// <summary>
-/// 觸發第二步暫停時（§8.3 第 4 點，複審建議 H）：同一交易寫 <c>login.failed</c>（重新驗證端點是 <c>account.reauthFailed</c>）、
+/// 觸發第二步暫停時（§8.3 第 4 點，複審建議 H）：同一交易寫呼叫端給的稽核列 <paramref name="LockedEntry"/>（第二步是帶登入標記的 <c>login.failed</c>、重新驗證端點是 <c>account.reauthFailed</c>，見 <see cref="SecondFactorFailureAudit"/>）、
 /// 安全事件 <c>security.twoFactorFailures</c>、通知與寄送佇列。同帳號 24 小時內只通知一次（Q23）：去重來源是寄送佇列裡
 /// 同帳號的 <c>twoFactorFailures</c> 列；沒有已驗證 Email 時照樣寫一列 <c>skipped</c>（<c>noVerifiedEmail</c>）當去重紀錄。
 /// </summary>
-public sealed record RecordTwoFactorLockoutRequest(string UserId, string FailureAction) : IRequest<ServiceResult>, ITransactionalRequest;
+public sealed record RecordTwoFactorLockoutRequest(string UserId, AuditEntry LockedEntry) : IRequest<ServiceResult>, ITransactionalRequest;
 
 public sealed class RecordTwoFactorLockoutHandler(
     IAccountRepository accounts, IMailOutboxRepository outbox, AccountMailWriter mail, IAuditLog audit, SecurityIncidents incidents, CachedSystemPolicy system,
@@ -392,9 +392,7 @@ public sealed class RecordTwoFactorLockoutHandler(
     public async Task<ServiceResult> Handle(RecordTwoFactorLockoutRequest r, CancellationToken ct)
     {
         var now = time.GetUtcNow().UtcDateTime;
-        var row = audit.Add(r.FailureAction == SecondFactorVerifier.LoginFailedAction
-            ? SignInAudit.Failed(r.UserId, "twoFactorLocked", null)
-            : new AuditEntry(r.FailureAction, AuditResult.Denied, AuditTargets.User, r.UserId, ReasonCode: "twoFactorLocked"));
+        var row = audit.Add(r.LockedEntry);
         await uow.CommitAsync(ct);
         var notify = !await outbox.AnySinceAsync(r.UserId, MailKinds.TwoFactorFailures, now - TwoFactorLimits.NotifyDedupe, ct);
         if (notify)
@@ -449,6 +447,9 @@ public sealed class TwoFactorLoginHandler(
     ISecondStepTicketCodec codec, SecondStepTickets tickets, IAccountRepository accounts, SecondFactorVerifier verifier, IAuditLog audit, ISender sender,
     LoginThrottle throttle, TimeProvider time, ILogger<TwoFactorLoginHandler> logger) : IRequestHandler<TwoFactorLoginRequest, ServiceResult>
 {
+    /// <summary>第二步沒有 session 身分：失敗記帶登入標記的 <c>login.failed</c>（登入流程才能建，<c>AuditArchitectureTests</c>）。</summary>
+    internal static readonly SecondFactorFailureAudit Failures = new(true, (userId, reason) => SignInAudit.Failed(userId, reason, null));
+
     public async Task<ServiceResult> Handle(TwoFactorLoginRequest r, CancellationToken ct)
     {
         var code = string.IsNullOrWhiteSpace(r.Code) ? null : r.Code;
@@ -469,7 +470,7 @@ public sealed class TwoFactorLoginHandler(
             return TwoFactorErrors.Expired();
         }
 
-        var (match, error) = await verifier.CheckAsync(user, code, recovery, r.ClientIp, SecondFactorVerifier.LoginFailedAction, ct);
+        var (match, error) = await verifier.CheckAsync(user, code, recovery, r.ClientIp, Failures, ct);
         if (match is null) return error!;
         ServiceResult inner;
         try
@@ -481,7 +482,7 @@ public sealed class TwoFactorLoginHandler(
             verifier.Abandon(match);
             throw;
         }
-        if (await verifier.SettleAsync(match, inner.IsSuccess, SecondFactorVerifier.LoginFailedAction, ct,
+        if (await verifier.SettleAsync(match, inner.IsSuccess, Failures, ct,
                 expired: inner.Code == TwoFactorErrors.ExpiredCode) is { } failed) return failed;
         tickets.MarkUsed(ticket);
         return inner;

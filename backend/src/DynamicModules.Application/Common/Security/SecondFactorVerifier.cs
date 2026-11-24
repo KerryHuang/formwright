@@ -70,6 +70,30 @@ public sealed class SecondFactorMatch
 }
 
 /// <summary>
+/// 第二因素失敗的稽核怎麼寫，由呼叫端決定：重新驗證有 session 身分，記一般稽核 <c>account.reauthFailed</c>（<see cref="Reauth"/>）；
+/// 登入第二步沒有 session 身分，記帶登入標記的 <c>login.failed</c>，那一份只在 <c>TwoFactorLoginHandler</c> 建立
+/// （帶登入標記的稽核只出現在登入流程，<c>AuditArchitectureTests</c> 守著）。
+/// </summary>
+public sealed class SecondFactorFailureAudit
+{
+    internal SecondFactorFailureAudit(bool signIn, Func<string, string, AuditEntry> entry)
+    {
+        SignIn = signIn;
+        _entry = entry;
+    }
+
+    private readonly Func<string, string, AuditEntry> _entry;
+
+    public static SecondFactorFailureAudit Reauth { get; } = new(false,
+        (userId, reason) => new AuditEntry(ReauthVerifier.AuditCode, AuditResult.Denied, AuditTargets.User, userId, ReasonCode: reason));
+
+    /// <summary>登入第二步（被限流回 <c>tooManyAttempts</c>、不另寫稽核）還是重新驗證。</summary>
+    internal bool SignIn { get; }
+
+    internal AuditEntry Entry(string userId, string reason) => _entry(userId, reason);
+}
+
+/// <summary>
 /// 第二因素的驗證，第二步登入與重新驗證端點共用（§8.3、§8.9）。順序：<c>TryBegin</c> →（驗證碼時）解金鑰，解不開歸還名額、
 /// 不佔帳號層 → 帳號層佔名額並立即提交（交易外，複審 N5）→ 這一次觸發了暫停就送 <see cref="RecordTwoFactorLockoutRequest"/> → 比對。
 /// 碼錯在這裡結算 <c>Complete(false)</c> 與稽核；碼對回 <see cref="SecondFactorMatch"/>，由呼叫端消耗後結算。
@@ -79,22 +103,20 @@ public sealed class SecondFactorVerifier(
     ITwoFactorRepository twoFactor, ITotpSecretProtector protector, LoginThrottle throttle, IAuditLog audit, ISender sender, AuthSettings auth,
     ITransactionManager transactions, TimeProvider time, ILogger<SecondFactorVerifier> logger)
 {
-    public const string LoginFailedAction = "login.failed";
-
     /// <summary>
-    /// <paramref name="failureAction"/>：<c>login.failed</c>（第二步）或 <c>account.reauthFailed</c>（重新驗證）。
+    /// <paramref name="failures"/>：失敗稽核的寫法（第二步或重新驗證，見 <see cref="SecondFactorFailureAudit"/>）。
     /// 呼叫端已確認 <paramref name="code"/> 與 <paramref name="recoveryCode"/> 恰好送了一個（複審建議 L，排在 <c>TryBegin</c> 之前）。
     /// </summary>
     public async Task<(SecondFactorMatch? Match, ServiceResult? Error)> CheckAsync(
-        AppUser user, string? code, string? recoveryCode, string? clientIp, string failureAction, CancellationToken ct)
+        AppUser user, string? code, string? recoveryCode, string? clientIp, SecondFactorFailureAudit failures, CancellationToken ct)
     {
         if (transactions.IsActive) throw new InvalidOperationException("第二因素驗證只能在交易外呼叫");
         var key = user.UserId.ToLowerInvariant();
         var ip = string.IsNullOrEmpty(clientIp) ? "unknown" : clientIp;
-        var login = failureAction == LoginFailedAction;
+        var login = failures.SignIn;
         if (!throttle.TryBegin(key, ip))
         {
-            if (!login) await FailAsync(failureAction, user.UserId, "throttled", ct);
+            if (!login) await FailAsync(failures, user.UserId, "throttled", ct);
             // 重新驗證路徑和密碼階段同一個代碼（reauthThrottled，建 AI 權杖再轉成 mcpPasswordThrottled），一個端點只有一種「被限流」（審查 S4）
             return (null, login ? TwoFactorErrors.Throttled() : ReauthVerifier.Throttled());
         }
@@ -107,7 +129,7 @@ public sealed class SecondFactorVerifier(
                 // 金鑰解不開：反正猜不中，不佔帳號層、不讓本人被帳號＋IP 層擋住（複審 N6、建議 D），之後仍能用復原碼
                 throttle.Release(key, ip);
                 logger.LogWarning("帳號 {UserId} 的 TOTP 金鑰解不開", user.UserId);
-                await FailAsync(failureAction, user.UserId, "twoFactorUnreadable", ct);
+                await FailAsync(failures, user.UserId, "twoFactorUnreadable", ct);
                 return (null, TwoFactorErrors.Wrong());
             }
 
@@ -119,7 +141,7 @@ public sealed class SecondFactorVerifier(
                 if (!await twoFactor.TryClaimAttemptAsync(user.UserId, TwoFactorLimits.AccountMax, now, until, ct))
                 {
                     throttle.Release(key, ip);
-                    await FailAsync(failureAction, user.UserId, "twoFactorLocked", ct);
+                    await FailAsync(failures, user.UserId, "twoFactorLocked", ct);
                     return (null, TwoFactorErrors.Locked());
                 }
                 // 佔名額已提交；重讀確認這一次觸發了暫停才開事件、寄信（第 10 次剛好是正確碼時也一樣，複審建議 L）
@@ -128,7 +150,7 @@ public sealed class SecondFactorVerifier(
                     // 暫停已提交生效；這一輪的稽核、事件與通知寫不進去時只記 Error log、照常比對，不回 500（之後的嘗試是「已暫停」、不會補開，審查 S5）
                     try
                     {
-                        await sender.Send(new RecordTwoFactorLockoutRequest(user.UserId, failureAction), ct);
+                        await sender.Send(new RecordTwoFactorLockoutRequest(user.UserId, failures.Entry(user.UserId, "twoFactorLocked")), ct);
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
@@ -155,7 +177,7 @@ public sealed class SecondFactorVerifier(
 
         throttle.Complete(key, ip, false);
         logger.LogWarning("帳號 {UserId} 第二因素錯誤", user.UserId);
-        await FailAsync(failureAction, user.UserId, useRecovery ? "recoveryCodeWrong" : "twoFactorWrong", ct);
+        await FailAsync(failures, user.UserId, useRecovery ? "recoveryCodeWrong" : "twoFactorWrong", ct);
         return (null, TwoFactorErrors.Wrong());
     }
 
@@ -176,27 +198,25 @@ public sealed class SecondFactorVerifier(
     /// 消耗的交易提交後結算：成功清帳號＋IP 層；失敗（並行搶輸、重放）算一次錯並寫稽核。
     /// <paramref name="expired"/>：內層因帳號停用或 stamp 變了回失效（碼是對的）→ 歸還名額、稽核 <c>twoFactorExpired</c>、回失效（審查次要 1）。
     /// </summary>
-    public async Task<ServiceResult?> SettleAsync(SecondFactorMatch match, bool consumed, string failureAction, CancellationToken ct, bool expired = false)
+    public async Task<ServiceResult?> SettleAsync(SecondFactorMatch match, bool consumed, SecondFactorFailureAudit failures, CancellationToken ct, bool expired = false)
     {
         if (!consumed && expired)
         {
             throttle.Release(match.Key, match.Ip);
-            await FailAsync(failureAction, match.UserId, "twoFactorExpired", ct);
+            await FailAsync(failures, match.UserId, "twoFactorExpired", ct);
             return TwoFactorErrors.Expired();
         }
         throttle.Complete(match.Key, match.Ip, consumed);
         if (consumed) return null;
-        await FailAsync(failureAction, match.UserId, "twoFactorWrong", ct);
+        await FailAsync(failures, match.UserId, "twoFactorWrong", ct);
         return TwoFactorErrors.Wrong();
     }
 
     /// <summary>沒有結果（例外）時歸還名額。</summary>
     public void Abandon(SecondFactorMatch match) => throttle.Release(match.Key, match.Ip);
 
-    private Task<bool> FailAsync(string action, string userId, string reason, CancellationToken ct) =>
-        audit.TryWriteNowAsync(action == LoginFailedAction
-            ? SignInAudit.Failed(userId, reason, null)
-            : new AuditEntry(action, AuditResult.Denied, AuditTargets.User, userId, ReasonCode: reason), ct);
+    private Task<bool> FailAsync(SecondFactorFailureAudit failures, string userId, string reason, CancellationToken ct) =>
+        audit.TryWriteNowAsync(failures.Entry(userId, reason), ct);
 }
 
 /// <summary>第二步登入憑證（§8.3 第 1 點）：帳號、發出時的 SecurityStamp、發出時間、隨機編號；cookie 由 WebAPI 以 Data Protection 加密。</summary>

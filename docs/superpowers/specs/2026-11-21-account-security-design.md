@@ -1261,3 +1261,4 @@ SSO、AD／LDAP 列第二版候選（使用者 2026-11-17 裁決），au1 不做
 - **G2（修）**：Demo 站（`auth/options` 的 `demoLoginEnabled`，同登入頁與忘記密碼頁的判斷）政策頁「帳號安全」分類唯讀：欄位停用、不顯示儲存與還原鈕、寫「Demo 站不能修改帳號安全政策」（新鍵 `policies.demoAuthReadonly`，四語沿用後端 `PolicyDemoSite` 的文字）；後端 403 保留。
 - **G3（不改）**：`sales01` 帳號安全頁的 Demo 說明沿用現行文字，走查判定可接受。
 - 使用者管理在 1366 寬時要在表格容器內橫捲才看得到操作欄：不在本段修，主控另開票。
+- **CI r2：登入稽核守衛（修）**：`SecondFactorVerifier` 與 `RecordTwoFactorLockoutHandler` 由重新驗證路徑共用（有 session 身分），不該直接建帶登入標記的稽核。改由呼叫端傳入 `SecondFactorFailureAudit`：重新驗證用 `SecondFactorFailureAudit.Reauth`（`account.reauthFailed`），登入第二步的那一份（`login.failed`、帶登入標記）只在 `TwoFactorLoginHandler.Failures` 建立；暫停紀錄改收呼叫端組好的稽核列。`AuditArchitectureTests` 的允許清單改為登入流程四個 handler（`LoginHandler`、`DemoLoginHandler`、`TwoFactorLoginHandler`、`CompleteTwoFactorLoginHandler`），測試改名 `SignInAudit_IsReferencedOnlyByLoginFlowHandlers`。

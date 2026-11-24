@@ -8,7 +8,7 @@ using FluentAssertions;
 namespace DynamicModules.WebAPITests.Ops;
 
 /// <summary>
-/// A10 的架構部分（維運設計 §17.2.1、§17.9 安全）：登入稽核列（<c>SignInAudit</c>，行為者由呼叫端傳入、不取環境身分）只有兩個登入 handler 組得出來。
+/// A10 的架構部分（維運設計 §17.2.1、§17.9 安全）：登入稽核列（<c>SignInAudit</c>，行為者由呼叫端傳入、不取環境身分）只有登入流程的 handler（密碼登入、Demo 一鍵登入、雙因素第二步）組得出來。
 /// 鎖法：<c>SignInAudit</c>、<c>SignInActor</c>、<c>AuditEntry.SignIn</c> 都是 internal，Application 不開 InternalsVisibleTo，其他組件編譯不到；
 /// 組件內掃 IL：<c>call</c>、<c>callvirt</c>、<c>newobj</c>、<c>ldftn</c>、<c>ldvirtftn</c>、<c>ldtoken</c> 都算（方法群組轉委派是 <c>ldftn</c>，
 /// expression tree 是 <c>ldtoken</c>），編譯器產生的狀態機與 lambda 類別歸到最外層型別。放在 WebAPITests：這裡才載得到全部五個產品組件。
@@ -94,12 +94,18 @@ public class AuditArchitectureTests
         }
     }
 
+    /// <summary>
+    /// 登入流程的 handler：密碼登入、Demo 一鍵登入、雙因素第二步的外層（失效憑證與失敗的寫法 <c>Failures</c>）與內層（成功）。
+    /// 第二因素驗證服務與暫停紀錄由重新驗證路徑共用（有 session 身分），不能直接建登入稽核，由呼叫端傳入寫法（帳號安全設計 §26.1）。
+    /// </summary>
     [Fact]
-    public void SignInAudit_IsReferencedOnlyByTheTwoLoginHandlers()
+    public void SignInAudit_IsReferencedOnlyByLoginFlowHandlers()
     {
         ProductCallers(SignInAudit.GetMethods(All).Cast<MethodBase>().ToList()).Should().Equal(
             "DynamicModules.Application.Dynamic.AccountService.Commands.DemoLogin.DemoLoginHandler",
-            "DynamicModules.Application.Dynamic.AccountService.Commands.Login.LoginHandler");
+            "DynamicModules.Application.Dynamic.AccountService.Commands.Login.LoginHandler",
+            "DynamicModules.Application.Dynamic.AccountService.TwoFactor.CompleteTwoFactorLoginHandler",
+            "DynamicModules.Application.Dynamic.AccountService.TwoFactor.TwoFactorLoginHandler");
     }
 
     [Fact]

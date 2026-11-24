@@ -106,7 +106,7 @@ public sealed class ReauthVerifier(
     private async Task<(ReauthResult? Ok, ServiceResult? Error)> SecondFactorAsync(
         AppUser user, string? code, string? recovery, string? clientIp, CancellationToken ct)
     {
-        var (match, error) = await secondFactor.CheckAsync(user, code, recovery, clientIp, AuditCode, ct);
+        var (match, error) = await secondFactor.CheckAsync(user, code, recovery, clientIp, SecondFactorFailureAudit.Reauth, ct);
         if (match is null) return (null, error);
         bool consumed;
         try
@@ -118,7 +118,7 @@ public sealed class ReauthVerifier(
             secondFactor.Abandon(match);
             throw;
         }
-        if (await secondFactor.SettleAsync(match, consumed, AuditCode, ct) is { } failed) return (null, failed);
+        if (await secondFactor.SettleAsync(match, consumed, SecondFactorFailureAudit.Reauth, ct) is { } failed) return (null, failed);
         return (new ReauthResult(user.UserId, user.SecurityStamp), null);
     }
 
