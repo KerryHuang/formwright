@@ -488,29 +488,6 @@ public class AppUpgradeFlowTests : IDisposable
         return (app.PackageVersion, db.Set<AppBaseline>().Single(b => b.AppId == app.Id).PackageJson);
     });
 
-    // ---- A16a ----
-
-    [Fact]
-    public async Task A16a_SecondBatchChange_NotYetSupported_FlowOnlyChange_Applies()
-    {
-        await OpenAsync();
-        await NewVersionAsync(p =>
-        {
-            p["printTemplates"] = JsonNode.Parse("""[ { "module": "deal", "code": "uf-print", "name": { "zh-TW": "案件單" }, "active": true, "body": "<p>案件</p>" } ]""");
-            Flow(p, "uf-win")["stages"]![0]!["name"] = new JsonObject { ["zh-TW"] = "主管核准" };
-        });
-        var blocked = await PreviewAsync();
-        Reason(Item(blocked, "printTemplate:uf-print")).Should().Be("notYetSupported");
-        Blockers(blocked).Should().Contain("secondBatch");
-        blocked.GetProperty("canApply").GetBoolean().Should().BeFalse();
-
-        await NewVersionAsync(p => { p["manifest"]!["version"] = "1.2.0"; Flow(p, "uf-win")["stages"]![0]!["name"] = new JsonObject { ["zh-TW"] = "主管核准" }; });
-        var preview = await PreviewAsync();
-        Blockers(preview).Should().NotContain("secondBatch");
-        preview.GetProperty("canApply").GetBoolean().Should().BeTrue();
-        await ApplyOkAsync(preview, Defaults(preview));
-    }
-
     // ---- A29、A30 ----
 
     [Fact]

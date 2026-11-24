@@ -196,16 +196,21 @@ public class AppUpgradeApplyTests : IDisposable
     public async Task SecondBatchDifference_BlocksTheWholeApply_A16()
     {
         await OpenCrmAsync();
+        // pkg1d1b 起轉換、事件等已開放，A16 只剩貢獻、整合與主檔模組上的報表：貢獻欄位的標籤舊版不同（只有新版改）
         await SimulateOldAsync(
-            (db, _) => db.Set<Conversion>().Remove(db.Set<Conversion>().Single(c => c.Key == "crm-lead-to-customer")),
+            (db, b) =>
+            {
+                var field = db.Set<Field>().Single(f => f.Id == b.Fields["partner/partner.industry"]);
+                field.LabelI18n = With(field.LabelI18n, "zh-TW", "舊產業");
+            },
             p =>
             {
-                var list = p["conversions"]!.AsArray();
-                list.Remove(list.Single(c => (string?)c!["code"] == "crm-lead-to-customer"));
+                var contribution = p["contributions"]!.AsArray().Single(c => (string?)c!["master"] == "partner")!;
+                contribution["fields"]!.AsArray().Single(f => (string?)f!["code"] == "industry")!["label"]!["zh-TW"] = "舊產業";
             });
 
         var preview = await PreviewAsync();
-        var item = Item(preview, "conversion:crm-lead-to-customer");
+        var item = Item(preview, "field:partner/partner.industry");
         item.GetProperty("applicable").GetBoolean().Should().BeFalse();
         item.GetProperty("reason").GetString().Should().Be("notYetSupported");
         preview.GetProperty("canApply").GetBoolean().Should().BeFalse();
