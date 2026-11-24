@@ -14,12 +14,16 @@ const data = computed(() => outbox.data.value);
 const pages = computed(() => (data.value ? Math.max(1, Math.ceil(data.value.total / data.value.pageSize)) : 1));
 const label = (prefix: string, v: string | null | undefined) => (!v ? '' : te(`${prefix}.${v}`) ? t(`${prefix}.${v}`) : v);
 
+// 這一頁沒有任何一列有說明（例如全部已寄出）時不顯示「說明」欄，免得整欄空白（au1a 走查 G3）
+const anyReason = computed(() => (data.value?.items ?? []).some((r) => !!r.lastError));
 const columns = computed<QTableColumn<MailOutboxItem>[]>(() => [
   { name: 'createdUtc', label: t('mailOutbox.time'), align: 'left', field: (r) => formatTime(r.createdUtc) },
   { name: 'kind', label: t('mailOutbox.kind'), align: 'left', field: (r) => label('mailOutbox.kinds', r.kind) },
   { name: 'toAddress', label: t('mailOutbox.to'), align: 'left', field: (r) => `${r.toAddress}${r.userId ? `（${r.userId}）` : ''}` },
   { name: 'status', label: t('mailOutbox.status'), align: 'left', field: (r) => label('mailOutbox.statuses', r.status) },
-  { name: 'lastError', label: t('mailOutbox.reason'), align: 'left', field: (r) => label('mailOutbox.reasons', r.lastError) },
+  ...(anyReason.value
+    ? [{ name: 'lastError', label: t('mailOutbox.reason'), align: 'left', field: (r) => label('mailOutbox.reasons', r.lastError) } as QTableColumn<MailOutboxItem>]
+    : []),
   { name: 'actions', label: '', align: 'right', field: 'id' },
 ]);
 
