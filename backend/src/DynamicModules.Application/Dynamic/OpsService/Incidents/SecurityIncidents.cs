@@ -26,15 +26,19 @@ public class SecurityIncidents(IncidentRecorder recorder, IOpsEnvironment env)
 
     /// <summary>
     /// 帳號安全的安全事件代碼登記處（帳號安全設計 §8.10）：每個代碼對一個事件標題；寫法照 admin.changed（每次發生都通知站內收件人，同指紋聚合累加次數）。
-    /// au1a 只有 <see cref="AdminEmailChangedCode"/>；au1b、au1c 的代碼加在這裡。沒登記的代碼丟例外。
+    /// au1a：<see cref="AdminEmailChangedCode"/>；au1b：<see cref="AdminPasswordResetCode"/>；au1c 的代碼加在這裡。沒登記的代碼丟例外。
     /// </summary>
     public static readonly IReadOnlyDictionary<string, string> AccountEventTitles = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         [AdminEmailChangedCode] = IncidentTitles.AdminEmailChanged,
+        [AdminPasswordResetCode] = IncidentTitles.AdminPasswordReset,
     };
 
     /// <summary>系統管理員改了或清空另一位系統管理員的 Email（Q21：送出當下就開，不等驗證）。</summary>
     public const string AdminEmailChangedCode = "security.adminEmailChanged";
+
+    /// <summary>系統管理員帳號用寄信連結重設了密碼（au1-5，§8.10）；全部管理員都看得到（T25）。</summary>
+    public const string AdminPasswordResetCode = "security.adminPasswordReset";
 
     /// <summary>帳號安全的安全事件；樣本只存那一筆稽核的 Id 與行為者（§8.10）。由 AuditBehavior 在稽核列同一交易呼叫。</summary>
     public Task AccountEventAsync(AuditLogEntry audit, string code, CancellationToken ct)

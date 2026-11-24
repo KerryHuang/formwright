@@ -49,8 +49,7 @@ public static class MailSkipReasons
 {
     public const string NotConfigured = "notConfigured", PasswordUnreadable = "passwordUnreadable", NoPublicUrl = "noPublicUrl",
         UnknownAccount = "unknownAccount", Inactive = "inactive", EmailChanged = AccountToken.EmailChanged, PasswordChanged = AccountToken.PasswordChanged,
-        Deactivated = AccountToken.Deactivated, Superseded = AccountToken.Superseded, NotSupported = "notSupported",
-        ComposeFailed = "composeFailed";
+        Deactivated = AccountToken.Deactivated, Superseded = AccountToken.Superseded, ComposeFailed = "composeFailed";
 }
 
 /// <summary>站台名稱（外觀設定，§12、Q18）：存在 <see cref="SystemSetting"/> 的鍵值表。帳號信的寄件名稱、主旨前綴、信中公司名稱讀它。</summary>
@@ -155,39 +154,57 @@ public sealed class ClaimMailHandler(
         var defaultLocale = system.DefaultLocale;
         var context = registry.ContextFor(row.Locale, defaultLocale);
         string? link = null;
-        int? linkHours = null;
+        (string Key, int Value)? validity = null;
         if (MailKinds.WithToken.Contains(row.Kind))
         {
             if (!demo && string.IsNullOrWhiteSpace(site.PublicUrl)) return await Close(MailOutboxStatus.Skipped, MailSkipReasons.NoPublicUrl);
-            // 寄重設信是 au1b；au1a 只寄驗證信
-            if (row.Kind != MailKinds.EmailVerify) return await Close(MailOutboxStatus.Skipped, MailSkipReasons.NotSupported);
             var user = row.UserId is null ? null : await accounts.GetTrackedAsync(row.UserId, ct);
             if (user is null) return await Close(MailOutboxStatus.Skipped, MailSkipReasons.UnknownAccount);
             if (!user.IsActive) return await Close(MailOutboxStatus.Skipped, MailSkipReasons.Inactive);
             if (!string.Equals(user.Email, row.ToAddress, StringComparison.OrdinalIgnoreCase))
                 return await Close(MailOutboxStatus.Skipped, MailSkipReasons.EmailChanged);
 
-            // 只作廢同一個 Email 的舊權杖：a 的舊驗證信重寄時不會作廢 b 的連結（§6.3 第 2 步）
-            foreach (var old in await tokens.ListUnusedTrackedAsync(user.UserId, AccountToken.EmailVerify, ct))
+            DateTime expires;
+            string path;
+            if (row.Kind == MailKinds.PasswordReset)
+            {
+                // 重設信另外要 Email 已驗證、符合帳號資格（§7.1 第 3 點）；自助申請的還要政策開著，管理員寄的不看這項政策（Q20）
+                if (AccountService.PasswordReset.PasswordResetEligibility.Denial(user, demo) is { } denial)
+                    return await Close(MailOutboxStatus.Skipped, denial);
+                if (!SentByAdmin(row) && !await policies.BoolAsync(PolicyCatalog.AuthPasswordResetEnabled, null, ct))
+                    return await Close(MailOutboxStatus.Skipped, AccountService.PasswordReset.PasswordResetDenials.Disabled);
+                var minutes = await policies.IntAsync(PolicyCatalog.AuthPasswordResetLinkMinutes, null, ct);
+                validity = (AccountMailText.LinkMinutes, minutes);
+                expires = now.AddMinutes(minutes);
+                path = "/reset-password#t=";
+            }
+            else
+            {
+                var hours = await policies.IntAsync(PolicyCatalog.AuthEmailVerifyLinkHours, null, ct);
+                validity = (AccountMailText.LinkHours, hours);
+                expires = now.AddHours(hours);
+                path = "/verify-email#t=";
+            }
+
+            // 只作廢同一個 Email 的舊權杖：a 的舊驗證信重寄時不會作廢 b 的連結（§6.3 第 2 步）；用途字串與信件種類相同
+            foreach (var old in await tokens.ListUnusedTrackedAsync(user.UserId, row.Kind, ct))
                 if (string.Equals(old.Email, row.ToAddress, StringComparison.OrdinalIgnoreCase))
                 {
                     old.UsedUtc = now;
                     old.RevokedReason = AccountToken.Superseded;
                 }
-            linkHours = await policies.IntAsync(PolicyCatalog.AuthEmailVerifyLinkHours, null, ct);
             var secret = AccountLinkTokens.NewToken();
             tokens.Add(new AccountToken
             {
-                UserId = user.UserId, Purpose = AccountToken.EmailVerify, TokenHash = McpSecrets.Hash(secret), Email = row.ToAddress,
-                CreatedUtc = now, ExpiresUtc = now.AddHours(linkHours.Value),
+                UserId = user.UserId, Purpose = row.Kind, TokenHash = McpSecrets.Hash(secret), Email = row.ToAddress, CreatedUtc = now, ExpiresUtc = expires,
             });
             await uow.CommitAsync(ct);
             // 站台網址只用部署設定，不用 Host 標頭（§6.4）；Demo 沒設時寫站內相對路徑（§13.2）
-            link = (site.PublicUrl?.TrimEnd('/') ?? "") + "/verify-email#t=" + secret;
+            link = (site.PublicUrl?.TrimEnd('/') ?? "") + path + secret;
         }
 
         AlertMail composed;
-        try { composed = AccountMailComposer.Compose(row, siteName, link, linkHours, messages, context, system.BusinessOffset); }
+        try { composed = AccountMailComposer.Compose(row, siteName, link, validity, messages, context, system.BusinessOffset); }
         catch (Exception e) when (e is not OperationCanceledException)
         {
             // 單封組不出來（種類不認得、參數壞掉等）就地記 failed，不讓整個領取交易回滾、卡住後面的信（au1a 審查 S2）
@@ -199,6 +216,10 @@ public sealed class ClaimMailHandler(
     }
 
     private static ServiceResult Ok(MailClaimResult result) => ServiceResult.Success(result);
+
+    /// <summary>管理員寄的重設信（§7.5，<c>ParamsJson</c> 的 <c>by: admin</c>）。</summary>
+    private static bool SentByAdmin(MailOutbox row) =>
+        row.ParamsJson is { } json && JsonSerializer.Deserialize<Dictionary<string, string>>(json)?.GetValueOrDefault("by") == "admin";
 }
 
 /// <summary>帳號信連結權杖：43 個 base62 字元（≥ 256 位元，同 MCP 權杖的取樣方式）；資料庫只存 SHA-256。</summary>
@@ -315,7 +336,7 @@ public sealed class AccountMailDispatcher(IMailSender mailer, OpsInstance instan
 /// </summary>
 public static class AccountMailComposer
 {
-    public static AlertMail Compose(MailOutbox row, string? siteName, string? link, int? linkHours, Common.Localization.IMessageCatalog m,
+    public static AlertMail Compose(MailOutbox row, string? siteName, string? link, (string Key, int Value)? validity, Common.Localization.IMessageCatalog m,
         LocaleContext locale, TimeSpan businessOffset)
     {
         var p = row.ParamsJson is null ? new Dictionary<string, string>() : JsonSerializer.Deserialize<Dictionary<string, string>>(row.ParamsJson)!;
@@ -334,7 +355,7 @@ public static class AccountMailComposer
         if (link is not null)
         {
             body.AppendLine(link);
-            if (linkHours is { } hours) body.AppendLine(m.Get(locale, AccountMailText.LinkHours, hours));
+            if (validity is { } v) body.AppendLine(m.Get(locale, v.Key, v.Value));
         }
         body.AppendLine();
         if (row.UserId is not null) body.AppendLine(m.Get(locale, AccountMailText.Account, row.UserId));

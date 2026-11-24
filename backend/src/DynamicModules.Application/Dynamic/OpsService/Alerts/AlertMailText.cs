@@ -30,7 +30,8 @@ public static class AlertMailText
         TitlePrivilegeGranted = P + nameof(TitlePrivilegeGranted), TitlePrivilegeRevoked = P + nameof(TitlePrivilegeRevoked),
         TitleMcpWriteLoop = P + nameof(TitleMcpWriteLoop),
         // 帳號安全（帳號安全設計 §6.2、§8.10）
-        TitleAccountMail = P + nameof(TitleAccountMail), TitleAdminEmailChanged = P + nameof(TitleAdminEmailChanged);
+        TitleAccountMail = P + nameof(TitleAccountMail), TitleAdminEmailChanged = P + nameof(TitleAdminEmailChanged),
+        TitleAdminPasswordReset = P + nameof(TitleAdminPasswordReset);
 
     private static readonly Dictionary<string, (string Zh, string En, string Th, string Vi)> Table = new()
     {
@@ -84,6 +85,8 @@ public static class AlertMailText
         [TitleAccountMail] = ("帳號信寄不出去（{0}）", "Account emails cannot be sent ({0})", "ส่งอีเมลบัญชีไม่ได้ ({0})", "Không gửi được email tài khoản ({0})"),
         [TitleAdminEmailChanged] = ("系統管理員的帳號 Email 被另一位系統管理員變更", "A system administrator's account email was changed by another administrator",
             "อีเมลบัญชีของผู้ดูแลระบบถูกเปลี่ยนโดยผู้ดูแลระบบอีกคน", "Email tài khoản của một quản trị viên đã bị quản trị viên khác thay đổi"),
+        [TitleAdminPasswordReset] = ("系統管理員帳號用寄信連結重設了密碼", "A system administrator account reset its password with an emailed link",
+            "บัญชีผู้ดูแลระบบรีเซ็ตรหัสผ่านด้วยลิงก์ทางอีเมล", "Một tài khoản quản trị viên đã đặt lại mật khẩu bằng liên kết qua email"),
         [TitleChannel] = ("告警信寄不出去（{0}）", "Alert emails cannot be sent ({0})", "ส่งอีเมลแจ้งเตือนไม่ได้ ({0})", "Không gửi được email cảnh báo ({0})"),
         [TitleChannelCode] = ("，伺服器回應 {0}", ", server replied {0}", ", เซิร์ฟเวอร์ตอบ {0}", ", máy chủ trả lời {0}"),
         [TitleConfig] = ("規則「{0}」設定有問題：{1}", "Rule \"{0}\" has a setup problem: {1}", "กฎ \"{0}\" มีปัญหาการตั้งค่า: {1}",

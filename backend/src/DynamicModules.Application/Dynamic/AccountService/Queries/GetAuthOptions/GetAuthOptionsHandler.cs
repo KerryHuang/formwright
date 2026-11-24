@@ -9,7 +9,8 @@ using MediatR;
 namespace DynamicModules.Application.Dynamic.AccountService.Queries.GetAuthOptions;
 
 public class GetAuthOptionsHandler(
-    AuthSettings settings, IAccountRepository accounts, IDemoDataRunner demo, CachedSystemPolicy policies, LocaleRegistry registry)
+    AuthSettings settings, IAccountRepository accounts, IDemoDataRunner demo, CachedSystemPolicy policies, LocaleRegistry registry,
+    PasswordReset.PasswordResetAvailability passwordReset)
     : IRequestHandler<GetAuthOptionsRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(GetAuthOptionsRequest request, CancellationToken ct)
@@ -19,12 +20,15 @@ public class GetAuthOptionsHandler(
         // 登入前只給啟用語系，順序依已安裝語系
         var locales = registry.Locales.Where(l => enabled.Contains(l.Code))
             .Select(l => LocaleInfoResponse.Of(l, registry.UiHash(l.Code, defaultLocale))).ToList();
+        // 忘記密碼可不可用與密碼最短長度（帳號安全設計 §7.4、§7.6）：前端提示的數字從這裡取，不另寫一份
+        var reset = await passwordReset.StateAsync(ct);
+        var minLength = await PasswordReset.PasswordLength.MinAsync(policies, ct);
         if (!settings.DemoLoginEnabled)
-            return ServiceResult.Success(new AuthOptionsResponse(false, false, [], defaultLocale, enabled, locales));
+            return ServiceResult.Success(new AuthOptionsResponse(false, false, [], defaultLocale, enabled, locales, reset, minLength));
 
         var list = await accounts.ListDemoLoginAccountsAsync(ct);
         return ServiceResult.Success(new AuthOptionsResponse(
             true, demo.Current.State == DemoRunState.Running,
-            [.. list.Select(a => new DemoAccountResponse(a.UserId, a.DisplayName))], defaultLocale, enabled, locales));
+            [.. list.Select(a => new DemoAccountResponse(a.UserId, a.DisplayName))], defaultLocale, enabled, locales, reset, minLength));
     }
 }

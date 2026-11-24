@@ -80,16 +80,26 @@ public static class DemoPeople
     /// <summary>沒驗證 Email 的示範帳號（示範路徑：管理員改它的 Email、在寄送紀錄看信、開連結，帳號安全設計 §13.5）。</summary>
     public const string UnverifiedEmailUser = "floor02";
 
+    /// <summary>「雙因素示範」帳號（帳號安全設計 §13.1）：只由 <see cref="EnsureAccountSecurityAsync"/> 建立，不在 <see cref="Users"/>（不進群組與組織）。</summary>
+    public static readonly (string Id, string Name) MfaUser = (Application.Dynamic.DemoService.DemoAccounts.MfaUser, "雙因素示範");
+
     /// <summary>Demo 站的站台名稱（虛構，帳號安全設計 §13.1）。</summary>
     public const string DemoSiteName = "示範科技";
 
     /// <summary>
-    /// 示範帳號的虛構 Email（<c>&lt;帳號&gt;@example.com</c>，RFC 2606 保留網域）與站台名稱（帳號安全設計 §13.1）：
+    /// 示範帳號的虛構 Email（<c>&lt;帳號&gt;@example.com</c>，RFC 2606 保留網域）、<see cref="MfaUser"/> 與站台名稱（帳號安全設計 §13.1）：
     /// <see cref="UnverifiedEmailUser"/> 以外都算已驗證。只由 Demo 產生器呼叫，不放進 <see cref="EnsureAsync"/>（測試基底不受影響）。
     /// 已有 Email 的帳號與已設的站台名稱不覆寫；會自行 SaveChanges。
     /// </summary>
     public static async Task EnsureAccountSecurityAsync(DynamicDbContext db, DateTime nowUtc, CancellationToken ct = default)
     {
+        // 「雙因素示範」帳號（§13.1）：不加入任何群組（不改動既有群組成員數與提及候選）；au1b 先建帳號與已驗證 Email，
+        // 讓忘記密碼在 Demo 站有成功路徑（只限這個帳號，§13.2）；雙因素金鑰與復原碼由 au1c 補上
+        if (!await db.Set<AppUser>().AnyAsync(u => u.UserId == MfaUser.Id, ct))
+            db.Set<AppUser>().Add(new AppUser
+            {
+                UserId = MfaUser.Id, DisplayName = MfaUser.Name, IsDemoAccount = true, Email = $"{MfaUser.Id}@example.com", EmailVerifiedUtc = nowUtc,
+            });
         var ids = Users.Select(u => u.Id).ToList();
         foreach (var user in await db.Set<AppUser>().Where(u => ids.Contains(u.UserId) && u.Email == null).ToListAsync(ct))
         {

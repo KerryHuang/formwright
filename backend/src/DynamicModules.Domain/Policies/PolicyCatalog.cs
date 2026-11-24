@@ -479,6 +479,24 @@ public static class PolicyCatalog
     public static readonly PolicyDefinition AuthEmailVerifyLinkHours =
         new("auth.emailVerifyLinkHours", "auth", PolicyKind.Integer, PolicyScope.System, "24", 1, 168, Unit: "hours");
 
+    // au1b：寄信重設密碼（帳號安全設計 §7、§9）
+
+    /// <summary>登入頁可自助申請重設密碼（§7.4）；不影響管理員寄重設連結（Q20）。</summary>
+    public static readonly PolicyDefinition AuthPasswordResetEnabled =
+        new("auth.passwordResetEnabled", "auth", PolicyKind.Boolean, PolicyScope.System, "true");
+
+    /// <summary>重設密碼連結的時效（分鐘）；也是重設信最晚寄出的時間。只影響之後寄出的連結。</summary>
+    public static readonly PolicyDefinition AuthPasswordResetLinkMinutes =
+        new("auth.passwordResetLinkMinutes", "auth", PolicyKind.Integer, PolicyScope.System, "30", 10, 1440, Unit: "minutes");
+
+    /// <summary>同一個帳號輸入 1 小時內可申請重設密碼的次數（§7.3，au1-4）；不限制管理員寄重設連結。</summary>
+    public static readonly PolicyDefinition AuthPasswordResetMaxPerHour =
+        new("auth.passwordResetMaxPerHour", "auth", PolicyKind.Integer, PolicyScope.System, "3", 1, 20, Unit: "count");
+
+    /// <summary>密碼最短長度（§7.6，D25）；技術下限 8。調嚴不溯及既有密碼，下次改密碼才檢查。</summary>
+    public static readonly PolicyDefinition AuthPasswordMinLength =
+        new("auth.passwordMinLength", "auth", PolicyKind.Integer, PolicyScope.System, "8", 8, 128, Unit: "characters");
+
     /// <summary>帳號信寄送紀錄保留天數；<c>ops.upkeep</c> 只清終態（sent、failed、skipped、expired），同一次也清過期的帳號權杖與記住的裝置（§6.6）。</summary>
     public static readonly PolicyDefinition MailOutboxRetentionDays =
         new("mail.outboxRetentionDays", "ops", PolicyKind.Integer, PolicyScope.System, "30", 1, 365, Unit: "days");
@@ -529,7 +547,8 @@ public static class PolicyCatalog
          CheckMaxGroupsPerWrite, CheckMaxBackfillRecords,
          McpEnabled, McpAllowedGroups, McpTokenMaxLifetimeDays, McpTokenDefaultLifetimeDays, McpTokenMaxPerUser,
          McpCallsPerMinute, McpCallsPerDay, McpMaxRows, McpConfirmTtlSeconds,
-         AuthEmailVerifyLinkHours, MailOutboxRetentionDays];
+         AuthEmailVerifyLinkHours, MailOutboxRetentionDays,
+         AuthPasswordResetEnabled, AuthPasswordResetLinkMinutes, AuthPasswordResetMaxPerHour, AuthPasswordMinLength];
 
     public static PolicyDefinition? Find(string code) =>
         All.FirstOrDefault(d => string.Equals(d.Code, code, StringComparison.Ordinal));

@@ -1,15 +1,14 @@
 using DynamicModules.Application.Common;
-using DynamicModules.Application.Common.Behaviors;
-using DynamicModules.Application.Dynamic.AccountService.Commands.ChangePassword;
+using DynamicModules.Application.Dynamic.AccountService.PasswordReset;
+using DynamicModules.Application.Dynamic.PolicyService;
 using FluentValidation;
 
 namespace DynamicModules.Application.Dynamic.AccountService.Commands.ResetPassword;
 
 public class ResetPasswordValidator : AbstractValidator<ResetPasswordRequest>
 {
-    public ResetPasswordValidator()
+    public ResetPasswordValidator(CachedSystemPolicy system)
     {
-        RuleFor(x => x.Password).NotEmpty().WithText(MessageText.PasswordTooShort, ChangePasswordValidator.MinLength)
-            .MinimumLength(ChangePasswordValidator.MinLength).WithText(MessageText.PasswordTooShort, ChangePasswordValidator.MinLength);
+        RuleFor(x => x.Password).AtLeastPolicyMin(system, MessageText.PasswordTooShort);
     }
 }

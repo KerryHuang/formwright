@@ -285,12 +285,16 @@ public sealed class ResendMyEmailHandler(
 /// 查不到、過期、用過、用途不符就直接回 400，不排進全庫寫入佇列；權杖可用才送內層交易請求。
 /// 無效一律回同一個 400 <c>verifyLinkInvalid</c>，不分原因。
 /// </summary>
-public sealed record VerifyEmailRequest(string? Token) : IRequest<ServiceResult>;
+public sealed record VerifyEmailRequest(string? Token, string? ClientIp = null) : IRequest<ServiceResult>;
 
-public sealed class VerifyEmailHandler(IAccountTokenRepository tokens, ISender sender, TimeProvider time) : IRequestHandler<VerifyEmailRequest, ServiceResult>
+public sealed class VerifyEmailHandler(IAccountTokenRepository tokens, PasswordReset.AnonymousAccountThrottle throttle, ISender sender, TimeProvider time)
+    : IRequestHandler<VerifyEmailRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(VerifyEmailRequest r, CancellationToken ct)
     {
+        // 用權杖的匿名端點每 IP 15 分鐘 30 次（§7.3，au1b 補上；§24 技術類 8）
+        if (!throttle.TryToken(PasswordReset.AnonymousAccountThrottle.IpOf(r.ClientIp)))
+            return ServiceResult.TooManyRequests(MessageRef.Of(MessageText.ReauthThrottled), "tooManyAttempts");
         var token = (r.Token ?? "").Trim();
         if (token.Length is 0 or > 100) return EmailVerifyToken.Invalid();
         var hash = McpSecrets.Hash(token);

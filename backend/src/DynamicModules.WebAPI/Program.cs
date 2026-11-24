@@ -285,8 +285,12 @@ static async Task InitializeDatabaseAsync(WebApplication app, string? databaseDi
     // 全系統政策快照（營運時區等）在索引回填與 Demo 資料之前載入；讀不到時沿用部署出廠值，不擋啟動
     await app.Services.GetRequiredService<CachedSystemPolicy>().EnsureFreshAsync(CancellationToken.None);
     await SeedData.EnsureSeededAsync(db);
+    var systemPolicy = app.Services.GetRequiredService<CachedSystemPolicy>();
+    var passwordEffects = scope.ServiceProvider.GetRequiredService<DynamicModules.Application.Dynamic.AccountService.PasswordReset.PasswordChangeEffects>();
     await AdminBootstrap.EnsureAsync(db, scope.ServiceProvider.GetRequiredService<IPasswordService>(), app.Configuration,
-        app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(AdminBootstrap)));
+        app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(AdminBootstrap)),
+        int.Parse(systemPolicy.Get(DynamicModules.Domain.Policies.PolicyCatalog.AuthPasswordMinLength), System.Globalization.CultureInfo.InvariantCulture),
+        (admin, ct) => passwordEffects.ApplyAsync(admin, systemPolicy.DefaultLocale, ct));
     // 升級前的索引補上精確換算與截斷標記；版本達標就是空操作。完成前報表走記憶體路徑，結果仍正確
     if (await scope.ServiceProvider.GetRequiredService<IndexBackfillJob>().RunAsync(CancellationToken.None))
         app.Logger.LogInformation("索引回填完成（版本 {Version}）", RecordIndexer.BackfillVersion);
