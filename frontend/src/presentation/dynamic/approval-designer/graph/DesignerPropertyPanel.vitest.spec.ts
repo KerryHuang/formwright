@@ -118,6 +118,18 @@ describe('DesignerPropertyPanel', () => {
     w.unmount();
   });
 
+  it('leaving a field ends the typing step: typing in it again is another undo step (U60)', async () => {
+    const { w, designer } = mountPanel({ kind: 'node', id: 'a' });
+    await flushPromises();
+    const fields = w.findComponent(ApprovalStageFields);
+    fields.vm.$emit('patch', { name: { 'zh-TW': '財' } });
+    await w.get('[data-testid="de-panel"] .scroll').trigger('focusout');
+    fields.vm.$emit('patch', { name: { 'zh-TW': '財務部' } });
+    designer.undo();
+    expect(nodeOf(designer, 'a').name).toEqual({ 'zh-TW': '財' });
+    w.unmount();
+  });
+
   it('a single-person source forces any, and the chosen mode comes back with a group (as in the stage editor)', async () => {
     const { w, designer } = mountPanel({ kind: 'node', id: 'a' });
     await flushPromises();

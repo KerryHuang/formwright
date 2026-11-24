@@ -8,7 +8,7 @@ import { edgeBendX, layoutLeftToRight, NODE_H, NODE_W } from 'src/domain/dynamic
 import { mapGraphIssues } from 'src/domain/dynamic/approval-graph-errors';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import type { TrialOverlay } from './designer-trial';
-import { approvalNames, conditionLabels, initialState, newFlowState, sourceOf, toVueFlow, FLOW_SELECTION, type GraphContext } from './designer-graph';
+import { addable, addedNode, approvalNames, conditionLabels, dropPosition, edgeAt, freeSpot, initialState, newFlowState, sourceOf, toVueFlow, FLOW_SELECTION, type GraphContext } from './designer-graph';
 
 const msg = (k: string, p?: Record<string, unknown>) => {
   const v = k.split('.').reduce<unknown>((o, s) => (o as Record<string, unknown> | undefined)?.[s], zhTW as unknown);
@@ -75,6 +75,8 @@ describe('designer-graph', () => {
     expect(a.data!.summary).toContain('第 2 層');
     expect(a.data!.summary).toContain('會簽');
     expect(a.draggable).toBe(false);
+    expect(a.data!.editable).toBe(false); // 唯讀、手機：沒有連線把手
+    expect(toVueFlow(initialState(def(), null), ctx(), { draggable: true }).nodes[0].data!.editable).toBe(true);
     expect(nodes.find((n) => n.id === 'c')!.data!.summary).toBe('2 條出線');
     expect(nodes.find((n) => n.id === 's')!.data!.label).toBe('開始');
   });
@@ -160,5 +162,69 @@ describe('新節點名稱的語系＝已安裝且已載入文字的語系（i4b 
     expect(hasUiMessages(i18n, 'ja')).toBe(true);
     expect(approvalNames(2).ja).toBe('承認 2');
     expect(conditionLabels(3).ja).toBe('条件 3');
+  });
+});
+
+describe('structure editing helpers (fg3e)', () => {
+  const lim = (over: Partial<Parameters<typeof addable>[1]> = {}) => ({ ready: true, maxStages: 5, maxBranches: 5, ...over });
+
+  it('addable: before the effective values are back only the end node can be added', () => {
+    expect(addable(def(), lim({ ready: false }), 0)).toEqual({ approval: false, condition: false, fork: false, end: true });
+  });
+
+  it('addable: counts the approval nodes each kind brings (condition one, fork two) against the policy', () => {
+    // def() 有 1 個簽核節點
+    expect(addable(def(), lim({ maxStages: 3 }), 0)).toEqual({ approval: true, condition: true, fork: true, end: true });
+    expect(addable(def(), lim({ maxStages: 2 }), 0)).toEqual({ approval: true, condition: true, fork: false, end: true });
+    expect(addable(def(), lim({ maxStages: 1 }), 0)).toEqual({ approval: false, condition: false, fork: false, end: true });
+  });
+
+  it('addable: a stricter policy only limits what comes after — the published count is the floor', () => {
+    expect(addable(def(), lim({ maxStages: 1 }), 3)).toMatchObject({ approval: true, fork: true });
+  });
+
+  it('addable: a policy that cannot be read does not block; a branch policy under 2 blocks the fork', () => {
+    expect(addable(def(), lim({ maxStages: undefined, maxBranches: undefined }), 0)).toMatchObject({ approval: true, fork: true });
+    expect(addable(def(), lim({ maxBranches: 1 }), 0)).toMatchObject({ approval: true, fork: false });
+  });
+
+  it('dropPosition centres the node on the pointer and snaps to the 8px grid', () => {
+    const p = dropPosition({ x: 300, y: 203 });
+    expect(p.x % 8).toBe(0);
+    expect(p.y % 8).toBe(0);
+    expect(Math.abs(p.x + NODE_W / 2 - 300)).toBeLessThanOrEqual(4);
+    expect(Math.abs(p.y + NODE_H / 2 - 203)).toBeLessThanOrEqual(4);
+  });
+
+  it('freeSpot moves down past nodes already at the centre', () => {
+    const at = { x: 0, y: 0 };
+    expect(freeSpot({}, at)).toEqual(at);
+    const p = freeSpot({ a: { x: 0, y: 0 }, b: { x: 0, y: NODE_H + 16 } }, at);
+    expect(p.y).toBeGreaterThanOrEqual(2 * (NODE_H + 16));
+    expect(p.y % 8).toBe(0);
+  });
+
+  it('edgeAt finds the edge under the pointer along its three segments, and nothing inside a node or far away', () => {
+    const nodes = [{ id: 'a', position: { x: 0, y: 0 } }, { id: 'b', position: { x: 400, y: 200 } }];
+    const edges = [{ id: 'ab', source: 'a', target: 'b', data: { bendX: 300 } }];
+    const midY = NODE_H / 2;
+    expect(edgeAt(nodes, edges, { x: 250, y: midY + 5 })).toBe('ab'); // 起點那段
+    expect(edgeAt(nodes, edges, { x: 305, y: 120 })).toBe('ab'); // 轉折的直段
+    expect(edgeAt(nodes, edges, { x: 350, y: 200 + midY })).toBe('ab'); // 終點那段
+    expect(edgeAt(nodes, edges, { x: 250, y: midY + 40 })).toBeNull();
+    expect(edgeAt(nodes, edges, { x: 10, y: midY })).toBeNull(); // 在節點框內
+  });
+
+  it('edgeAt picks the nearest of two close edges', () => {
+    const nodes = [{ id: 'a', position: { x: 0, y: 0 } }, { id: 'b', position: { x: 400, y: 0 } }, { id: 'c', position: { x: 400, y: 30 } }];
+    const edges = [{ id: 'ab', source: 'a', target: 'b', data: { bendX: 300 } }, { id: 'ac', source: 'a', target: 'c', data: { bendX: 300 } }];
+    expect(edgeAt(nodes, edges, { x: 350, y: 30 + NODE_H / 2 - 2 })).toBe('ac');
+  });
+
+  it('addedNode returns the first node that was not there before', () => {
+    const before = def();
+    const after = { ...before, nodes: [...before.nodes, { id: 'fork-1', kind: 'fork' as const }, { id: 'approval-1', kind: 'approval' as const }] };
+    expect(addedNode(before, after)).toBe('fork-1');
+    expect(addedNode(before, before)).toBeNull();
   });
 });

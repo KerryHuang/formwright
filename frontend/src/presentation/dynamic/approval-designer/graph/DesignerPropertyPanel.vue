@@ -35,7 +35,7 @@ const nodeErrors = computed(() => (node.value ? fieldErrors(props.designer.issue
       <q-btn v-if="closable" flat dense round icon="close" :aria-label="t('approval.designer.graph.close')" data-testid="de-panel-close" @click="emit('close')" />
     </div>
     <q-separator />
-    <div class="col scroll q-pa-sm" :style="{ minHeight: 0 }">
+    <div class="col scroll q-pa-sm" :style="{ minHeight: 0 }" @focusout="designer.cut()">
       <fieldset class="de-fieldset" :disabled="!designer.canEdit.value">
         <div v-if="nodeErrors" class="text-negative q-mb-sm">{{ nodeErrors }}</div>
         <FlowPropsPanel v-if="selection.kind === 'flow'" :designer="designer" :module="module" :workflow="workflow" />
