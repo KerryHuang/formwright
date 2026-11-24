@@ -1,3 +1,4 @@
+using DynamicModules.Application.Dynamic.MailService;
 using System.Security.Cryptography;
 using DynamicModules.Application.Dynamic.OpsService.Alerts;
 using DynamicModules.Domain.Entities.Dynamic;
@@ -13,7 +14,7 @@ namespace DynamicModules.WebAPI.Ops;
 /// 不退回明文）、<c>sslOnConnect</c> 直接 TLS；憑證一律驗證（不設略過的回呼，走主機的信任區）；不限制目的位址（信任邊界是系統管理員）；
 /// DNS 由 MailKit 每次連線時解析。失敗只回階段與 SMTP 回應碼，例外全文只進 log。
 /// </summary>
-public sealed class MailKitAlertMailSender(ILogger<MailKitAlertMailSender> logger) : IAlertMailSender
+public sealed class MailKitMailSender(ILogger<MailKitMailSender> logger) : IMailSender
 {
     public async Task<MailSendResult> SendAsync(SmtpSettings settings, string? password, AlertMail mail, CancellationToken ct)
     {

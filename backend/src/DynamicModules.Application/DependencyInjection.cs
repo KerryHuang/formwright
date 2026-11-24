@@ -217,6 +217,14 @@ public static class DependencyInjection
         services.AddSingleton<Dynamic.OpsService.Alerts.AlertDispatcher>();
         services.AddSingleton<Dynamic.OpsService.Alerts.SmtpTestGate>();
         services.TryAddSingleton(Dynamic.OpsService.Alerts.AlertMailOptions.None);
+        // 核心寄信佇列與帳號 Email（帳號安全設計 §6）：寄送服務（hosted service）在 WebAPI，測試直接呼叫 AccountMailDispatcher 跑一輪
+        services.AddSingleton<Dynamic.MailService.MailDeliverySignal>();
+        services.AddSingleton<Dynamic.MailService.AccountMailDispatcher>();
+        services.AddScoped<Dynamic.MailService.AccountMailWriter>();
+        services.AddScoped<Dynamic.AccountService.Email.AccountEmailChanger>();
+        services.AddScoped<Dynamic.AccountService.Email.AccountMailAvailability>();
+        services.AddSingleton<Dynamic.AccountService.Email.EmailResendGate>();
+        services.AddScoped<Common.Security.IReauthVerifier, Common.Security.ReauthVerifier>();
         services.AddScoped<Dynamic.NotificationService.INotificationReminderSource, Dynamic.ApprovalService.ApprovalReminderSource>();
         services.AddScoped<Dynamic.TaskRuleService.TaskRuleValidator>();
         services.AddScoped<Dynamic.TaskRuleService.TaskRuleEditor>();

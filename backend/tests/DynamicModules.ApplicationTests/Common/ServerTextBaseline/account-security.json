@@ -1,0 +1,188 @@
+{
+  "accountMail.intro.twoFactorDisabled": {
+    "zh-TW": "這個帳號的雙因素驗證已關閉。",
+    "en-US": "Two-factor authentication was turned off for this account.",
+    "th": "การยืนยันตัวตนสองขั้นตอนของบัญชีนี้ถูกปิดแล้ว",
+    "vi": "Xác thực hai yếu tố của tài khoản này đã bị tắt."
+  },
+  "accountMail.intro.passwordReset": {
+    "zh-TW": "有人申請重設這個帳號的密碼。要重設請開啟下面的連結：",
+    "en-US": "Someone asked to reset the password for this account. To reset it, open the link below:",
+    "th": "มีผู้ขอรีเซ็ตรหัสผ่านของบัญชีนี้ หากต้องการรีเซ็ต โปรดเปิดลิงก์ด้านล่าง:",
+    "vi": "Có người yêu cầu đặt lại mật khẩu cho tài khoản này. Để đặt lại, hãy mở liên kết bên dưới:"
+  },
+  "accountMail.Time": {
+    "zh-TW": "時間：{0}",
+    "en-US": "Time: {0}",
+    "th": "เวลา: {0}",
+    "vi": "Thời gian: {0}"
+  },
+  "accountMail.ByAdmin": {
+    "zh-TW": "由系統管理員變更",
+    "en-US": "changed by a system administrator",
+    "th": "เปลี่ยนโดยผู้ดูแลระบบ",
+    "vi": "do quản trị viên hệ thống thay đổi"
+  },
+  "accountMail.subject.passwordReset": {
+    "zh-TW": "重設密碼",
+    "en-US": "Reset your password",
+    "th": "รีเซ็ตรหัสผ่าน",
+    "vi": "Đặt lại mật khẩu"
+  },
+  "accountMail.Account": {
+    "zh-TW": "帳號：{0}",
+    "en-US": "Account: {0}",
+    "th": "บัญชี: {0}",
+    "vi": "Tài khoản: {0}"
+  },
+  "accountMail.subject.twoFactorDisabled": {
+    "zh-TW": "你的雙因素驗證已關閉",
+    "en-US": "Your two-factor authentication was turned off",
+    "th": "การยืนยันตัวตนสองขั้นตอนของคุณถูกปิดแล้ว",
+    "vi": "Xác thực hai yếu tố của bạn đã bị tắt"
+  },
+  "accountMail.subject.twoFactorFailures": {
+    "zh-TW": "你的帳號驗證碼錯誤次數過多",
+    "en-US": "Too many wrong verification codes on your account",
+    "th": "รหัสยืนยันของบัญชีคุณผิดหลายครั้งเกินไป",
+    "vi": "Tài khoản của bạn nhập sai mã xác minh quá nhiều lần"
+  },
+  "ReauthThrottled": {
+    "zh-TW": "嘗試次數過多，請稍後再試",
+    "en-US": "Too many attempts. Try again later",
+    "th": "พยายามหลายครั้งเกินไป โปรดลองใหม่ภายหลัง",
+    "vi": "Thử quá nhiều lần, vui lòng thử lại sau"
+  },
+  "accountMail.intro.recoveryCodeUsed": {
+    "zh-TW": "有人用一組復原碼登入了這個帳號，這組復原碼已不能再用。",
+    "en-US": "Someone signed in to this account with a recovery code. That code can no longer be used.",
+    "th": "มีผู้เข้าสู่ระบบบัญชีนี้ด้วยรหัสกู้คืน รหัสนั้นใช้ไม่ได้อีกแล้ว",
+    "vi": "Có người đăng nhập vào tài khoản này bằng một mã khôi phục; mã đó không dùng được nữa."
+  },
+  "EmailNotPending": {
+    "zh-TW": "沒有等待驗證的 Email",
+    "en-US": "There is no email waiting to be verified",
+    "th": "ไม่มีอีเมลที่รอการยืนยัน",
+    "vi": "Không có email nào đang chờ xác minh"
+  },
+  "accountMail.intro.emailVerify": {
+    "zh-TW": "請開啟下面的連結驗證這個 Email。驗證之後，重設密碼與安全通知才會寄到這裡：",
+    "en-US": "Open the link below to verify this email. Password resets and security notices are sent here only after it is verified:",
+    "th": "โปรดเปิดลิงก์ด้านล่างเพื่อยืนยันอีเมลนี้ อีเมลรีเซ็ตรหัสผ่านและการแจ้งเตือนความปลอดภัยจะส่งมาที่นี่หลังยืนยันแล้วเท่านั้น:",
+    "vi": "Mở liên kết bên dưới để xác minh email này. Chỉ sau khi xác minh, thư đặt lại mật khẩu và thông báo bảo mật mới được gửi đến đây:"
+  },
+  "EmailVerifyLinkInvalid": {
+    "zh-TW": "連結已失效或已使用過",
+    "en-US": "The link has expired or has already been used",
+    "th": "ลิงก์หมดอายุหรือถูกใช้ไปแล้ว",
+    "vi": "Liên kết đã hết hạn hoặc đã được sử dụng"
+  },
+  "accountMail.SubjectPrefix": {
+    "zh-TW": "[{0}] {1}",
+    "en-US": "[{0}] {1}",
+    "th": "[{0}] {1}",
+    "vi": "[{0}] {1}"
+  },
+  "accountMail.intro.twoFactorEnabled": {
+    "zh-TW": "這個帳號啟用了雙因素驗證，之後登入要輸入驗證器 App 的驗證碼。",
+    "en-US": "Two-factor authentication was turned on for this account. Signing in now requires a code from an authenticator app.",
+    "th": "บัญชีนี้เปิดใช้การยืนยันตัวตนสองขั้นตอนแล้ว การเข้าสู่ระบบต่อจากนี้ต้องใช้รหัสจากแอปยืนยันตัวตน",
+    "vi": "Tài khoản này đã bật xác thực hai yếu tố; từ nay đăng nhập cần mã từ ứng dụng xác thực."
+  },
+  "accountMail.BySelf": {
+    "zh-TW": "由你本人變更",
+    "en-US": "changed by you",
+    "th": "เปลี่ยนโดยคุณเอง",
+    "vi": "do chính bạn thay đổi"
+  },
+  "accountMail.intro.emailChanged": {
+    "zh-TW": "這個帳號的 Email 已改成其他地址（{0}），之後的帳號信不會再寄到這裡。",
+    "en-US": "The email for this account was changed to another address ({0}). Account emails will no longer be sent here.",
+    "th": "อีเมลของบัญชีนี้ถูกเปลี่ยนเป็นที่อยู่อื่นแล้ว ({0}) อีเมลบัญชีต่อจากนี้จะไม่ส่งมาที่นี่อีก",
+    "vi": "Email của tài khoản này đã được đổi sang địa chỉ khác ({0}). Thư tài khoản sẽ không còn gửi đến đây nữa."
+  },
+  "accountMail.LinkHours": {
+    "zh-TW": "連結 {0} 小時內有效，只能使用一次。",
+    "en-US": "The link is valid for {0} hours and can be used only once.",
+    "th": "ลิงก์ใช้ได้ภายใน {0} ชั่วโมงและใช้ได้เพียงครั้งเดียว",
+    "vi": "Liên kết có hiệu lực trong {0} giờ và chỉ dùng được một lần."
+  },
+  "accountMail.subject.twoFactorEnabled": {
+    "zh-TW": "你啟用了雙因素驗證",
+    "en-US": "Two-factor authentication was turned on",
+    "th": "คุณเปิดใช้การยืนยันตัวตนสองขั้นตอนแล้ว",
+    "vi": "Bạn đã bật xác thực hai yếu tố"
+  },
+  "accountMail.subject.passwordChanged": {
+    "zh-TW": "你的密碼已變更",
+    "en-US": "Your password was changed",
+    "th": "รหัสผ่านของคุณถูกเปลี่ยนแล้ว",
+    "vi": "Mật khẩu của bạn đã được thay đổi"
+  },
+  "accountMail.NotYou": {
+    "zh-TW": "如果不是你本人操作，請聯絡系統管理員。",
+    "en-US": "If this was not you, contact your system administrator.",
+    "th": "หากไม่ใช่คุณเป็นผู้ดำเนินการ โปรดติดต่อผู้ดูแลระบบ",
+    "vi": "Nếu không phải bạn thực hiện, vui lòng liên hệ quản trị viên hệ thống."
+  },
+  "ReauthPasswordRequired": {
+    "zh-TW": "請輸入目前的密碼",
+    "en-US": "Enter your current password",
+    "th": "โปรดกรอกรหัสผ่านปัจจุบัน",
+    "vi": "Vui lòng nhập mật khẩu hiện tại"
+  },
+  "ReauthPasswordWrong": {
+    "zh-TW": "目前的密碼不正確",
+    "en-US": "The current password is incorrect",
+    "th": "รหัสผ่านปัจจุบันไม่ถูกต้อง",
+    "vi": "Mật khẩu hiện tại không đúng"
+  },
+  "EmailResendTooSoon": {
+    "zh-TW": "驗證信剛寄過，請 {0} 秒後再試",
+    "en-US": "A verification email was just sent. Try again in {0} seconds",
+    "th": "เพิ่งส่งอีเมลยืนยันไป โปรดลองใหม่ใน {0} วินาที",
+    "vi": "Vừa gửi email xác minh, vui lòng thử lại sau {0} giây"
+  },
+  "accountMail.subject.recoveryCodeUsed": {
+    "zh-TW": "有人用復原碼登入你的帳號",
+    "en-US": "Someone signed in to your account with a recovery code",
+    "th": "มีผู้เข้าสู่ระบบบัญชีของคุณด้วยรหัสกู้คืน",
+    "vi": "Có người đăng nhập vào tài khoản của bạn bằng mã khôi phục"
+  },
+  "accountMail.LinkMinutes": {
+    "zh-TW": "連結 {0} 分鐘內有效，只能使用一次。",
+    "en-US": "The link is valid for {0} minutes and can be used only once.",
+    "th": "ลิงก์ใช้ได้ภายใน {0} นาทีและใช้ได้เพียงครั้งเดียว",
+    "vi": "Liên kết có hiệu lực trong {0} phút và chỉ dùng được một lần."
+  },
+  "accountMail.intro.passwordChanged": {
+    "zh-TW": "這個帳號的密碼已變更。",
+    "en-US": "The password for this account was changed.",
+    "th": "รหัสผ่านของบัญชีนี้ถูกเปลี่ยนแล้ว",
+    "vi": "Mật khẩu của tài khoản này đã được thay đổi."
+  },
+  "accountMail.subject.emailChanged": {
+    "zh-TW": "你的帳號 Email 已變更",
+    "en-US": "Your account email was changed",
+    "th": "อีเมลบัญชีของคุณถูกเปลี่ยนแล้ว",
+    "vi": "Email tài khoản của bạn đã được thay đổi"
+  },
+  "accountMail.Header": {
+    "zh-TW": "{0} 帳號通知",
+    "en-US": "{0} account notice",
+    "th": "การแจ้งเตือนบัญชี {0}",
+    "vi": "Thông báo tài khoản {0}"
+  },
+  "accountMail.intro.twoFactorFailures": {
+    "zh-TW": "有人輸入了這個帳號的正確密碼，但驗證碼錯誤多次；驗證碼輸入已暫停 {0} 分鐘。",
+    "en-US": "Someone entered the correct password for this account but the wrong verification code many times; code entry is paused for {0} minutes.",
+    "th": "มีผู้กรอกรหัสผ่านของบัญชีนี้ถูกต้อง แต่กรอกรหัสยืนยันผิดหลายครั้ง การกรอกรหัสยืนยันถูกระงับ {0} นาที",
+    "vi": "Có người nhập đúng mật khẩu của tài khoản này nhưng nhập sai mã xác minh nhiều lần; việc nhập mã bị tạm dừng {0} phút."
+  },
+  "accountMail.subject.emailVerify": {
+    "zh-TW": "驗證你的 Email",
+    "en-US": "Verify your email",
+    "th": "ยืนยันอีเมลของคุณ",
+    "vi": "Xác minh email của bạn"
+  }
+}

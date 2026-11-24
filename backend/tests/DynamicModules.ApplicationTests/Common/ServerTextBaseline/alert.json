@@ -448,5 +448,17 @@
     "en-US": "Still not handled; reminder",
     "th": "ยังไม่ได้จัดการ แจ้งเตือนอีกครั้ง",
     "vi": "Vẫn chưa xử lý, nhắc lại"
+  },
+  "alert.TitleAccountMail": {
+    "zh-TW": "帳號信寄不出去（{0}）",
+    "en-US": "Account emails cannot be sent ({0})",
+    "th": "ส่งอีเมลบัญชีไม่ได้ ({0})",
+    "vi": "Không gửi được email tài khoản ({0})"
+  },
+  "alert.TitleAdminEmailChanged": {
+    "zh-TW": "系統管理員的帳號 Email 被另一位系統管理員變更",
+    "en-US": "A system administrator's account email was changed by another administrator",
+    "th": "อีเมลบัญชีของผู้ดูแลระบบถูกเปลี่ยนโดยผู้ดูแลระบบอีกคน",
+    "vi": "Email tài khoản của một quản trị viên đã bị quản trị viên khác thay đổi"
   }
 }

@@ -1,3 +1,4 @@
+using DynamicModules.Application.Dynamic.MailService;
 using System.Collections.Concurrent;
 using System.Data.Common;
 using System.Net;
@@ -27,8 +28,8 @@ internal static class AlertKit
     /// <summary>SMTP 換成假寄送器（不連外網、不寄真信）。</summary>
     public static void UseFakeMail(IServiceCollection s, FakeMailSender sender)
     {
-        s.RemoveAll<IAlertMailSender>();
-        s.AddSingleton<IAlertMailSender>(sender);
+        s.RemoveAll<IMailSender>();
+        s.AddSingleton<IMailSender>(sender);
     }
 
     public static TestApp App(FakeMailSender sender, bool noLock = false) =>
@@ -118,7 +119,7 @@ internal static class AlertKit
 }
 
 /// <summary>假的 SMTP 寄送器：記下每次寄送（含失敗）；<see cref="Result"/> 決定結果，預設成功。</summary>
-internal sealed class FakeMailSender : IAlertMailSender
+internal sealed class FakeMailSender : IMailSender
 {
     public sealed record Call(SmtpSettings Settings, string? Password, AlertMail Mail, MailSendResult Result);
 

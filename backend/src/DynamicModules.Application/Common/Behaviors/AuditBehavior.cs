@@ -39,6 +39,8 @@ public class AuditBehavior<TReq, TRes>(AuditContext context, IAuditLog audit, IU
                 await services.GetRequiredService<SecurityIncidents>().AdminChangedAsync(row, granted, ct);
             if (context.PrivilegeChanged is { } gained)
                 await services.GetRequiredService<SecurityIncidents>().PrivilegeChangedAsync(row, gained, ct);
+            foreach (var securityEvent in context.SecurityEvents)
+                await services.GetRequiredService<SecurityIncidents>().AccountEventAsync(row, securityEvent, ct);
             return response;
         }
         finally

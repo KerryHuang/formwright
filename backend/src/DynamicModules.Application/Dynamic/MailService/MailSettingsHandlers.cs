@@ -119,7 +119,7 @@ public sealed class UpdateMailSettingsHandler(
 public sealed record SendMailSettingsTestRequest : IRequest<ServiceResult>, ISystemAdminRequest;
 
 public sealed class SendMailSettingsTestHandler(
-    IMailSettingsRepository settings, IAlertSecretProtector protector, IAlertMailSender mailer, SmtpTestGate gate, AuthSettings auth,
+    IMailSettingsRepository settings, IAlertSecretProtector protector, IMailSender mailer, SmtpTestGate gate, AuthSettings auth,
     ICurrentUser user, ICurrentLocale locale, IAuditLog audit, TimeProvider time, LocaleRegistry registry, CachedSystemPolicy cache,
     Common.Localization.IMessageCatalog messages)
     : IRequestHandler<SendMailSettingsTestRequest, ServiceResult>

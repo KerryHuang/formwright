@@ -22,6 +22,11 @@ public sealed class AuditContext
     /// <summary>這次變更讓有人取得（true）或只有收回（false）設計器或權限設定；非 null 時開 privilege.changed（權限軸設計 §9）。</summary>
     public bool? PrivilegeChanged { get; private set; }
 
+    /// <summary>這次變更要開的帳號安全事件代碼（登記在 <c>SecurityIncidents.AccountEventTitles</c>，帳號安全設計 §8.10）。</summary>
+    public IReadOnlyList<string> SecurityEvents => _securityEvents;
+
+    private readonly List<string> _securityEvents = [];
+
     private bool Outermost => Depth <= 1;
 
     /// <summary>換掉這次的動作代碼（只在最外層生效）；代碼要登記在 <see cref="AuditActions"/>，沒登記的由 <see cref="Behaviors.AuditBehavior{TReq,TRes}"/> 丟例外。</summary>
@@ -62,8 +67,15 @@ public sealed class AuditContext
         if (Outermost) PrivilegeChanged = granted;
     }
 
+    /// <summary>handler 標記要開的帳號安全事件；<see cref="Behaviors.AuditBehavior{TReq,TRes}"/> 寫完稽核列後在同一交易開事件。</summary>
+    public void MarkSecurityEvent(string code)
+    {
+        if (Outermost && !_securityEvents.Contains(code)) _securityEvents.Add(code);
+    }
+
     internal void Reset()
     {
+        _securityEvents.Clear();
         ActionCode = null;
         AdminChanged = null;
         PrivilegeChanged = null;

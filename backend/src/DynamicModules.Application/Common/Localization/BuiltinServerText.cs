@@ -19,7 +19,9 @@ public static class BuiltinServerText
     private static FrozenDictionary<string, (string Zh, string En, string Th, string Vi)> Build()
     {
         var all = new Dictionary<string, (string Zh, string En, string Th, string Vi)>(StringComparer.Ordinal);
-        foreach (var (key, texts) in MessageText.Entries.Concat(ReportText.Entries).Concat(AlertMailText.Entries)) all.Add(key, texts);
+        foreach (var (key, texts) in MessageText.Entries.Concat(ReportText.Entries).Concat(AlertMailText.Entries)
+                     .Concat(Dynamic.MailService.AccountMailText.Entries))
+            all.Add(key, texts);
         return all.ToFrozenDictionary(StringComparer.Ordinal);
     }
 

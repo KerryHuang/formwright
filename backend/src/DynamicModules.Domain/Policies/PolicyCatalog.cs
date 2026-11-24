@@ -473,6 +473,16 @@ public static class PolicyCatalog
     public static readonly PolicyDefinition McpConfirmTtlSeconds =
         new("mcp.confirmTtlSeconds", "mcp", PolicyKind.Integer, PolicyScope.System, "300", 60, 1800, Unit: "seconds");
 
+    // au1a：帳號安全（帳號安全設計 §9）。全部只限全系統；分類 auth 的其餘項目由 au1b、au1c 加。
+
+    /// <summary>Email 驗證連結的時效（小時）；只影響之後寄出的連結。</summary>
+    public static readonly PolicyDefinition AuthEmailVerifyLinkHours =
+        new("auth.emailVerifyLinkHours", "auth", PolicyKind.Integer, PolicyScope.System, "24", 1, 168, Unit: "hours");
+
+    /// <summary>帳號信寄送紀錄保留天數；<c>ops.upkeep</c> 只清終態（sent、failed、skipped、expired），同一次也清過期的帳號權杖與記住的裝置（§6.6）。</summary>
+    public static readonly PolicyDefinition MailOutboxRetentionDays =
+        new("mail.outboxRetentionDays", "ops", PolicyKind.Integer, PolicyScope.System, "30", 1, 365, Unit: "days");
+
     public static DayOfWeek WeekStartOf(string choice) => Enum.Parse<DayOfWeek>(choice, ignoreCase: true);
 
     /// <summary><c>+05:45</c> → 5 小時 45 分、<c>-03:30</c> → 負 3 小時 30 分；只收 <see cref="UtcOffsets"/> 的標準寫法。</summary>
@@ -518,7 +528,8 @@ public static class PolicyCatalog
          MaintenanceIdempotencyRetentionDays, MaintenanceOrphanSweepGraceMinutes, CheckScanMaxViolations, CheckScanMaxGroups,
          CheckMaxGroupsPerWrite, CheckMaxBackfillRecords,
          McpEnabled, McpAllowedGroups, McpTokenMaxLifetimeDays, McpTokenDefaultLifetimeDays, McpTokenMaxPerUser,
-         McpCallsPerMinute, McpCallsPerDay, McpMaxRows, McpConfirmTtlSeconds];
+         McpCallsPerMinute, McpCallsPerDay, McpMaxRows, McpConfirmTtlSeconds,
+         AuthEmailVerifyLinkHours, MailOutboxRetentionDays];
 
     public static PolicyDefinition? Find(string code) =>
         All.FirstOrDefault(d => string.Equals(d.Code, code, StringComparison.Ordinal));

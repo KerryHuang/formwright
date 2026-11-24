@@ -159,6 +159,8 @@ public class TestApp : WebApplicationFactory<Program>
         builder.UseSetting("Ops:Scheduler:Enabled", "false");
         // 看門狗的背景迴圈同理不跑；收件匣 flush 不看這個開關，在下面拿掉它的 hosted service。維運測試直接呼叫 OpsWatchdog.TickAsync、IncidentInboxDrain.FlushAsync
         builder.UseSetting("Ops:Watchdog:Enabled", "false");
+        // 帳號信寄送服務（hosted service）同理不跑；寄信測試直接呼叫 AccountMailDispatcher 跑一輪，要測即時喚醒的在 Settings 打開
+        builder.UseSetting("Mail:Delivery:Enabled", "false");
         foreach (var (key, value) in Settings) builder.UseSetting(key, value);
         // 空字串覆蓋 appsettings.Development.json 的開發用密碼，代表「沒設」
         builder.UseSetting("Auth:InitialAdminPassword", InitialAdminPassword ?? "");

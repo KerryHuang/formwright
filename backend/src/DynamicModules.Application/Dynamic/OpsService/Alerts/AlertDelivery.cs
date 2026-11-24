@@ -1,3 +1,4 @@
+using DynamicModules.Application.Dynamic.MailService;
 using DynamicModules.Application.Common;
 using DynamicModules.Application.Dynamic.OpsService.Incidents;
 using DynamicModules.Application.Dynamic.OpsService.Scheduling;
@@ -151,7 +152,7 @@ public sealed class CompleteAlertHandler(
 /// 寄送佇列的寄送者（<c>ops.monitor</c> 每輪先跑它，§17.2.8）：一封一封「領取 → 交易外寄 SMTP → 記結果」，
 /// 寄 SMTP 的那一步不在任何交易裡（不准持全庫寫入鎖等網路）；單封逾時 30 秒。密碼在寄送時才解，解不開當設定不完整，直接標失敗並開通道失敗事件。
 /// </summary>
-public sealed class AlertDispatcher(IAlertMailSender mailer, IAlertSecretProtector protector, OpsInstance instance, TimeProvider time,
+public sealed class AlertDispatcher(IMailSender mailer, IAlertSecretProtector protector, OpsInstance instance, TimeProvider time,
     ILogger<AlertDispatcher> logger)
 {
     /// <summary>連續被別人領走幾次就停這一輪（下一輪再來）。</summary>

@@ -24,6 +24,32 @@ public class SecurityIncidents(IncidentRecorder recorder, IOpsEnvironment env)
         Link = $"/system/audit?id={audit.Id}",
     }, ct);
 
+    /// <summary>
+    /// 帳號安全的安全事件代碼登記處（帳號安全設計 §8.10）：每個代碼對一個事件標題；寫法照 admin.changed（每次發生都通知站內收件人，同指紋聚合累加次數）。
+    /// au1a 只有 <see cref="AdminEmailChangedCode"/>；au1b、au1c 的代碼加在這裡。沒登記的代碼丟例外。
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string> AccountEventTitles = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        [AdminEmailChangedCode] = IncidentTitles.AdminEmailChanged,
+    };
+
+    /// <summary>系統管理員改了或清空另一位系統管理員的 Email（Q21：送出當下就開，不等驗證）。</summary>
+    public const string AdminEmailChangedCode = "security.adminEmailChanged";
+
+    /// <summary>帳號安全的安全事件；樣本只存那一筆稽核的 Id 與行為者（§8.10）。由 AuditBehavior 在稽核列同一交易呼叫。</summary>
+    public Task AccountEventAsync(AuditLogEntry audit, string code, CancellationToken ct)
+    {
+        if (!AccountEventTitles.TryGetValue(code, out var titleKey)) throw new InvalidOperationException($"安全事件代碼 {code} 沒有登記");
+        return recorder.RecordAsync(new IncidentSignal
+        {
+            Fingerprint = ErrorFingerprint.ForInfra("security", code), Source = IncidentSource.Security, Category = IncidentCategory.Security,
+            Severity = IncidentSeverity.Warning, Code = code, TitleKey = titleKey, OccurredUtc = audit.OccurredUtc, Version = env.Version,
+            RequestId = audit.RequestId,
+            Sample = new IncidentSampleData(audit.OccurredUtc, audit.RequestId, audit.ActorUserId, null, null, AuditLogId: audit.Id),
+            Link = $"/system/audit?id={audit.Id}",
+        }, ct);
+    }
+
     public Task AdminChangedAsync(AuditLogEntry audit, bool granted, CancellationToken ct) => recorder.RecordAsync(new IncidentSignal
     {
         Fingerprint = ErrorFingerprint.ForInfra("security", AdminChangedCode), Source = IncidentSource.Security, Category = IncidentCategory.Security,

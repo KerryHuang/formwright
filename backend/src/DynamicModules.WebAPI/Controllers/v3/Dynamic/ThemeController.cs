@@ -14,7 +14,7 @@ public class ThemeController(IMediator mediator) : ControllerBase
     [HttpGet("theme")]
     public async Task<IActionResult> Defaults() => (await mediator.Send(new GetThemeDefaultsRequest())).ToActionResult(this);
 
-    public record ThemeBody(string? Mode, string? Style);
+    public record ThemeBody(string? Mode, string? Style, string? SiteName = null);
 
     [HttpPut("me/theme")]
     public async Task<IActionResult> SaveMine(ThemeBody body) =>
@@ -22,5 +22,5 @@ public class ThemeController(IMediator mediator) : ControllerBase
 
     [HttpPut("system/theme")]
     public async Task<IActionResult> SaveSite(ThemeBody body) =>
-        (await mediator.Send(new UpdateSiteThemeRequest(body.Mode, body.Style))).ToActionResult(this);
+        (await mediator.Send(new UpdateSiteThemeRequest(body.Mode, body.Style, body.SiteName))).ToActionResult(this);
 }

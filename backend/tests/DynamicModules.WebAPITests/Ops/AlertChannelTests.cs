@@ -1,3 +1,4 @@
+using DynamicModules.Application.Dynamic.MailService;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -1183,7 +1184,7 @@ public class AlertChannelTests
 
         var settings = new SmtpSettings("127.0.0.1", server.Port, AlertSecurity.None, null, null, "ops@test.invalid", "Ops" + inject,
             ["a@test.invalid"], null);
-        var sender = app.Services.GetRequiredService<IAlertMailSender>();
+        var sender = app.Services.GetRequiredService<IMailSender>();
         var result = await sender.SendAsync(settings, null, new AlertMail("[Formwright] disk" + inject, "body"), CancellationToken.None);
         result.Ok.Should().BeTrue();
         server.Lines.Should().NotContain(l => l.StartsWith("Bcc:", StringComparison.OrdinalIgnoreCase)

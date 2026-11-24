@@ -121,7 +121,7 @@ public sealed class SmtpTestGate(TimeProvider time)
 public sealed record SendSmtpTestRequest : IRequest<ServiceResult>, ISystemAdminRequest;
 
 public sealed class SendSmtpTestHandler(
-    IAlertChannelRepository channels, IMailSettingsRepository mailSettings, IAlertSecretProtector protector, IAlertMailSender mailer,
+    IAlertChannelRepository channels, IMailSettingsRepository mailSettings, IAlertSecretProtector protector, IMailSender mailer,
     SmtpTestGate gate, AuthSettings auth, CachedSystemPolicy policyCache, LocaleRegistry registry, ICurrentUser user, IAuditLog audit, TimeProvider time,
     Common.Localization.IMessageCatalog messages)
     : IRequestHandler<SendSmtpTestRequest, ServiceResult>

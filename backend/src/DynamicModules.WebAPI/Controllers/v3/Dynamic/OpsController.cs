@@ -120,6 +120,11 @@ public class OpsController(IMediator mediator) : ControllerBase
     [HttpGet("system/mail-settings")]
     public async Task<IActionResult> MailSettings() => (await mediator.Send(new GetMailSettingsRequest())).ToActionResult(this);
 
+    /// <summary>帳號信寄送紀錄（帳號安全設計 §6.6）：新到舊、每頁 50 筆；Demo 站多帶收件匣的整封信。</summary>
+    [HttpGet("system/mail-outbox")]
+    public async Task<IActionResult> MailOutbox([FromQuery] int page = 1) =>
+        (await mediator.Send(new Application.Dynamic.AccountService.Email.ListMailOutboxRequest(page))).ToActionResult(this);
+
     /// <summary>存寄信設定：password 省略或 null＝不變、""＝清除。Demo 站 403。</summary>
     [HttpPut("system/mail-settings")]
     public async Task<IActionResult> UpdateMailSettings([FromBody] JsonElement body)
