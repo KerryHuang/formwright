@@ -16,7 +16,7 @@ public static class UpgradeClassifier
     /// <summary>原因代碼（前端 apps.upgrade.reason.*）。</summary>
     public const string ReasonCustomerOnly = "customerOnly", ReasonRemovedInNew = "removedInNew", ReasonTypeChanged = "typeChanged",
         ReasonKindChanged = "kindChanged", ReasonExistingPermission = "existingPermission", ReasonReferenceChanged = "referenceChanged",
-        ReasonNotYetSupported = "notYetSupported", ReasonAffectsData = "affectsData", ReasonUnmatched = "unmatched",
+        ReasonAffectsData = "affectsData", ReasonUnmatched = "unmatched",
         // 第二批（§9.6.4，pkg1d1a）：狀態機與簽核流程
         ReasonStatusFieldChanged = "statusFieldChanged", ReasonUnlocksRecords = "unlocksRecords", ReasonTransitionGroups = "transitionGroups",
         ReasonApprovalInFlight = "approvalInFlight", ReasonFlowInUse = "flowInUse", ReasonPriorityTaken = "priorityTaken",

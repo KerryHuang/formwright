@@ -21,23 +21,6 @@ public sealed class AppUpgradePreviewer(
     RequestLocale requestLocale, FieldService.FieldChangeImpact impact, UpgradeFlowGuards flowGuards, UpgradeCodedGuards codedGuards,
     Integrations.IntegrationReconciler integrations)
 {
-    /// <summary>
-    /// 還不能套用的第二批項目（§15 第 3 點、§9.6.7 blocker 狀態表）：有差異時預覽照列、整個套用被擋（A16）。
-    /// 狀態機與簽核流程在 pkg1d1a 開放，轉換、事件、檢查、分錄、列印範本、任務規則在 pkg1d1b 開放；
-    /// 貢獻的區塊、欄位、權限與主檔模組上的報表看模組符號含不含 /。
-    /// </summary>
-    public static readonly IReadOnlySet<string> SecondBatch = new HashSet<string>();
-
-    /// <summary>
-    /// 「/」規則不套的 Coded 類（T54）：它們的 Module 是主檔符號時照一般規則套（任務規則掛在主檔模組上；轉換、事件、檢查的
-    /// Module 是來源模組）。報表維持擋到 pkg1d2（T60）。
-    /// </summary>
-    public static readonly IReadOnlySet<string> CodedSections = new HashSet<string>
-        { "conversions", "events", "checks", "printTemplates", "taskRules", "approvalFlows" };
-
-    public static bool IsSecondBatch(UpgradeItem item) =>
-        SecondBatch.Contains(item.Section);
-
     /// <summary>套用要用到的比對中間結果：三份比對項目、兩份套件、群組對應（套件代號 → 客戶群組；負數是這次將新建的）。</summary>
     public sealed record CompareContext(
         AppPackageData New, AppPackageData Current, AppBaseline? Baseline, IReadOnlyDictionary<string, UpgradeItem> B,
@@ -53,7 +36,6 @@ public sealed class AppUpgradePreviewer(
         bool HasBaseline, List<UpgradeItemResponse> Items, Dictionary<string, int> Counts, List<UpgradeGroup> Groups,
         List<string> Errors, List<string> Warnings, string TokenPart, IReadOnlyCollection<string> AddedModules)
     {
-        public bool SecondBatchPending { get; init; }
         public CompareContext? Context { get; init; }
     }
 
@@ -103,7 +85,6 @@ public sealed class AppUpgradePreviewer(
             warnings.AddRange(mine.Warnings);
             blockers.AddRange(mine.Errors.Select(e => new UpgradeBlocker("exportFailed", e)));
             blockers.AddRange(await PrecheckAsync(candidate!.Package, ct));
-            if (mine.SecondBatchPending) blockers.Add(new UpgradeBlocker("secondBatch"));
             if (!string.IsNullOrEmpty(candidate.Package.Manifest.Vendor)
                 && (await BaselinePackageAsync(app, ct))?.Manifest.Vendor is { } oldVendor && oldVendor != candidate.Package.Manifest.Vendor)
                 warnings.Add($"vendor: {oldVendor} → {candidate.Package.Manifest.Vendor}");
@@ -125,7 +106,6 @@ public sealed class AppUpgradePreviewer(
             var c = await CompareAsync(master, source, new UpgradeBody(body.MasterGroupMap.GetValueOrDefault(master.Key), null), ct);
             blockers.AddRange(c.Errors.Select(e => new UpgradeBlocker("exportFailed", $"{master.Key}: {e}")));
             blockers.AddRange((await PrecheckAsync(source.Package, ct)).Select(b => b with { Detail = $"{master.Key}: {b.Detail}" }));
-            if (c.SecondBatchPending) blockers.Add(new UpgradeBlocker("secondBatch", master.Key));
             warnings.AddRange(c.Warnings.Select(w => $"{master.Key}: {w}"));
             parts.Add(new MasterPart(master, source, c));
             tokenParts.Add(c.TokenPart);
@@ -360,7 +340,6 @@ public sealed class AppUpgradePreviewer(
         var results = new List<(UpgradeItem Item, UpgradeClassifier.Result Result)>();
         var counts = new Dictionary<string, int>();
         var affected = new Dictionary<string, int>();
-        var secondBatch = false;
         var subsumedNew = new List<UpgradeItem>();
         var memberIds = app.Modules.ToDictionary(m => m.Code, m => m.ModuleId);
         var reportCodes = app.Reports.Select(r => r.Code).ToHashSet(StringComparer.Ordinal);
@@ -371,8 +350,6 @@ public sealed class AppUpgradePreviewer(
             if (Subsumed(item))
             {
                 if (nv is not null && cv is null) subsumedNew.Add(item);
-                // 新模組底下的第二批項目（狀態機等）隨模組一起，pkg1c 套不了：一樣擋下整個套用
-                if (nv is not null && cv is null && IsSecondBatch(item)) secondBatch = true;
                 continue;
             }
             if (nv is null && cv is not null && (b is null || !hasBaseline)) { customerAdded++; continue; }
@@ -414,11 +391,6 @@ public sealed class AppUpgradePreviewer(
             else if (r.Applicable && nv is not null && cv is not null && item.Section == "approvalFlows"
                      && (Writes(r, "approvers") || (Writes(r, "stages") && !StageCodes(nv).SetEquals(StageCodes(cv)))))
                 r = r with { Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonApproverGroups };
-            if (r.Applicable && IsSecondBatch(item))
-            {
-                r = r with { Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonNotYetSupported };
-                secondBatch = true;
-            }
             // 既有欄位改成必填、有記錄沒填（§6.4、A12b）：會影響既有資料，不能套。
             // 只看這次真的會寫入的必填：客戶改成非必填（customerOnly，套用時保留）不算（審查 M4）
             if (r.Applicable && item.Section == "fields" && nv is not null && cv is not null
@@ -549,7 +521,6 @@ public sealed class AppUpgradePreviewer(
         var addedModules = results.Where(x => x.Item.Section == "modules" && !C.ContainsKey(x.Item.Id)).Select(x => x.Item.Module!).ToHashSet();
         return new Comparison(hasBaseline, items, counts, groups, exported.Errors, exported.Warnings, tokenPart, addedModules)
         {
-            SecondBatchPending = secondBatch,
             Context = context
         };
 

@@ -80,7 +80,7 @@ describe('http', () => {
   });
 
   it('keeps the attached preview on a blocked upgrade apply (409 upgradeBlocked) and only the code on a stale one', () => {
-    const preview = { message: 'blocked', code: 'upgradeBlocked', canApply: false, blockers: [{ code: 'secondBatch' }], items: [] };
+    const preview = { message: 'blocked', code: 'upgradeBlocked', canApply: false, blockers: [{ code: 'requiresUpdate' }], items: [] };
     expect(toApiError({ response: { status: 409, data: preview } }))
       .toEqual({ status: 409, message: 'blocked', code: 'upgradeBlocked', upgradePreview: preview });
     expect(toApiError({ response: { status: 409, data: { message: 'stale', code: 'upgradeStale' } } }))
