@@ -98,7 +98,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 | `Localization__PackImportEnabled` | 是否開放匯入語系包（套用、回到上一版、移除覆寫、移除語系）；沒設時 `Demo__LoginEnabled` 為 `true` 就關閉（只能預覽報告），否則開放 |
 | `Attachments__DisabledReason` | 關閉上傳時顯示給使用者的原因 |
 | `Attachments__MaxBytes`、`Attachments__MaxFilesPerField`、`Attachments__AllowedExtensions__0`… | 附件政策在這個環境的出廠值，見下方「附件設定與政策出廠值」 |
-| `App__PublicUrl` | 站台對外網址（例如 `https://erp.example.com`），帳號信（驗證信）與告警信裡的連結、AI 連線的伺服器網址與來源檢查都用它；不用請求的 Host 標頭。沒設時讀舊鍵 `Ops__PublicUrl`；兩個都沒設時告警信不放連結、帶連結的帳號信寄不出去（寄送紀錄標「沒有站台網址」）。Demo 站不必設（收件匣用站內相對網址） |
+| `App__PublicUrl` | 站台對外網址（例如 `https://erp.example.com`），帳號信（驗證信）與告警信裡的連結、AI 連線的伺服器網址與來源檢查都用它；不用請求的 Host 標頭。要填完整網址（含 `https://`），格式不對的值會被忽略並在啟動 log 記警告（`App__PublicUrl` 填錯時改讀舊鍵）；正式環境用 `http://` 也會記警告，因為信裡的驗證連結會以明文傳輸。沒設時讀舊鍵 `Ops__PublicUrl`；兩個都沒設時告警信不放連結、帶連結的帳號信寄不出去（寄送紀錄標「沒有站台網址」）。Demo 站不必設（收件匣用站內相對網址） |
 | `Mail__Delivery__Enabled` | 帳號信寄送服務，預設 `true`；設 `false` 時信留在寄送紀錄的「等待寄送」不寄出（多台部署可以只讓一台開著，同一封信靠資料表領取只寄一次） |
 | `Ops__Edition` | 版別，`Cloud` 或 `OnPrem`（區分大小寫，其他值記 Warning 並當 `OnPrem`）；顯示在系統管理員的 ops info。⚠️ 雲端主機填錯（例如 `cloud`）會被當成地端版，備份狀態會把備份路徑顯示給客戶管理員 |
 | `Backup__Root` | 產品內備份的位置（本機目錄）；沒設就不備份。見下方「產品內備份」 |
