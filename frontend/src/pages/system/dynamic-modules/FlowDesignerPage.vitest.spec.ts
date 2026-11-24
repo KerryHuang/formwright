@@ -21,10 +21,10 @@ vi.mock('src/services/api/dynamic-api', () => ({
 }));
 const api = vi.mocked(dynamicApi);
 
-const canvasCalls = vi.hoisted(() => ({ fitAll: vi.fn(), focusNode: vi.fn() }));
+const canvasCalls = vi.hoisted(() => ({ fitAll: vi.fn(), focusNode: vi.fn(), dropAt: vi.fn(), centerPosition: vi.fn(() => ({ x: 600, y: 400 })) }));
 // 真實的畫布只在瀏覽器驗；這裡的替身把收到的節點與線寫成文字，並提供觸發事件的按鈕。
 const CanvasStub = defineComponent({
-  name: 'DesignerCanvas', props: ['canvasId', 'nodes', 'edges', 'draggable', 'initialNodes'], emits: ['node-open', 'edge-open', 'pane-click', 'node-move'],
+  name: 'DesignerCanvas', props: ['canvasId', 'nodes', 'edges', 'draggable', 'initialNodes', 'canConnect', 'insertKinds'], emits: ['node-open', 'edge-open', 'pane-click', 'node-move', 'connect', 'edge-insert'],
   setup(p, { emit, expose }) {
     expose(canvasCalls);
     return () => h('div', { 'data-testid': 'canvas', 'data-id': p.canvasId, 'data-draggable': String(p.draggable), 'data-initial': JSON.stringify(p.initialNodes ?? null) }, [
@@ -33,6 +33,8 @@ const CanvasStub = defineComponent({
       h('button', { 'data-testid': 'pane', onClick: () => emit('pane-click') }),
       h('div', { 'data-testid': 'trial-states', 'data-nodes': JSON.stringify(Object.fromEntries(p.nodes.map((n: { id: string; data: { trial?: { state: string } } }) => [n.id, n.data.trial?.state ?? null]))), 'data-edges': p.edges.map((e: { class: string }) => e.class).join('|') }),
       h('button', { 'data-testid': 'edge-e1', onClick: () => emit('edge-open', 'e1') }),
+      h('button', { 'data-testid': 'plus-e2-condition', 'data-kinds': JSON.stringify(p.insertKinds ?? null), onClick: () => emit('edge-insert', 'e2', 'condition') }),
+      h('button', { 'data-testid': 'connect-a-s', 'data-ok': String(p.canConnect?.('a', 's') ?? null), onClick: () => emit('connect', 'a', 's') }),
     ]);
   },
 });
@@ -209,6 +211,85 @@ describe('FlowDesignerPage', () => {
     expect(w.find('[data-testid="tb-fit"]').exists()).toBe(true);
     await w.get('[data-testid="move-a"]').trigger('click');
     expect(w.find('[data-testid="de-unsaved"]').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it('structure editing (fg3e): laptop has the full palette, tablet a compact one; phone and read-only have none, and no relayout or delete', async () => {
+    const laptop = await mountAt(url(), { width: 1366 });
+    expect(laptop.get('[data-testid="de-palette"]').classes()).not.toContain('de-palette-compact');
+    expect(laptop.find('[data-testid="tb-relayout"]').exists()).toBe(true);
+    laptop.unmount();
+    const tablet = await mountAt(url(), { width: 820 });
+    expect(tablet.get('[data-testid="de-palette"]').classes()).toContain('de-palette-compact');
+    tablet.unmount();
+    for (const o of [{ width: 390 }, { edit: false }]) {
+      const w = await mountAt(url(), o);
+      expect(w.find('[data-testid="de-palette"]').exists()).toBe(false);
+      expect(w.find('[data-testid="tb-relayout"]').exists()).toBe(false);
+      expect(w.find('[data-testid="tb-remove"]').exists()).toBe(false);
+      w.unmount();
+    }
+  });
+
+  it('a palette drop on a line inserts there; a tap adds at the centre; both select the new node and mark unsaved', async () => {
+    const w = await mountAt(url());
+    canvasCalls.dropAt.mockReturnValueOnce({ position: { x: 300, y: 40 }, edgeId: 'e2' });
+    w.findComponent({ name: 'DesignerPalette' }).vm.$emit('drop', 'approval', 500, 300);
+    await flushPromises();
+    expect(canvasCalls.dropAt).toHaveBeenCalledWith(500, 300);
+    expect(w.find('[data-testid="n-approval-1"]').exists()).toBe(true);
+    expect(w.get('[data-testid="de-panel-title"]').text()).toBe('簽核 1');
+    expect(w.find('[data-testid="de-unsaved"]').exists()).toBe(true);
+    await w.get('[data-testid="de-palette-end"]').trigger('click');
+    expect(w.get('[data-testid="n-end-1"]').attributes('data-x')).toBe('600');
+    w.unmount();
+  });
+
+  it('the plus on a line inserts the chosen kind; connect asks canConnect and refuses into start', async () => {
+    const w = await mountAt(url());
+    expect(JSON.parse(w.get('[data-testid="plus-e2-condition"]').attributes('data-kinds')!).map((k: { kind: string }) => k.kind)).toEqual(['approval', 'condition', 'fork']);
+    expect(w.get('[data-testid="connect-a-s"]').attributes('data-ok')).toBe('false');
+    await w.get('[data-testid="plus-e2-condition"]').trigger('click');
+    expect(w.find('[data-testid="n-cond-1"]').exists()).toBe(true);
+    await w.get('[data-testid="connect-a-s"]').trigger('click');
+    await w.get('[data-testid="tb-undo"]').trigger('click');
+    expect(w.find('[data-testid="n-cond-1"]').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it('Delete removes the selected node (not when typing in a field); a fork asks whether to take its join along', async () => {
+    const w = await mountAt(url());
+    await w.get('[data-testid="n-a"]').trigger('click');
+    const input = document.body.querySelector('[data-testid="de-panel"] input') as HTMLInputElement;
+    expect(input).not.toBeNull();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+    expect(w.find('[data-testid="n-a"]').exists()).toBe(true);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete' }));
+    await flushPromises();
+    expect(w.find('[data-testid="n-a"]').exists()).toBe(false);
+    await w.get('[data-testid="tb-undo"]').trigger('click');
+    // 分支：插入後選取分支節點，按刪除先問
+    w.findComponent({ name: 'DesignerCanvas' }).vm.$emit('edge-insert', 'e2', 'fork');
+    await flushPromises();
+    await w.get('[data-testid="tb-remove"]').trigger('click');
+    await flushPromises();
+    expect(document.body.querySelector('[data-testid="fork-dialog"]')).not.toBeNull();
+    (document.body.querySelector('[data-testid="fork-with-join"]') as HTMLElement).click();
+    await flushPromises();
+    expect(w.find('[data-testid="n-fork-1"]').exists()).toBe(false);
+    expect(w.find('[data-testid="n-join-1"]').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it('relayout recomputes positions as one undo step and fits the view', async () => {
+    const w = await mountAt(url());
+    await w.get('[data-testid="move-a"]').trigger('click');
+    await w.get('[data-testid="tb-relayout"]').trigger('click');
+    await flushPromises();
+    expect(w.get('[data-testid="n-a"]').attributes('data-x')).not.toBe('500');
+    expect(canvasCalls.fitAll).toHaveBeenCalled();
+    await w.get('[data-testid="tb-undo"]').trigger('click');
+    expect(w.get('[data-testid="n-a"]').attributes('data-x')).toBe('500');
     w.unmount();
   });
 
