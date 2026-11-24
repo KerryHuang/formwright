@@ -33,7 +33,8 @@ export const deepCopy = <T>(v: T): T => (v === undefined ? v : (JSON.parse(JSON.
 const clone = (s: GraphState): GraphState => structuredClone(s);
 
 function allocator(def: GraphDefinition, reserved: string[] = []) {
-  const nodes = new Set([...def.nodes.map((n) => n.id), ...reserved]);
+  // 匯合的 forkId 也算已用：分支單獨刪掉後留下的匯合仍指著舊代號，新分支用同一個代號就會被它配走
+  const nodes = new Set([...def.nodes.map((n) => n.id), ...def.nodes.flatMap((n) => (n.forkId ? [n.forkId] : [])), ...reserved]);
   const edges = new Set(def.edges.map((e) => e.id));
   const next = (taken: Set<string>, prefix: string) => {
     let n = 1;
@@ -163,7 +164,7 @@ export function connect(state: GraphState, from: string, to: string, opts: EditO
 }
 
 /**
- * U50：刪節點。簽核、通知節點恰一進一出時，前一個節點直接連到後一個節點（線的標籤與條件留在前一段），接回會重複時不接；
+ * U50：刪節點。簽核、通知節點恰一進一出時，前一個節點直接連到後一個節點（線的標籤與條件留在前一段），接回會重複或自己連自己時不接；
  * 條件、分支、匯合、結束不自動接。`withJoin`：刪分支時一併刪配對的匯合與之間的節點（兩者之間走得通的節點，不含區塊外的）。開始節點不能刪。
  */
 export function removeNode(state: GraphState, id: string, opts: { withJoin?: boolean } = {}): GraphState {
@@ -199,7 +200,7 @@ export function removeNode(state: GraphState, id: string, opts: { withJoin?: boo
     if (ins.length === 1 && outs.length === 1) {
       const [i] = ins;
       const target = outs[0].to;
-      if (!s.definition.edges.some((e) => e.from === i.from && e.to === target)) {
+      if (i.from !== target && !s.definition.edges.some((e) => e.from === i.from && e.to === target)) {
         i.to = target;
         s.definition.edges = s.definition.edges.filter((e) => e.id !== outs[0].id);
       }

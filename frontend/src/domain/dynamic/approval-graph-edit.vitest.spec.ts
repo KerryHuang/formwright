@@ -76,6 +76,16 @@ describe('nextCode', () => {
     expect(nextCode('join', s.definition)).toBe('join-1');
     expect(nextCode('end', s.definition)).toBe('end-1');
   });
+
+  it('a fork code still named by a leftover join (fork removed alone) is not reused, so the new fork does not pair with the old join', () => {
+    const s = mk([node('start', 'start'), node('fork-1', 'fork'), node('join-1', 'join', { forkId: 'fork-1', mode: 'all' }), node('end', 'end')], [edge('e1', 'start', 'fork-1')]);
+    const gone = removeNode(s, 'fork-1', { withJoin: false });
+    expect(nextCode('fork', gone.definition)).toBe('fork-2');
+    const added = addNode(gone, 'fork', { x: 0, y: 300 }, opts);
+    const forks = added.definition.nodes.filter((n) => n.kind === 'fork').map((n) => n.id);
+    expect(forks).toEqual(['fork-2']);
+    expect(added.definition.nodes.filter((n) => n.kind === 'join' && n.forkId === 'fork-2')).toHaveLength(1);
+  });
 });
 
 describe('insertOnEdge', () => {
@@ -238,6 +248,12 @@ describe('connect and canConnect', () => {
 });
 
 describe('removeNode', () => {
+  it('reconnecting around a removed node never makes a self loop (A→X→A)', () => {
+    const s = mk([node('start', 'start'), appr('a'), appr('x'), node('end', 'end')], [edge('e1', 'start', 'a'), edge('e2', 'a', 'x'), edge('e3', 'x', 'a')]);
+    const r = removeNode(s, 'x');
+    expect(pairs(r)).toEqual(['start>a']);
+  });
+
   it('removing a one-in one-out node bridges its neighbours and keeps the incoming edge\'s label and condition', () => {
     const s = cond();
     const withLabel = setEdge(line(), 'e2', { label: { 'zh-TW': '標籤' } });
