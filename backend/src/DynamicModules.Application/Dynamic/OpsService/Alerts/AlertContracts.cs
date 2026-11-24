@@ -61,7 +61,7 @@ public interface IAlertSecretProtector
     string? TryUnprotect(string protectedText);
 }
 
-/// <summary>告警信的部署設定：<c>Ops:PublicUrl</c> 是信件內事件連結的網址前綴，沒設就不放連結（§17.2.6）。</summary>
+/// <summary>站台網址（<c>App:PublicUrl</c>，舊鍵 <c>Ops:PublicUrl</c>，見 WebAPI 的 SitePublicUrl）：告警信與帳號信連結的網址前綴；告警信沒設就不放連結（§17.2.6）。</summary>
 public sealed record AlertMailOptions(string? PublicUrl)
 {
     public static readonly AlertMailOptions None = new((string?)null);

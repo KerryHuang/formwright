@@ -71,6 +71,12 @@
     "th": "หากต้องการเปลี่ยนอีเมลของคุณเอง โปรดไปที่หน้า \"ความปลอดภัยของบัญชี\"",
     "vi": "Để đổi email của chính bạn, hãy vào trang \"Bảo mật tài khoản\""
   },
+  "SiteNameControlChars": {
+    "zh-TW": "站台名稱不能含換行或控制字元",
+    "en-US": "The site name cannot contain line breaks or control characters",
+    "th": "ชื่อไซต์ต้องไม่มีการขึ้นบรรทัดใหม่หรืออักขระควบคุม",
+    "vi": "Tên trang không được chứa ký tự xuống dòng hoặc ký tự điều khiển"
+  },
   "accountMail.intro.emailVerify": {
     "zh-TW": "請開啟下面的連結驗證這個 Email。驗證之後，重設密碼與安全通知才會寄到這裡：",
     "en-US": "Open the link below to verify this email. Password resets and security notices are sent here only after it is verified:",

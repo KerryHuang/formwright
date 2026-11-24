@@ -7,7 +7,7 @@ namespace DynamicModules.Application.Dynamic.McpService.Tokens;
 
 // 個人存取權杖 API（mcp1a 計畫判斷 7）。本人路徑 me/mcp/*，管理員路徑 system/mcp/*；MCP 關閉時只有建立被擋，列出與撤銷照常可用。
 
-/// <summary>本人的 AI 連線資訊；<paramref name="ServerBaseUrl"/> 由 controller 給（<c>Ops:PublicUrl</c>，沒設時是請求的 scheme＋host，判斷 15）。</summary>
+/// <summary>本人的 AI 連線資訊；<paramref name="ServerBaseUrl"/> 由 controller 給（站台網址 <c>App:PublicUrl</c>，舊鍵 <c>Ops:PublicUrl</c>；沒設時是請求的 scheme＋host，判斷 15）。</summary>
 public sealed record GetMyMcpInfoRequest(string ServerBaseUrl) : IRequest<ServiceResult>;
 
 public sealed record ListMyMcpTokensRequest : IRequest<ServiceResult>;
