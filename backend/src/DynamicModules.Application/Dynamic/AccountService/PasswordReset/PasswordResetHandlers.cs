@@ -236,7 +236,8 @@ public sealed class ForgotPasswordHandler(
 
         // 不論帳號存不存在、有沒有被節流，都做同樣的查詢與一次雜湊（D21）
         _ = McpSecrets.Hash(key);
-        var user = input.Length is 0 or > 50 ? null : await accounts.GetTrackedAsync(input, ct);
+        // 不追蹤：內層 EnqueuePasswordResetHandler 的重查才會讀到交易內的現值（au1b 審查 S1）
+        var user = input.Length is 0 or > 50 ? null : await accounts.GetAsync(input, ct);
         var state = await availability.StateAsync(ct);
         if (!allowed) return accepted;
 
@@ -306,7 +307,7 @@ public sealed class CheckResetLinkHandler(AnonymousAccountThrottle throttle, IAc
         var hash = McpSecrets.Hash(token);
         var row = await tokens.FindByHashAsync(hash, ct);
         if (!PasswordResetErrors.Usable(row, hash, time.GetUtcNow().UtcDateTime)) return PasswordResetErrors.LinkInvalid();
-        return PasswordResetErrors.AccountMatches(await accounts.GetTrackedAsync(row!.UserId, ct), row) ? ServiceResult.Success() : PasswordResetErrors.LinkInvalid();
+        return PasswordResetErrors.AccountMatches(await accounts.GetAsync(row!.UserId, ct), row) ? ServiceResult.Success() : PasswordResetErrors.LinkInvalid();
     }
 }
 
