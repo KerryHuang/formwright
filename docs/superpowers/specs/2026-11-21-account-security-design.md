@@ -1149,7 +1149,7 @@ SSO、AD／LDAP 列第二版候選（使用者 2026-11-17 裁決），au1 不做
 3. 改密碼的共同後續集中在 `PasswordChangeEffects.ApplyAsync`（本人改、管理員設暫時密碼、緊急救援、用連結重設四處共用）：作廢這個帳號還沒用的 `passwordReset` 權杖與還沒寄的重設信（原因 `passwordChanged`），Email 已驗證時排一封 `passwordChanged` 通知。**只作廢重設密碼連結，不動驗證信**：以 §7.1 第 7 點為準；§6.3 原本「作廢所有權杖」的寫法較寬（已改寫），驗證信與密碼無關，作廢只會讓使用者多點一次重寄。
 4. 緊急救援（`AdminBootstrap.ResetAsync`）在啟動時呼叫同一個 `PasswordChangeEffects`；其中作廢未寄信件的 `SkipUnsentAsync` 是交易外的 `ExecuteUpdate`，不經 PostgreSQL 全庫寫入鎖。啟動階段沒有並行寫入，屬已知且可接受的例外。`AdminBootstrap` 的長度檢查改讀政策 `auth.passwordMinLength`，刪掉原本的常數。
 5. 領取帶權杖的信時（§24 技術類 2 的同一個短交易）：`passwordReset` 重查 `PasswordResetEligibility`，不符記 `skipped` 並以原因代碼為說明；不是管理員寄的（參數 `by: self`）且政策 `auth.passwordResetEnabled` 已關閉時記 `skipped`、原因 `disabled`（R20b）。管理員寄的（`by: admin`）不看這項政策（Q20）。au1a 的 `notSupported` 常數移除，介面文字保留給舊紀錄顯示。
-6. 忘記密碼申請（外層 `ForgotPasswordRequest`，非交易型）：輸入先 trim、轉小寫，以前 128 字為鍵過節流，再做一次雜湊（固定成本，拉近不同帳號的回應時間），查帳號判斷資格；符合才送交易型 `EnqueuePasswordResetRequest`（重查資格後排信），不符以 `IAuditLog.TryWriteNowAsync` 在交易外寫「被拒」稽核（帳號不存在時 `TargetId` 留空，不記輸入字串）。任何例外記 Warning 後照常回 202。**已知限制（D21 部分達成）**：符合資格的路徑多一次寫入交易，回應時間仍可能比不符資格的路徑長一些。
+6. 忘記密碼申請（外層 `ForgotPasswordRequest`，非交易型）：輸入先 trim、轉小寫，以前 128 字為鍵過節流，再做一次雜湊（固定成本，拉近不同帳號的回應時間），查帳號判斷資格；符合才送交易型 `EnqueuePasswordResetRequest`（重查資格後排信），不符以 `IAuditLog.TryWriteNowAsync` 在交易外寫「被拒」稽核（帳號不存在時 `TargetId` 留空，不記輸入字串）。任何例外記 Warning 後照常回 202。**已知限制（D21 部分達成）**：符合資格的路徑多一次寫入交易，回應時間仍可能比不符資格的路徑長一些。被拒的路徑不排寫入佇列（`TryWriteNowAsync` 另開 scope 直接存檔，PostgreSQL 上也不經 `WriteGate`／advisory lock），寫入佇列忙時（PostgreSQL 尤其明顯）兩條路徑的時間差會被放大，理論上可拿來探測帳號；先接受，日後要收斂再把被拒的稽核也包成交易型請求（au1b 審查 S2）。
 7. 節流 `AnonymousAccountThrottle`（singleton、記憶體內）：申請端每 IP 15 分鐘 10 次、每個輸入 1 小時 N 次（政策 `auth.passwordResetMaxPerHour`）；被擋的那次不計入次數。權杖端點（`verify-email`、`reset-password/check`、`reset-password`）共用每 IP 15 分鐘 30 次，超過回 429 `tooManyAttempts`（訊息沿用「嘗試次數過多，請稍後再試」）。站台重啟歸零，多台部署各自計數。
 8. 「系統能不能寄重設信」（`auth/options` 的 `passwordReset`）由 `PasswordResetAvailability` 判斷，依序看：政策關閉、Demo 站之外的寄信可用性（`AccountMailAvailability`）、健康檢查看板 `database.writable` 為嚴重。資料庫可寫與否讀 `HealthCheckEngine.Board`（最近一次健康檢查結果），不在請求內另開探測。
 9. 管理員寄重設連結 `SendResetLinkRequest` 的 60 秒閘門 `ResetLinkGate` 比照 `EmailResendGate`：交易內只檢查、提交後才記時間（同 §24.1 技術類 2 的已知空窗）。
@@ -1174,3 +1174,25 @@ SSO、AD／LDAP 列第二版候選（使用者 2026-11-17 裁決），au1 不做
 
 - §6.3 原寫「改密碼作廢所有權杖」，實作只作廢 `passwordReset`（見技術類 3）；§6.3 已改寫成一致（au1b 審查 S7）。
 - D21 回應時間只部分拉近（見技術類 6）。
+
+### 25.1 審查與走查修正（2026-11-25）
+
+對應審查報告 au1b 的必修 M1，建議 S1–S7，次要五項，以及本機走查 G1、G4。走查 G2（已登入者用連結重設後導回首頁）、G3（Demo 收件匣看信時連結顯示相對路徑）不修。
+
+**技術類**
+
+1. 重新驗證（`ReauthVerifier`）改用不追蹤讀取（`IAccountRepository.GetAsync`，`AsNoTracking`）。原本外層以追蹤查詢載入使用者，內層交易在同一個 DbContext 呼叫 `GetTrackedAsync` 拿到的是同一個舊實體，`StillValidFor` 永遠通過，§8.9 第 5 點與本節技術類 2 的「內層重比 stamp」實際沒有作用。一次修好本人改密碼與 au1a 的本人改 Email（M1，`ReauthRecheckTests`）。
+2. 忘記密碼外層與 `reset-password/check` 同樣改不追蹤讀取，內層 `EnqueuePasswordResetHandler` 的資格重查才讀得到交易內的現值（S1）。
+3. 前端 `toApiError` 的 400 分支保留 `code`。原本丟掉，重設頁判斷 `resetLinkInvalid` 永遠不成立，失效連結只顯示通用的「無法重設密碼」（走查 G1）。
+4. 救援設定沒拿掉時：admin 目前的密碼已經是救援密碼，就不呼叫 `PasswordChangeEffects`（不再排「密碼已變更」、不作廢重設連結），其餘救援動作照舊。只在密碼真的被救援改掉時寄信（審查次要）。
+5. `tooManyAttempts` 只在 `PasswordResetErrors.ThrottledCode` 寫一份，驗證 Email 的節流共用。`AtLeastPolicyMin` 改由 `MessageRuleExtensions.TextFailure` 組失敗，跟 `WithText` 用同一套（審查次要）。
+6. 被拒的路徑時間差見技術類 6 的已知限制（S2，只補文件、不改架構）。
+
+**使用者行為（代做）**
+
+1. 用寄信連結重設成功後，一併清掉記憶體登入限流（`LoginThrottle.ClearAccount`）裡這個帳號的帳號層與帳號＋IP 失敗計數，以及「放慢」狀態，跟手冊「重設成功會解除鎖定」一致。IP 層不清，因為它擋的是來源、不是帳號（S3）。管理員設暫時密碼、本人改密碼不清。選錯代價：如果猜密碼的人還在繼續猜，帳號層的放慢要重新累積 50 次才會再啟動；如果使用者希望管理員設暫時密碼也解除限流，要在那條路徑補上同一個呼叫。
+2. 管理員寄重設連結時，如果系統寄不出信（寄信設定或站台網址沒設好，判斷同 `AccountMailAvailability`；Demo 站有 Demo 收件匣，視為可用），回 409 `resetLinkMailUnavailable`，訊息「系統目前寄不出信（寄信設定或站台網址還沒設好），不能寄重設連結，請改設暫時密碼」，不排信，對話框顯示這句（S4）。正式環境對示範帳號寄，訊息改成「示範帳號不能寄重設連結」（審查次要）。選錯代價：管理員要先設好寄信才能用「寄重設連結」；如果改成照樣排信加黃色提示，信會在寄送時記成 `skipped`，管理員容易誤以為已經寄出。
+3. 使用者管理對**自己那一列**開重設對話框時，提示「自己的密碼請用「變更密碼」」，不再顯示「這個帳號沒有已驗證的 Email」（S5）。選錯代價：只是提示文字，改回或拿掉都不影響行為。
+4. 重設對話框的標題改用語系鍵 `users.resetPasswordFor`，en、th、vi 用半形冒號（走查 G4）。
+
+**測試補強（S6）**：R9 比對第 11 次（被節流）的回應和前 10 次一字不差；R15 驗證全部啟用中的系統管理員各收到一則站內通知；新增 R04b，同一把權杖並行重設兩次只有一次成功；R12 的救援改成以 `Auth:ResetAdminPassword` 重啟 TestApp，驗 `Program.cs` 的實際接線，再重啟一次驗不重複排信；R01 的時效比對改用 1 ms 容差（PostgreSQL 的 timestamp 只存到微秒）。
