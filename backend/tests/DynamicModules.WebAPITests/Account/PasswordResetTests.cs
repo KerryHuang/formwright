@@ -193,24 +193,24 @@ public partial class PasswordResetTests
         // 換 IP 猜 50 次：帳號層進入放慢模式；前 5 次同一個 IP，達帳號＋IP 上限
         for (var i = 0; i < 50; i++)
         {
-            var ip = i < 5 ? "10.0.0.0" : "10.1." + (i / 10) + "." + (i % 10);
+            var ip = i < 5 ? "203.0.113.1" : "198.51.100." + i;
             throttle.TryBegin("sales01", ip).Should().BeTrue();
             throttle.Complete("sales01", ip, success: false);
         }
-        throttle.TryBegin("sales01", "10.9.9.9").Should().BeTrue("放慢模式每 10 秒放行一次");
-        throttle.Release("sales01", "10.9.9.9");
-        throttle.TryBegin("sales01", "10.9.9.8").Should().BeFalse("10 秒內第二次被擋");
+        throttle.TryBegin("sales01", "203.0.113.9").Should().BeTrue("放慢模式每 10 秒放行一次");
+        throttle.Release("sales01", "203.0.113.9");
+        throttle.TryBegin("sales01", "203.0.113.8").Should().BeFalse("10 秒內第二次被擋");
 
         await Forgot(app, "sales01");
         await Dispatch(app);
         (await Reset(app, ResetToken(mail), "brand-new-pass")).StatusCode.Should().Be(HttpStatusCode.OK);
 
-        throttle.TryBegin("sales01", "10.9.9.8").Should().BeTrue("重設成功解除帳號層計數");
-        throttle.Release("sales01", "10.9.9.8");
-        throttle.TryBegin("sales01", "10.9.9.7").Should().BeTrue("不再放慢");
-        throttle.Release("sales01", "10.9.9.7");
-        throttle.TryBegin("sales01", "10.0.0.0").Should().BeTrue("帳號＋IP 的計數也清掉");
-        throttle.Release("sales01", "10.0.0.0");
+        throttle.TryBegin("sales01", "203.0.113.8").Should().BeTrue("重設成功解除帳號層計數");
+        throttle.Release("sales01", "203.0.113.8");
+        throttle.TryBegin("sales01", "203.0.113.7").Should().BeTrue("不再放慢");
+        throttle.Release("sales01", "203.0.113.7");
+        throttle.TryBegin("sales01", "203.0.113.1").Should().BeTrue("帳號＋IP 的計數也清掉");
+        throttle.Release("sales01", "203.0.113.1");
     }
 
     [Fact]
