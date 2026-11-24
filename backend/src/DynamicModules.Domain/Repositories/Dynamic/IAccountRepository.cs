@@ -8,6 +8,12 @@ public interface IAccountRepository
     /// <summary>以追蹤模式載入使用者，呼叫端修改後由 IUnitOfWork 提交；不存在回 null。</summary>
     Task<AppUser?> GetTrackedAsync(string userId, CancellationToken ct);
 
+    /// <summary>
+    /// 不追蹤的快照讀取；不存在回 null。交易外的預查（重新驗證、忘記密碼）用它：同一個 DbContext 之後的 <see cref="GetTrackedAsync"/>
+    /// 才會真的讀資料庫，不會拿到預查時已追蹤的舊實體（au1b 審查 M1）。
+    /// </summary>
+    Task<AppUser?> GetAsync(string userId, CancellationToken ct);
+
     /// <summary>Demo 一鍵登入清單：啟用中的 admin 排第一，其後是啟用中的示範帳號（依帳號排序）；唯讀。</summary>
     Task<IReadOnlyList<AppUser>> ListDemoLoginAccountsAsync(CancellationToken ct);
 
