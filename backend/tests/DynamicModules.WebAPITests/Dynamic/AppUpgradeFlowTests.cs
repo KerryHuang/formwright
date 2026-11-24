@@ -774,6 +774,26 @@ public class AppUpgradeFlowTests : IDisposable
         transition.GetProperty("detail").GetString().Should().Be("approvalFlow:uf-check");
     }
 
+    // ---- 走查 W1：狀態機項目顯示「模組：狀態」「模組：甲 → 乙」，不是原始代碼 ----
+
+    [Fact]
+    public async Task W1_WorkflowItems_LabelledWithModuleAndStatusNames()
+    {
+        await OpenAsync();
+        await NewVersionAsync(p =>
+        {
+            AddOption(p, "hold", "暫緩");
+            Wf(p)["states"]!.AsArray().Add(JsonNode.Parse("""{ "option": "hold" }"""));
+            Wf(p)["transitions"]!.AsArray().Add(JsonNode.Parse("""{ "from": "draft", "to": "hold", "groups": ["sales"] }"""));
+            Wf(p)["initial"] = "sent";
+        });
+        var preview = await PreviewAsync();
+        string Label(string id) => Item(preview, id).GetProperty("label").GetProperty("zh-TW").GetString()!;
+        Label("transition:deal:draft>hold").Should().Be("案件：草稿 → 暫緩");
+        Label("state:deal.hold").Should().Be("案件：暫緩");
+        Label("workflow:deal").Should().Be("案件");
+    }
+
     // ---- A64 ----
 
     [Fact]

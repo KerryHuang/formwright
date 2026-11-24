@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AppInfo, UpgradeItem } from 'src/services/api/dynamic-api';
-import { applyErrorLines, confirmCounts, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatValue, groupItems, isLong, moduleNames, NOT_APPLICABLE, toggleItem } from './upgrade-view';
+import type { I18nText } from 'src/domain/dynamic/types';
+import { applyErrorLines, confirmCounts, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatProp, formatValue, groupItems, isLong, moduleNames, NOT_APPLICABLE, toggleItem } from './upgrade-view';
 
 const item = (id: string, category: UpgradeItem['category'], extra: Partial<UpgradeItem> = {}): UpgradeItem => ({
   id, section: 'fields', module: 'lead', label: null, category, defaultSelected: false, applicable: true, reason: null,
@@ -126,5 +127,36 @@ describe('apply errors (§8.3, review M5)', () => {
     const again = toggleItem(pair, unticked.selected, 'approvalFlow:complaint-review', true);
     expect([...again.selected].sort()).toEqual(['approvalFlow:complaint-review', 'module:complaint']);
     expect(again.together).toEqual(['module:complaint']);
+  });
+});
+
+// 走查 W2：屬性值看得懂——群組 id 換名稱、簽核關卡與簽核人摘要
+describe('formatProp', () => {
+  const ctx = {
+    groupName: (id: number) => ({ 2: '業務', 3: '主管' } as Record<number, string>)[id],
+    text: (n: I18nText) => n['zh-TW'] ?? '',
+    mode: (m: string) => ({ any: '或簽', all: '會簽' } as Record<string, string>)[m] ?? m,
+    source: (s: string) => ({ group: '群組', manager: '發起人的主管' } as Record<string, string>)[s] ?? s,
+    fallback: '備援簽核人',
+  };
+
+  it('shows group names for group id lists, unknown ids as #id', () => {
+    expect(formatProp('groups', [2, 3], ctx)).toBe('業務、主管');
+    expect(formatProp('shareWith', [2, 9], ctx)).toBe('業務、#9');
+  });
+
+  it('lists approval stages by name and mode', () => {
+    expect(formatProp('stages', [{ code: 'lead', name: { 'zh-TW': '主管審核' }, mode: 'any' }, { code: 'gm', name: {}, mode: 'all' }], ctx))
+      .toBe('1. 主管審核（或簽）\n2. gm（會簽）');
+  });
+
+  it('summarises approvers per stage, fallback named', () => {
+    expect(formatProp('approvers', { lead: { source: 'group', groups: [2] }, $fallback: { source: 'manager', level: 1 } }, ctx))
+      .toBe('lead：群組 業務\n備援簽核人：發起人的主管');
+  });
+
+  it('falls back to the raw value for other properties', () => {
+    expect(formatProp('priority', 2, ctx)).toBe('2');
+    expect(formatProp('when', { op: 'and' }, ctx)).toBe('{"op":"and"}');
   });
 });

@@ -60,6 +60,42 @@ export function formatValue(v: unknown): string {
 
 export const isLong = (v: unknown) => formatValue(v).length > LONG_VALUE;
 
+/** Lookups for readable property values (walkthrough W2): group ids → names, i18n texts, approval mode and approver source labels. */
+export interface PropContext {
+  groupName: (id: number) => string | undefined;
+  text: (t: I18nText) => string;
+  mode: (mode: string) => string;
+  source: (source: string) => string;
+  fallback: string;
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const groupList = (v: unknown, ctx: PropContext) =>
+  (Array.isArray(v) ? v : []).map((g) => (typeof g === 'number' ? ctx.groupName(g) ?? `#${g}` : String(g))).join('、');
+
+/**
+ * Readable property value: group-id lists show group names; approval-flow stages list "n. name (mode)"; approvers list
+ * "stage: source groups" one line each. Anything else falls back to {@link formatValue}.
+ */
+export function formatProp(name: string, v: unknown, ctx: PropContext): string {
+  if (v === null || v === undefined) return '';
+  if ((name === 'groups' || name === 'shareWith') && Array.isArray(v) && v.every((g) => typeof g === 'number' || typeof g === 'string'))
+    return groupList(v, ctx);
+  if (name === 'stages' && Array.isArray(v) && v.every(isRecord))
+    return v.map((st, k) => {
+      const label = isRecord(st.name) ? ctx.text(st.name as I18nText) : String(st.code ?? '');
+      return `${k + 1}. ${label || String(st.code ?? '')}${typeof st.mode === 'string' ? `（${ctx.mode(st.mode)}）` : ''}`;
+    }).join('\n');
+  if (name === 'approvers' && isRecord(v))
+    return Object.entries(v).map(([code, a]) => {
+      if (!isRecord(a)) return `${code}：${formatValue(a)}`;
+      const groups = groupList([...(Array.isArray(a.groups) ? a.groups : []), ...(Array.isArray(a.candidateGroups) ? a.candidateGroups : [])], ctx);
+      const source = typeof a.source === 'string' ? ctx.source(a.source) : '';
+      return `${code === '$fallback' ? ctx.fallback : code}：${[source, groups].filter(Boolean).join(' ')}`;
+    }).join('\n');
+  return formatValue(v);
+}
+
 /**
  * Module code → name for group titles: opened modules from the apps list, modules new in this version from their
  * module item; contributions (`<master>/<module>`) from that master's modules. Unknown codes are left out (title falls back to the code).

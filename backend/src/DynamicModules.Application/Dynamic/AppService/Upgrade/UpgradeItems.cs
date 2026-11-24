@@ -180,15 +180,30 @@ public static class UpgradeItems
                 { Refs = RefsOf(r.Definition) });
         }
 
+        // 狀態機項目的顯示名稱（走查 W1）：「模組：狀態」「模組：甲 → 乙」，逐語系組字；找不到的模組或選項用代碼
+        var moduleNames = p.Modules.ToDictionary(m => m.Code, m => m.Name, StringComparer.Ordinal);
+        var optionNames = p.Modules.SelectMany(m => m.Blocks.SelectMany(b => b.Fields).SelectMany(f => f.Options)
+                .Select(o => (Key: $"{m.Code}.{o.Code}", o.Label)))
+            .GroupBy(x => x.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().Label, StringComparer.Ordinal);
+        I18nText FlowLabel(string module, params string[] options)
+        {
+            var parts = options.Select(o => optionNames.GetValueOrDefault($"{module}.{o}")).ToList();
+            var moduleName = moduleNames.GetValueOrDefault(module);
+            var locales = parts.Append(moduleName).OfType<I18nText>().SelectMany(t => t.Values.Keys).Append(I18nText.FallbackLocale)
+                .Distinct(StringComparer.Ordinal).ToList();
+            string Text(I18nText? t, string code, string locale) => t?.Resolve(locale) is { Length: > 0 } x ? x : code;
+            return new I18nText(locales.Select(l => KeyValuePair.Create(l,
+                $"{Text(moduleName, module, l)}{(l.StartsWith("zh", StringComparison.Ordinal) ? "：" : ": ")}{string.Join(" → ", parts.Select((t, k) => Text(t, options[k], l)))}")));
+        }
         foreach (var w in p.Workflows)
         {
             var workflowId = $"workflow:{w.Module}";
             // 初始狀態要已在狀態機裡（SaveWorkflow 驗證）：限定名讓它依賴得到新狀態（T43 第 6 點）
-            Add(new UpgradeItem(workflowId, "workflows", w.Module, null, Generic(w))
+            Add(new UpgradeItem(workflowId, "workflows", w.Module, moduleNames.GetValueOrDefault(w.Module), Generic(w))
                 { Parent = $"module:{w.Module}", Refs = RefsOf(w.Module, w.StatusField, w.Initial, $"{w.Module}.{w.Initial}") });
             // editable 只有 true 有意義（匯出把 false 寫成省略）
             foreach (var s in w.States)
-                Add(new UpgradeItem($"state:{w.Module}.{s.Option}", "workflows", w.Module, null, Generic(s with { Editable = s.Editable == true ? true : null }))
+                Add(new UpgradeItem($"state:{w.Module}.{s.Option}", "workflows", w.Module, FlowLabel(w.Module, s.Option), Generic(s with { Editable = s.Editable == true ? true : null }))
                     { Parent = workflowId, Refs = RefsOf(w.Module, s.Option) });
             foreach (var t in w.Transitions)
             {
@@ -199,7 +214,7 @@ public static class UpgradeItems
                 var approval = t.Approval is { Required: true } a ? new AppTransitionApproval(true, a.NoMatch == "direct" ? "direct" : null) : null;
                 var props = Generic(t with { Groups = [], Approval = approval });
                 props["groups"] = Normalize(JsonSerializer.SerializeToNode(transitionGroups));
-                Add(new UpgradeItem($"transition:{w.Module}:{t.From}>{t.To}", "workflows", w.Module, null, props)
+                Add(new UpgradeItem($"transition:{w.Module}:{t.From}>{t.To}", "workflows", w.Module, FlowLabel(w.Module, t.From, t.To), props)
                     { Parent = workflowId, Refs = RefsOf(w.Module, t.From, t.To, $"{w.Module}.{t.From}", $"{w.Module}.{t.To}") });
             }
         }

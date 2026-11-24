@@ -8,7 +8,7 @@ import { useAppUpgradePreview, useApplyAppUpgrade, useApps } from 'src/applicati
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import {
-  applyErrorLines, CATEGORY_ORDER, confirmCounts, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatValue, groupItems, isLong,
+  applyErrorLines, CATEGORY_ORDER, confirmCounts, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatProp, groupItems, isLong,
   moduleNames, NOT_APPLICABLE, toggleItem,
 } from 'src/presentation/dynamic/upgrade/upgrade-view';
 import type { I18nText } from 'src/domain/dynamic/types';
@@ -68,6 +68,18 @@ const propName = (n: string) => {
   const k = n.startsWith('config.') ? `apps.upgrade.prop.${n.slice(7)}` : `apps.upgrade.prop.${n}`;
   return te(k) ? t(k) : n;
 };
+// 屬性值換成看得懂的文字（走查 W2）：群組 id 換名稱、簽核關卡與簽核人摘要
+const propContext = computed(() => {
+  const groups = new Map((adminGroups.data.value ?? []).map((g) => [g.id, name(g.nameI18n)]));
+  return {
+    groupName: (id: number) => groups.get(id),
+    text: (n: I18nText) => name(n),
+    mode: (m: string) => (te(`approval.mode.${m}`) ? t(`approval.mode.${m}`) : m),
+    source: (s: string) => (te(`approval.designer.source.kind.${s}`) ? t(`approval.designer.source.kind.${s}`) : s),
+    fallback: t('apps.upgrade.fallbackApprovers'),
+  };
+});
+const propValue = (n: string, v: unknown) => formatProp(n, v, propContext.value);
 const dependsLabel = (ids: string[]) => ids.map((id) => {
   const hit = allItems.value.find((i) => i.id === id);
   return hit ? labelOf(hit) : id;
@@ -256,12 +268,12 @@ const viewing = ref<{ title: string; value: string } | null>(null);
                   <span class="text-weight-medium">{{ propName(p.name) }}<template v-if="p.locale"> · {{ p.locale }}</template></span>
                   <span v-for="col in (['base', 'new', 'current'] as const)" :key="col" :data-label="t(`apps.upgrade.${col}`)">
                     <template v-if="col === 'current' && p.result === 'newOnly'">—</template>
-                    <template v-else-if="isLong(p[col])">
+                    <template v-else-if="isLong(propValue(p.name, p[col]))">
                       {{ t('apps.upgrade.longValue') }}
                       <q-btn flat dense no-caps size="sm" :label="t('apps.upgrade.view')"
-                        @click="viewing = { title: propName(p.name), value: formatValue(p[col]) }" />
+                        @click="viewing = { title: propName(p.name), value: propValue(p.name, p[col]) }" />
                     </template>
-                    <template v-else>{{ formatValue(p[col]) || '—' }}</template>
+                    <template v-else>{{ propValue(p.name, p[col]) || '—' }}</template>
                   </span>
                 </div>
               </div>
@@ -314,7 +326,7 @@ const viewing = ref<{ title: string; value: string } | null>(null);
 .upgrade-row { gap: 0.5rem; }
 .upgrade-name { min-width: 0; overflow-wrap: anywhere; }
 .upgrade-prop { display: grid; grid-template-columns: minmax(8rem, 1fr) repeat(3, minmax(0, 2fr)); gap: 0.5rem; padding: 0.25rem 0; }
-.upgrade-prop > span { min-width: 0; overflow-wrap: anywhere; }
+.upgrade-prop > span { min-width: 0; overflow-wrap: anywhere; white-space: pre-line; }
 .upgrade-prop--head { font-size: 0.75rem; opacity: 0.7; }
 .upgrade-dialog { width: min(90vw, 48rem); }
 .upgrade-pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
