@@ -47,7 +47,8 @@ public sealed class ReauthVerifier(
         if (transactions.IsActive) throw new InvalidOperationException("IReauthVerifier 只能在交易外呼叫");
         // 可預期的檢查排在驗證之前，不佔限流名額（§8.9 第 1 點）
         if (string.IsNullOrEmpty(password)) return (null, ServiceResult.Invalid(PasswordField, MessageRef.Of(MessageText.ReauthPasswordRequired)));
-        var user = await accounts.GetTrackedAsync(userId, ct);
+        // 不追蹤：內層交易的 GetTrackedAsync 才會讀到資料庫的現值，StillValidFor 的重比才有作用（au1b 審查 M1）
+        var user = await accounts.GetAsync(userId, ct);
         if (user is not { IsActive: true }) return (null, ServiceResult.Unauthorized(MessageRef.Of(MessageText.SignInRequired)));
 
         var key = user.UserId.ToLowerInvariant();

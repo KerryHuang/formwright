@@ -11,6 +11,9 @@ public class AccountRepository(DynamicDbContext db) : IAccountRepository
     public Task<AppUser?> GetTrackedAsync(string userId, CancellationToken ct) =>
         db.Set<AppUser>().SingleOrDefaultAsync(u => u.UserId == userId, ct);
 
+    public Task<AppUser?> GetAsync(string userId, CancellationToken ct) =>
+        db.Set<AppUser>().AsNoTracking().SingleOrDefaultAsync(u => u.UserId == userId, ct);
+
     public async Task<IReadOnlyList<AppUser>> ListDemoLoginAccountsAsync(CancellationToken ct) =>
         await db.Set<AppUser>().AsNoTracking()
             .Where(u => u.IsActive && (u.IsDemoAccount || u.UserId == "admin"))
