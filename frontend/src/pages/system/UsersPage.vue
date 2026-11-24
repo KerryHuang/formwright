@@ -446,8 +446,8 @@ function runSetActive(u: AdminUser, active: boolean) {
 </template>
 
 <style scoped>
-/* 欄多時表格會橫捲；操作欄固定在右側，不必捲到底才看得到 */
-.users-actions-col {
+/* 欄多時表格會橫捲；操作欄固定在右側，不必捲到底才看得到。表頭 th 由 q-table 產生、沒有本元件的 scoped 屬性，要用 :deep */
+:deep(.users-actions-col) {
   position: sticky;
   right: 0;
   z-index: 1;
