@@ -219,15 +219,15 @@ const scaleOptions = computed(() => (['day', 'week', 'month'] as const).map((v) 
 const fullDate = (iso: string) => formatGanttDate(iso, locale.value, { year: 'numeric', month: '2-digit', day: '2-digit' });
 const rangeText = computed(() => (data.value ? `${fullDate(data.value.window.from)} – ${fullDate(data.value.window.to)}` : ''));
 const windowOf = computed(() => data.value?.window ?? { from: '', to: '' });
-const majors = computed(() => (data.value ? monthTicks(data.value.window) : []).map((x) => ({
-  ...x, label: formatGanttDate(x.date, locale.value, { year: 'numeric', month: 'short' }),
-})));
-const minors = computed(() => (data.value ? minorTicks(data.value.window, shownScale.value) : []).map((x) => ({
-  ...x,
-  label: shownScale.value === 'day'
-    ? `${formatGanttDayOfMonth(x.date, locale.value)} ${formatGanttDate(x.date, locale.value, { weekday: 'short' })}`
-    : formatGanttDate(x.date, locale.value, { month: 'numeric', day: 'numeric' }),
-})));
+// 日刻度時被時間窗切到只剩 1–3 天的月份放不下「2026年11月」：3 天以下只留月份、1 天不寫（下一格會寫）
+const majors = computed(() => (data.value ? monthTicks(data.value.window) : []).map((x) => {
+  const days = Math.round(x.width * windowDays(data.value!.window));
+  const narrow = shownScale.value === 'day' && days < 4;
+  return { ...x, label: days < 2 && narrow ? '' : formatGanttDate(x.date, locale.value, narrow ? { month: 'short' } : { year: 'numeric', month: 'short' }) };
+}));
+const minors = computed(() => (data.value ? minorTicks(data.value.window, shownScale.value) : []).map((x) => (shownScale.value === 'day'
+  ? { ...x, label: formatGanttDayOfMonth(x.date, locale.value), weekday: formatGanttDate(x.date, locale.value, { weekday: 'short' }) }
+  : { ...x, label: formatGanttDate(x.date, locale.value, { month: 'numeric', day: 'numeric' }), weekday: '' })));
 // 格線：日、週刻度畫在每一格的左緣，月刻度畫在每月一日
 const gridlines = computed(() => (shownScale.value === 'month' ? majors.value : minors.value).slice(1).map((x) => x.left));
 const today = computed(() => (data.value ? todayPosition(data.value.today, data.value.window) : null));
@@ -289,7 +289,9 @@ const shortDate = (iso: string) => formatGanttDate(iso, locale.value, { month: '
         <q-btn flat dense no-caps color="primary" :label="t('taskBoard.retry')" data-testid="gantt-retry" @click="query.refetch()" />
       </div>
       <q-linear-progress v-else-if="!phoneData" indeterminate class="q-my-sm" data-testid="gantt-loading" />
-      <q-linear-progress v-else-if="refreshing" indeterminate class="q-my-sm" :aria-label="t('locale.loading')" data-testid="gantt-refreshing" />
+      <div v-if="phoneData" class="gantt-refresh-slot" aria-live="polite" data-testid="gantt-refresh-slot">
+        <q-linear-progress v-if="refreshing" indeterminate :aria-label="t('locale.loading')" data-testid="gantt-refreshing" />
+      </div>
       <template v-if="phoneData">
         <q-banner v-if="!phoneData.scopeAvailable" dense rounded class="bg-info-soft q-mb-sm" role="status" data-testid="gantt-scope-unavailable">
           {{ t('taskGantt.scopeUnavailable') }}
@@ -359,7 +361,9 @@ const shortDate = (iso: string) => formatGanttDate(iso, locale.value, { month: '
         <q-btn flat dense no-caps color="primary" :label="t('taskBoard.retry')" data-testid="gantt-retry" @click="query.refetch()" />
       </div>
       <q-linear-progress v-else-if="query.isLoading.value" indeterminate class="q-my-sm" data-testid="gantt-loading" />
-      <q-linear-progress v-else-if="refreshing" indeterminate class="q-my-sm" :aria-label="t('locale.loading')" data-testid="gantt-refreshing" />
+      <div v-if="data" class="gantt-refresh-slot" aria-live="polite" data-testid="gantt-refresh-slot">
+        <q-linear-progress v-if="refreshing" indeterminate :aria-label="t('locale.loading')" data-testid="gantt-refreshing" />
+      </div>
       <template v-if="data">
         <q-banner v-if="!data.scopeAvailable" dense rounded class="bg-info-soft q-mb-sm" role="status" data-testid="gantt-scope-unavailable">
           {{ t('taskGantt.scopeUnavailable') }}
@@ -375,7 +379,7 @@ const shortDate = (iso: string) => formatGanttDate(iso, locale.value, { month: '
                 <span v-for="m in majors" :key="m.date" class="gantt-tick" :style="{ left: pct(m.left), width: pct(m.width) }" data-testid="gantt-major">{{ m.label }}</span>
               </div>
               <div v-if="minors.length" class="gantt-axis-row">
-                <span v-for="m in minors" :key="m.date" class="gantt-tick" :style="{ left: pct(m.left), width: pct(m.width) }" data-testid="gantt-minor">{{ m.label }}</span>
+                <span v-for="m in minors" :key="m.date" class="gantt-tick" :class="{ 'is-two-line': m.weekday }" :style="{ left: pct(m.left), width: pct(m.width) }" data-testid="gantt-minor"><template v-if="m.weekday"><span class="gantt-tick-day">{{ m.label }}</span> <span class="gantt-tick-weekday">{{ m.weekday }}</span></template><template v-else>{{ m.label }}</template></span>
               </div>
               <span v-if="today !== null" class="gantt-today-label text-caption" :style="{ left: pct(today) }" data-testid="gantt-today-label">{{ t('taskGantt.todayLine') }}</span>
             </div>
@@ -592,8 +596,12 @@ const shortDate = (iso: string) => formatGanttDate(iso, locale.value, { month: '
 }
 .gantt-meta { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .gantt-axis, .gantt-track { position: relative; min-width: 0; overflow: hidden; }
+/* 底部固定留一條給「今天」標籤，不蓋住刻度（有沒有今天都一樣高，換時間窗版面不跳） */
+.gantt-axis { padding-bottom: 18px; }
+.gantt-refresh-slot { height: 4px; margin: 4px 0; }
 .gantt-axis-row { position: relative; height: 22px; }
 .gantt-head.is-month .gantt-axis-row { height: 28px; }
+.gantt-head.is-day .gantt-axis-row + .gantt-axis-row { height: 36px; }
 .gantt-tick {
   position: absolute;
   top: 0;
@@ -605,6 +613,8 @@ const shortDate = (iso: string) => formatGanttDate(iso, locale.value, { month: '
   text-overflow: ellipsis;
   border-left: 1px solid var(--t-border);
 }
+.gantt-tick.is-two-line { padding: 3px 1px 0; text-align: center; line-height: 15px; }
+.gantt-tick-day, .gantt-tick-weekday { display: block; }
 .gantt-today-label {
   position: absolute;
   bottom: 0;

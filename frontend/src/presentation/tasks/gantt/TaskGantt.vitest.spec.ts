@@ -501,6 +501,18 @@ describe('TaskGantt', () => {
     await w.get('[data-testid="gantt-scale-day"]').trigger('click');
     await flushPromises();
     expect(w.findAll('[data-testid="gantt-minor"]')[0].text()).toBe('16 週一');
+    // 兩行（日數、星期各一個區塊），窄格不再被省略號截斷
+    const first = w.findAll('[data-testid="gantt-minor"]')[0];
+    expect(first.get('.gantt-tick-day').text()).toBe('16');
+    expect(first.get('.gantt-tick-weekday').text()).toBe('週一');
+  });
+
+  it('a month cut down to 1–3 days in the day scale shows only the month (or nothing), never the clipped year-month text', async () => {
+    const w = await mountGantt((b) => serverLike({ ...b, window: b.config?.scale === 'day' ? { from: '2026-11-30', to: '2026-12-13' } : b.window }));
+    await w.get('[data-testid="gantt-scale-day"]').trigger('click');
+    await flushPromises();
+    const majors = w.findAll('[data-testid="gantt-major"]').map((e) => e.text());
+    expect(majors).toEqual(['', '2026年12月']);
   });
 
   it('a milestone keeps its whole diamond inside the track even on the first and last day of the window', async () => {
@@ -522,6 +534,8 @@ describe('TaskGantt', () => {
     it('shows an updating indicator while the same query refetches, and keeps the chart', async () => {
       const w = await mountGantt();
       expect(w.find('[data-testid="gantt-refreshing"]').exists()).toBe(false);
+      // 占位元素永遠在：橫條出現與消失不推動圖表
+      expect(w.find('[data-testid="gantt-refresh-slot"]').exists()).toBe(true);
       const d = deferred();
       calls = mockHttp((c) => (c.url === '/tasks/gantt' ? d.promise : []));
       await w.get('[data-testid="gantt-today"]').trigger('click');
