@@ -1,6 +1,12 @@
 using DynamicModules.Application.Common;
 using DynamicModules.Application.Dynamic.AppService.Data;
 using DynamicModules.Application.Dynamic.ApprovalService;
+using DynamicModules.Application.Dynamic.CheckService;
+using DynamicModules.Application.Dynamic.ConversionService.Commands.SaveConversion;
+using DynamicModules.Application.Dynamic.EventService;
+using DynamicModules.Application.Dynamic.LedgerService;
+using DynamicModules.Application.Dynamic.PrintService;
+using DynamicModules.Application.Dynamic.TaskRuleService;
 using DynamicModules.Application.Dynamic.TemplateService.Data;
 using DynamicModules.Application.Dynamic.WorkflowService.Commands.SaveWorkflow;
 using DynamicModules.Application.Dynamic.WorkflowService.Data;
@@ -14,9 +20,11 @@ using static DynamicModules.Application.Dynamic.AppService.Upgrade.UpgradeClassi
 namespace DynamicModules.Application.Dynamic.AppService.Upgrade;
 
 /// <summary>
-/// 套用升級的狀態機與簽核流程（套件更新設計 §9.6.1、§9.6.2，pkg1d1a）。順序照 T31：狀態機第一趟 → 簽核流程 → 狀態機第二趟，
-/// 每個階段先新增、再修改。新模組的狀態機與新流程走 <see cref="AppFlowInstaller"/> 的逐階段入口（嚴格模式，T45）；
-/// 既有模組以資料庫現有的 Workflow 為底，只把勾選的狀態、轉移換成 id 合進去，一個模組每一趟只存一次（T29、T44）。
+/// 套用升級的第 8 步（套件更新設計 §9.6.1、§9.6.2）：狀態機、分錄、事件、檢查、簽核流程、轉換、列印範本、任務規則。
+/// 順序照 T31：狀態機第一趟 → 分錄 → 事件 → 檢查 → 簽核流程 → 狀態機第二趟 → 轉換 → 列印範本（→ 報表 → 任務規則，由呼叫端排），
+/// 每個階段先新增、再修改，讓修改引用得到同階段的新物件。新物件走 <see cref="AppFlowInstaller"/> 的逐階段入口（嚴格模式，T45）；
+/// 修改以比對模式匯出的現況為底，換上要寫的屬性（客戶改的保留），代號換成 id 後以 Key 送 Update*（T29）。
+/// 狀態機以資料庫現有的 Workflow 為底，只把勾選的狀態、轉移換成 id 合進去，一個模組每一趟只存一次（T29、T44）。
 /// 第一趟保留現況每條轉移的需簽核原樣；這次才加上需簽核、而目標上還沒有流程的，等流程建好再於第二趟補上（T31、複核 R1）。
 /// </summary>
 public sealed class AppFlowUpgrader(ISender sender, IModuleRepository modules, IApprovalFlowRepository flows, AppFlowInstaller installer)
@@ -26,10 +34,16 @@ public sealed class AppFlowUpgrader(ISender sender, IModuleRepository modules, I
         IReadOnlySet<string> newModules, LocaleContext lc, List<string> warnings, CancellationToken ct)
     {
         var n = ctx.New;
-        var picked = chosen.Where(i => i.Section is "workflows" or "approvalFlows").ToList();
+        var picked = chosen.Where(i => i.Section is "workflows" or "approvalFlows" or "ledgers" or "events" or "checks" or "conversions" or "printTemplates").ToList();
         var newModuleWorkflows = n.Workflows.Where(w => newModules.Contains(w.Module)).ToList();
-        if (picked.Count == 0 && newModuleWorkflows.Count == 0) return null;
+        // 新模組的分錄設定隨模組一起裝、不另列（§9.6.2 分錄）
+        var newModuleLedgers = n.Ledgers.Where(l => newModules.Contains(l.Module)).ToList();
+        if (picked.Count == 0 && newModuleWorkflows.Count == 0 && newModuleLedgers.Count == 0) return null;
         bool IsNew(UpgradeItemResponse i) => !ctx.C.ContainsKey(i.Id);
+        HashSet<string> NewCodes(string section) =>
+            picked.Where(i => i.Section == section && IsNew(i)).Select(i => i.Id[(i.Id.IndexOf(':') + 1)..]).ToHashSet(StringComparer.Ordinal);
+        List<UpgradeItemResponse> Modified(string section) => picked.Where(i => i.Section == section && !IsNew(i)).ToList();
+        var lookups = LookupsOf(n, ids);
 
         // 1. 狀態機第一趟：新模組（照開啟）、既有模組（以現況為底）
         var (failure, passes) = await installer.SaveWorkflowsAsync(n with { Workflows = newModuleWorkflows }, ids, groupIds, warnings, strict: true, ct);
@@ -40,8 +54,45 @@ public sealed class AppFlowUpgrader(ISender sender, IModuleRepository modules, I
             if ((failure = await SaveExistingAsync(group.Key, group.ToList(), n, ids, groupIds, deferred, warnings, ct)) is not null) return failure;
         }
 
-        // 2. 簽核流程：先新增（依模組、目標、優先序，同開啟），再修改（以現況為底、群組在 id 層合併，T44）
-        var newFlows = picked.Where(i => i.Section == "approvalFlows" && IsNew(i)).Select(i => i.Id["approvalFlow:".Length..]).ToHashSet(StringComparer.Ordinal);
+        // 2. 分錄（新模組的、既有模組這次新設的 → 修改）
+        var newLedgers = NewCodes("ledgers");
+        (failure, _) = await installer.InstallLedgersAsync(n with { Ledgers = [.. newModuleLedgers, .. n.Ledgers.Where(l => newLedgers.Contains(l.Module))] },
+            ids, warnings, strict: true, ct);
+        if (failure is not null) return failure;
+        foreach (var item in Modified("ledgers"))
+        {
+            var merged = Merge(item, ctx.Current.Ledgers.First(l => l.Module == item.Module), n.Ledgers.First(l => l.Module == item.Module));
+            var (input, errors) = AppEffectsCodec.ToInput(merged, lookups);
+            if (input is null) return Missing(item.Id, errors);
+            if ((failure = Fail(await sender.Send(new SaveLedgerRequest(ids.ModuleKeys[merged.Module], input), ct), item.Id)) is not null) return failure;
+        }
+
+        // 3. 事件（沖銷別人的排在被沖銷的之後；新增後修改，修改才能改成沖銷這次新增的事件）
+        var newEvents = NewCodes("events");
+        if ((failure = await installer.InstallEventsAsync(n with { Events = n.Events.Where(e => newEvents.Contains(e.Code)).ToList() },
+                ids, new HashSet<string>(), warnings, strict: true, ct)) is not null) return failure;
+        foreach (var item in Modified("events"))
+        {
+            var code = item.Id["event:".Length..];
+            var merged = Merge(item, ctx.Current.Events.First(e => e.Code == code), n.Events.First(e => e.Code == code));
+            var (input, errors) = AppEffectsCodec.ToInput(merged, lookups);
+            if (input is null) return Missing(item.Id, errors);
+            if ((failure = Fail(await sender.Send(new UpdateEventRequest(code, input), ct), item.Id)) is not null) return failure;
+        }
+
+        // 4. 檢查：設計器指令自動開可篩選、回填索引，notice 併進 warnings
+        var newChecks = NewCodes("checks");
+        foreach (var c in n.Checks.Where(c => newChecks.Contains(c.Code)))
+            if ((failure = await SaveCheckAsync($"check:{c.Code}", c, lookups, isNew: true, warnings, ct)) is not null) return failure;
+        foreach (var item in Modified("checks"))
+        {
+            var code = item.Id["check:".Length..];
+            var merged = Merge(item, ctx.Current.Checks.First(c => c.Code == code), n.Checks.First(c => c.Code == code));
+            if ((failure = await SaveCheckAsync(item.Id, merged, lookups, isNew: false, warnings, ct)) is not null) return failure;
+        }
+
+        // 5. 簽核流程：先新增（依模組、目標、優先序，同開啟），再修改（以現況為底、群組在 id 層合併，T44）
+        var newFlows = NewCodes("approvalFlows");
         if (newFlows.Count > 0)
         {
             var substitutions = new List<AppApprovalFlowCodec.Substitution>();
@@ -49,10 +100,10 @@ public sealed class AppFlowUpgrader(ISender sender, IModuleRepository modules, I
                     ids, groupIds, lc, substitutions, ct)) is not null) return failure;
             warnings.AddRange(substitutions.Select(s => $"簽核流程「{s.FlowName.Resolve(lc)}」的群組「{s.GroupName.Resolve(lc)}」沒有對應，已由備援簽核人頂替"));
         }
-        foreach (var item in picked.Where(i => i.Section == "approvalFlows" && !IsNew(i)))
+        foreach (var item in Modified("approvalFlows"))
             if ((failure = await UpdateFlowAsync(item, ctx, ids, groupIds, ct)) is not null) return failure;
 
-        // 3. 狀態機第二趟：帶上需簽核
+        // 6. 狀態機第二趟：帶上需簽核
         if ((failure = await installer.SaveWorkflowApprovalsAsync(passes, ct)) is not null) return failure;
         foreach (var (code, list) in deferred)
         {
@@ -63,7 +114,96 @@ public sealed class AppFlowUpgrader(ISender sender, IModuleRepository modules, I
             var saved = await sender.Send(new SaveWorkflowRequest(module.Key, new WorkflowInput(wf.StatusFieldId, wf.InitialOptionId, [.. wf.States], transitions)), ct);
             if (PassFailure(saved, picked.Where(i => i.Section == "workflows" && i.Module == code)) is { } f) return f;
         }
+
+        // 7. 轉換：只影響之後的轉換（已轉量即時算，追溯與數量欄位有已轉出的單時預覽已擋下，T48）
+        var newConversions = NewCodes("conversions");
+        if ((failure = await installer.InstallConversionsAsync(n with { Conversions = n.Conversions.Where(c => newConversions.Contains(c.Code)).ToList() },
+                ids, warnings, strict: true, ct)) is not null) return failure;
+        foreach (var item in Modified("conversions"))
+        {
+            var code = item.Id["conversion:".Length..];
+            var merged = Merge(item, ctx.Current.Conversions.First(c => c.Code == code), n.Conversions.First(c => c.Code == code));
+            if (AppFlowInstaller.ConversionInputOf(merged, ids) is not { } input) return Missing(item.Id, [AppMessages.UpgradeStrictMissing(code)]);
+            if ((failure = Fail(await sender.Send(new UpdateConversionRequest(code, input), ct), item.Id)) is not null) return failure;
+        }
+
+        // 8. 列印範本：本文是一個屬性，勾了就覆寫；名稱裡客戶改的語系、啟用狀態保留（Q22）
+        var newTemplates = NewCodes("printTemplates");
+        if ((failure = await installer.InstallPrintTemplatesAsync(n with { PrintTemplates = n.PrintTemplates.Where(t => newTemplates.Contains(t.Code)).ToList() },
+                ids, warnings, strict: true, ct)) is not null) return failure;
+        foreach (var item in Modified("printTemplates"))
+        {
+            var code = item.Id["printTemplate:".Length..];
+            var merged = Merge(item, ctx.Current.PrintTemplates.First(t => t.Code == code), n.PrintTemplates.First(t => t.Code == code));
+            var converted = AppPrintCodec.ToDatabase(merged.Body, merged.Module,
+                m => ids.ModuleKeys.GetValueOrDefault(m), name => ids.FieldIds.TryGetValue(name, out var id) ? id : null);
+            if (converted.Body is null || converted.Dropped.Count > 0 || !ids.ModuleKeys.TryGetValue(merged.Module, out var moduleKey))
+                return Missing(item.Id, [AppMessages.UpgradeStrictMissing(string.Join("、", converted.Dropped.DefaultIfEmpty(merged.Module)))]);
+            if ((failure = Fail(await sender.Send(new UpdatePrintTemplateRequest(moduleKey, code,
+                    new PrintTemplateInput(code, merged.Name, converted.Body, merged.Active)), ct), item.Id)) is not null) return failure;
+        }
         return null;
+    }
+
+    /// <summary>
+    /// 任務規則（T31 最後一階段，在報表之後）：新的走 <see cref="AppFlowInstaller.InstallTaskRulesAsync"/>（記在本應用程式名下、
+    /// 模組沒啟用任務時自動啟用並警告），修改走 UpdateTaskRule（AppId 不動）。規則可以掛在主檔模組上（T54），模組與欄位用主檔符號。
+    /// </summary>
+    public async Task<ServiceResult?> ApplyTaskRulesAsync(
+        List<UpgradeItemResponse> chosen, AppUpgradePreviewer.CompareContext ctx, TemplateIdMap ids, long appId, List<string> warnings, CancellationToken ct)
+    {
+        var picked = chosen.Where(i => i.Section == "taskRules").ToList();
+        if (picked.Count == 0) return null;
+        var n = ctx.New;
+        var fresh = picked.Where(i => !ctx.C.ContainsKey(i.Id)).Select(i => i.Id["taskRule:".Length..]).ToHashSet(StringComparer.Ordinal);
+        if (await installer.InstallTaskRulesAsync(n with { TaskRules = n.TaskRules.Where(r => fresh.Contains(r.Code)).ToList() },
+                ids, appId, warnings, ct, strict: true) is { } failure) return failure;
+        var lookups = LookupsOf(n, ids);
+        foreach (var item in picked.Where(i => ctx.C.ContainsKey(i.Id)))
+        {
+            var code = item.Id["taskRule:".Length..];
+            var merged = Merge(item, ctx.Current.TaskRules.First(r => r.Code == code), n.TaskRules.First(r => r.Code == code));
+            var (input, errors) = AppTaskRuleCodec.ToInput(merged, lookups);
+            if (input is null || lookups.ModuleKey(merged.Module) is not { } moduleKey) return Missing(item.Id, errors.DefaultIfEmpty(AppMessages.UpgradeStrictMissing(merged.Module)));
+            if (Fail(await sender.Send(new UpdateTaskRuleRequest(moduleKey, code, input), ct), item.Id) is { } f) return f;
+        }
+        return null;
+    }
+
+    private async Task<ServiceResult?> SaveCheckAsync(string itemId, AppCheck c, AppReportCodec.Lookups lookups, bool isNew, List<string> warnings, CancellationToken ct)
+    {
+        var (input, errors) = AppEffectsCodec.ToInput(c, lookups);
+        if (input is null) return Missing(itemId, errors);
+        var saved = isNew ? await sender.Send(new CreateCheckRequest(input), ct) : await sender.Send(new UpdateCheckRequest(c.Code, input), ct);
+        if (Fail(saved, itemId) is { } failure) return failure;
+        if (saved.Data is CheckResponse response) warnings.AddRange(response.Notices);
+        return null;
+    }
+
+    /// <summary>以現況為底，換上這一項要寫的屬性（客戶改的保留，§6.3、T29）。</summary>
+    private static T Merge<T>(UpgradeItemResponse item, T current, T incoming) =>
+        AppUpgrader.Merge(current, incoming, item.Properties.Where(p => p.Result != CustomerOnly).Select(p => p.Key).ToHashSet(StringComparer.Ordinal));
+
+    private static AppReportCodec.Lookups LookupsOf(AppPackageData p, TemplateIdMap ids) => new(
+        code => ids.ModuleKeys.GetValueOrDefault(code),
+        name => ids.FieldIds.TryGetValue(name, out var id) ? id : null,
+        name => ids.OptionIds.TryGetValue(name, out var id) ? id : null,
+        AppReportCodec.TypesOf(p.Modules));
+
+    /// <summary>嚴格模式：引用找不到回 400，鍵是項目識別（T45）。</summary>
+    private static ServiceResult Missing(string itemId, IEnumerable<string> errors) =>
+        ServiceResult.Invalid(new Dictionary<string, string[]> { [itemId] = [string.Join("；", errors.DefaultIfEmpty(AppMessages.UpgradeItemNotApplicable))] });
+
+    /// <summary>修改的錯誤鍵前面加項目識別（同 pkg1c 的 Fail）。</summary>
+    private static ServiceResult? Fail(ServiceResult r, string itemId)
+    {
+        if (r.IsSuccess) return null;
+        if (r.IsForbidden) return r;
+        if (r.IsConflict) return ServiceResult.Conflict($"{itemId}：{r.Message}");
+        if (r.IsNotFound) return ServiceResult.NotFound($"{itemId}：{r.Message}");
+        return ServiceResult.Invalid(r.Errors.Count == 0
+            ? new Dictionary<string, string[]> { [itemId] = [r.Message ?? AppMessages.UpgradeItemNotApplicable] }
+            : r.Errors.ToDictionary(e => $"{itemId}.{e.Key}", e => e.Value));
     }
 
     /// <summary>既有模組的狀態機：資料庫的 Workflow 為底，換上勾選的初始狀態、狀態、轉移，存一次。</summary>
@@ -223,13 +363,6 @@ public sealed class AppFlowUpgrader(ISender sender, IModuleRepository modules, I
             Priority = props.Contains("priority") ? incoming.Priority : current.Priority,
             Definition = definition
         };
-        var r = await sender.Send(new UpdateApprovalFlowRequest(key, input), ct);
-        if (r.IsSuccess) return null;
-        if (r.IsForbidden) return r;
-        if (r.IsConflict) return ServiceResult.Conflict($"{item.Id}：{r.Message}");
-        if (r.IsNotFound) return ServiceResult.NotFound($"{item.Id}：{r.Message}");
-        return ServiceResult.Invalid(r.Errors.Count == 0
-            ? new Dictionary<string, string[]> { [item.Id] = [r.Message ?? AppMessages.UpgradeItemNotApplicable] }
-            : r.Errors.ToDictionary(e => $"{item.Id}.{e.Key}", e => e.Value));
+        return Fail(await sender.Send(new UpdateApprovalFlowRequest(key, input), ct), item.Id);
     }
 }

@@ -18,16 +18,24 @@ namespace DynamicModules.Application.Dynamic.AppService.Upgrade;
 public sealed class AppUpgradePreviewer(
     IAppRepository apps, AppPackageSource packages, AppExporter exporter, IPermissionRepository permissions,
     IModuleRepository modules, ISharedMasterRepository shared, AppDependencyChecker dependencies, PackageLimitReader limits,
-    RequestLocale requestLocale, FieldService.FieldChangeImpact impact, UpgradeFlowGuards flowGuards)
+    RequestLocale requestLocale, FieldService.FieldChangeImpact impact, UpgradeFlowGuards flowGuards, UpgradeCodedGuards codedGuards)
 {
     /// <summary>
-    /// 還不能套用的第二批項目（§15 第 3 點、§9.6.7 blocker 狀態表）：有差異時預覽照列、整個套用被擋（A16a）。
-    /// 狀態機與簽核流程在 pkg1d1a 開放；貢獻的區塊、欄位、權限看模組符號含不含 /。
+    /// 還不能套用的第二批項目（§15 第 3 點、§9.6.7 blocker 狀態表）：有差異時預覽照列、整個套用被擋（A16）。
+    /// 狀態機與簽核流程在 pkg1d1a 開放，轉換、事件、檢查、分錄、列印範本、任務規則在 pkg1d1b 開放；
+    /// 貢獻的區塊、欄位、權限與主檔模組上的報表看模組符號含不含 /。
     /// </summary>
-    public static readonly IReadOnlySet<string> SecondBatch = new HashSet<string>
-        { "conversions", "events", "checks", "ledgers", "printTemplates", "taskRules", "contributions", "integrations" };
+    public static readonly IReadOnlySet<string> SecondBatch = new HashSet<string> { "contributions", "integrations" };
 
-    public static bool IsSecondBatch(UpgradeItem item) => SecondBatch.Contains(item.Section) || item.Module?.Contains('/') == true;
+    /// <summary>
+    /// 「/」規則不套的 Coded 類（T54）：它們的 Module 是主檔符號時照一般規則套（任務規則掛在主檔模組上；轉換、事件、檢查的
+    /// Module 是來源模組）。報表維持擋到 pkg1d2（T60）。
+    /// </summary>
+    public static readonly IReadOnlySet<string> CodedSections = new HashSet<string>
+        { "conversions", "events", "checks", "printTemplates", "taskRules", "approvalFlows" };
+
+    public static bool IsSecondBatch(UpgradeItem item) =>
+        SecondBatch.Contains(item.Section) || (item.Module?.Contains('/') == true && !CodedSections.Contains(item.Section));
 
     /// <summary>套用要用到的比對中間結果：三份比對項目、兩份套件、群組對應（套件代號 → 客戶群組；負數是這次將新建的）。</summary>
     public sealed record CompareContext(
@@ -311,6 +319,10 @@ public sealed class AppUpgradePreviewer(
                 r = r with { Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonTypeChanged };
             else if (r.Applicable && nv is not null && cv is not null && (Changed(nv, cv, "kind") || Changed(nv, cv, "hostEntityKey")))
                 r = r with { Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonKindChanged };
+            // 轉換的來源與目標、事件的來源、檢查與列印範本、任務規則所在的模組建立後不能改（Update* 指令不允許），比照模組種類（§9.6.2）
+            else if (r.Applicable && nv is not null && cv is not null && FixedProps.TryGetValue(item.Section, out var fixedProps)
+                     && fixedProps.Any(p => Changed(nv, cv, p)))
+                r = r with { Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonKindChanged };
             // 參照對象與關聯方式建立後不能改（FieldConfig，UpdateField 不允許），比照型別（審查 S2）
             else if (r.Applicable && nv is not null && cv is not null && item.Section == "fields"
                      && (Changed(nv, cv, "config.refTarget") || Changed(nv, cv, "config.relation")))
@@ -420,6 +432,9 @@ public sealed class AppUpgradePreviewer(
         var context = new CompareContext(n, exported.Package, baselineRow, B, N, C, packageGroup, pseudo, bindings) { CurrentGroups = exported.GroupIds };
         // 狀態機與簽核流程的守衛（T32、T46、T47、T58）：用設計器同一份判斷先算，不能套的標原因
         items = await flowGuards.CheckAsync(app, context, items, ct);
+        // 轉換、事件、檢查、分錄、任務規則的守衛與影響說明（pkg1d1b）
+        items = await codedGuards.CheckAsync(app, context, items, ct);
+        items = StateMoves(items, B, N, C, hasBaseline, lc);
         // 依賴不能套用的項目：勾了會連帶勾那一項、套用必定失敗，自己也標不能勾，原因指出是哪一項（審查 S7，可遞移）
         var blocked = items.Where(i => !i.Applicable).Select(i => i.Id).ToHashSet(StringComparer.Ordinal);
         for (var changed = blocked.Count > 0; changed;)
@@ -467,6 +482,75 @@ public sealed class AppUpgradePreviewer(
             var key = module?.Blocks.SelectMany(b => b.Fields).FirstOrDefault(f => f.Id == fieldId)?.Key;
             return key is null ? 0 : await impact.MissingValueCountAsync(moduleId, key, ct);
         }
+    }
+
+    /// <summary>建立後不能改的屬性（§9.6.2）：新版改了就是 kindChanged。</summary>
+    private static readonly Dictionary<string, string[]> FixedProps = new()
+    {
+        ["conversions"] = ["source", "target"], ["events"] = ["source"], ["checks"] = ["module"],
+        ["printTemplates"] = ["module"], ["taskRules"] = ["module"]
+    };
+
+    /// <summary>
+    /// Q26（T61）：新版把狀態改名（移除舊的、新增新的）時，其他項目的引用跟著移過去就註明 stateReferenceMoved（detail 是舊、新狀態）；
+    /// 被移除的狀態在現況仍有轉移可以進入就註明 retiredStateReachable。RefsOf 分不出哪個屬性引用了哪個狀態，所以逐屬性以字串比對
+    /// 屬性的 JSON（裸代號、opt_代號、模組.代號都算）；只是資訊型提示，誤判可以接受。
+    /// </summary>
+    private static List<UpgradeItemResponse> StateMoves(
+        List<UpgradeItemResponse> items, IReadOnlyDictionary<string, UpgradeItem> b, IReadOnlyDictionary<string, UpgradeItem> n,
+        IReadOnlyDictionary<string, UpgradeItem> c, bool hasBaseline, LocaleContext lc)
+    {
+        static (string Module, string Code) StateOf(string id) => (id["state:".Length..id.LastIndexOf('.')], id[(id.LastIndexOf('.') + 1)..]);
+        var removed = c.Keys.Concat(b.Keys).Distinct().Where(id => id.StartsWith("state:", StringComparison.Ordinal) && !n.ContainsKey(id))
+            .Select(StateOf).ToList();
+        if (removed.Count == 0) return items;
+        var added = n.Keys.Where(id => id.StartsWith("state:", StringComparison.Ordinal) && !c.ContainsKey(id)).Select(StateOf).ToList();
+        string Label(string module, string code) =>
+            (n.GetValueOrDefault($"option:{module}.{code}") ?? c.GetValueOrDefault($"option:{module}.{code}") ?? b.GetValueOrDefault($"option:{module}.{code}"))
+            ?.Label?.Resolve(lc) is { Length: > 0 } text ? text : code;
+        static HashSet<string> Strings(JsonNode? node)
+        {
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            void Walk(JsonNode? x)
+            {
+                switch (x)
+                {
+                    case JsonObject o: foreach (var (_, v) in o) Walk(v); break;
+                    case JsonArray a: foreach (var v in a) Walk(v); break;
+                    case JsonValue v when v.GetValueKind() == JsonValueKind.String: set.Add(v.GetValue<string>()); break;
+                }
+            }
+            Walk(node);
+            return set;
+        }
+        static bool Has(HashSet<string> strings, string module, string code) =>
+            strings.Contains(code) || strings.Contains($"opt_{code}") || strings.Contains($"{module}.{code}");
+
+        var result = new List<UpgradeItemResponse>(items.Count);
+        foreach (var item in items)
+        {
+            var impacts = new List<UpgradeImpact>();
+            if (item.Category == UpgradeClassifier.RemovedInNew && item.Id.StartsWith("state:", StringComparison.Ordinal))
+            {
+                var (module, code) = StateOf(item.Id);
+                if (c.Keys.Any(id => id.StartsWith($"transition:{module}:", StringComparison.Ordinal) && id.EndsWith($">{code}", StringComparison.Ordinal)))
+                    impacts.Add(new UpgradeImpact(UpgradeClassifier.ImpactRetiredStateReachable));
+            }
+            else if (hasBaseline && item.Module is { } module && b.GetValueOrDefault(item.Id) is { } bv && n.GetValueOrDefault(item.Id) is { } nv)
+            {
+                var moves = new List<string>();
+                foreach (var key in item.Properties.Select(p => p.Key).Distinct())
+                {
+                    var (bs, ns) = (Strings(bv.Props.GetValueOrDefault(key)), Strings(nv.Props.GetValueOrDefault(key)));
+                    foreach (var (_, old) in removed.Where(r => r.Module == module && Has(bs, module, r.Code) && !Has(ns, module, r.Code)))
+                        foreach (var (_, now) in added.Where(a => a.Module == module && Has(ns, module, a.Code) && !Has(bs, module, a.Code)))
+                            moves.Add($"{Label(module, old)} → {Label(module, now)}");
+                }
+                impacts.AddRange(moves.Distinct().Select(m => new UpgradeImpact(UpgradeClassifier.ImpactStateReferenceMoved, null, m)));
+            }
+            result.Add(impacts.Count == 0 ? item : item with { Impacts = [.. item.Impacts ?? [], .. impacts] });
+        }
+        return result;
     }
 
     /// <summary>有對照列（欄位、區塊、選項、模組、報表）卻不在比對模式匯出裡的項目。</summary>

@@ -303,7 +303,8 @@ public sealed class AppFlowInstaller(ISender sender, IModuleRepository modules, 
     /// 規則可以掛在主檔模組上（模組與欄位用主檔符號）。引用被排除欄位的規則整條略過並警告；其餘驗證交給 CreateTaskRuleRequest，失敗整批回滾。
     /// 規則所在的模組關閉任務時自動打開並警告（任務設計 §4.4、§5.8；預覽由 <see cref="AppOpenPlanner"/> 先列出）。
     /// </summary>
-    public async Task<ServiceResult?> InstallTaskRulesAsync(AppPackageData p, TemplateIdMap ids, long appId, List<string> warnings, CancellationToken ct)
+    /// <param name="strict">升級（T45）：引用找不到回 400 並帶項目識別，不略過。</param>
+    public async Task<ServiceResult?> InstallTaskRulesAsync(AppPackageData p, TemplateIdMap ids, long appId, List<string> warnings, CancellationToken ct, bool strict = false)
     {
         var lookups = new AppReportCodec.Lookups(
             code => ids.ModuleKeys.GetValueOrDefault(code),
@@ -315,6 +316,7 @@ public sealed class AppFlowInstaller(ISender sender, IModuleRepository modules, 
             var (input, _) = AppTaskRuleCodec.ToInput(r, lookups);
             if (input is null || lookups.ModuleKey(r.Module) is not { } moduleKey)
             {
+                if (strict) return Missing($"taskRule:{r.Code}", AppMessages.UpgradeStrictMissing(r.Module));
                 warnings.Add($"任務規則「{r.Code}」引用了被排除的欄位，已略過");
                 continue;
             }
@@ -357,8 +359,8 @@ public sealed class AppFlowInstaller(ISender sender, IModuleRepository modules, 
         return ordered;
     }
 
-    /// <summary>任何一個欄位或選項被排除就回 null。</summary>
-    private static ConversionInput? ConversionInputOf(AppConversion c, TemplateIdMap ids)
+    /// <summary>任何一個欄位或選項被排除就回 null。升級修改既有轉換也走這一份（套件更新設計 T29、審查 S9）。</summary>
+    internal static ConversionInput? ConversionInputOf(AppConversion c, TemplateIdMap ids)
     {
         bool Missing(params string?[] names) => names.Any(n => n is null || !ids.FieldIds.ContainsKey(n));
         long Id(string name) => ids.FieldIds[name];

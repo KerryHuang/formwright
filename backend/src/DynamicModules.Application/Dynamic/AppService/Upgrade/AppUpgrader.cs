@@ -297,13 +297,14 @@ public sealed class AppUpgrader(
         // 7. 既有模組上新欄位、新選項附帶的欄位例外與選項範圍（Q12）：從現有權限列出發加上去，既有列一筆都不改
         if ((failed = await AttachPermissionsAsync(n, state, contributions, chosen.Where(IsNew).ToList(), groupIds, grants, ct)) is not null) return failed;
 
-        // 8. 狀態機、簽核流程（pkg1d1a，T31：狀態機第一趟 → 簽核流程 → 狀態機第二趟；報表在後）
+        // 8. T31：狀態機第一趟 → 分錄 → 事件 → 檢查 → 簽核流程 → 狀態機第二趟 → 轉換 → 列印範本 → 報表 → 任務規則
         var idMap = new TemplateIdMap(map.Fields, map.FieldKeys, map.Options, map.Blocks, map.Modules.ToDictionary(x => x.Key, x => x.Value.Key));
         if ((failed = await flowUpgrader.ApplyAsync(chosen, ctx, idMap, groupIds, newModules, lc, warnings, ct)) is not null) return failed;
 
         // 報表
         if (Picked("reports", out var reportItems))
             if ((failed = await SaveReportsAsync(app, reportItems, n, ctx, state, groupIds, warnings, ct)) is not null) return failed;
+        if ((failed = await flowUpgrader.ApplyTaskRulesAsync(chosen, ctx, idMap, app.Id, warnings, ct)) is not null) return failed;
 
         // 10. 版號、基準（§9.2）、稽核（§9.3）
         var from = app.PackageVersion;

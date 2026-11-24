@@ -22,10 +22,16 @@ public static class UpgradeClassifier
         ReasonApprovalInFlight = "approvalInFlight", ReasonFlowInUse = "flowInUse", ReasonPriorityTaken = "priorityTaken",
         ReasonApproverGroups = "approverGroups", ReasonWorkflowInvalid = "workflowInvalid",
         // 依賴的項目不能套用（審查 S7）；Detail 是那幾項的 id，以「、」分隔
-        ReasonDependsOnBlocked = "dependsOnBlocked";
+        ReasonDependsOnBlocked = "dependsOnBlocked",
+        // 第二批（§9.6.4，pkg1d1b）：轉換、事件、檢查、分錄
+        ReasonConversionInUse = "conversionInUse", ReasonFiredEffect = "firedEffect", ReasonBackfillLimit = "backfillLimit",
+        ReasonLedgerLocked = "ledgerLocked", ReasonLedgerFreeze = "ledgerFreeze";
 
     /// <summary>不擋、只說明的影響代碼（§9.6.4 impacts，前端 apps.upgrade.impact.*）。</summary>
-    public const string ImpactRecordsInState = "recordsInState", ImpactInFlightApprovals = "inFlightApprovals";
+    public const string ImpactRecordsInState = "recordsInState", ImpactInFlightApprovals = "inFlightApprovals",
+        // pkg1d1b：只影響之後、會自動啟用任務、會自動開可篩選；Q26 的狀態引用移動與被移除的狀態仍可進入
+        ImpactFutureOnly = "futureOnly", ImpactEnablesTasks = "enablesTasks", ImpactAutoFilterable = "autoFilterable",
+        ImpactStateReferenceMoved = "stateReferenceMoved", ImpactRetiredStateReachable = "retiredStateReachable";
 
     public sealed record Result(string Category, bool DefaultSelected, bool Applicable, string? Reason, List<UpgradeProperty> Properties);
 
