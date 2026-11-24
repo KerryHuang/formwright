@@ -182,6 +182,52 @@ public class TwoFactorLoginTests
         (await Me(c)).Should().Be(HttpStatusCode.Unauthorized);
     }
 
+    /// <summary>審查 M1：發出憑證後改密碼（換 stamp），再送正確碼 → <c>twoFactorExpired</c>、不發 session。</summary>
+    [Fact]
+    public async Task StampChangedAfterTicket_CorrectCodeRejected()
+    {
+        using var app = NewApp();
+        await AddUser(app, "tf01");
+        var (secret, _) = await Enroll(app, "tf01");
+        var c = Client(app);
+        await Password(c, "tf01");
+        await Db(app, async db => (await db.Set<AppUser>().SingleAsync(u => u.UserId == "tf01")).SecurityStamp = Guid.NewGuid().ToString("N"));
+        (await ErrorCode(await Second(c, Code(app, secret)))).Should().Be("twoFactorExpired");
+        (await Me(c)).Should().Be(HttpStatusCode.Unauthorized);
+        (await Audits(app, "login.succeeded")).Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// 審查 M1：外層比對 stamp 之後、內層交易之前 stamp 被換掉（佔名額後重讀計數時改密碼）→ 內層重比 stamp，回 <c>twoFactorExpired</c>、
+    /// 整筆回滾（<c>TotpLastStep</c> 沒推進、沒有 <c>login.succeeded</c>）、不發 session。
+    /// </summary>
+    [Fact]
+    public async Task StampChangedBeforeInnerTransaction_NoSession_RolledBack()
+    {
+        var probe = new FailingStateProbe();
+        using var app = NewApp(a => a.ExtraServices = s =>
+        {
+            var original = s.Last(d => d.ServiceType == typeof(ITwoFactorRepository));
+            s.RemoveAll<ITwoFactorRepository>();
+            s.AddScoped<ITwoFactorRepository>(sp =>
+                new ThrowingStateRepository((ITwoFactorRepository)ActivatorUtilities.CreateInstance(sp, original.ImplementationType!), probe));
+        });
+        await AddUser(app, "tf01");
+        var (secret, _) = await Enroll(app, "tf01");
+        var lastStep = (await User(app, "tf01")).TotpLastStep;
+        NextStep(app);
+        var c = Client(app);
+        await Password(c, "tf01");
+        probe.BeforeRead = () => Db(app, async db =>
+            (await db.Set<AppUser>().SingleAsync(u => u.UserId == "tf01")).SecurityStamp = Guid.NewGuid().ToString("N"));
+        var res = await Second(c, Code(app, secret));
+        probe.BeforeRead = null;
+        (await ErrorCode(res)).Should().Be("twoFactorExpired");
+        (await Me(c)).Should().Be(HttpStatusCode.Unauthorized);
+        (await Audits(app, "login.succeeded")).Should().BeEmpty();
+        (await User(app, "tf01")).TotpLastStep.Should().Be(lastStep, "內層整筆回滾");
+    }
+
     /// <summary>F33：同一 IP、10 個帳號，正確密碼＋正確驗證碼共 25 次：第 21 次之後照常登入，沒有一次被算成失敗。</summary>
     [Fact]
     public async Task F33_SameIp_TenAccounts_25CorrectLogins_NoneCountedAsFailure()
@@ -328,6 +374,7 @@ public class TwoFactorLoginTests
     private sealed class FailingStateProbe
     {
         public volatile bool Armed;
+        public Func<Task>? BeforeRead;
     }
 
     /// <summary>在「佔名額之後、驗碼之前」重讀計數時丟例外（F41）。</summary>
@@ -335,8 +382,12 @@ public class TwoFactorLoginTests
     {
         public Task<bool> TryClaimAttemptAsync(string userId, int limit, DateTime nowUtc, DateTime untilUtc, CancellationToken ct) =>
             inner.TryClaimAttemptAsync(userId, limit, nowUtc, untilUtc, ct);
-        public Task<(int Count, DateTime? LockedUntilUtc)?> FailureStateAsync(string userId, CancellationToken ct) =>
-            probe.Armed ? throw new InvalidOperationException("模擬驗碼前的例外") : inner.FailureStateAsync(userId, ct);
+        public async Task<(int Count, DateTime? LockedUntilUtc)?> FailureStateAsync(string userId, CancellationToken ct)
+        {
+            if (probe.Armed) throw new InvalidOperationException("模擬驗碼前的例外");
+            if (probe.BeforeRead is { } before) await before();
+            return await inner.FailureStateAsync(userId, ct);
+        }
         public Task ClearFailuresAsync(string userId, CancellationToken ct) => inner.ClearFailuresAsync(userId, ct);
         public Task<bool> TryAdvanceStepAsync(string userId, long step, CancellationToken ct) => inner.TryAdvanceStepAsync(userId, step, ct);
         public Task<bool> TryUseRecoveryCodeAsync(string userId, string codeHash, DateTime nowUtc, CancellationToken ct) =>

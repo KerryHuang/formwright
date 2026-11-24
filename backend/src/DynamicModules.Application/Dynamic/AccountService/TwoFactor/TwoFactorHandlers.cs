@@ -426,7 +426,8 @@ public sealed class TwoFactorLoginHandler(
             verifier.Abandon(match);
             throw;
         }
-        if (await verifier.SettleAsync(match, inner.IsSuccess, SecondFactorVerifier.LoginFailedAction, ct) is { } failed) return failed;
+        if (await verifier.SettleAsync(match, inner.IsSuccess, SecondFactorVerifier.LoginFailedAction, ct,
+                expired: inner.Code == TwoFactorErrors.ExpiredCode) is { } failed) return failed;
         tickets.MarkUsed(ticket);
         return inner;
     }
@@ -449,7 +450,8 @@ public sealed class CompleteTwoFactorLoginHandler(
     {
         if (!await verifier.ConsumeAsync(r.Match, ct)) return TwoFactorErrors.Wrong();
         var user = await accounts.GetAsync(r.Match.UserId, ct);
-        if (user is not { IsActive: true }) return TwoFactorErrors.Expired();
+        // 外層比對 stamp 之後才進交易：這段時間改了密碼或被停用就不發 session，整筆回滾（審查 M1）
+        if (!r.Match.StillValidFor(user)) return TwoFactorErrors.Expired();
         audit.Add(SignInAudit.Succeeded(user.UserId, user.DisplayName, r.Match.UsedRecoveryCode ? Recovery : Totp));
         int? left = null;
         if (r.Match.UsedRecoveryCode)

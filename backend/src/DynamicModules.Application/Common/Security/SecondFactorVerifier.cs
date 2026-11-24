@@ -41,9 +41,10 @@ public static class TwoFactorLimits
 /// </summary>
 public sealed class SecondFactorMatch
 {
-    internal SecondFactorMatch(string userId, string key, string ip, long? step, string? recoveryHash, bool skipReplay)
+    internal SecondFactorMatch(string userId, string securityStamp, string key, string ip, long? step, string? recoveryHash, bool skipReplay)
     {
         UserId = userId;
+        SecurityStamp = securityStamp;
         Key = key;
         Ip = ip;
         Step = step;
@@ -52,12 +53,20 @@ public sealed class SecondFactorMatch
     }
 
     public string UserId { get; }
+
+    /// <summary>比對時帳號的 SecurityStamp；內層交易用 <see cref="StillValidFor"/> 重比（審查 M1，同 <see cref="ReauthResult"/>）。</summary>
+    public string SecurityStamp { get; }
+
     internal string Key { get; }
     internal string Ip { get; }
     internal long? Step { get; }
     internal string? RecoveryHash { get; }
     internal bool SkipReplay { get; }
     public bool UsedRecoveryCode => RecoveryHash is not null;
+
+    /// <summary>內層交易用：帳號啟用、stamp 還是比對當時的（比對之後改密碼、停用都會換 stamp）。</summary>
+    public bool StillValidFor([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] AppUser? user) =>
+        user is not null && user.UserId == UserId && user.SecurityStamp == SecurityStamp && user.IsActive;
 }
 
 /// <summary>
@@ -122,10 +131,10 @@ public sealed class SecondFactorVerifier(
             {
                 var hash = RecoveryCodes.Hash(recoveryCode);
                 if (hash is not null && await twoFactor.RecoveryCodeUnusedAsync(user.UserId, hash, ct))
-                    return (new SecondFactorMatch(user.UserId, key, ip, null, hash, demoMfa), null);
+                    return (new SecondFactorMatch(user.UserId, user.SecurityStamp, key, ip, null, hash, demoMfa), null);
             }
             else if (Totp.Match(secret!, code, time.GetUtcNow(), demoMfa ? null : user.TotpLastStep) is { } step)
-                return (new SecondFactorMatch(user.UserId, key, ip, step, null, demoMfa), null);
+                return (new SecondFactorMatch(user.UserId, user.SecurityStamp, key, ip, step, null, demoMfa), null);
         }
         catch
         {
@@ -152,9 +161,18 @@ public sealed class SecondFactorVerifier(
         return ok;
     }
 
-    /// <summary>消耗的交易提交後結算：成功清帳號＋IP 層；失敗（並行搶輸、重放）算一次錯並寫稽核。</summary>
-    public async Task<ServiceResult?> SettleAsync(SecondFactorMatch match, bool consumed, string failureAction, CancellationToken ct)
+    /// <summary>
+    /// 消耗的交易提交後結算：成功清帳號＋IP 層；失敗（並行搶輸、重放）算一次錯並寫稽核。
+    /// <paramref name="expired"/>：內層因帳號停用或 stamp 變了回失效（碼是對的）→ 歸還名額、稽核 <c>twoFactorExpired</c>、回失效（審查次要 1）。
+    /// </summary>
+    public async Task<ServiceResult?> SettleAsync(SecondFactorMatch match, bool consumed, string failureAction, CancellationToken ct, bool expired = false)
     {
+        if (!consumed && expired)
+        {
+            throttle.Release(match.Key, match.Ip);
+            await FailAsync(failureAction, match.UserId, "twoFactorExpired", ct);
+            return TwoFactorErrors.Expired();
+        }
         throttle.Complete(match.Key, match.Ip, consumed);
         if (consumed) return null;
         await FailAsync(failureAction, match.UserId, "twoFactorWrong", ct);
