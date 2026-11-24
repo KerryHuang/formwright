@@ -350,15 +350,18 @@ public static class FieldRules
         };
     }
 
+    public const string ResultTypeMismatchError = "公式不正確：結果型別與設定不符";
+
+    /// <summary>公式算出的型別和欄位設定的 resultType 是否相符；設計器與套件驗證共用。</summary>
+    public static bool ResultTypeMatches(FormulaValueType computed, string? resultType) =>
+        computed == FormulaValueType.Date ? resultType == "date" : resultType is "number" or "currency";
+
     /// <summary>公式欄位：解析、結果型別、循環引用依序檢查；module 需是已有 Id 的已存檔模組。</summary>
     public static ServiceResult? CheckFormula(Module module, long fieldId, FieldConfig config)
     {
         var parsed = FormulaParser.Parse(config.Formula, module);
         if (parsed.Error is not null) return Invalid("Config.Formula", $"公式不正確：{parsed.Error}");
-        var matches = parsed.Type == FormulaValueType.Date
-            ? config.ResultType == "date"
-            : config.ResultType is "number" or "currency";
-        if (!matches) return Invalid("Config.ResultType", "公式不正確：結果型別與設定不符");
+        if (!ResultTypeMatches(parsed.Type, config.ResultType)) return Invalid("Config.ResultType", ResultTypeMismatchError);
         if (fieldId != 0 && FormulaGraph.HasCycle(module, fieldId, parsed.FieldRefs))
             return Invalid("Config.Formula", "公式有循環引用");
         return null;
