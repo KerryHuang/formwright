@@ -70,7 +70,11 @@ public class SessionMiddleware(RequestDelegate next)
         || (HttpMethods.IsGet(method) && path.Equals(Prefix + "/theme", StringComparison.OrdinalIgnoreCase))
         || (HttpMethods.IsPost(method) && path.Equals(AuthPrefix + "demo-login", StringComparison.OrdinalIgnoreCase))
         // 帳號安全（帳號安全設計 §10）：驗證 Email 的連結，持權杖匿名可呼叫
-        || (HttpMethods.IsPost(method) && path.Equals(AuthPrefix + "verify-email", StringComparison.OrdinalIgnoreCase));
+        || (HttpMethods.IsPost(method) && path.Equals(AuthPrefix + "verify-email", StringComparison.OrdinalIgnoreCase))
+        // 寄信重設密碼（§7）：申請、檢查連結、用連結設新密碼
+        || (HttpMethods.IsPost(method) && path.Equals(AuthPrefix + "forgot-password", StringComparison.OrdinalIgnoreCase))
+        || (HttpMethods.IsPost(method) && path.Equals(AuthPrefix + "reset-password/check", StringComparison.OrdinalIgnoreCase))
+        || (HttpMethods.IsPost(method) && path.Equals(AuthPrefix + "reset-password", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// 登入與否都收的端點：有身分時照常檢查，檢查不過就當匿名。前端錯誤收件；介面文字（cookie 過期的人在登入頁照樣取得到啟用語系，

@@ -68,6 +68,11 @@ public class AdminUsersController(IMediator mediator) : ControllerBase
     public async Task<IActionResult> ResendEmail(string id) =>
         (await mediator.Send(new Application.Dynamic.AccountService.Email.ResendUserEmailRequest(id))).ToActionResult(this);
 
+    /// <summary>寄重設密碼連結到對方已驗證的 Email（帳號安全設計 §7.5）：不改現有密碼、不登出對方。</summary>
+    [HttpPost("{id}/send-reset-link")]
+    public async Task<IActionResult> SendResetLink(string id) =>
+        (await mediator.Send(new Application.Dynamic.AccountService.PasswordReset.SendResetLinkRequest(id))).ToActionResult(this);
+
     [HttpPost("{id}/deactivate")]
     public async Task<IActionResult> Deactivate(string id) => (await mediator.Send(new SetUserActiveRequest(id, false))).ToActionResult(this);
 

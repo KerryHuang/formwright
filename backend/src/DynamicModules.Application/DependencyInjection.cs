@@ -224,6 +224,11 @@ public static class DependencyInjection
         services.AddScoped<Dynamic.AccountService.Email.AccountEmailChanger>();
         services.AddScoped<Dynamic.AccountService.Email.AccountMailAvailability>();
         services.AddSingleton<Dynamic.AccountService.Email.EmailResendGate>();
+        // 寄信重設密碼（帳號安全設計 §7）
+        services.AddSingleton<Dynamic.AccountService.PasswordReset.AnonymousAccountThrottle>();
+        services.AddSingleton<Dynamic.AccountService.PasswordReset.ResetLinkGate>();
+        services.AddScoped<Dynamic.AccountService.PasswordReset.PasswordChangeEffects>();
+        services.AddScoped<Dynamic.AccountService.PasswordReset.PasswordResetAvailability>();
         services.AddScoped<Common.Security.IReauthVerifier, Common.Security.ReauthVerifier>();
         services.AddScoped<Dynamic.NotificationService.INotificationReminderSource, Dynamic.ApprovalService.ApprovalReminderSource>();
         services.AddScoped<Dynamic.TaskRuleService.TaskRuleValidator>();

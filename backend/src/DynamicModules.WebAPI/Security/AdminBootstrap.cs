@@ -12,16 +12,18 @@ namespace DynamicModules.WebAPI.Security;
 /// </summary>
 public static class AdminBootstrap
 {
-    private const int MinPasswordLength = 8;
     private const string PasswordChars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
+    /// <param name="minPasswordLength">密碼最短長度的政策生效值（<c>auth.passwordMinLength</c>，帳號安全設計 §7.6）。</param>
+    /// <param name="passwordChanged">救援重設 admin 密碼後的共用步驟（作廢重設連結、取消還沒寄的重設信、寄「密碼已變更」，§7.1 第 7 點）。</param>
     public static async Task EnsureAsync(
-        DynamicDbContext db, IPasswordService passwords, IConfiguration config, ILogger logger, CancellationToken ct = default)
+        DynamicDbContext db, IPasswordService passwords, IConfiguration config, ILogger logger, int minPasswordLength,
+        Func<AppUser, CancellationToken, Task> passwordChanged, CancellationToken ct = default)
     {
         var reset = config["Auth:ResetAdminPassword"];
         if (!string.IsNullOrEmpty(reset))
         {
-            await ResetAsync(db, passwords, reset, logger, ct);
+            await ResetAsync(db, passwords, reset, logger, minPasswordLength, passwordChanged, ct);
             return;
         }
 
@@ -29,8 +31,8 @@ public static class AdminBootstrap
 
         var password = config["Auth:InitialAdminPassword"];
         var generated = string.IsNullOrWhiteSpace(password);
-        if (!generated && password!.Length < MinPasswordLength)
-            throw new InvalidOperationException($"Auth:InitialAdminPassword 至少需要 {MinPasswordLength} 個字元");
+        if (!generated && password!.Length < minPasswordLength)
+            throw new InvalidOperationException($"Auth:InitialAdminPassword 至少需要 {minPasswordLength} 個字元");
         if (generated) password = RandomNumberGenerator.GetString(PasswordChars, 16);
 
         var admin = await db.Set<AppUser>().SingleOrDefaultAsync(u => u.UserId == "admin", ct);
@@ -47,10 +49,12 @@ public static class AdminBootstrap
     }
 
     /// <summary>救援：唯一的管理員忘記密碼或被鎖住時，以設定強制重設 admin；用完要把設定移除。</summary>
-    private static async Task ResetAsync(DynamicDbContext db, IPasswordService passwords, string password, ILogger logger, CancellationToken ct)
+    private static async Task ResetAsync(
+        DynamicDbContext db, IPasswordService passwords, string password, ILogger logger, int minPasswordLength,
+        Func<AppUser, CancellationToken, Task> passwordChanged, CancellationToken ct)
     {
-        if (password.Length < MinPasswordLength)
-            throw new InvalidOperationException($"Auth:ResetAdminPassword 至少需要 {MinPasswordLength} 個字元");
+        if (password.Length < minPasswordLength)
+            throw new InvalidOperationException($"Auth:ResetAdminPassword 至少需要 {minPasswordLength} 個字元");
 
         var admin = await db.Set<AppUser>().SingleOrDefaultAsync(u => u.UserId == "admin", ct);
         if (admin is null) db.Set<AppUser>().Add(admin = new AppUser { UserId = "admin", DisplayName = "系統管理員" });
@@ -61,6 +65,7 @@ public static class AdminBootstrap
         admin.FailedLoginCount = 0;
         admin.LockedUntil = null;
         admin.SecurityStamp = Guid.NewGuid().ToString("N");
+        await passwordChanged(admin, ct);
         await db.SaveChangesAsync(ct);
         logger.LogWarning("已依 Auth:ResetAdminPassword 重設管理員 admin 的密碼並解除鎖定；請立刻移除這個設定，否則每次啟動都會重設");
     }

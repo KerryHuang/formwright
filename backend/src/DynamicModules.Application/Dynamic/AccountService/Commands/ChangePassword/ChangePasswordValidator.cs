@@ -1,18 +1,17 @@
 using DynamicModules.Application.Common;
 using DynamicModules.Application.Common.Behaviors;
+using DynamicModules.Application.Dynamic.AccountService.PasswordReset;
+using DynamicModules.Application.Dynamic.PolicyService;
 using FluentValidation;
 
 namespace DynamicModules.Application.Dynamic.AccountService.Commands.ChangePassword;
 
 public class ChangePasswordValidator : AbstractValidator<ChangePasswordRequest>
 {
-    public const int MinLength = 8;
-
-    public ChangePasswordValidator()
+    public ChangePasswordValidator(CachedSystemPolicy system)
     {
         RuleFor(x => x.OldPassword).NotEmpty().WithText(MessageText.OldPasswordRequired);
-        // NotEmpty 與 MinimumLength 各自帶訊息：只在最後一條上 WithText 的話，空字串會落到 FluentValidation 的內建英文
-        RuleFor(x => x.NewPassword).NotEmpty().WithText(MessageText.NewPasswordTooShort, MinLength)
-            .MinimumLength(MinLength).WithText(MessageText.NewPasswordTooShort, MinLength);
+        // 最短長度讀政策 auth.passwordMinLength（帳號安全設計 §7.6）
+        RuleFor(x => x.NewPassword).AtLeastPolicyMin(system, MessageText.NewPasswordTooShort);
     }
 }

@@ -32,6 +32,9 @@ public static class AuditActions
         new("account.resendEmailVerify", Auth, W),
         new("account.emailVerified", Auth, W),
         new("account.reauthFailed", Auth, W),
+        // 寄信重設密碼（帳號安全設計 §7.2、§7.5）
+        new("account.passwordResetRequested", Auth, W),
+        new("account.passwordResetByMail", Auth, W),
         // 使用者與群組
         new("user.create", User, H),
         new("user.update", User, H),
@@ -39,6 +42,7 @@ public static class AuditActions
         new("user.resetPassword", User, W),
         new("user.setEmail", User, W),
         new("user.resendEmailVerify", User, W),
+        new("user.sendResetLink", User, W),
         // 授予或收回設計器與權限設定（權限軸設計 §9）：等同改權限，標高風險
         new("user.systemPrivileges", User, H),
         new("group.create", Group, W),
