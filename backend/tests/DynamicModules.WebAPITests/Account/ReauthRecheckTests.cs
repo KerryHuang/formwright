@@ -72,4 +72,16 @@ public class ReauthRecheckTests
         result.IsUnauthorized.Should().BeTrue();
         (await User(app, "sales01")).Email.Should().NotBe("new@example.com");
     }
+
+    [Fact]
+    public async Task SetMyEmail_AccountDeactivatedAfterReauth_Rejected_EmailUnchanged()
+    {
+        using var app = App(new FakeMailSender());
+        await Seed(app);
+
+        var result = await Race(app, ok => new ApplyMyEmailRequest(ok, "new@example.com"), u => u.IsActive = false);
+
+        result.IsUnauthorized.Should().BeTrue();
+        (await User(app, "sales01")).Email.Should().NotBe("new@example.com");
+    }
 }
