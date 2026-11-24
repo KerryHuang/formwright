@@ -11,7 +11,11 @@ public sealed record TwoFactorScope(bool Everyone, bool Admins, IReadOnlyList<lo
     /// <summary>沒有人（選用模式且不強制系統管理員；Demo 站與金鑰不落地時的暫停）。</summary>
     public static readonly TwoFactorScope Nobody = new(false, false, []);
 
-    /// <summary>政策四項之三換成範圍：<c>all</c> 全部；<c>groups</c> 群組成員加全部系統管理員（au1-6）；<c>optional</c> 看 <paramref name="requireAdmins"/>。</summary>
+    /// <summary>
+    /// 政策四項之三換成範圍：<c>all</c> 全部；<c>groups</c> 群組成員加全部系統管理員（au1-6）；<c>optional</c> 看 <paramref name="requireAdmins"/>。
+    /// 前端 <c>frontend/src/domain/dynamic/two-factor-policy.ts</c>（<c>adminsFixed</c>、<c>operatorMustEnrollAfterSave</c>）照抄了「系統管理員在不在範圍內」
+    /// 這段規則做存檔前提示（§8.7），改這裡要一起改那邊。
+    /// </summary>
     public static TwoFactorScope From(string mode, bool requireAdmins, IReadOnlyList<long> groupIds) => mode switch
     {
         All => new TwoFactorScope(true, true, []),

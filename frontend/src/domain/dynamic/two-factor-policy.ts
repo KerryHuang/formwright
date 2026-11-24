@@ -8,7 +8,11 @@ export const TWO_FACTOR_GRACE_DAYS = 'auth.twoFactorGraceDays';
 
 const SCOPE_CODES = [TWO_FACTOR_MODE, TWO_FACTOR_GROUPS, TWO_FACTOR_REQUIRE_ADMINS, TWO_FACTOR_GRACE_DAYS];
 
-/** 強制模式（all、groups）下系統管理員固定在範圍內，「選用時強制系統管理員」不能改。 */
+/**
+ * 強制模式（all、groups）下系統管理員固定在範圍內，「選用時強制系統管理員」不能改。
+ * 這段和下面 operatorMustEnrollAfterSave 的範圍規則照抄後端 Domain 的 TwoFactorScope.From（Accounts/TwoFactorEnforcement.cs），
+ * 只為了存檔前提示（§8.7）；改一邊要一起改另一邊。實際的強制判斷以後端為準。
+ */
 export const adminsFixed = (mode: PolicyValue | undefined) => mode !== undefined && mode !== 'optional';
 
 /**
