@@ -58,6 +58,18 @@ describe('useGraphDesigner', () => {
     expect(d.state.value!.definition.nodes[1].name).toEqual({ 'zh-TW': '財務' });
   });
 
+  it('leaving the field (cut) ends the step: typing in the same field again is a new step (U60)', () => {
+    const d = mk();
+    d.load(flow());
+    d.edit(rename('X'), 'a.name');
+    d.cut();
+    d.edit(rename('XY'), 'a.name');
+    d.undo();
+    expect(d.state.value!.definition.nodes[1].name).toEqual({ 'zh-TW': 'X' });
+    d.undo();
+    expect(d.state.value!.definition.nodes[1].name).toEqual({ 'zh-TW': '財務' });
+  });
+
   it('dragging a node is one step that only changes the position', () => {
     const d = mk();
     d.load(flow());

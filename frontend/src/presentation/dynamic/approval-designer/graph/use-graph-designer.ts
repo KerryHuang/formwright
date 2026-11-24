@@ -103,6 +103,8 @@ export function useGraphDesigner(canEdit: () => boolean) {
   const editMeta = (patch: Partial<FlowMeta>, coalesce?: string) => apply((s) => ({ ...s, meta: { ...s.meta, ...patch } }), coalesce);
   const move = (id: string, to: Position) => edit((s) => moveNode(s, id, to));
 
+  /** 離開文字欄（U60「離開欄位時才記」）：之後回到同一欄再打字算新的一步。 */
+  function cut() { lastKey = null; }
   function undoStep() { if (history.value && canEdit()) { history.value = undo(history.value); lastKey = null; } }
   function redoStep() { if (history.value && canEdit()) { history.value = redo(history.value); lastKey = null; } }
   /** 發布或捨棄草稿後清空（U60）；存草稿不清。 */
@@ -133,7 +135,7 @@ export function useGraphDesigner(canEdit: () => boolean) {
 
   return {
     loaded, snapshot, state, meta, dirty, undoable, redoable, server, selection, issues, canEdit: computed(canEdit),
-    load, apply, edit, editMeta, move, undo: undoStep, redo: redoStep, clearHistory, snapshotJson, markSaved, select, output, replaceServer, setTokens,
+    load, apply, edit, editMeta, move, cut, undo: undoStep, redo: redoStep, clearHistory, snapshotJson, markSaved, select, output, replaceServer, setTokens,
   };
 }
 

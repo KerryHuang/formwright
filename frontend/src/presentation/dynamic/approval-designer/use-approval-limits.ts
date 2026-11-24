@@ -28,6 +28,8 @@ export function useApprovalLimits(moduleKey: MaybeRefOrGetter<string>) {
       maxManagerLevel: num(v['approval.maxManagerLevel']), techMaxApprovers: tech,
     };
   });
+  /** 生效值讀回（或讀取失敗）之後才算知道上限：受上限限制的「新增」在這之前先停用（前端畫面通則）。 */
+  const ready = computed(() => effective.data.value !== undefined || effective.isError.value);
   const fallbackPolicy = computed<ModulePolicy | undefined>(() => modulePolicies.data.value?.find((p) => p.code === 'approval.defaultFallbackApprovers'));
-  return { limits, fallbackPolicy };
+  return { limits, fallbackPolicy, ready };
 }

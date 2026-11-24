@@ -3,8 +3,9 @@ import { ref } from 'vue';
 import { useApprovalLimits } from './use-approval-limits';
 
 const effective = ref<{ values: Record<string, unknown> } | undefined>();
+const failed = ref(false);
 vi.mock('src/application/dynamic/queries/policies-queries', () => ({
-  useEffectivePolicies: () => ({ data: effective }),
+  useEffectivePolicies: () => ({ data: effective, isError: failed }),
   useModulePolicies: () => ({ data: ref([{ code: 'approval.maxApprovers', max: 50 }]) }),
 }));
 
@@ -20,5 +21,17 @@ describe('useApprovalLimits', () => {
     expect(useApprovalLimits('po').limits.value.maxBranches).toBeUndefined();
     effective.value = undefined;
     expect(useApprovalLimits('po').limits.value.maxBranches).toBeUndefined();
+  });
+
+  it('is ready once the effective values are back, or reading them failed (adding is disabled until then)', () => {
+    effective.value = undefined;
+    failed.value = false;
+    const { ready } = useApprovalLimits('po');
+    expect(ready.value).toBe(false);
+    effective.value = { values: {} };
+    expect(ready.value).toBe(true);
+    effective.value = undefined;
+    failed.value = true;
+    expect(ready.value).toBe(true);
   });
 });
