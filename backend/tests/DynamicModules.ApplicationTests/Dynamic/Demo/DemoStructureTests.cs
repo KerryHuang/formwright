@@ -91,8 +91,13 @@ public class DemoStructureTests(DemoGeneratedFixture fx)
         var flow = Item($"approvalFlow:{DemoOldCrm.RenamedFlow}");
         flow.Should().Match<UpgradeItemResponse>(i => i.Category == "newOnly" && i.Applicable && i.DefaultSelected, "只改關卡名稱，Q27 下仍可勾");
         flow.Impacts.Should().ContainSingle(x => x.Code == "inFlightApprovals" && x.Count == 1, "設計案劇本留一張簽核中的單");
+        Item($"printTemplate:{DemoOldCrm.ShortenedTemplate}").Should().Match<UpgradeItemResponse>(i => i.Category == "newOnly" && i.Applicable && i.DefaultSelected,
+            "本文少一行，只有新版改（pkg1d1b）");
+        Item($"taskRule:{DemoOldCrm.RenamedTaskRule}").Should().Match<UpgradeItemResponse>(i => i.Category == "newOnly" && i.Applicable && i.DefaultSelected
+            && i.Impacts!.Any(x => x.Code == "futureOnly"));
+        preview.Blockers.Should().BeEmpty();
         preview.Counts["customerAdded"].Should().Be(1);
-        preview.Items.Should().HaveCount(7, "示範之外不能有假差異");
+        preview.Items.Should().HaveCount(9, "示範之外不能有假差異");
 
         var inventory = await fx.Host.Send(new PreviewAppUpgradeRequest(DemoCatalog.InventoryAppId, new UpgradeBody(null, null)));
         inventory.IsConflict.Should().BeTrue("進銷存照目錄版開啟，已是最新");
