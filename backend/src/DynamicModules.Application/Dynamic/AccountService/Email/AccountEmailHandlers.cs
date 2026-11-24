@@ -181,7 +181,8 @@ public sealed class ListMailOutboxHandler(IMailOutboxRepository outbox, AccountM
 
     public async Task<ServiceResult> Handle(ListMailOutboxRequest r, CancellationToken ct)
     {
-        var page = Math.Max(1, r.Page);
+        // 夾上限：(page-1)*50 不溢位（au1a 審查次要）
+        var page = Math.Clamp(r.Page, 1, int.MaxValue / PageSize);
         var (rows, total) = await outbox.ListPageAsync(page, PageSize, ct);
         var demo = auth.DemoLoginEnabled;
         return ServiceResult.Success(new MailOutboxPage(

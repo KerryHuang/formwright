@@ -25,6 +25,9 @@ public class UpdateSiteThemeHandler(ISystemSettingRepository settings, IUnitOfWo
         var siteName = request.SiteName?.Trim();
         if (siteName is { Length: > MailService.SiteName.MaxLength })
             return ServiceResult.Invalid("siteName", MessageRef.Of(MessageText.TooLong, MailService.SiteName.MaxLength));
+        // 會進信件主旨與寄件顯示名稱：擋換行等控制字元（au1a 審查次要）
+        if (siteName is not null && siteName.Any(char.IsControl))
+            return ServiceResult.Invalid("siteName", MessageRef.Of(MessageText.SiteNameControlChars));
 
         var oldName = await MailService.SiteName.ReadAsync(settings, ct);
         if (siteName is not null && siteName != (oldName ?? ""))

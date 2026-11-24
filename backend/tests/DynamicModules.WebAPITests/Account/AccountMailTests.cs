@@ -343,7 +343,8 @@ public class AccountMailTests
         var mode = theme.GetProperty("mode").GetString();
         var style = theme.GetProperty("style").GetString();
         (await app.AsUser().PutAsJsonAsync("/api/v3/dynamic/system/theme", new { mode, style, siteName = "示範科技" })).EnsureSuccessStatusCode();
-        (await Json(await app.AsUser(null).GetAsync("/api/v3/dynamic/theme"))).GetProperty("siteName").GetString().Should().Be("示範科技");
+        (await Json(await app.AsUser().GetAsync("/api/v3/dynamic/theme"))).GetProperty("siteName").GetString().Should().Be("示範科技");
+        (await Json(await app.AsUser(null).GetAsync("/api/v3/dynamic/theme"))).TryGetProperty("siteName", out _).Should().BeFalse("匿名不回站台名稱");
 
         (await SetEmail(app, "sales01", "a@example.com")).EnsureSuccessStatusCode();
         await Dispatch(app);
@@ -609,5 +610,28 @@ public class AccountMailTests
         (await app.AsUser().PostAsync($"{Users}/sales01/email/resend", null)).StatusCode.Should().Be(HttpStatusCode.InternalServerError);
         (await app.AsUser().PostAsync($"{Users}/sales01/email/resend", null)).StatusCode.Should().Be(HttpStatusCode.OK, "提交失敗不算寄過");
         (await app.AsUser().PostAsync($"{Users}/sales01/email/resend", null)).StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+    }
+
+    [Theory]
+    [InlineData("示範\r\nBcc: x@example.com")]
+    [InlineData("示範\t科技")]
+    [InlineData("示範\u0000")]
+    public async Task Review_SiteName_RejectsControlCharacters(string name)
+    {
+        using var app = App(new FakeMailSender());
+        var res = await app.AsUser().PutAsJsonAsync("/api/v3/dynamic/system/theme", new { mode = "system", style = "workbench", siteName = name });
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await Json(res)).GetProperty("errors").TryGetProperty("siteName", out _).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Review_MailOutbox_HugePage_NoOverflow()
+    {
+        using var app = App(new FakeMailSender());
+        (await SetEmail(app, "sales01", "a@example.com")).EnsureSuccessStatusCode();
+        // (page-1)*50 溢位成負數時，SQLite 把負 OFFSET 當 0（回第一頁）、PostgreSQL 直接報錯
+        var res = await app.AsUser().GetAsync($"/api/v3/dynamic/system/mail-outbox?page={int.MaxValue}");
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await Json(res)).GetProperty("items").GetArrayLength().Should().Be(0);
     }
 }

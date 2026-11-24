@@ -116,7 +116,7 @@ public static class MessageText
         // 帳號 Email 與重新驗證（帳號安全設計 §6.5、§8.9；組 MessageRef 在 AccountService/AccountSecurityMessages.cs）
         EmailVerifyLinkInvalid = nameof(EmailVerifyLinkInvalid), ReauthPasswordRequired = nameof(ReauthPasswordRequired),
         ReauthPasswordWrong = nameof(ReauthPasswordWrong), ReauthThrottled = nameof(ReauthThrottled), EmailResendTooSoon = nameof(EmailResendTooSoon),
-        EmailNotPending = nameof(EmailNotPending), EmailUseAccountPage = nameof(EmailUseAccountPage),
+        EmailNotPending = nameof(EmailNotPending), EmailUseAccountPage = nameof(EmailUseAccountPage), SiteNameControlChars = nameof(SiteNameControlChars),
         PermissionAdminRequired = nameof(PermissionAdminRequired),
         EventHiddenSourceNeedsPermissionAdmin = nameof(EventHiddenSourceNeedsPermissionAdmin),
         McpPermissionAdminDenied = nameof(McpPermissionAdminDenied),
@@ -531,6 +531,8 @@ public static class MessageText
             "Không có email nào đang chờ xác minh"),
         [EmailUseAccountPage] = ("自己的 Email 請到「帳號安全」頁變更", "To change your own email, use the Account security page",
             "หากต้องการเปลี่ยนอีเมลของคุณเอง โปรดไปที่หน้า \"ความปลอดภัยของบัญชี\"", "Để đổi email của chính bạn, hãy vào trang \"Bảo mật tài khoản\""),
+        [SiteNameControlChars] = ("站台名稱不能含換行或控制字元", "The site name cannot contain line breaks or control characters",
+            "ชื่อไซต์ต้องไม่มีการขึ้นบรรทัดใหม่หรืออักขระควบคุม", "Tên trang không được chứa ký tự xuống dòng hoặc ký tự điều khiển"),
         [LocalePackImportDisabled] = ("這個環境不允許匯入語系包", "Importing language packs is not allowed in this environment",
             "สภาพแวดล้อมนี้ไม่อนุญาตให้นำเข้าชุดภาษา", "Môi trường này không cho phép nhập gói ngôn ngữ"),
         [LocalePackTooLarge] = ("語系包不能超過 {0} MB", "The language pack cannot exceed {0} MB",
