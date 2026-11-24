@@ -526,7 +526,7 @@ SSO、AD／LDAP 列第二版候選（使用者 2026-11-17 裁決），au1 不做
 | POST | `auth/verify-email` | 匿名 | 驗證 Email |
 | POST | `auth/login` | 匿名 | 既有；有雙因素時回 `{ twoFactorRequired: true }` 或憑裝置 cookie 直接登入 |
 | POST | `auth/two-factor` | 第二步憑證 | 驗證碼或復原碼，成功發 session |
-| GET | `account/security` | 本人 | Email、驗證狀態、雙因素狀態、復原碼剩餘、記住的裝置、強制與寬限 |
+| GET | `account/security` | 本人 | Email、驗證狀態、雙因素狀態、復原碼剩餘、記住的裝置、強制（`twoFactor.required`）；寬限到期在 `GET /me` 的 `twoFactor.graceUntil` |
 | PUT | `account/email` | 本人 | `{ email, password }` |
 | POST | `account/email/resend` | 本人 | 重寄驗證信 |
 | POST | `account/two-factor/setup` | 本人 | `{ password, code?, recoveryCode? }`（重新綁定時要後兩者之一） |
@@ -1056,6 +1056,7 @@ SSO、AD／LDAP 列第二版候選（使用者 2026-11-17 裁決），au1 不做
 | 非 Development 環境金鑰不落地拒絕啟動（不分資料庫種類） | — | 安全守衛（主控裁決，T27） |
 | 第二步暫停的通知去重 | 同帳號 24 小時一次（信與站內通知） | 安全檢查（使用者裁決，Q23） |
 | 記住的裝置每帳號上限 | 20 台 | 技術限制（T30） |
+| 憑記住的裝置登入時寫最近使用時間的最短間隔 | 1 小時（距離上次不到就不寫） | 技術限制（au1c2 審查 S1，§27.1） |
 | 帳號層第二步上限、暫停時間 | 10 次、15 分鐘 | 安全檢查（Q19） |
 | 復原碼組數、長度、提醒門檻 | 10 組、16 字元、剩 2 組 | 安全慣例（T24） |
 | 連結權杖、裝置 cookie 長度 | 32 bytes | 安全檢查 |
@@ -1280,14 +1281,14 @@ SSO、AD／LDAP 列第二版候選（使用者 2026-11-17 裁決），au1 不做
 3. `SessionMiddleware` 不再直接用 `DbContext`，改呼叫 `ITwoFactorRepository.SessionStateAsync(userId, scope)`：同一次依主鍵的查詢投影 `IsActive`、stamp、`MustChangePassword`、`TotpEnabledUtc`、`TwoFactorGraceStartUtc` 與「在範圍內」；`groups` 模式時「在範圍內」多一個群組成員的 `EXISTS` 子查詢（同一次往返）。因此 `TwoFactorRepository` 登記為可讀 `UserGroupMapping` 的檔案（PAX23 清單 3，只讀），`SessionMiddleware` 從 WebAPI 可用 `DbContext` 的清單移除。
 4. 判定順序：匿名可選路徑不判定；先 `MustChangePassword`（403 `passwordChangeRequired`），再雙因素（403 `twoFactorEnrollmentRequired`）。寬限起點要改（記下或清空）時，middleware 送交易型 `SyncTwoFactorGraceRequest`（條件式 `ExecuteUpdate`：記下只在 `TotpEnabledUtc IS NULL AND GraceStart IS NULL`，時間截到微秒），只在要改的那一次寫入。**已知限制**：這筆寫入失敗時記 Warning、照常用「起點＝現在」判定這一次請求，不回 500；寫入一直失敗、寬限天數大於 0 的人，寬限會一直從當下算（不會被擋），屬可觀測（log）的降級。
 5. 存政策時的批次清除（F40）：`TwoFactorPolicyChangeHook`（`IPolicyChangeHook`，在更新政策的交易內、生效值有變時才叫）只處理 mode、groups、requireAdmins 三項，用新的三個生效值算範圍，`ClearGraceOutsideAsync` 一次清掉「還沒啟用、有起點、不在新範圍內」的帳號。寬限天數改變不清起點（§8.7 只列三項）。
-6. 記住這台裝置：cookie `fw.device` 內容是 `AccountLinkTokens.NewToken()`（43 個 base62 字元，≥ 32 bytes 隨機），資料庫只存 SHA-256（`McpSecrets.Hash`）與發行時的 stamp。cookie HttpOnly、SameSite=Strict、Secure 比照 session（`IsHttps`）、Path `/api/v3/dynamic/auth`、`Expires`＝建立時間＋當時的政策天數。有效條件照 §8.5 五項，`TrustedDevices.IsValid` 一處判斷；登入與 Demo 一鍵登入都在密碼正確、帳號啟用雙因素之後才查。最近使用時間以交易型 `TouchTrustedDeviceRequest` 更新，失敗只記 Warning、不擋登入。
+6. 記住這台裝置：cookie `fw.device` 內容是 `AccountLinkTokens.NewToken()`（43 個 base62 字元，≥ 32 bytes 隨機），資料庫只存 SHA-256（`McpSecrets.Hash`）與發行時的 stamp。cookie HttpOnly、SameSite=Strict、Secure 比照 session（`IsHttps`）、Path `/api/v3/dynamic/auth`、`Expires`＝建立時間＋當時的政策天數。有效條件照 §8.5 五項，`TrustedDevices.IsValid` 一處判斷；登入與 Demo 一鍵登入都在密碼正確、帳號啟用雙因素之後才查。最近使用時間以交易型 `TouchTrustedDeviceRequest` 更新，失敗只記 Warning、不擋登入（距離上次不到 1 小時不寫，見 §27.1）。
 7. 發裝置在 `CompleteTwoFactorLoginHandler` 內（和消耗驗證碼同一交易），超過 20 台時先 `ExecuteDelete` 最舊的、再新增（同交易）。`rememberDevice` 為真但政策是 0 時不發、不回 cookie。
 8. 失效：改密碼（任何路徑，`PasswordChangeEffects`）、停用帳號（`SetUserActiveHandler`）同交易刪該帳號全部列；重設／關閉／重新綁定雙因素與救援沿用 au1c1 的刪除。判斷只靠 stamp 與天數，刪列是清理（F12 有一條測試只換 stamp、不刪列，照樣失效）。
-9. 標籤由前端組（`browserFamily`／`osFamily`，例「Chrome 131／macOS」），後端去控制字元、截 100 字、空白時記 `Other`；cookie 值長度超過 100 視為無效，不查資料庫。
+9. 標籤由前端組（`browserFamily`／`osFamily`，例「Chrome 131／macOS」），後端去控制字元與 Unicode 格式字元（§27.1）、截 100 字、空白時記 `Other`；cookie 值長度超過 100 視為無效，不查資料庫。
 10. 稽核：本人「全部取消記住」記 `account.trustedDevicesClear`；憑記住的裝置登入時 `login.succeeded` 的 `method` 是 `password+device`，Demo 一鍵登入是 `demo+device`。新登入流程沒有新增 handler，`AuditArchitectureTests.LoginFlowHandlers` 不變。
 11. `ITwoFactorRequirement` 換成 `PolicyTwoFactorRequirement`（依 §8.7 判斷），本人關閉在範圍內時回 409 `twoFactorRequired`，排在驗密碼與驗證碼之前：不佔限流、不推進 `TotpLastStep`、不用掉復原碼（F45）。`TwoFactorStatusResponse` 多 `required`。
 12. 前端：`useIdentityStore` 多 `twoFactorEnrollmentRequired`；守衛在第一次載入 `/me`、登入後（`useStartSession`）與改完密碼後都從 `/me` 補這個旗標，排在強制改密碼之後、載入營運時區之前（期間政策 API 會 403）。使用中收到 403 `twoFactorEnrollmentRequired` 時由 http 攔截器導到 `/account/two-factor-setup`。強制綁定頁不讀帳號安全 API，直接以「未啟用、在範圍內」的狀態重用 `TwoFactorCard` 的綁定對話框，按「我已保存」後解除旗標、清快取、回首頁。
-13. 測試主機：`TestApp` 預設把 `auth.twoFactorRequireAdmins` 的出廠值換成否（`PolicyEnvironmentDefaults.WithForTests`），既有測試的 admin 不必綁定；強制相關測試設 `TwoFactorFactoryPolicy = true` 用程式出廠值。
+13. 測試主機：`TestApp` 預設把 `auth.twoFactorRequireAdmins` 的出廠值換成否（`TestApp` 自己照抄各項出廠值組一個新的 `PolicyEnvironmentDefaults`，正式組件不提供覆寫方法，§27.1），既有測試的 admin 不必綁定；強制相關測試設 `TwoFactorFactoryPolicy = true` 用程式出廠值。
 14. 交易外的寫入：沒有新增。新增的 `ExecuteUpdate`／`ExecuteDelete`（`TouchTrustedDeviceAsync`、`AddTrustedDeviceAsync` 的刪最舊、`StartGraceAsync`、`ClearGraceAsync`、`ClearGraceOutsideAsync`）都在交易型請求或政策更新交易內，並登記在 `AuthorizationWriteInventoryTests`。
 
 **使用者行為（代做）**
@@ -1308,4 +1309,16 @@ SSO、AD／LDAP 列第二版候選（使用者 2026-11-17 裁決），au1 不做
 - 交付分 commit：記住裝置與強制政策的後端共用 `TwoFactorPolicyHandlers.cs`、`ITwoFactorRepository` 與 `SessionMiddleware`，拆開會讓中間的 commit 編不過，所以合成一個後端 commit；前端、文件各一個。
 - 政策頁「只列群組」的收件人選項只有元件內的篩選，沒有前端元件測試；後端 400 的測試在 `GroupsPolicy_OnlyAcceptsGroups`。
 - 四種寬度、淺深主題的畫面走查（強制綁定頁、寬限提示、記住的裝置卡、登入第二步的勾選框）由主控在本機 Demo 安排，本段實作者沒跑瀏覽器。
+
+### 27.1 審查與走查修正（2026-11-25）
+
+- **M1（契約文件）**：§10 `GET account/security` 原寫「強制與寬限」，實作只有 `twoFactor.required`。照審查推薦改文件、不改 API：寬限到期只在 `GET /me` 的 `twoFactor.graceUntil`（前端寬限提示本來就讀 `/me`），帳號安全頁的回應不重複帶。
+- **S1**：憑記住的裝置登入時，`LastUsedUtc` 距離現在不到 1 小時就不送 `TouchTrustedDeviceRequest`（沒有值時照寫），平常登入回到「不寫資料庫」。間隔是技術限制，寫死並列入 §22。`LoginHandler` 與 `DemoLoginHandler` 原本各一份的查裝置＋寫入＋try／catch 收成 `TrustedDevices.SignInAsync`。
+- **失效的 `fw.device` 順手刪**：`SignInAsync` 回 `Valid`／`None`／`Revoked`；`Revoked`（查無此列、屬於這個帳號但 stamp 已換或已過期、長度超過 100）時第二步回應刪 cookie（Path 同 `/api/v3/dynamic/auth`）。屬於別的帳號（同一瀏覽器多人輪流登入）、或政策天數暫時調短或設 0 的不刪：調回來同一台裝置仍有效（F12 的既有行為）。
+- **裝置雜湊查詢**：`fw.device` 用資料庫索引的相等條件查 `TokenHash`，不用 §11 的固定時間比較（`HashEquals`）。cookie 是 256 bits 隨機值、查詢前先做 SHA-256，查詢時間差洩漏不出可利用的資訊；固定時間比較只對「拿已知列逐位元比對」有意義，不適用於索引查詢。
+- **裝置標籤**：除了控制字元，一併去掉 Unicode 格式字元（`UnicodeCategory.Format`，例 U+202E 從右到左覆寫、U+200B）。
+- **S3**：前端 `two-factor-policy.ts`（存檔前提示）照抄了 `TwoFactorScope.From` 的「系統管理員在不在範圍內」規則；兩邊互相加註，改一邊要改另一邊。實際強制判斷以後端為準。
+- **S4**：`PolicyEnvironmentDefaults.WithForTests` 從正式組件移除（Application 刻意沒有 `InternalsVisibleTo`），改由 `TestApp` 組出廠值。
+- **越南文**：強制雙因素政策名稱「hai lớp」改成「hai yếu tố」，介面文字統一（後端訊息表 `MessageText`、`AlertMailText` 的越南文仍有「hai lớp」，不在本段範圍）。
+- **走查**：政策頁收件人型別的值是空清單時（例「強制雙因素的群組」沒選），「目前值／出廠值」顯示既有的「（無）」（`policies.none`），不再是空白。
 
