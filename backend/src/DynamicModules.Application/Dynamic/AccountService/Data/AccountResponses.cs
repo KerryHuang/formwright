@@ -20,7 +20,9 @@ public record AdminUserResponse(
     long? DepartmentId = null,
     // 權限軸設計 §8：個人直接設定（編輯對話框只載入與存回它）、有效結果（和 GET me 同一套算法）、提供系統權限的來源
     Common.Security.SystemPrivilegesDto? SystemPrivileges = null, Common.Security.SystemPrivilegesDto? EffectiveSystemPrivileges = null,
-    List<SystemPrivilegeSourceResponse>? SystemPrivilegeSources = null);
+    List<SystemPrivilegeSourceResponse>? SystemPrivilegeSources = null,
+    // 帳號安全設計 §12：Email 與是否已驗證（清單顯示「未驗證」）
+    string? Email = null, bool EmailVerified = false);
 
 /// <summary>系統權限的來源：<c>group</c>（有任一系統權限的群組）或 <c>systemAdmin</c>（其餘欄位不輸出）。</summary>
 public record SystemPrivilegeSourceResponse(

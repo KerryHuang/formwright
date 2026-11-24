@@ -50,15 +50,6 @@ public sealed record MailSendResult(bool Ok, string? Stage = null, int? ServerCo
 }
 
 /// <summary>
-/// 寄 SMTP（WebAPI 以 MailKit 實作，O2-T9）：強制 STARTTLS 不退回明文、憑證一律驗證、單封逾時 30 秒；
-/// 呼叫端保證不在任何交易裡呼叫（不准持全庫寫入鎖等網路）。密碼是明文，由呼叫端先解密。
-/// </summary>
-public interface IAlertMailSender
-{
-    Task<MailSendResult> SendAsync(SmtpSettings settings, string? password, AlertMail mail, CancellationToken ct);
-}
-
-/// <summary>
 /// SMTP 密碼的加解密（WebAPI 以 Data Protection 實作，purpose <c>ops-alert-smtp</c>，O2-T10）。密碼搬到核心寄信設定後 purpose 名稱不改：
 /// 既有的密文是用這個 purpose 加密、原樣搬過去的，換名字就解不開。
 /// </summary>

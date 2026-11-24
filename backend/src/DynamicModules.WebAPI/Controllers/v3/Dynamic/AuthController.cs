@@ -30,6 +30,13 @@ public class AuthController(IMediator mediator, ClientIpResolver clientIp) : Con
     public async Task<IActionResult> DemoLogin(DemoLoginBody body) =>
         await SignInOnSuccess(await mediator.Send(new DemoLoginRequest(body.UserId ?? "", clientIp.Resolve(HttpContext))));
 
+    public record VerifyEmailBody(string? Token);
+
+    /// <summary>驗證 Email（匿名；帳號安全設計 §6.5）：權杖在連結的 # 後面，前端讀到後送這裡。</summary>
+    [HttpPost("verify-email")]
+    public async Task<IActionResult> VerifyEmail(VerifyEmailBody body) =>
+        (await mediator.Send(new Application.Dynamic.AccountService.Email.VerifyEmailRequest(body.Token))).ToActionResult(this);
+
     [HttpPost("logout")]
     public async Task<IActionResult> Logout()
     {

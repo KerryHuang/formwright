@@ -35,7 +35,7 @@ public class AdminListUsersHandler(IPermissionRepository permissions, IOrganizat
                 departments.TryGetValue(u.UserId, out var d) ? d : null,
                 Common.Security.SystemPrivilegeRules.Direct(personal),
                 Common.Security.SystemPrivilegeRules.Effective(u, fromGroups.Cast<ProgramPrivilege>().Concat(personal)),
-                sources);
+                sources, u.Email, u.EmailVerifiedUtc is not null);
         }).ToList());
     }
 }

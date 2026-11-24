@@ -95,10 +95,12 @@ builder.Services.AddHostedService<SchedulerHostedService>();
 builder.Services.AddHostedService<OpsWatchdogHostedService>();
 builder.Services.AddHostedService<IncidentInboxFlusher>();
 builder.Services.AddSingleton<DynamicModules.Application.Dynamic.OpsService.Health.IDiskSpace, DriveInfoDiskSpace>();
-// 告警通道（維運設計 §17.2.6）：MailKit 寄 SMTP、Data Protection 加密密碼；Ops:PublicUrl 是信件內事件連結的網址前綴（沒設就不放連結）
-builder.Services.AddSingleton<DynamicModules.Application.Dynamic.OpsService.Alerts.IAlertMailSender, MailKitAlertMailSender>();
+// 寄信（維運設計 §17.2.6、帳號安全設計 §6）：MailKit 寄 SMTP、Data Protection 加密密碼。站台網址 App:PublicUrl（沒設時讀舊鍵 Ops:PublicUrl）
+// 是信件連結的網址前綴：告警信沒設就不放連結，帳號信沒設就寄不出帶連結的信（不用請求的 Host 標頭）
+builder.Services.AddSingleton<DynamicModules.Application.Dynamic.MailService.IMailSender, MailKitMailSender>();
 builder.Services.AddSingleton<DynamicModules.Application.Dynamic.OpsService.Alerts.IAlertSecretProtector, DataProtectionAlertSecretProtector>();
-builder.Services.AddSingleton(new DynamicModules.Application.Dynamic.OpsService.Alerts.AlertMailOptions(builder.Configuration["Ops:PublicUrl"]));
+builder.Services.AddSingleton(new DynamicModules.Application.Dynamic.OpsService.Alerts.AlertMailOptions(SitePublicUrl.Read(builder.Configuration)));
+builder.Services.AddHostedService<MailDeliveryHostedService>();
 builder.Services.AddSingleton(new AuthSettings(builder.Configuration.GetValue<bool>("Demo:LoginEnabled")));
 // 語系包匯入（語系包 i4d1 計畫判斷 15）：沒明確設定時公開 Demo 站（Demo:LoginEnabled）關閉，只能預覽報告
 builder.Services.AddSingleton(new DynamicModules.Application.Dynamic.LocaleService.Packs.LocalePackSettings(

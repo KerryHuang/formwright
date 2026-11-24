@@ -27,11 +27,18 @@ public static class AuditActions
         // 登入（不經 AuditBehavior；§17.2.1）
         new("login.succeeded", Auth, W),
         new("login.failed", Auth, W),
+        // 帳號安全（帳號安全設計 T16）：一般寫入，高風險只留權限類；涉及管理員帳號的另開安全事件（§8.10）
+        new("account.setEmail", Auth, W),
+        new("account.resendEmailVerify", Auth, W),
+        new("account.emailVerified", Auth, W),
+        new("account.reauthFailed", Auth, W),
         // 使用者與群組
         new("user.create", User, H),
         new("user.update", User, H),
         new("user.setActive", User, W),
         new("user.resetPassword", User, W),
+        new("user.setEmail", User, W),
+        new("user.resendEmailVerify", User, W),
         // 授予或收回設計器與權限設定（權限軸設計 §9）：等同改權限，標高風險
         new("user.systemPrivileges", User, H),
         new("group.create", Group, W),

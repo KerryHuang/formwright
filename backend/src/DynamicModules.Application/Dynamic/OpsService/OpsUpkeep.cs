@@ -57,6 +57,11 @@ public sealed class OpsUpkeepJob(OpsUpkeepOptions options) : IScheduledJob
         await PurgeAsync(context, sender, OpsPurgeTarget.IncidentSample,
             now.AddDays(-await policy.IntAsync(PolicyCatalog.OpsIncidentSampleRetentionDays, ct)), ct);
         await PurgeAsync(context, sender, OpsPurgeTarget.Incident, now.AddDays(-await policy.IntAsync(PolicyCatalog.OpsIncidentRetentionDays, ct)), ct);
+        // 核心寄信佇列（帳號安全設計 §6.6）：只清終態；過期超過同樣天數的帳號權杖一起清，記住的裝置一過期就清
+        var mailCutoff = now.AddDays(-await policy.IntAsync(PolicyCatalog.MailOutboxRetentionDays, ct));
+        await PurgeAsync(context, sender, OpsPurgeTarget.MailOutbox, mailCutoff, ct);
+        await PurgeAsync(context, sender, OpsPurgeTarget.AccountToken, mailCutoff, ct);
+        await PurgeAsync(context, sender, OpsPurgeTarget.TrustedDevice, now, ct);
         // 規則失敗列只在滑動窗口內有用；用窗口的上限算，設定調大時不會先被清掉（維運設計 §17.2.7、§17.4）
         await PurgeAsync(context, sender, OpsPurgeTarget.RuleFailure, now.AddMinutes(-PolicyCatalog.OpsRulePauseWindowMinutes.Max), ct);
         // MCP（mcp1a 判斷 22）：確認碼在結束後 1 天清；撤銷或到期的權杖隨稽核保留天數清（保留列供稽核關聯）
@@ -94,7 +99,7 @@ public sealed class OpsUpkeepOptions
 }
 
 /// <summary>保留天數清理的對象；摘要的鍵（<c>deleted.auditLog</c>…）與列舉名稱的 camelCase 相同。</summary>
-public enum OpsPurgeTarget { AuditLog, HealthResult, Incident, IncidentSample, AlertOutbox, RuleFailure }
+public enum OpsPurgeTarget { AuditLog, HealthResult, Incident, IncidentSample, AlertOutbox, RuleFailure, MailOutbox, AccountToken, TrustedDevice }
 
 /// <summary>
 /// 刪掉一批超過保留天數的列，有刪到時同一交易寫一列 <c>ops.retention.purge</c>（維運設計 §17.2.1「不經 AuditBehavior 的寫入點」）；
@@ -105,7 +110,8 @@ public sealed record PurgeOpsBatchRequest(JobLeaseFence Fence, OpsPurgeTarget Ta
 
 public class PurgeOpsBatchHandler(
     IScheduledJobRepository jobs, IAuditLogRepository auditLog, IHealthCheckRepository checks, IOpsIncidentRepository incidents,
-    IAlertOutboxRepository outbox, IRuleHealthRepository ruleHealth, IAuditLog audit, IUnitOfWork uow)
+    IAlertOutboxRepository outbox, IRuleHealthRepository ruleHealth, IMailOutboxRepository mailOutbox, IAccountTokenRepository accountTokens,
+    IAuditLog audit, IUnitOfWork uow)
     : IRequestHandler<PurgeOpsBatchRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(PurgeOpsBatchRequest request, CancellationToken ct)
@@ -120,6 +126,9 @@ public class PurgeOpsBatchHandler(
             OpsPurgeTarget.IncidentSample => await incidents.PurgeSamplesBatchAsync(request.CutoffUtc, request.BatchSize, ct),
             OpsPurgeTarget.AlertOutbox => await outbox.PurgeBatchAsync(request.CutoffUtc, request.BatchSize, ct),
             OpsPurgeTarget.RuleFailure => await ruleHealth.PurgeFailuresBatchAsync(request.CutoffUtc, request.BatchSize, ct),
+            OpsPurgeTarget.MailOutbox => await mailOutbox.PurgeBatchAsync(request.CutoffUtc, request.BatchSize, ct),
+            OpsPurgeTarget.AccountToken => await accountTokens.PurgeBatchAsync(request.CutoffUtc, request.BatchSize, ct),
+            OpsPurgeTarget.TrustedDevice => await accountTokens.PurgeExpiredDevicesBatchAsync(request.CutoffUtc, request.BatchSize, ct),
             _ => throw new ArgumentOutOfRangeException(nameof(request)),
         };
         if (deleted > 0)

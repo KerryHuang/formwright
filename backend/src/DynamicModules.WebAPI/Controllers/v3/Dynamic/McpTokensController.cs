@@ -12,11 +12,11 @@ public class McpTokensController(IMediator mediator, ClientIpResolver clientIp, 
 {
     public record CreateTokenBody(string? Name, List<string>? Scopes, DateOnly? ExpiresOn, string? Password);
 
-    /// <summary>伺服器網址沿用 <c>Ops:PublicUrl</c>（判斷 15）；沒設時用這個請求的 scheme＋host。</summary>
+    /// <summary>伺服器網址沿用站台網址 <c>App:PublicUrl</c>（舊鍵 <c>Ops:PublicUrl</c>，判斷 15）；沒設時用這個請求的 scheme＋host。</summary>
     [HttpGet("me/mcp")]
     public async Task<IActionResult> Info()
     {
-        var publicUrl = config["Ops:PublicUrl"];
+        var publicUrl = Security.SitePublicUrl.Read(config);
         var baseUrl = string.IsNullOrWhiteSpace(publicUrl) ? $"{Request.Scheme}://{Request.Host}" : publicUrl;
         return (await mediator.Send(new GetMyMcpInfoRequest(baseUrl))).ToActionResult(this);
     }

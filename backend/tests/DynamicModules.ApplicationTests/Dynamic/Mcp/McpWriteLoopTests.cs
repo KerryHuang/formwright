@@ -1,3 +1,4 @@
+using DynamicModules.Application.Dynamic.MailService;
 using System.Text.Json;
 using DynamicModules.Application.Common;
 using DynamicModules.Application.Common.Audit;
@@ -23,7 +24,7 @@ namespace DynamicModules.ApplicationTests.Dynamic.Mcp;
 public sealed class LoopIncidentFault { public bool On { get; set; } }
 
 /// <summary>告警信由 WebAPI 實作；這裡的事件不寄信（出廠不寄客戶設定類），只要容器建得起來。</summary>
-public sealed class NoAlertMail : IAlertMailSender, IAlertSecretProtector
+public sealed class NoAlertMail : IMailSender, IAlertSecretProtector
 {
     public Task<MailSendResult> SendAsync(SmtpSettings settings, string? password, AlertMail mail, CancellationToken ct) =>
         Task.FromResult(MailSendResult.Success);
@@ -63,7 +64,7 @@ public class McpWriteLoopTests : McpWriteTestBase
         base.ConfigureServices(services);
         services.AddSingleton(_incidentFault);
         services.AddScoped<IMcpWriteScope>(sp => new SpyingWriteScope(sp.GetRequiredService<McpWriteScope>(), _writes));
-        services.AddSingleton<IAlertMailSender, NoAlertMail>();
+        services.AddSingleton<IMailSender, NoAlertMail>();
         services.AddSingleton<IAlertSecretProtector, NoAlertMail>();
         services.AddSingleton(AlertMailOptions.None);
         services.AddSingleton<DynamicModules.Application.Dynamic.OpsService.IOpsEnvironment, TestOpsEnvironment>();

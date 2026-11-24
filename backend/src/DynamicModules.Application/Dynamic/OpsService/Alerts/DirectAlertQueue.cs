@@ -1,3 +1,4 @@
+using DynamicModules.Application.Dynamic.MailService;
 using DynamicModules.Application.Common;
 using DynamicModules.Application.Dynamic.OpsService.Health;
 using DynamicModules.Application.Dynamic.OpsService.Incidents;
@@ -38,7 +39,7 @@ public readonly record struct DirectReservation(DirectHandoff Kind, DateTime? Se
 /// </para>
 /// </summary>
 public sealed class DirectAlertQueue(
-    IServiceScopeFactory scopes, IAlertMailSender sender, IAlertSecretProtector protector, IOpsEnvironment env, AlertMailOptions options,
+    IServiceScopeFactory scopes, IMailSender sender, IAlertSecretProtector protector, IOpsEnvironment env, AlertMailOptions options,
     TimeProvider time, CachedSystemPolicy policyCache, LocaleRegistry registry, Common.Localization.IMessageCatalog messages, ILogger<DirectAlertQueue> logger)
 {
     /// <summary>直送佇列上限（技術限制，§17.9）。</summary>

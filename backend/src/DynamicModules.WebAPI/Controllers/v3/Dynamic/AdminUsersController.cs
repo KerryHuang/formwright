@@ -24,6 +24,8 @@ public class AdminUsersController(IMediator mediator) : ControllerBase
 
     public record DepartmentBody(long? DepartmentId);
 
+    public record EmailBody(string? Email);
+
     [HttpGet]
     public async Task<IActionResult> List() => (await mediator.Send(new AdminListUsersRequest())).ToActionResult(this);
 
@@ -56,6 +58,15 @@ public class AdminUsersController(IMediator mediator) : ControllerBase
     [HttpPost("{id}/reset-password")]
     public async Task<IActionResult> ResetPassword(string id, ResetBody body) =>
         (await mediator.Send(new ResetPasswordRequest(id, body.Password ?? ""))).ToActionResult(this);
+
+    /// <summary>設定或清空 Email（null 或空白＝清除）；一律要點驗證信才生效（帳號安全設計 §6.5、T17）。</summary>
+    [HttpPut("{id}/email")]
+    public async Task<IActionResult> SetEmail(string id, EmailBody body) =>
+        (await mediator.Send(new Application.Dynamic.AccountService.Email.SetUserEmailRequest(id, body.Email))).ToActionResult(this);
+
+    [HttpPost("{id}/email/resend")]
+    public async Task<IActionResult> ResendEmail(string id) =>
+        (await mediator.Send(new Application.Dynamic.AccountService.Email.ResendUserEmailRequest(id))).ToActionResult(this);
 
     [HttpPost("{id}/deactivate")]
     public async Task<IActionResult> Deactivate(string id) => (await mediator.Send(new SetUserActiveRequest(id, false))).ToActionResult(this);

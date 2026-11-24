@@ -16,7 +16,7 @@ namespace DynamicModules.WebAPI.Mcp;
 
 /// <summary>
 /// <c>/mcp</c> 的閘門（mcp1a 計畫判斷 11；寫死清單：安全），只掛在 <c>/mcp</c>。依序：
-/// query string 不准帶權杖 → Origin 只認 <c>Ops:PublicUrl</c> 與可信 loopback 的固定 origin → HTTPS → IP 降速 → Bearer 權杖認證 →
+/// query string 不准帶權杖 → Origin 只認站台網址（<c>App:PublicUrl</c>，舊鍵 <c>Ops:PublicUrl</c>） 與可信 loopback 的固定 origin → HTTPS → IP 降速 → Bearer 權杖認證 →
 /// 換成權杖身分（cookie 與 <c>X-User</c> 的身分丟掉）→ 開 <see cref="AuditOrigin"/>(Mcp) → 通過交給 SDK，政策擋下寫 <c>mcp.access</c> 後回 403。
 /// 不讀 DbContext：全部經 MediatR 與 <see cref="IAuditLog"/>。這裡是唯一發 <see cref="McpClaims"/> 的地方（架構測試鎖住）。
 /// </summary>
@@ -121,11 +121,11 @@ public sealed class McpGateMiddleware(RequestDelegate next, McpAuthThrottle thro
         return IPAddress.IsLoopback(remote);
     }
 
-    /// <summary>允許的 Origin：<c>Ops:PublicUrl</c> 的 origin（有設才有）；可信 loopback 連線再加三個固定的 loopback origin。不含請求的 Host。</summary>
+    /// <summary>允許的 Origin：站台網址的 origin（有設才有）；可信 loopback 連線再加三個固定的 loopback origin。不含請求的 Host。</summary>
     private HashSet<string> AllowedOrigins(HttpContext ctx, bool loopback)
     {
         var set = new HashSet<string>(StringComparer.Ordinal);
-        if (Uri.TryCreate(config["Ops:PublicUrl"], UriKind.Absolute, out var publicUrl)) set.Add(publicUrl.GetLeftPart(UriPartial.Authority));
+        if (Uri.TryCreate(Security.SitePublicUrl.Read(config), UriKind.Absolute, out var publicUrl)) set.Add(publicUrl.GetLeftPart(UriPartial.Authority));
         if (loopback)
         {
             var port = ctx.Connection.LocalPort.ToString(CultureInfo.InvariantCulture);

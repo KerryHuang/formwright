@@ -16,7 +16,8 @@ public static partial class IncidentTitles
     public const string ServerError = "ops.title.serverError", ClientError = "ops.title.clientError",
         AdminChanged = "ops.title.adminChanged", HealthPrefix = "ops.title.health.", ChannelFailed = "ops.title.channelFailed",
         ConfigPrefix = "ops.title.config.", RulePaused = "ops.title.rulePaused", PrivilegeChanged = "ops.title.privilegeChanged",
-        McpWriteLoop = "ops.title.mcpWriteLoop";
+        McpWriteLoop = "ops.title.mcpWriteLoop", AccountMailFailed = "ops.title.accountMailFailed",
+        AdminEmailChanged = "ops.title.adminEmailChanged";
 
     /// <summary>JavaScript 內建錯誤名稱；其他一律換成 <c>Error</c>（§17.2.2 標題表）。</summary>
     private static readonly HashSet<string> JsErrorNames = new(StringComparer.Ordinal)
@@ -84,6 +85,9 @@ public static partial class IncidentTitles
                 + (P("serverCode") is { Length: > 0 } c ? m.Get(locale, AlertMailText.TitleChannelCode, c) : "")),
             PrivilegeChanged => m.Get(locale, P("change") == "granted" ? AlertMailText.TitlePrivilegeGranted : AlertMailText.TitlePrivilegeRevoked),
             RulePaused => m.Get(locale, AlertMailText.TitleRulePaused, P("ruleKey"), P("failures")),
+            AccountMailFailed => m.Get(locale, AlertMailText.TitleAccountMail, AlertMailText.Label(m, locale, "stage." + P("stage"))
+                + (P("serverCode") is { Length: > 0 } ac ? m.Get(locale, AlertMailText.TitleChannelCode, ac) : "")),
+            AdminEmailChanged => m.Get(locale, AlertMailText.TitleAdminEmailChanged),
             McpWriteLoop => m.Get(locale, AlertMailText.TitleMcpWriteLoop, P("tokenId"), P("recordId"), P("count"), P("minutes")),
             _ when titleKey.StartsWith(ConfigPrefix, StringComparison.Ordinal) => m.Get(locale, AlertMailText.TitleConfig, P("ruleKey"),
                 AlertMailText.Label(m, locale, "ruleError." + titleKey[ConfigPrefix.Length..])),

@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 namespace DynamicModules.Application.Dynamic.AccountService.Commands.SetUserActive;
 
 public class SetUserActiveHandler(
-    ICurrentUser current, IAccountRepository accounts, McpTokenRevoker mcpTokens, IUnitOfWork uow, AuditContext audit,
+    ICurrentUser current, IAccountRepository accounts, McpTokenRevoker mcpTokens, MailService.AccountMailWriter mail, IUnitOfWork uow, AuditContext audit,
     ILogger<SetUserActiveHandler> logger)
     : IRequestHandler<SetUserActiveRequest, ServiceResult>
 {
@@ -29,6 +29,8 @@ public class SetUserActiveHandler(
             user.SecurityStamp = Guid.NewGuid().ToString("N");
             // 同一交易撤銷全部 AI 連線權杖；重新啟用不恢復（設計 §13.2）
             revokedMcpTokens = await mcpTokens.RevokeAllAsync(user.UserId, McpRevokeReason.UserDeactivated, current.UserId, ct);
+            // 同交易取消還沒寄的帶連結帳號信、作廢未用權杖（帳號安全設計 §6.3）
+            await mail.CancelLinksAsync(user.UserId, AccountToken.Deactivated, null, ct);
         }
 
         var wasActive = user.IsActive;

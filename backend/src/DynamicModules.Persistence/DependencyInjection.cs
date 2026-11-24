@@ -87,6 +87,8 @@ public static class DependencyInjection
         services.AddScoped<IAlertChannelRepository, AlertChannelRepository>();
         services.AddScoped<IAlertOutboxRepository, AlertOutboxRepository>();
         services.AddScoped<IMailSettingsRepository, MailSettingsRepository>();
+        services.AddScoped<IMailOutboxRepository, MailOutboxRepository>();
+        services.AddScoped<IAccountTokenRepository, AccountTokenRepository>();
         services.AddScoped<IBackupRepository, BackupRepository>();
         services.AddScoped<IOpsLockRepository, OpsLockRepository>();
         services.AddScoped<ILocaleRepository, LocaleRepository>();

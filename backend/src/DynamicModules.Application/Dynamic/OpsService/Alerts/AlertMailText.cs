@@ -28,7 +28,9 @@ public static class AlertMailText
         TitleChannel = P + nameof(TitleChannel), TitleChannelCode = P + nameof(TitleChannelCode),
         TitleConfig = P + nameof(TitleConfig), TitleRulePaused = P + nameof(TitleRulePaused),
         TitlePrivilegeGranted = P + nameof(TitlePrivilegeGranted), TitlePrivilegeRevoked = P + nameof(TitlePrivilegeRevoked),
-        TitleMcpWriteLoop = P + nameof(TitleMcpWriteLoop);
+        TitleMcpWriteLoop = P + nameof(TitleMcpWriteLoop),
+        // 帳號安全（帳號安全設計 §6.2、§8.10）
+        TitleAccountMail = P + nameof(TitleAccountMail), TitleAdminEmailChanged = P + nameof(TitleAdminEmailChanged);
 
     private static readonly Dictionary<string, (string Zh, string En, string Th, string Vi)> Table = new()
     {
@@ -79,6 +81,9 @@ public static class AlertMailText
         [TitlePrivilegeRevoked] = ("有人的設計器或權限設定權限被收回", "Someone's designer or permission settings rights were revoked",
             "มีผู้ถูกถอนสิทธิ์ตัวออกแบบหรือการตั้งค่าสิทธิ์", "Quyền trình thiết kế hoặc cài đặt quyền của một người đã bị thu hồi"),
         [TitleHealth] = ("健康檢查「{0}」{1}", "Health check \"{0}\": {1}", "การตรวจสุขภาพ \"{0}\": {1}", "Kiểm tra sức khỏe \"{0}\": {1}"),
+        [TitleAccountMail] = ("帳號信寄不出去（{0}）", "Account emails cannot be sent ({0})", "ส่งอีเมลบัญชีไม่ได้ ({0})", "Không gửi được email tài khoản ({0})"),
+        [TitleAdminEmailChanged] = ("系統管理員的帳號 Email 被另一位系統管理員變更", "A system administrator's account email was changed by another administrator",
+            "อีเมลบัญชีของผู้ดูแลระบบถูกเปลี่ยนโดยผู้ดูแลระบบอีกคน", "Email tài khoản của một quản trị viên đã bị quản trị viên khác thay đổi"),
         [TitleChannel] = ("告警信寄不出去（{0}）", "Alert emails cannot be sent ({0})", "ส่งอีเมลแจ้งเตือนไม่ได้ ({0})", "Không gửi được email cảnh báo ({0})"),
         [TitleChannelCode] = ("，伺服器回應 {0}", ", server replied {0}", ", เซิร์ฟเวอร์ตอบ {0}", ", máy chủ trả lời {0}"),
         [TitleConfig] = ("規則「{0}」設定有問題：{1}", "Rule \"{0}\" has a setup problem: {1}", "กฎ \"{0}\" มีปัญหาการตั้งค่า: {1}",

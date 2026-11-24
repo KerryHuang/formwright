@@ -10,7 +10,8 @@ public static class ThemeResolver
 {
     public static async Task<ThemeDefaultsResponse> ReadDefaultsAsync(ISystemSettingRepository settings, CancellationToken ct) =>
         new(ThemeOptions.NormalizeMode(await settings.GetValueAsync(SystemSetting.ThemeDefaultMode, ct)) ?? ThemeOptions.FactoryMode,
-            ThemeOptions.NormalizeStyle(await settings.GetValueAsync(SystemSetting.ThemeDefaultStyle, ct)) ?? ThemeOptions.FactoryStyle);
+            ThemeOptions.NormalizeStyle(await settings.GetValueAsync(SystemSetting.ThemeDefaultStyle, ct)) ?? ThemeOptions.FactoryStyle,
+            await MailService.SiteName.ReadAsync(settings, ct));
 
     /// <summary>Demo 站的外觀只存在瀏覽器，所以忽略資料庫裡的個人設定且不能儲存。</summary>
     public static MeThemeResponse ForUser(AppUser user, ThemeDefaultsResponse defaults, bool demoSite)
