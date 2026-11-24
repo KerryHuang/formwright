@@ -59,6 +59,19 @@ public class AppUpgradePreviewApiTests : IDisposable
         (await HintAsync()).Should().BeNull();
     }
 
+    /// <summary>走查 W3：「已是最新」等沒有新版的訊息隨 X-Locale 回傳語系（原本寫死繁中）。</summary>
+    [Fact]
+    public async Task UpToDate_MessageFollowsLocale()
+    {
+        await OpenCrmAsync();
+        var req = new HttpRequestMessage(HttpMethod.Post, $"{Apps}/crm-sales/upgrade/preview") { Content = JsonContent.Create(new { }) };
+        req.Headers.Add("X-Locale", "en-US");
+        var res = await _admin.SendAsync(req);
+        res.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var body = await res.Content.ReadAsStringAsync();
+        body.Should().NotContain("已是最新").And.Contain("already up to date");
+    }
+
     [Fact]
     public async Task OlderOpenedVersion_HasHint_AndPreviewListsNoFakeDifferences()
     {
