@@ -102,7 +102,7 @@ public partial class PasswordResetTests
         (await Json(res)).GetProperty("linkMinutes").GetInt32().Should().Be(30);
         var row = (await Rows(app)).Should().ContainSingle().Subject;
         row.Kind.Should().Be(MailKinds.PasswordReset);
-        row.NotAfterUtc.Should().Be(Now(app).AddMinutes(30), "重設信最晚寄出時間＝連結時效");
+        row.NotAfterUtc.Should().BeCloseTo(Now(app).AddMinutes(30), TimeSpan.FromMilliseconds(1), "重設信最晚寄出時間＝連結時效（PostgreSQL 只存到微秒）");
         row.ParamsJson.Should().Contain("self");
 
         await Dispatch(app);
@@ -110,7 +110,7 @@ public partial class PasswordResetTests
         sent.Body.Should().Contain(PublicUrl + "/reset-password#t=").And.Contain("30 分鐘");
         var token = (await Tokens(app)).Should().ContainSingle().Subject;
         token.Purpose.Should().Be(AccountToken.PasswordReset);
-        token.ExpiresUtc.Should().Be(Now(app).AddMinutes(30));
+        token.ExpiresUtc.Should().BeCloseTo(Now(app).AddMinutes(30), TimeSpan.FromMilliseconds(1));
         (await Check(app, ResetToken(mail))).StatusCode.Should().Be(HttpStatusCode.OK);
         (await Audits(app, "account.passwordResetRequested")).Single().Result.Should().Be(AuditResult.Success);
     }
