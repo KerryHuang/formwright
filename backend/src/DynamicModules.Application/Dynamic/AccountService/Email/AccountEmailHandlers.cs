@@ -35,24 +35,19 @@ public sealed class AccountMailAvailability(IMailSettingsRepository mailSettings
     }
 }
 
-/// <summary>重寄驗證信：同一帳號 60 秒一次（技術限制，§22；記憶體、單一實例）。</summary>
+/// <summary>
+/// 寄驗證信的同帳號閘門：重寄與本人改 Email 共用，同一帳號 60 秒一次（技術限制，§22；記憶體、單一實例）。
+/// 交易內只檢查，交易提交成功後才記時間（au1a 審查 S5：提交失敗不算寄過）；寫入本來就逐筆排隊，檢查與記錄之間不會有兩筆同時通過。
+/// </summary>
 public sealed class EmailResendGate(TimeProvider time)
 {
     private readonly ConcurrentDictionary<string, DateTimeOffset> _last = new(StringComparer.Ordinal);
 
-    public bool TryEnter(string userId)
-    {
-        var now = time.GetUtcNow();
-        while (true)
-        {
-            if (_last.TryGetValue(userId, out var last))
-            {
-                if (now - last < MailDeliveryLimits.ResendGap) return false;
-                if (_last.TryUpdate(userId, now, last)) return true;
-            }
-            else if (_last.TryAdd(userId, now)) return true;
-        }
-    }
+    public bool IsOpen(string userId) => !_last.TryGetValue(userId, out var last) || time.GetUtcNow() - last >= MailDeliveryLimits.ResendGap;
+
+    /// <summary>登記在交易提交後記時間；回滾就不記。</summary>
+    public void RecordAfterCommit(AfterCommitActions afterCommit, string userId) =>
+        afterCommit.Add("mail.resendGate", () => _last[userId] = time.GetUtcNow());
 }
 
 /// <summary>
@@ -146,7 +141,8 @@ public sealed record ResendUserEmailRequest(string UserId)
 }
 
 public sealed class ResendUserEmailHandler(
-    IAccountRepository accounts, AccountEmailChanger changer, EmailResendGate gate, CachedSystemPolicy system, AuditContext audit, IUnitOfWork uow)
+    IAccountRepository accounts, AccountEmailChanger changer, EmailResendGate gate, CachedSystemPolicy system, ICurrentUser current,
+    AfterCommitActions afterCommit, AuditContext audit, IUnitOfWork uow)
     : IRequestHandler<ResendUserEmailRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(ResendUserEmailRequest r, CancellationToken ct)
@@ -154,7 +150,8 @@ public sealed class ResendUserEmailHandler(
         var user = await accounts.GetTrackedAsync(r.UserId, ct);
         if (user is null) return ServiceResult.NotFound(MessageRef.Of(MessageText.UserNotFound));
         if (user.Email is null || user.EmailVerifiedUtc is not null) return AccountEmailErrors.NotPending();
-        if (!gate.TryEnter(user.UserId)) return AccountEmailErrors.TooSoon();
+        if (!gate.IsOpen(user.UserId)) return AccountEmailErrors.TooSoon();
+        gate.RecordAfterCommit(afterCommit, user.UserId);
         await changer.ResendAsync(user, system.DefaultLocale, ct);
         await uow.CommitAsync(ct);
         audit.Target(label: user.DisplayName);
@@ -220,20 +217,28 @@ public sealed class SetMyEmailHandler(ICurrentUser current, IReauthVerifier reau
     }
 }
 
-/// <summary>本人改 Email 的內層（交易）：只收 <see cref="ReauthResult"/>，一開始重新比對 stamp（§8.9 第 5 點）。</summary>
+/// <summary>
+/// 本人改 Email 的內層（交易）：只收 <see cref="ReauthResult"/>，一開始重新比對 stamp（§8.9 第 5 點）。
+/// 會寄驗證信到新地址時套同帳號 60 秒閘門（與重寄共用，au1a 審查 S1）；清空不寄驗證信、不擋。
+/// </summary>
 public sealed record ApplyMyEmailRequest(ReauthResult Reauth, string? Email) : IRequest<ServiceResult>, ITransactionalRequest, IAuditedRequest
 {
     public AuditAction Audit => AuditAction.For("account.setEmail", AuditTargets.User, Reauth?.UserId);
 }
 
 public sealed class ApplyMyEmailHandler(
-    IAccountRepository accounts, AccountEmailChanger changer, AccountMailAvailability availability, ICurrentLocale locale, AuditContext audit,
-    IUnitOfWork uow) : IRequestHandler<ApplyMyEmailRequest, ServiceResult>
+    IAccountRepository accounts, AccountEmailChanger changer, AccountMailAvailability availability, EmailResendGate gate, ICurrentLocale locale,
+    AfterCommitActions afterCommit, AuditContext audit, IUnitOfWork uow) : IRequestHandler<ApplyMyEmailRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(ApplyMyEmailRequest r, CancellationToken ct)
     {
         var user = await accounts.GetTrackedAsync(r.Reauth.UserId, ct);
         if (!r.Reauth.StillValidFor(user)) return ServiceResult.Unauthorized(MessageRef.Of(MessageText.SignInRequired));
+        if (r.Email is not null && !string.Equals(user!.Email, r.Email, StringComparison.Ordinal))
+        {
+            if (!gate.IsOpen(user.UserId)) return AccountEmailErrors.TooSoon();
+            gate.RecordAfterCommit(afterCommit, user.UserId);
+        }
         var before = user!.Email;
         if (await changer.ChangeAsync(user, r.Email, locale.Locale, byAdmin: false, ct)) await uow.CommitAsync(ct);
         audit.Target(label: user.DisplayName);
@@ -249,15 +254,16 @@ public sealed record ResendMyEmailRequest : IRequest<ServiceResult>, ITransactio
 }
 
 public sealed class ResendMyEmailHandler(
-    ICurrentUser current, IAccountRepository accounts, AccountEmailChanger changer, EmailResendGate gate, ICurrentLocale locale, AuditContext audit,
-    IUnitOfWork uow) : IRequestHandler<ResendMyEmailRequest, ServiceResult>
+    ICurrentUser current, IAccountRepository accounts, AccountEmailChanger changer, EmailResendGate gate, ICurrentLocale locale,
+    AfterCommitActions afterCommit, AuditContext audit, IUnitOfWork uow) : IRequestHandler<ResendMyEmailRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(ResendMyEmailRequest r, CancellationToken ct)
     {
         var user = await accounts.GetTrackedAsync(current.UserId, ct);
         if (user is null) return ServiceResult.NotFound(MessageRef.Of(MessageText.UserNotFound));
         if (user.Email is null || user.EmailVerifiedUtc is not null) return AccountEmailErrors.NotPending();
-        if (!gate.TryEnter(user.UserId)) return AccountEmailErrors.TooSoon();
+        if (!gate.IsOpen(user.UserId)) return AccountEmailErrors.TooSoon();
+        gate.RecordAfterCommit(afterCommit, user.UserId);
         await changer.ResendAsync(user, locale.Locale, ct);
         await uow.CommitAsync(ct);
         audit.Target(user.UserId, user.DisplayName);
