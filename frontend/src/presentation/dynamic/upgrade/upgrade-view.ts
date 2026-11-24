@@ -163,7 +163,8 @@ export function toggleItem(items: UpgradeItem[], selected: Set<string>, id: stri
     if (on) next.add(current); else next.delete(current);
     if (current !== id) together.push(current);
     const linked = on ? byId.get(current)?.dependsOn ?? [] : items.filter((i) => i.dependsOn.includes(current)).map((i) => i.id);
-    linked.filter((x) => byId.get(x)?.applicable !== false).forEach(visit);
+    // only ids listed on the page: an unknown one would be sent and rejected as upgradeItemUnknown (review S2)
+    linked.filter((x) => byId.has(x) && byId.get(x)!.applicable !== false).forEach(visit);
   };
   visit(id);
   return { selected: next, together };

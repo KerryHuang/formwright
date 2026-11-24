@@ -37,6 +37,9 @@ public sealed class AppUpgradePreviewer(
         List<string> Errors, List<string> Warnings, string TokenPart, IReadOnlyCollection<string> AddedModules)
     {
         public CompareContext? Context { get; init; }
+
+        /// <summary>隨上層一起處理、不另列的新項目（新區塊底下的欄位等）→ 列出的那個上層；跨份相依用（審查 S2）。</summary>
+        public IReadOnlyDictionary<string, string> Hidden { get; init; } = new Dictionary<string, string>();
     }
 
     /// <summary>一起更新的一份共用主檔：主檔本身、候選新版、比對結果（§9.6.3）。</summary>
@@ -117,12 +120,12 @@ public sealed class AppUpgradePreviewer(
         // 主檔之間的相依（聯絡人的新欄位引用往來對象的新欄位）與應用程式對主檔的相依（T37、T43 第 5 點）
         for (var k = 0; k < parts.Count; k++)
         {
-            var linked = CrossDependencies(parts[k].Comparison, parts.Take(k).ToList());
+            var linked = Linked(parts[k].Comparison, parts.Take(k).ToList());
             parts[k] = parts[k] with { Comparison = linked };
             masterPreviews.Add(new UpgradeMasterPreview(parts[k].Master.Key, parts[k].Master.NameI18n, parts[k].Master.PackageVersion,
                 parts[k].Source.Package.Manifest.Version, linked.HasBaseline, linked.Groups, linked.Items, linked.Counts));
         }
-        if (mine is not null) mine = CrossDependencies(mine, parts);
+        if (mine is not null) mine = Linked(mine, parts);
 
         // 被依賴、但上次略過的主檔項目（T56、A71）：主檔沒有新版時，以主檔自己的基準當候選比一次（只剩上次略過與客戶改的），
         // 只列應用程式的項目引用到的那幾項（fromVersion 等於 toVersion），預設不勾；依賴它們的應用程式項目預設也不勾
@@ -132,12 +135,20 @@ public sealed class AppUpgradePreviewer(
                 if (parts.Any(x => x.Master.Key == master.Key) || await apps.GetBaselineAsync(master.Id, ct) is not { } row
                     || (JsonSerializer.Deserialize<List<SkippedItem>>(row.SkippedJson) ?? []).Count == 0
                     || (await packages.ReadAsync(row.PackageJson, ct)).Package is not { } basePackage) continue;
+                var groupMap = body.MasterGroupMap.GetValueOrDefault(master.Key) ?? [];
+                if (await GroupMapErrorsAsync(master, groupMap, $"masterGroupMap.{master.Key}", ct) is { } skippedGroupErrors) return Fail(skippedGroupErrors);
                 var source = new SourcedPackage(basePackage, master.Source, row.PackageJson);
-                var c = await CompareAsync(master, source, new UpgradeBody(body.MasterGroupMap.GetValueOrDefault(master.Key), null), ct);
+                // 群組段不列（Groups = []），沒有對應好的代號一律當略過，不默默建群組（審查 S3）
+                var c = await CompareAsync(master, source, new UpgradeBody(groupMap, null), ct, mapOnly: true);
                 var prefix = $"master:{master.Key}/";
                 var wanted = CrossDependencies(mine, [new MasterPart(master, source, c)]).Items.SelectMany(i => i.DependsOn)
                     .Where(d => d.StartsWith(prefix, StringComparison.Ordinal)).Select(d => d[prefix.Length..]).ToHashSet(StringComparer.Ordinal);
-                var keep = c.Items.Where(i => wanted.Contains(i.Id) && i.Category == UpgradeClassifier.SkippedBefore).ToList();
+                // 被依賴的上次略過項目，連同它自己的相依閉包（新區塊加欄位、欄位加選項，審查 S2）
+                var listed = c.Items.ToDictionary(i => i.Id);
+                var closure = c.Items.Where(i => wanted.Contains(i.Id) && i.Category == UpgradeClassifier.SkippedBefore).Select(i => i.Id).ToHashSet(StringComparer.Ordinal);
+                for (var queue = new Queue<string>(closure); queue.TryDequeue(out var id);)
+                    foreach (var dep in listed[id].DependsOn.Where(d => listed.ContainsKey(d) && closure.Add(d))) queue.Enqueue(dep);
+                var keep = c.Items.Where(i => closure.Contains(i.Id)).ToList();
                 if (keep.Count == 0) continue;
                 var part = new MasterPart(master, source, c with
                 {
@@ -147,9 +158,8 @@ public sealed class AppUpgradePreviewer(
                 tokenParts.Add(c.TokenPart);
                 masterPreviews.Add(new UpgradeMasterPreview(master.Key, master.NameI18n, master.PackageVersion, master.PackageVersion,
                     c.HasBaseline, [], keep, part.Comparison.Counts));
-                var linked = CrossDependencies(mine, [part]);
-                var ids = keep.Select(i => prefix + i.Id).ToHashSet(StringComparer.Ordinal);
-                mine = linked with { Items = linked.Items.Select(i => i.DefaultSelected && i.DependsOn.Any(ids.Contains) ? i with { DefaultSelected = false } : i).ToList() };
+                // 依賴它們的應用程式項目預設不勾（keep 都是預設不勾），可遞移；它們不能套用時依賴的也標不能勾（審查 S1）
+                mine = Linked(mine, [part]);
             }
 
         var token = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n", tokenParts)
@@ -186,15 +196,25 @@ public sealed class AppUpgradePreviewer(
     private static Comparison CrossDependencies(Comparison target, IReadOnlyList<MasterPart> masters)
     {
         if (masters.Count == 0 || target.Context is not { } ctx) return target;
-        var pending = masters.SelectMany(m => m.Comparison.Items
-                .Where(i => m.Comparison.Context?.C.ContainsKey(i.Id) == false && m.Comparison.Context.N.TryGetValue(i.Id, out _))
-                .Select(i => (Master: m.Master.Key, Item: i, Source: m.Comparison.Context!.N[i.Id])))
+        // 主檔這次列出、現況還沒有的項目，加上隨它一起建的隱藏子項目（相依指向列出的那個上層，審查 S2）
+        var pending = masters.SelectMany(m =>
+            {
+                var mc = m.Comparison.Context;
+                if (mc is null) return [];
+                var listed = m.Comparison.Items.Where(i => !mc.C.ContainsKey(i.Id) && mc.N.ContainsKey(i.Id)).ToDictionary(i => i.Id);
+                return listed.Values.Select(i => (Master: m.Master.Key, Item: i, Source: mc.N[i.Id]))
+                    .Concat(m.Comparison.Hidden.Where(h => listed.ContainsKey(h.Value) && mc.N.ContainsKey(h.Key))
+                        .Select(h => (Master: m.Master.Key, Item: listed[h.Value], Source: mc.N[h.Key])));
+            })
             .ToList();
         if (pending.Count == 0) return target;
         var items = target.Items.Select(item =>
         {
             if (!ctx.N.TryGetValue(item.Id, out var nv)) return item;
-            var deps = pending.Where(p => UpgradeItems.References(nv, Symbolized(p.Source, p.Master))).ToList();
+            // 應用程式這一項，加上它底下隨它一起建的隱藏子項目（新模組底下的欄位引用主檔新欄位，審查 S2）
+            var sources = target.Hidden.Where(h => h.Value == item.Id && ctx.N.ContainsKey(h.Key)).Select(h => ctx.N[h.Key]).Prepend(nv).ToList();
+            var deps = pending.Where(p => sources.Any(s => UpgradeItems.References(s, Symbolized(p.Source, p.Master))))
+                .DistinctBy(p => (p.Master, p.Item.Id)).ToList();
             if (deps.Count == 0) return item;
             var ids = deps.Select(d => $"master:{d.Master}/{d.Item.Id}").Where(id => !item.DependsOn.Contains(id)).ToList();
             var linked = item with { DependsOn = [.. item.DependsOn, .. ids] };
@@ -206,6 +226,56 @@ public sealed class AppUpgradePreviewer(
         return target with { Items = items };
     }
 
+    /// <summary>
+    /// 跨份相依補上之後，重跑「依賴不能套用」與「預設不勾」的遞移（審查 S1）：主檔項目以 master:&lt;主檔 id&gt;/&lt;項目識別&gt; 加入兩個起點集合。
+    /// </summary>
+    private static Comparison Linked(Comparison target, IReadOnlyList<MasterPart> masters)
+    {
+        var linked = CrossDependencies(target, masters);
+        var external = masters.SelectMany(m => m.Comparison.Items.Select(i => (Id: $"master:{m.Master.Key}/{i.Id}", Item: i))).ToList();
+        return linked with
+        {
+            Items = Propagate(linked.Items, external.Where(x => !x.Item.DefaultSelected).Select(x => x.Id), external.Where(x => !x.Item.Applicable).Select(x => x.Id))
+        };
+    }
+
+    /// <summary>
+    /// 依賴不能套用的項目：勾了會連帶勾那一項、套用必定失敗，自己也標不能勾，原因指出是哪一項（審查 S7，可遞移）。
+    /// 預設勾選要能直接套用：依賴預設不勾的項目（另列的排除欄位、主檔裡預設不勾的）的，連同依賴它們的，預設也不勾，由管理員決定。
+    /// </summary>
+    private static List<UpgradeItemResponse> Propagate(List<UpgradeItemResponse> source, IEnumerable<string> offSeeds, IEnumerable<string> blockedSeeds)
+    {
+        var items = source.ToList();
+        var blocked = items.Where(i => !i.Applicable).Select(i => i.Id).Concat(blockedSeeds).ToHashSet(StringComparer.Ordinal);
+        for (var changed = blocked.Count > 0; changed;)
+        {
+            changed = false;
+            for (var k = 0; k < items.Count; k++)
+                if (items[k].Applicable && items[k].DependsOn.Where(blocked.Contains).ToList() is { Count: > 0 } deps)
+                {
+                    items[k] = items[k] with
+                    {
+                        Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonDependsOnBlocked, Detail = string.Join("、", deps)
+                    };
+                    blocked.Add(items[k].Id);
+                    changed = true;
+                }
+        }
+        var off = new HashSet<string>(offSeeds.Concat(blocked), StringComparer.Ordinal);
+        for (var changed = off.Count > 0; changed;)
+        {
+            changed = false;
+            for (var k = 0; k < items.Count; k++)
+                if (items[k].DefaultSelected && items[k].DependsOn.Any(off.Contains))
+                {
+                    items[k] = items[k] with { DefaultSelected = false };
+                    off.Add(items[k].Id);
+                    changed = true;
+                }
+        }
+        return items;
+    }
+
     /// <summary>主檔項目換成使用端的寫法：模組代號前面加主檔 id（partner → partner/partner），References 才比得上主檔符號。</summary>
     private static UpgradeItem Symbolized(UpgradeItem item, string master)
     {
@@ -215,7 +285,11 @@ public sealed class AppUpgradePreviewer(
         var name = item.Id[(colon + 1)..];
         var id = item.Section is "fields" or "options" or "blocks" && name.StartsWith(item.Module + ".", StringComparison.Ordinal)
             ? $"{item.Id[..(colon + 1)]}{symbol}{name[item.Module.Length..]}"
-            : item.Section == "modules" ? $"module:{symbol}" : item.Id;
+            : item.Section == "modules" ? $"module:{symbol}"
+            // 報表、檢視也帶主檔前綴，應用程式裡剛好同名的字串不會比成假的跨份相依
+            : item.Section == "reports" ? $"report:{master}/{name}"
+            : item.Section == "views" && name.StartsWith(item.Module + ":", StringComparison.Ordinal) ? $"view:{symbol}{name[item.Module.Length..]}"
+            : item.Id;
         return item with { Id = id, Module = symbol };
     }
 
@@ -302,7 +376,8 @@ public sealed class AppUpgradePreviewer(
         await apps.GetBaselineAsync(app.Id, ct) is { } row ? (await packages.ReadAsync(row.PackageJson, ct)).Package : null;
 
     /// <summary>三方比對本身（不看版號）：U1 由這裡直接驗。</summary>
-    public async Task<Comparison> CompareAsync(App app, SourcedPackage candidate, UpgradeBody body, CancellationToken ct)
+    /// <param name="mapOnly">只認「對應到既有群組」的代號，其他（建立、建議建立）一律當略過：T56 的主檔段不列群組（審查 S3）。</param>
+    public async Task<Comparison> CompareAsync(App app, SourcedPackage candidate, UpgradeBody body, CancellationToken ct, bool mapOnly = false)
     {
         var lc = requestLocale.Current;
         var baselineRow = await apps.GetBaselineAsync(app.Id, ct);
@@ -322,7 +397,7 @@ public sealed class AppUpgradePreviewer(
         {
             "map" when choice.GroupId is { } id && groupIds.Contains(id) => id,
             // 建立新群組：還不存在，用負數代號代表，讓新物件的附帶權限照樣列得出來
-            "create" => pseudo.TryGetValue(code, out var p) ? p : pseudo[code] = -(pseudo.Count + 1),
+            "create" when !mapOnly => pseudo.TryGetValue(code, out var p) ? p : pseudo[code] = -(pseudo.Count + 1),
             _ => null
         };
         var bindings = await apps.GetBindingsAsync(app.Id, ct);
@@ -531,42 +606,15 @@ public sealed class AppUpgradePreviewer(
         items = await codedGuards.CheckAsync(app, context, items, ct);
         items = StateMoves(items, B, N, C, hasBaseline, lc);
         items = await IntegrationGuardsAsync(app, n, exported.Package, items, ct);
-        // 依賴不能套用的項目：勾了會連帶勾那一項、套用必定失敗，自己也標不能勾，原因指出是哪一項（審查 S7，可遞移）
-        var blocked = items.Where(i => !i.Applicable).Select(i => i.Id).ToHashSet(StringComparer.Ordinal);
-        for (var changed = blocked.Count > 0; changed;)
-        {
-            changed = false;
-            for (var k = 0; k < items.Count; k++)
-                if (items[k].Applicable && items[k].DependsOn.Where(blocked.Contains).ToList() is { Count: > 0 } deps)
-                {
-                    items[k] = items[k] with
-                    {
-                        Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonDependsOnBlocked, Detail = string.Join("、", deps)
-                    };
-                    blocked.Add(items[k].Id);
-                    changed = true;
-                }
-        }
-        // 預設勾選要能直接套用：依賴另列的排除欄位（預設不勾）的項目，連同依賴它們的，預設也不勾，由管理員決定
-        var off = new HashSet<string>(promoted.Concat(blocked), StringComparer.Ordinal);
-        for (var changed = off.Count > 0; changed;)
-        {
-            changed = false;
-            for (var k = 0; k < items.Count; k++)
-                if (items[k].DefaultSelected && items[k].DependsOn.Any(off.Contains))
-                {
-                    items[k] = items[k] with { DefaultSelected = false };
-                    off.Add(items[k].Id);
-                    changed = true;
-                }
-        }
+        items = Propagate(items, promoted, []);
 
         var tokenPart = string.Join("\n", baselineRow?.PackageJson ?? "", candidate.Original ?? JsonSerializer.Serialize(n, TemplateJson.Options),
             JsonSerializer.Serialize(C.OrderBy(x => x.Key, StringComparer.Ordinal).Select(x => new { x.Key, x.Value.Props })));
         var addedModules = results.Where(x => x.Item.Section == "modules" && !C.ContainsKey(x.Item.Id)).Select(x => x.Item.Module!).ToHashSet();
         return new Comparison(hasBaseline, items, counts, groups, exported.Errors, exported.Warnings, tokenPart, addedModules)
         {
-            Context = context
+            Context = context,
+            Hidden = hidden.Where(h => h.Top is not null && listedIds.Contains(h.Top)).ToDictionary(h => h.Item.Id, h => h.Top!)
         };
 
         async Task<int> MissingAsync(UpgradeItem field)

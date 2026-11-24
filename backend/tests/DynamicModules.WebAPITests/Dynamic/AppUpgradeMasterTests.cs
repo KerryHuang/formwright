@@ -252,27 +252,7 @@ public class AppUpgradeMasterTests
         using var rig = new SharedMasterRig();
         await rig.OpenOkAsync("crm-sales", CrmMasterTests.CrmBody);
         const string Skip = "field:partner.address", Dep = "master:partner/field:partner.address";
-        rig.Db(db =>
-        {
-            var partner = db.Set<App>().Single(a => a.Key == "partner");
-            var crm = db.Set<App>().Single(a => a.Key == "crm-sales");
-            var address = db.Set<AppField>().Single(f => f.AppId == partner.Id && f.Name == "partner.address");
-            var addressId = address.FieldId;
-            var customerId = db.Set<AppField>().Single(f => f.AppId == crm.Id && f.Name == "quote.customer").FieldId;
-            var customer = db.Set<Field>().Single(f => f.Id == customerId);
-            customer.Config = customer.Config with { Fill = customer.Config.Fill! with { Map = customer.Config.Fill.Map.Where(m => m.From != addressId).ToList() } };
-            db.Set<AppField>().Remove(address);
-            db.Set<Field>().Remove(db.Set<Field>().Single(f => f.Id == addressId));
-            db.Set<AppBaseline>().Single(b => b.AppId == partner.Id).SkippedJson =
-                JsonSerializer.Serialize(new[] { new { Id = Skip, Props = new Dictionary<string, object?> { ["type"] = new { Current = (string?)null, New = "text" } } } });
-            crm.PackageVersion = Older;
-            var baseline = db.Set<AppBaseline>().Single(b => b.AppId == crm.Id);
-            var node = JsonNode.Parse(baseline.PackageJson)!;
-            var map = node["modules"]!.AsArray().Single(m => (string?)m!["code"] == "quote")!["blocks"]!.AsArray()
-                .SelectMany(b => b!["fields"]!.AsArray()).Single(f => (string?)f!["code"] == "customer")!["config"]!["fill"]!["map"]!.AsArray();
-            map.Remove(map.Single(x => (string?)x!["from"] == "partner/partner.address"));
-            baseline.PackageJson = node.ToJsonString();
-        });
+        SkipAddress(rig);
         var partnerVersion = rig.Db(db => db.Set<App>().Single(a => a.Key == "partner").PackageVersion);
         var partnerBaseline = rig.Db(db => db.Set<AppBaseline>().Single(b => b.AppId == db.Set<App>().Single(a => a.Key == "partner").Id).PackageJson);
 
@@ -295,6 +275,59 @@ public class AppUpgradeMasterTests
         after.PackageJson.Should().Be(partnerBaseline, "基準原文不變");
         after.SkippedJson.Should().NotContain(Skip);
         rig.Db(db => db.Set<AppField>().Any(f => f.Name == "partner.address")).Should().BeTrue("地址勾回、建好");
+    }
+
+    /// <summary>A71 的情境：往來對象前進時略過了「地址」（SkippedJson 有它、現況沒有），CRM 舊版的報價單客戶欄位不帶地址。</summary>
+    private static void SkipAddress(SharedMasterRig rig)
+    {
+        const string Skip = "field:partner.address";
+        rig.Db(db =>
+        {
+            var partner = db.Set<App>().Single(a => a.Key == "partner");
+            var crm = db.Set<App>().Single(a => a.Key == "crm-sales");
+            var address = db.Set<AppField>().Single(f => f.AppId == partner.Id && f.Name == "partner.address");
+            var addressId = address.FieldId;
+            var customerId = db.Set<AppField>().Single(f => f.AppId == crm.Id && f.Name == "quote.customer").FieldId;
+            var customer = db.Set<Field>().Single(f => f.Id == customerId);
+            customer.Config = customer.Config with { Fill = customer.Config.Fill! with { Map = customer.Config.Fill.Map.Where(m => m.From != addressId).ToList() } };
+            db.Set<AppField>().Remove(address);
+            db.Set<Field>().Remove(db.Set<Field>().Single(f => f.Id == addressId));
+            db.Set<AppBaseline>().Single(b => b.AppId == partner.Id).SkippedJson =
+                JsonSerializer.Serialize(new[] { new { Id = Skip, Props = new Dictionary<string, object?> { ["type"] = new { Current = (string?)null, New = "text" } } } });
+            crm.PackageVersion = Older;
+            var baseline = db.Set<AppBaseline>().Single(b => b.AppId == crm.Id);
+            var node = JsonNode.Parse(baseline.PackageJson)!;
+            var map = node["modules"]!.AsArray().Single(m => (string?)m!["code"] == "quote")!["blocks"]!.AsArray()
+                .SelectMany(b => b!["fields"]!.AsArray()).Single(f => (string?)f!["code"] == "customer")!["config"]!["fill"]!["map"]!.AsArray();
+            map.Remove(map.Single(x => (string?)x!["from"] == "partner/partner.address"));
+            baseline.PackageJson = node.ToJsonString();
+        });
+    }
+
+    /// <summary>
+    /// 審查 S3：A71 的情境，主檔基準沒記 steward 的對應（新代號、建議是建立新群組）。T56 的主檔段不列群組，套用時不能默默建群組。
+    /// </summary>
+    [Fact]
+    public async Task SkippedOnlyMaster_DoesNotCreateGroups_S3()
+    {
+        using var rig = new SharedMasterRig();
+        await rig.OpenOkAsync("crm-sales", CrmMasterTests.CrmBody);
+        SkipAddress(rig);
+        rig.Db(db =>
+        {
+            var baseline = db.Set<AppBaseline>().Single(b => b.AppId == db.Set<App>().Single(a => a.Key == "partner").Id);
+            var map = JsonSerializer.Deserialize<Dictionary<string, long?>>(baseline.GroupMapJson)!;
+            map.Remove("steward");
+            baseline.GroupMapJson = JsonSerializer.Serialize(map);
+            foreach (var g in db.Set<PermissionGroup>().Where(g => g.Key == "steward")) g.Key = "steward-old";
+        });
+        var groups = rig.Db(db => db.Set<PermissionGroup>().Count());
+        var preview = await PreviewAsync(rig);
+        MasterOf(preview).GetProperty("groups").GetArrayLength().Should().Be(0);
+
+        var res = await ApplyAsync(rig, preview, ["field:quote.customer"], new Dictionary<string, string[]> { ["partner"] = ["field:partner.address"] });
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        rig.Db(db => db.Set<PermissionGroup>().Count()).Should().Be(groups, "畫面沒得選的群組不建");
     }
 
     /// <summary>
@@ -631,6 +664,140 @@ public class AppUpgradeMasterTests
         var granted = rig.Db(db => db.Set<FieldGrant>().Where(g => g.FieldId == grade).Select(g => g.GroupId).ToHashSet());
         shown.Should().BeEquivalentTo(granted);
         granted.Should().Contain(rig.GroupId("ops-manager"), "助理沒有讀取權，對應到的群組仍可看見（同開啟）");
+    }
+
+    /// <summary>
+    /// 審查 S1 情境 A：往來對象有新版，客戶刪了「地址」（customerDeleted，預設不勾）；CRM 新版的報價單客戶欄位帶值用到地址。
+    /// CRM 那一項依賴預設不勾的主檔項目，預設也不勾（照預設直接套用才不會 400）。
+    /// </summary>
+    [Fact]
+    public async Task AppItemNeedsADefaultOffMasterItem_IsDefaultOffToo_S1()
+    {
+        using var rig = new SharedMasterRig();
+        await rig.OpenOkAsync("crm-sales", CrmMasterTests.CrmBody);
+        rig.Db(db =>
+        {
+            var partner = db.Set<App>().Single(a => a.Key == "partner");
+            var crm = db.Set<App>().Single(a => a.Key == "crm-sales");
+            var address = db.Set<AppField>().Single(f => f.AppId == partner.Id && f.Name == "partner.address");
+            var addressId = address.FieldId;
+            var customerId = db.Set<AppField>().Single(f => f.AppId == crm.Id && f.Name == "quote.customer").FieldId;
+            var customer = db.Set<Field>().Single(f => f.Id == customerId);
+            customer.Config = customer.Config with { Fill = customer.Config.Fill! with { Map = customer.Config.Fill.Map.Where(m => m.From != addressId).ToList() } };
+            db.Set<AppField>().Remove(address);
+            db.Set<Field>().Remove(db.Set<Field>().Single(f => f.Id == addressId));
+            partner.PackageVersion = Older;
+            var partnerBaseline = db.Set<AppBaseline>().Single(b => b.AppId == partner.Id);
+            var pn = JsonNode.Parse(partnerBaseline.PackageJson)!;
+            pn["manifest"]!["version"] = Older;
+            partnerBaseline.PackageJson = pn.ToJsonString();
+            crm.PackageVersion = Older;
+            var baseline = db.Set<AppBaseline>().Single(b => b.AppId == crm.Id);
+            var node = JsonNode.Parse(baseline.PackageJson)!;
+            var map = node["modules"]!.AsArray().Single(m => (string?)m!["code"] == "quote")!["blocks"]!.AsArray()
+                .SelectMany(b => b!["fields"]!.AsArray()).Single(f => (string?)f!["code"] == "customer")!["config"]!["fill"]!["map"]!.AsArray();
+            map.Remove(map.Single(x => (string?)x!["from"] == "partner/partner.address"));
+            baseline.PackageJson = node.ToJsonString();
+        });
+
+        var preview = await PreviewAsync(rig);
+        var address = MasterOf(preview).GetProperty("items").EnumerateArray().Single(i => i.GetProperty("id").GetString() == "field:partner.address");
+        address.GetProperty("category").GetString().Should().Be("customerDeleted");
+        address.GetProperty("defaultSelected").GetBoolean().Should().BeFalse();
+        var customer = preview.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("id").GetString() == "field:quote.customer");
+        customer.GetProperty("dependsOn").EnumerateArray().Select(d => d.GetString()).Should().Contain("master:partner/field:partner.address");
+        customer.GetProperty("defaultSelected").GetBoolean().Should().BeFalse("依賴預設不勾的主檔項目");
+    }
+
+    /// <summary>甲'（mx）：組織有基本資料與「延伸」兩個區塊，延伸區塊放「傳真」。</summary>
+    private const string Mx = """
+        { "format": "formwright-app", "formatVersion": 6,
+          "manifest": { "id": "mx", "kind": "master", "version": "1.0.0", "name": { "zh-TW": "測試組織乙" } },
+          "groups": [ { "code": "steward", "name": { "zh-TW": "組織管理員" } } ],
+          "modules": [ { "code": "org", "key": "master-mx-org", "name": { "zh-TW": "組織" }, "kind": "standalone", "titleField": "name", "section": "主檔", "extensible": true,
+            "blocks": [ { "code": "main", "label": { "zh-TW": "基本資料" }, "fields": [ { "code": "name", "type": "text", "label": { "zh-TW": "名稱" }, "config": { "required": true } } ] },
+                        { "code": "extra", "label": { "zh-TW": "延伸" }, "fields": [ { "code": "fax", "type": "text", "label": { "zh-TW": "傳真" }, "config": {} } ] } ],
+            "permissions": [ { "group": "steward", "scope": "all", "privileges": { "read": true, "add": true, "edit": true, "delete": true, "printExport": true, "pricing": true, "approve": true } } ] } ] }
+        """;
+
+    /// <summary>用 mx 的應用程式：備忘的「組織」參照帶出 mx 的傳真。</summary>
+    private const string Ux = """
+        { "format": "formwright-app", "formatVersion": 6,
+          "manifest": { "id": "ux", "version": "1.0.0", "name": { "zh-TW": "隱藏子項目測試" },
+            "requires": { "masters": [ { "id": "mx", "modules": ["org"] } ] } },
+          "groups": [ { "code": "sales", "name": { "zh-TW": "業務" } } ],
+          "modules": [ { "code": "memo", "key": "ux-memo", "name": { "zh-TW": "備忘" }, "kind": "standalone", "titleField": "title",
+            "blocks": [ { "code": "main", "label": { "zh-TW": "基本資料" }, "fields": [
+              { "code": "title", "type": "text", "label": { "zh-TW": "標題" }, "config": {} },
+              { "code": "org", "type": "reference", "label": { "zh-TW": "組織" },
+                "config": { "onDelete": "restrict", "refTarget": { "kind": "module", "key": "org", "app": "mx" },
+                  "fill": { "mode": "default", "map": [ { "from": "mx/org.fax", "to": "fax" } ] } } },
+              { "code": "fax", "type": "text", "label": { "zh-TW": "傳真" }, "config": {} } ] } ],
+            "permissions": [ { "group": "sales", "scope": "all", "privileges": { "read": true, "add": true, "edit": true, "delete": false, "printExport": false, "pricing": false, "approve": false } } ] } ] }
+        """;
+
+    /// <summary>
+    /// 審查 S2：mx 新版多一個「延伸」區塊（傳真放在裡面，隨新區塊建、不另列），ux 新版的組織參照帶值用到傳真。
+    /// ux 那一項要依賴 master:mx/block:org.extra；只勾 ux 那一項 400，兩個都勾成功。
+    /// </summary>
+    [Fact]
+    public async Task AppItemNeedsAFieldInsideANewMasterBlock_DependsOnTheBlock_S2()
+    {
+        using var rig = new SharedMasterRig();
+        foreach (var json in new[] { Mx, Ux }) await rig.ImportAsync(json);
+        await rig.OpenOkAsync("ux", new
+        {
+            groupMap = new Dictionary<string, object> { ["sales"] = new { mode = "map", groupId = rig.GroupId("sales") } },
+            masters = new Dictionary<string, object> { ["mx"] = new Dictionary<string, object> { ["steward"] = new { mode = "map", groupId = rig.GroupId("ops-manager") } } }
+        });
+        rig.Db(db =>
+        {
+            var mx = db.Set<App>().Single(a => a.Key == "mx");
+            var ux = db.Set<App>().Single(a => a.Key == "ux");
+            var orgRef = db.Set<AppField>().Single(f => f.AppId == ux.Id && f.Name == "memo.org").FieldId;
+            var org = db.Set<Field>().Single(f => f.Id == orgRef);
+            org.Config = org.Config with { Fill = null };
+            var fax = db.Set<AppField>().Single(f => f.AppId == mx.Id && f.Name == "org.fax");
+            var faxId = fax.FieldId;
+            db.Set<AppField>().Remove(fax);
+            db.Set<Field>().Remove(db.Set<Field>().Single(f => f.Id == faxId));
+            var block = db.Set<AppBlock>().Single(b => b.AppId == mx.Id && b.Name == "org.extra");
+            var blockId = block.BlockId;
+            db.Set<AppBlock>().Remove(block);
+            db.Set<Block>().Remove(db.Set<Block>().Single(b => b.Id == blockId));
+            foreach (var (app, edit) in new (App, Action<JsonNode>)[]
+            {
+                (mx, p => p["modules"]![0]!["blocks"]!.AsArray().RemoveAt(1)),
+                (ux, p => p["modules"]![0]!["blocks"]![0]!["fields"]!.AsArray().Single(f => (string?)f!["code"] == "org")!["config"]!.AsObject().Remove("fill"))
+            })
+            {
+                app.PackageVersion = "0.9.0";
+                var baseline = db.Set<AppBaseline>().Single(b => b.AppId == app.Id);
+                var node = JsonNode.Parse(baseline.PackageJson)!;
+                node["manifest"]!["version"] = "0.9.0";
+                edit(node);
+                baseline.PackageJson = node.ToJsonString();
+            }
+        });
+
+        var preview = await PreviewAsync(rig, "ux");
+        MasterOf(preview, "mx").GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetString()).Should().Contain("block:org.extra").And.NotContain("field:org.fax");
+        const string Dep = "master:mx/block:org.extra";
+        var item = preview.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("id").GetString() == "field:memo.org");
+        item.GetProperty("dependsOn").EnumerateArray().Select(d => d.GetString()).Should().Contain(Dep);
+
+        Task<HttpResponseMessage> Apply(string[] masterItems) => rig.Admin.PostAsJsonAsync($"{SharedMasterRig.Apps}/ux/upgrade", new
+        {
+            token = preview.GetProperty("token").GetString(), items = new[] { "field:memo.org" },
+            masters = new Dictionary<string, string[]> { ["mx"] = masterItems }
+        });
+        var missing = await Apply([]);
+        missing.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await missing.Content.ReadAsStringAsync()).Should().Contain(Dep);
+        var res = await Apply(["block:org.extra"]);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        var faxField = rig.FieldId("mx", "org.fax");
+        rig.Db(db => db.Set<Field>().Single(f => f.Id == rig.FieldId("ux", "memo.org")).Config.Fill!.Map.Select(m => m.From)).Should().Contain(faxField);
     }
 
     /// <summary>主檔的版號、匯入副本的版號都改小，內建目錄版就是新版（同 BuiltInMasterRoundTripTests 的做法）。</summary>

@@ -93,25 +93,31 @@ public sealed class AppUpgrader(
 
         // 1–2. 共用主檔先套（被依賴的在前），之後才是應用程式（§9.1）；只有主檔有新版時應用程式的版號、基準不變（T55）
         var warnings = new List<string>();
-        var masterApplied = 0;
+        var (masterApplied, masterSkipped) = (0, 0);
         foreach (var m in built.Masters)
         {
-            var done = await ApplyOneAsync(m.Master, m.Comparison, m.Source, masterSelected[m.Master.Key], new Dictionary<string, string>(), warnings, ct,
+            // T56 的主檔段（主檔沒有新版、只列上次略過的）沒勾就不動：不寫 0 項的稽核、不換 RowVersion
+            if (m.SkippedOnly && masterSelected[m.Master.Key].Count == 0) continue;
+            var own = new List<string>();
+            var done = await ApplyOneAsync(m.Master, m.Comparison, m.Source, masterSelected[m.Master.Key], new Dictionary<string, string>(), own, ct,
                 skippedOnly: m.SkippedOnly);
+            // 主檔的警告加主檔 id 前綴，同預覽
+            warnings.AddRange(own.Select(w => $"{m.Master.Key}: {w}"));
             if (done.Failure is { } f) return f;
             masterApplied += done.Applied;
+            masterSkipped += done.Skipped;
         }
         IReadOnlyList<string> touched = [];
         if (mine?.Context is not null)
         {
-            var done = await ApplyOneAsync(app, mine, built.Candidate!, selected, body.ModuleKeys, warnings, ct, masterApplied);
+            var done = await ApplyOneAsync(app, mine, built.Candidate!, selected, body.ModuleKeys, warnings, ct, masterApplied, masterSkipped: masterSkipped);
             if (done.Failure is { } f) return f;
             touched = done.Integrations ?? [];
         }
         else
         {
             app.TouchRowVersion();
-            WriteAudit(app, app.PackageVersion, [], 0, [], masterApplied);
+            WriteAudit(app, app.PackageVersion, [], masterSkipped, [], masterApplied);
             await uow.CommitAsync(ct);
         }
         // 主檔的權限來源有變（新模組、新貢獻），重算有效值（§9.1 第 7 步）
@@ -123,7 +129,7 @@ public sealed class AppUpgrader(
         return ServiceResult.Success(await builder.BuildAsync(app, withDependents: false, warnings, ct));
     }
 
-    private sealed record Outcome(ServiceResult? Failure, int Applied, IReadOnlyList<string>? Integrations = null);
+    private sealed record Outcome(ServiceResult? Failure, int Applied, IReadOnlyList<string>? Integrations = null, int Skipped = 0);
 
     /// <summary>
     /// 套一份（應用程式或一份共用主檔）的比對結果（T55：以 Comparison 為參數，應用程式與每份主檔各呼叫一次）。
@@ -131,7 +137,7 @@ public sealed class AppUpgrader(
     /// </summary>
     private async Task<Outcome> ApplyOneAsync(
         App app, AppUpgradePreviewer.Comparison mine, SourcedPackage candidate, HashSet<string> selected, IReadOnlyDictionary<string, string> moduleKeys,
-        List<string> warnings, CancellationToken ct, int masterApplied = 0, bool skippedOnly = false)
+        List<string> warnings, CancellationToken ct, int masterApplied = 0, bool skippedOnly = false, int masterSkipped = 0)
     {
         static Outcome Stop(ServiceResult r) => new(r, 0);
         var ctx = mine.Context!;
@@ -418,7 +424,7 @@ public sealed class AppUpgrader(
             apps.UpdateBaseline(baseline);
             WriteMasterAudit(app, from, chosen, skippedCount, grants);
             await uow.CommitAsync(ct);
-            return new Outcome(null, chosen.Count, touched);
+            return new Outcome(null, chosen.Count, touched, skippedCount);
         }
         app.PackageVersion = n.Manifest.Version;
         app.FormatVersion = n.FormatVersion;
@@ -433,9 +439,9 @@ public sealed class AppUpgrader(
             WriteMasterAudit(app, from, chosen, skippedCount, grants);
             await RewriteMergedCopyAsync(app, candidate, ct);
         }
-        else WriteAudit(app, from, chosen, skippedCount, grants, masterApplied);
+        else WriteAudit(app, from, chosen, skippedCount + masterSkipped, grants, masterApplied);
         await uow.CommitAsync(ct);
-        return new Outcome(null, chosen.Count, touched);
+        return new Outcome(null, chosen.Count, touched, skippedCount);
     }
 
     // ---- 現況 ----
@@ -942,7 +948,8 @@ public sealed class AppUpgrader(
     }
 
     /// <summary>稽核（§9.3）：摘要帶版號與數量，逐項記舊值 → 新值；放不下時拆成多筆 app.upgrade.items（同一個請求），不截斷（T25）。</summary>
-    /// <param name="masterApplied">一起套用的主檔項目數：只有主檔有新版時，這一筆的套用數只算主檔的，逐項明細在主檔那幾筆（T55）。</param>
+    /// <param name="masterApplied">一起套用的主檔項目數：只有主檔有新版時，這一筆的套用數只算主檔的，逐項明細在主檔那幾筆（T55）。
+    /// 套用數與略過數（skippedCount 由呼叫端加上主檔的略過數）都含主檔，口徑一致（§9.6.3）。</param>
     private void WriteAudit(App app, string from, List<UpgradeItemResponse> chosen, int skippedCount, List<JsonObject> grants, int masterApplied = 0)
     {
         var applied = chosen.Count + masterApplied;

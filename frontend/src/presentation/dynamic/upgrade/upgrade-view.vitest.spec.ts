@@ -67,6 +67,12 @@ describe('selection (§6.5, §10.2 point 7)', () => {
     expect(r.together.sort()).toEqual(['field:m.a', 'field:m.b']);
   });
 
+  it('ticking never adds an id that is not listed on the page (review S2)', () => {
+    const r = toggleItem([mk('report:r', ['field:m.gone'])], new Set(), 'report:r', true);
+    expect([...r.selected]).toEqual(['report:r']);
+    expect(r.together).toEqual([]);
+  });
+
   it('unticking drops dependents transitively', () => {
     const r = toggleItem(items, new Set(['report:r', 'field:m.a', 'field:m.b']), 'field:m.b', false);
     expect([...r.selected]).toEqual([]);
