@@ -93,6 +93,11 @@ describe('http', () => {
     expect(toApiError({ response: { status: 400, data: { title: 'Bad body' } } }))
       .toEqual({ status: 400, errors: undefined, message: 'Bad body' });
   });
+
+  it('keeps the code of a 400 (reset page tells an invalid link apart by resetLinkInvalid, au1b walkthrough G1)', () => {
+    expect(toApiError({ response: { status: 400, data: { code: 'resetLinkInvalid', errors: { token: ['連結已失效或已使用過，請重新申請'] } } } }))
+      .toEqual({ status: 400, code: 'resetLinkInvalid', errors: { token: ['連結已失效或已使用過，請重新申請'] }, message: undefined });
+  });
 });
 
 describe('X-Locale 標頭', () => {

@@ -7,10 +7,13 @@ import { createI18n } from 'vue-i18n';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import { dynamicApi } from 'src/services/api/dynamic-api';
+import { toApiError } from 'src/services/api/http';
 import ResetPasswordPage from './ResetPasswordPage.vue';
 
 vi.mock('src/services/api/dynamic-api', () => ({ dynamicApi: { checkResetLink: vi.fn(), resetPasswordByLink: vi.fn(), getAuthOptions: vi.fn() } }));
 const api = vi.mocked(dynamicApi);
+// 後端無效連結的實際回應經 http 層轉換後的樣子（au1b 走查 G1：400 曾經丟掉 code）
+const linkInvalid = () => toApiError({ response: { status: 400, data: { code: 'resetLinkInvalid', errors: { token: ['連結已失效或已使用過，請重新申請'] } } } });
 let mounted: ReturnType<typeof mount> | undefined;
 let queryClient: QueryClient;
 let router: ReturnType<typeof createRouter>;
@@ -62,7 +65,7 @@ describe('ResetPasswordPage', () => {
   });
 
   it('expired or used link shows the invalid message and a link to request again (R5, R7)', async () => {
-    api.checkResetLink.mockRejectedValue({ status: 400, code: 'resetLinkInvalid' });
+    api.checkResetLink.mockRejectedValue(linkInvalid());
     await mountAt('#t=used');
     expect(q('reset-invalid')!.textContent).toBe(zhTW.auth.resetInvalid);
     expect(q('reset-again')).not.toBeNull();
@@ -85,9 +88,10 @@ describe('ResetPasswordPage', () => {
 
   it('a link used up in the meantime switches to the invalid message on submit', async () => {
     api.checkResetLink.mockResolvedValue(undefined);
-    api.resetPasswordByLink.mockRejectedValue({ status: 400, code: 'resetLinkInvalid' });
+    api.resetPasswordByLink.mockRejectedValue(linkInvalid());
     await mountAt('#t=tok');
     await submit('brand-new-pass');
-    expect(q('reset-invalid')).not.toBeNull();
+    expect(q('reset-invalid')!.textContent).toBe(zhTW.auth.resetInvalid);
+    expect(q('reset-again')).not.toBeNull();
   });
 });

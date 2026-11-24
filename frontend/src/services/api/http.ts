@@ -78,7 +78,8 @@ export function toApiError(e: unknown): ApiError {
   const data = typeof err.response.data === 'object' ? err.response.data : undefined;
   const requestId = readRequestId(headers, data);
   const rid = requestId ? { requestId } : {};
-  if (status === 400) return { status, errors: data?.errors, message: data?.title, ...rid };
+  // 400 也保留 code：重設密碼頁靠 resetLinkInvalid 分辨「連結失效」（au1b 走查 G1）
+  if (status === 400) return { status, errors: data?.errors, message: data?.title, ...(data?.code ? { code: data.code } : {}), ...rid };
   const base = { status, message: status >= 500 ? serverErrorMessage(data?.message ?? data?.title, requestId) : data?.message ?? data?.title, ...(data?.code ? { code: data.code } : {}), ...(data?.params ? { params: data.params } : {}), ...rid };
   if (status === 409 && data?.blockers && data.purge)
     return { ...base, deleteCheck: { canDelete: !!data.canDelete, blockers: data.blockers, purge: data.purge } };
