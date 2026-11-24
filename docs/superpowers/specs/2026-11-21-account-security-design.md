@@ -1083,3 +1083,33 @@ SSO、AD／LDAP 列第二版候選（使用者 2026-11-17 裁決），au1 不做
 - 交易外的 `ExecuteUpdate`（帳號層佔名額與清除）不經 PostgreSQL 的全庫寫入鎖，照後端規則在交付說明列出（§8.3）。
 - au1a、au1c 太大時的拆法見 §17，migration 只能留在 au1a。
 - 手冊各段的實際畫面文字以實作為準回填（§16 第 9 點）。
+
+## 24. au1a 實作決定（2026-11-24）
+
+技術類為實作者決定；標「使用者行為」的是代做的行為決定，選錯時的代價一併寫明，審查或使用者可推翻。
+
+**技術類**
+
+1. 安全事件登記：`SecurityIncidents.AccountEventTitles` 是帳號類安全事件代碼的登記表（目前只有 `security.adminEmailChanged`）；handler 以 `AuditContext.MarkSecurityEvent(code)` 標記，`AuditBehavior` 寫完稽核後在同一交易開事件。沒登記的代碼丟例外，不會默默不開。
+2. 領取與「寄送前重查資格、作廢同 Email 舊權杖、產生新權杖」合併在同一個領取短交易（`ClaimMailRequest`），仍在連線 SMTP 之前；寄送本身在交易外，結果以 `CompleteMailRequest` 條件式記回（`ClaimedBy` 相符才寫）。
+3. 寄送服務 `MailDeliveryHostedService`（WebAPI）：交易提交後由 `MailDeliverySignal` 喚醒，另每 30 秒掃一次到期重試與逾時領取；部署設定 `Mail:Delivery:Enabled`（預設開，測試主機關閉並直接呼叫一輪）。
+4. 站台網址集中在 `SitePublicUrl.Read`：`App:PublicUrl` 優先、退回 `Ops:PublicUrl`；告警信、帳號信、MCP 伺服器網址與 Origin 檢查共用。
+5. Demo 種子 `DemoPeople.EnsureAccountSecurityAsync` 由 `DemoPeopleSeeder`（Demo 產生器）呼叫，不在 `EnsureAsync`；已有 Email 的帳號與已設的站台名稱不覆寫。
+6. 信件時間以營運時區顯示並標偏移；驗證信時效寫在信中（「連結在 N 小時內有效」）。
+7. `emailVerify` 信不設 `NotAfterUtc`（時效由權杖控制）；`passwordReset` 在 au1a 領取時一律記 `skipped`（`notSupported`），au1b 補上。
+8. 匿名 `verify-email` 的 IP 節流（§7.3）與忘記密碼一起在 au1b 做；使用者清單的雙因素欄留給 au1c。
+9. 寄送紀錄的 `previewBody` 只在 Demo 站回傳；非 Demo 站不寫也不回。
+10. 前端路由 meta `anyone`：`/verify-email` 登入與否、強制改密碼期間都能開，守衛不把已登入的人導回首頁。
+
+**使用者行為（代做）**
+
+1. 新增稽核動作 `account.resendEmailVerify`、`user.resendEmailVerify`（T16 沒列）：重寄會產生新連結、讓舊連結失效，屬於帳號狀態變更。選錯代價：稽核多兩種列，可直接移除。
+2. 同一個 Email 字串重存不做事（不清驗證、不重寄）。選錯代價：管理員想用「重存」來重寄時無效，但另有「重寄驗證信」。
+3. 「Email 已變更」通知只在舊地址已驗證、且和新地址不同時寄（照 §6.5）；未驗證地址不寄，避免寄到打錯的地址。
+4. Demo 帳號（`IsDemoAccount`）看不到頁首「帳號安全」，沿用原本隱藏「變更密碼」的規則；它們沒有密碼，本來也不能自行改 Email。選錯代價：Demo 訪客看不到「帳號安全」頁的樣子，要以 `admin` 看。
+5. 重寄驗證信同一帳號 60 秒內只能一次（`EmailResendGate`，記憶體內，屬可寫死的技術限制，列入 §22）。
+6. 管理員設定 Email 時，系統寄不出信仍存下 Email，提示「設好後可重寄驗證信」（黃色），不擋儲存。
+
+**可寫死（補列 §22）**：重寄間隔 60 秒、寄送服務掃描 30 秒、權杖長度 43 字（base62）、寄送重試間隔與次數沿用告警信（1／5／15／60 分、5 次）、領取逾時 2 分、單封寄送逾時 30 秒、寄送紀錄每頁 50 筆、站台名稱 100 字。
+
+**條件式更新與交易（照後端規則列出）**：`MailOutbox` 的領取（`TryClaimAsync`）與記結果（`TryCompleteAsync`）是 `ExecuteUpdate` 條件式更新，各自包在 `ClaimMailRequest`、`CompleteMailRequest` 的交易裡（`ITransactionalRequest`），同一封只會被一個寄送者領到、只有領到的寄送者能記結果；`SkipUnsentAsync` 與權杖作廢在呼叫端的交易內。真正交易外的只有維運清理的 `PurgeBatchAsync`（寄送紀錄、權杖、記住的裝置），照既有清理慣例逐批 `ExecuteDelete`，每批由 `PurgeOpsBatchRequest` 包交易並寫一列清理稽核。
