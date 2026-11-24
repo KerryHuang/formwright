@@ -289,7 +289,10 @@ export function relayout(state: GraphState): GraphState {
     state.definition.edges.map((e) => ({ id: e.id, from: e.from, to: e.to })),
     { labeledEdgeIds: labeled },
   );
-  return { ...state, positions: Object.fromEntries(Object.entries(r.positions).map(([id, p]) => [id, { x: p.x, y: p.y }])) };
+  const positions = Object.fromEntries(Object.entries(r.positions).map(([id, p]) => [id, { x: p.x, y: p.y }]));
+  const same = Object.keys(positions).length === Object.keys(state.positions).length
+    && Object.entries(positions).every(([id, p]) => state.positions[id]?.x === p.x && state.positions[id]?.y === p.y);
+  return same ? state : { ...state, positions };
 }
 
 /** 節點清單用：從開始節點起的拓撲順序（同一層依節點在定義裡的順序），走不到的節點排最後。 */

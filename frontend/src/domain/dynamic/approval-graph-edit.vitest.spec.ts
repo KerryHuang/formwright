@@ -421,6 +421,11 @@ describe('relayout and topoOrder', () => {
     for (const n of t.definition.nodes) expect(t.positions[n.id]).toBeDefined();
   });
 
+  it('relayout of an already tidy graph returns the same state (no empty undo step)', () => {
+    const t = relayout(cond());
+    expect(relayout(t)).toBe(t);
+  });
+
   it('relayout widens the gap after a column that has labeled edges', () => {
     const t = relayout(cond());
     const plain = layoutLeftToRight(cond().definition.nodes, cond().definition.edges);
