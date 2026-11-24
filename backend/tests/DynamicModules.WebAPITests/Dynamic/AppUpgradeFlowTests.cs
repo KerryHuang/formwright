@@ -1017,6 +1017,27 @@ public class AppUpgradeFlowTests : IDisposable
         item.GetProperty("defaultSelected").GetBoolean().Should().BeFalse();
     }
 
+    /// <summary>pkg1c 審查 S5：被依賴的流程本身不能勾（unmatched），依賴它的轉移也標不能勾、預設不勾，不讓前端能勾、套用才 400。</summary>
+    [Fact]
+    public async Task S5_TransitionDependsOnUnmatchedFlow_AlsoNotApplicable()
+    {
+        await OpenAsync();
+        EditDefinition("uf-check", d => d with { Shape = ApprovalShapes.Graph });
+        _rig.Db(db => db.Set<ApprovalFlow>().Single(f => f.Key == "uf-check").Active = false);
+        await NewVersionAsync(p =>
+        {
+            Flow(p, "uf-check")["to"] = "returned";
+            Transition(p, "draft", "returned")["approval"] = JsonNode.Parse("""{ "required": true, "noMatch": "block" }""");
+        });
+        var preview = await PreviewAsync();
+        Item(preview, "approvalFlow:uf-check").GetProperty("category").GetString().Should().Be("unmatched");
+        var transition = Item(preview, "transition:deal:draft>returned");
+        DependsOn(transition).Should().Contain("approvalFlow:uf-check");
+        transition.GetProperty("applicable").GetBoolean().Should().BeFalse(transition.ToString());
+        transition.GetProperty("defaultSelected").GetBoolean().Should().BeFalse();
+        Reason(transition).Should().Be("dependsOnBlocked");
+    }
+
     private async Task SetPolicyAsync(string key, int value) =>
         (await _rig.Admin.PutAsJsonAsync($"{Base}/system/policies/{key}", new { value })).EnsureSuccessStatusCode();
 
