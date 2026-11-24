@@ -58,6 +58,23 @@ public sealed class LoginThrottle(TimeProvider time)
         }
     }
 
+    /// <summary>
+    /// 只算 IP 層的一次失敗（失效的第二步憑證重送，審查 S2）：這個 IP 已滿 20 次回 false、不再記；不碰帳號＋IP 與帳號層（重送的人不一定是本人）。
+    /// </summary>
+    public bool TryRecordIpFailure(string ip)
+    {
+        var now = time.GetUtcNow();
+        lock (_gate)
+        {
+            Prune(now);
+            var key = "i|" + ip;
+            if (Used(key, now - ShortWindow) >= IpMax) return false;
+            if (!_failures.TryGetValue(key, out var list)) _failures[key] = list = [];
+            list.Add(now);
+            return true;
+        }
+    }
+
     /// <summary>結算 <see cref="TryBegin"/> 保留的名額：失敗記入三層計數；成功只清掉這組帳號＋IP（不讓攻擊者拿自己的帳號洗掉 IP 額度）。</summary>
     public void Complete(string userId, string ip, bool success)
     {

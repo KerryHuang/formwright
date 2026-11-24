@@ -447,7 +447,7 @@ public sealed record TwoFactorLoginRequest(string? Ticket, string? Code, string?
 
 public sealed class TwoFactorLoginHandler(
     ISecondStepTicketCodec codec, SecondStepTickets tickets, IAccountRepository accounts, SecondFactorVerifier verifier, IAuditLog audit, ISender sender,
-    TimeProvider time, ILogger<TwoFactorLoginHandler> logger) : IRequestHandler<TwoFactorLoginRequest, ServiceResult>
+    LoginThrottle throttle, TimeProvider time, ILogger<TwoFactorLoginHandler> logger) : IRequestHandler<TwoFactorLoginRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(TwoFactorLoginRequest r, CancellationToken ct)
     {
@@ -462,6 +462,8 @@ public sealed class TwoFactorLoginHandler(
         if (time.GetUtcNow().UtcDateTime - ticket.IssuedUtc > TwoFactorLimits.TicketLifetime || user is not { IsActive: true }
             || user.SecurityStamp != ticket.SecurityStamp || user.TotpEnabledUtc is null || !tickets.TryAttempt(ticket))
         {
+            // 密文本身不會過期，失效的憑證可以一直重送：計入 IP 層，IP 層滿了就不再寫稽核（審查 S2）
+            if (!throttle.TryRecordIpFailure(string.IsNullOrEmpty(r.ClientIp) ? "unknown" : r.ClientIp)) return TwoFactorErrors.Expired();
             logger.LogWarning("帳號 {UserId} 第二步憑證已失效", ticket.UserId);
             await audit.TryWriteNowAsync(SignInAudit.Failed(user?.UserId, "twoFactorExpired", null), ct);
             return TwoFactorErrors.Expired();

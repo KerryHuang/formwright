@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
 using DynamicModules.Application.Common.Security;
 using DynamicModules.Application.Dynamic.MailService;
@@ -226,6 +227,32 @@ public class TwoFactorLoginTests
         (await Me(c)).Should().Be(HttpStatusCode.Unauthorized);
         (await Audits(app, "login.succeeded")).Should().BeEmpty();
         (await User(app, "tf01")).TotpLastStep.Should().Be(lastStep, "內層整筆回滾");
+    }
+
+    /// <summary>
+    /// 審查 S2：失效的憑證重送計入 IP 層登入節流（不碰帳號層）：同一 IP 第 21 次起不再寫 <c>login.failed</c>、照樣回 <c>twoFactorExpired</c>；
+    /// 這個 IP 的密碼登入也被 IP 層擋下，別的 IP 不受影響。
+    /// </summary>
+    [Fact]
+    public async Task ExpiredTicketReplays_CountTowardIpLayer_AuditCapped()
+    {
+        using var app = NewApp();
+        await AddUser(app, "tf01");
+        var (secret, _) = await Enroll(app, "tf01");
+        var c = Client(app, "203.0.113.60");
+        var ticket = (await Password(c, "tf01")).Headers.GetValues("Set-Cookie").Single(h => h.StartsWith("fw.2fa=")).Split(';')[0];
+        app.Time.Advance(TimeSpan.FromMinutes(6));
+        // 失效時伺服器會清 cookie；重送的人自己留著密文，每次手動帶上
+        var replay = Client(app, "203.0.113.60");
+        for (var i = 0; i < 25; i++)
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, "/api/v3/dynamic/auth/two-factor") { Content = JsonContent.Create(new { code = Code(app, secret) }) };
+            req.Headers.Add("Cookie", ticket);
+            (await ErrorCode(await replay.SendAsync(req))).Should().Be("twoFactorExpired");
+        }
+        (await Audits(app, "login.failed")).Count(a => a.ReasonCode == "twoFactorExpired").Should().Be(20);
+        (await Password(c, "tf01")).StatusCode.Should().Be(HttpStatusCode.Unauthorized, "IP 層已滿");
+        (await Password(Client(app, "203.0.113.61"), "tf01")).StatusCode.Should().Be(HttpStatusCode.OK, "帳號層沒有被算到");
     }
 
     /// <summary>F33：同一 IP、10 個帳號，正確密碼＋正確驗證碼共 25 次：第 21 次之後照常登入，沒有一次被算成失敗。</summary>
