@@ -357,6 +357,8 @@ function runSetActive(u: AdminUser, active: boolean) {
               />
               <q-radio v-model="resetMode" val="temp" :label="t('users.resetModeTemp')" data-testid="user-reset-mode-temp" />
             </template>
+            <!-- 自己那列：寄連結給自己會被後端擋（useChangePassword），提示改用「變更密碼」，不說成沒有已驗證 Email（au1b 審查 S5） -->
+            <div v-else-if="resetTarget === identity.userId" class="text-caption" data-testid="user-reset-self">{{ t('users.resetSelf') }}</div>
             <div v-else class="text-caption" data-testid="user-reset-no-email">{{ t('users.resetNoEmail') }}</div>
             <div v-if="resetMode === 'link'" class="text-caption text-muted" data-testid="user-reset-link-hint">{{ t('users.resetLinkHint') }}</div>
             <q-input

@@ -676,6 +676,8 @@ describe('UsersPage Email（帳號安全設計 §12）', () => {
     await click('user-reset-cancel');
     await click('user-reset-admin');
     expect(q('user-reset-mode-link')).toBeNull();
+    expect(q('user-reset-self')!.textContent).toBe(zhTW.users.resetSelf);
+    expect(q('user-reset-no-email')).toBeNull();
     expect(api.sendResetLink).not.toHaveBeenCalled();
   });
 
