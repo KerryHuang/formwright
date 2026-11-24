@@ -109,6 +109,84 @@ public class TwoFactorAccountTests
     }
 
     /// <summary>
+    /// #107：完成綁定的外層比對碼之後、內層交易重讀之前 stamp 被換掉（改密碼、被停用）→ 內層重比 stamp 回 401，沒有轉正、沒有 <c>account.twoFactorEnable</c>；
+    /// 碼是對的，不算一次猜錯（帳號＋IP 層歸還）。換 stamp 的寫入放在內層交易開頭（同一交易，回滾後資料庫不留），只為讓重讀看到新值。
+    /// </summary>
+    [Fact]
+    public async Task Enable_StampChangedAfterOuterCheck_InnerRejects401_NotEnabled()
+    {
+        var stamp = Guid.NewGuid().ToString("N");
+        var probe = new EnableRaceProbe(db => db.Set<AppUser>().Where(u => u.UserId == "tf01")
+            .ExecuteUpdateAsync(s => s.SetProperty(u => u.SecurityStamp, stamp)));
+        using var app = NewApp(a => a.ExtraServices = s =>
+        {
+            s.AddSingleton(probe);
+            s.AddTransient<IPipelineBehavior<ApplyEnableTwoFactorRequest, ServiceResult>, EnableRaceBehavior>();
+        });
+        await AddUser(app, "tf01");
+        var c = await SignInPassword(app, "tf01");
+        var secret = Base32.Decode((await Json(await Setup(c))).GetProperty("secret").GetString())!;
+        NextStep(app);
+        probe.Armed = true;
+        var res = await Enable(c, Code(app, secret));
+        probe.Fired.Should().BeTrue("外層比對通過才送內層");
+        res.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await User(app, "tf01")).TotpEnabledUtc.Should().BeNull();
+        (await Audits(app, "account.twoFactorEnable")).Should().BeEmpty();
+        (await Audits(app, "account.reauthFailed")).Should().BeEmpty("碼是對的，不算猜錯");
+    }
+
+    /// <summary>
+    /// #107：外層比對碼之後、內層交易重讀之前重新開始綁定（另一個分頁按了開始綁定，<c>TotpPendingUtc</c> 換新）→ 內層回 409 <c>twoFactorSetupExpired</c>，
+    /// 沒有轉正（舊的綁定中金鑰不會被當成新的轉正）。
+    /// </summary>
+    [Fact]
+    public async Task Enable_SetupRestartedAfterOuterCheck_InnerRejects409_NotEnabled()
+    {
+        var probe = new EnableRaceProbe(db => db.Set<AppUser>().Where(u => u.UserId == "tf01")
+            .ExecuteUpdateAsync(s => s.SetProperty(u => u.TotpPendingUtc, (DateTime?)new DateTime(2026, 11, 24, 0, 0, 0, DateTimeKind.Utc))));
+        using var app = NewApp(a => a.ExtraServices = s =>
+        {
+            s.AddSingleton(probe);
+            s.AddTransient<IPipelineBehavior<ApplyEnableTwoFactorRequest, ServiceResult>, EnableRaceBehavior>();
+        });
+        await AddUser(app, "tf01");
+        var c = await SignInPassword(app, "tf01");
+        var secret = Base32.Decode((await Json(await Setup(c))).GetProperty("secret").GetString())!;
+        NextStep(app);
+        probe.Armed = true;
+        var res = await Enable(c, Code(app, secret));
+        probe.Fired.Should().BeTrue("外層比對通過才送內層");
+        res.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await ErrorCode(res)).Should().Be("twoFactorSetupExpired");
+        (await User(app, "tf01")).TotpEnabledUtc.Should().BeNull();
+        (await Audits(app, "account.twoFactorEnable")).Should().BeEmpty();
+    }
+
+    private sealed class EnableRaceProbe(Func<DynamicModules.Domain.Data.DynamicDbContext, Task<int>> change)
+    {
+        public volatile bool Armed;
+        public bool Fired;
+        public Func<DynamicModules.Domain.Data.DynamicDbContext, Task<int>> Change { get; } = change;
+    }
+
+    /// <summary>排在交易之內（測試加的 behavior 在既有的之後註冊）：內層 handler 重讀之前先改資料庫，模擬外層比對後的並行修改。</summary>
+    private sealed class EnableRaceBehavior(EnableRaceProbe probe, DynamicModules.Domain.Data.DynamicDbContext db)
+        : IPipelineBehavior<ApplyEnableTwoFactorRequest, ServiceResult>
+    {
+        public async Task<ServiceResult> Handle(ApplyEnableTwoFactorRequest request, RequestHandlerDelegate<ServiceResult> next, CancellationToken ct)
+        {
+            if (probe.Armed)
+            {
+                probe.Armed = false;
+                (await probe.Change(db)).Should().Be(1);
+                probe.Fired = true;
+            }
+            return await next();
+        }
+    }
+
+    /// <summary>
     /// 審查 S4：第二因素階段被帳號＋IP 層擋下時，重新驗證路徑回和密碼階段同一個代碼 <c>reauthThrottled</c>（建 AI 權杖再轉成
     /// <c>mcpPasswordThrottled</c>）；登入第二步仍是 <c>tooManyAttempts</c>。這個分支在 HTTP 上只有並行時走得到，直接呼叫驗證服務。
     /// </summary>
