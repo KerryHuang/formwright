@@ -441,4 +441,50 @@ public class AccountMailTests
         (await SetEmail(app, "admin", "me@example.com")).EnsureSuccessStatusCode();
         (await Incident(app, fingerprint)).OccurrenceCount.Should().Be(2);
     }
+
+    // ── au1a 審查修正 ─────────────────────────────────────────────
+
+    private static async Task<string> PlantToken(TestApp app, string userId, string email, DateTime? expiresUtc = null, DateTime? usedUtc = null,
+        string purpose = AccountToken.EmailVerify)
+    {
+        var secret = AccountLinkTokens.NewToken();
+        await Db(app, db =>
+        {
+            db.Set<AccountToken>().Add(new AccountToken
+            {
+                UserId = userId, Purpose = purpose, TokenHash = DynamicModules.Domain.Mcp.McpSecrets.Hash(secret), Email = email, CreatedUtc = Now(app),
+                ExpiresUtc = expiresUtc ?? Now(app).AddHours(24), UsedUtc = usedUtc,
+            });
+            return Task.CompletedTask;
+        });
+        return secret;
+    }
+
+    private static Task SetUserRow(TestApp app, string userId, Action<AppUser> change) =>
+        Db(app, async db => change(await db.Set<AppUser>().SingleAsync(u => u.UserId == userId)));
+
+    [Fact]
+    public async Task Review_M1_InvalidVerifyTokens_NeverOpenTransaction_ValidOneDoes()
+    {
+        var spy = new TxSpy();
+        using var app = App(new FakeMailSender(), configure: a => SpyTransactions(a, spy));
+        await SetUserRow(app, "sales01", u => u.Email = "a@example.com");
+        var expired = await PlantToken(app, "sales01", "a@example.com", expiresUtc: Now(app).AddMinutes(-1));
+        var used = await PlantToken(app, "sales01", "a@example.com", usedUtc: Now(app));
+        var wrongPurpose = await PlantToken(app, "sales01", "a@example.com", purpose: AccountToken.PasswordReset);
+        var valid = await PlantToken(app, "sales01", "a@example.com");
+
+        var before = spy.Begins;
+        foreach (var token in new[] { "garbage-token", AccountLinkTokens.NewToken(), expired, used, wrongPurpose, new string('x', 200) })
+        {
+            var res = await VerifyLink(app, token);
+            res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await Json(res)).GetProperty("code").GetString().Should().Be("verifyLinkInvalid");
+        }
+        spy.Begins.Should().Be(before, "無效權杖在交易外就回 400，不排進全庫寫入佇列");
+
+        (await VerifyLink(app, valid)).StatusCode.Should().Be(HttpStatusCode.OK);
+        spy.Begins.Should().Be(before + 1);
+        (await User(app, "sales01")).EmailVerifiedUtc.Should().NotBeNull();
+    }
 }

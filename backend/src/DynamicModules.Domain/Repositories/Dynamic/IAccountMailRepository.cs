@@ -35,6 +35,9 @@ public interface IAccountTokenRepository
     /// <summary>以雜湊找權杖（追蹤）；沒有回 null。</summary>
     Task<AccountToken?> FindByHashTrackedAsync(string tokenHash, CancellationToken ct);
 
+    /// <summary>以雜湊找權杖（不追蹤，交易外的預查用）；沒有回 null。</summary>
+    Task<AccountToken?> FindByHashAsync(string tokenHash, CancellationToken ct);
+
     /// <summary>這個帳號還沒用過的權杖（追蹤）；<paramref name="purpose"/> 為 null＝全部用途。</summary>
     Task<List<AccountToken>> ListUnusedTrackedAsync(string userId, string? purpose, CancellationToken ct);
 

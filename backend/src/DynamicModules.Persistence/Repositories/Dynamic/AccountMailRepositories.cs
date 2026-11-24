@@ -77,6 +77,9 @@ public class AccountTokenRepository(DynamicDbContext db) : IAccountTokenReposito
     public Task<AccountToken?> FindByHashTrackedAsync(string tokenHash, CancellationToken ct) =>
         Tokens.FirstOrDefaultAsync(t => t.TokenHash == tokenHash, ct);
 
+    public Task<AccountToken?> FindByHashAsync(string tokenHash, CancellationToken ct) =>
+        Tokens.AsNoTracking().FirstOrDefaultAsync(t => t.TokenHash == tokenHash, ct);
+
     public Task<List<AccountToken>> ListUnusedTrackedAsync(string userId, string? purpose, CancellationToken ct) =>
         Tokens.Where(t => t.UserId == userId && t.UsedUtc == null && (purpose == null || t.Purpose == purpose)).OrderBy(t => t.Id).ToListAsync(ct);
 
