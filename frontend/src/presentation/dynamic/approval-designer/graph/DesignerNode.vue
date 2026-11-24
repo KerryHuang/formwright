@@ -10,6 +10,12 @@ const props = defineProps<{ data: DesignerNodeData }>();
 const emit = defineEmits<{ open: [] }>();
 const { t, locale } = useI18n();
 
+// 連線把手（fg3e，J75）：平板以上、有編輯權才顯示；開始沒有入線把手、結束沒有出線把手（§6.2）。
+// 拖曳把手或點把手再點另一個節點的把手（connectOnClick，觸控用）；能不能連由畫布的 isValidConnection（canConnect）判斷。
+// 點把手不往上傳成「點節點」：否則平板點出發點時屬性抽屜會蓋住畫布。
+const inHandle = computed(() => props.data.editable && props.data.kind !== 'start');
+const outHandle = computed(() => props.data.editable && props.data.kind !== 'end');
+
 // 試算疊圖（J80）：簽核節點在摘要列改寫成解析到的簽核人；不在路徑上的節點維持原摘要（只淡化）。
 const trial = computed(() => props.data.trial ?? null);
 const summary = computed(() => {
@@ -28,7 +34,7 @@ const summary = computed(() => {
     role="button" tabindex="0" :aria-label="data.ariaLabel" :aria-pressed="data.selected" data-testid="de-node"
     @keydown.enter.prevent="emit('open')" @keydown.space.prevent="emit('open')"
   >
-    <Handle type="target" :position="Position.Left" :connectable="false" class="de-handle" />
+    <Handle type="target" :position="Position.Left" :connectable="inHandle" class="de-handle" :class="{ 'de-handle-on': inHandle }" data-testid="de-handle-in" @click.stop />
     <div class="de-head">
       <q-icon :name="data.icon" size="16px" class="de-kind text-muted" />
       <div class="de-name" data-testid="de-name">{{ data.label }}</div>
@@ -47,13 +53,13 @@ const summary = computed(() => {
       <q-badge v-if="data.errors" color="negative" :label="data.errors" :aria-label="t('approval.designer.graph.errorCount', { n: data.errors })" data-testid="de-errors" />
       <q-badge v-if="data.warnings" color="warning" text-color="dark" :label="data.warnings" :aria-label="t('approval.designer.graph.warningCount', { n: data.warnings })" data-testid="de-warnings" />
     </div>
-    <Handle type="source" :position="Position.Right" :connectable="false" class="de-handle" />
+    <Handle type="source" :position="Position.Right" :connectable="outHandle" class="de-handle" :class="{ 'de-handle-on': outHandle }" data-testid="de-handle-out" @click.stop />
   </div>
 </template>
 
 <style scoped>
 .de-node {
-  box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; width: 100%; height: 100%; overflow: hidden; padding: 6px 8px;
+  box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; width: 100%; height: 100%; overflow: visible; padding: 6px 8px; /* 把手凸出邊框一半，不能裁掉；內容各列自己裁 */
   border: 2px solid var(--t-border); border-radius: var(--t-radius); background: var(--t-panel); color: var(--t-text); cursor: pointer; pointer-events: auto;
 }
 .de-kind-start, .de-kind-end { border-style: dashed; }
@@ -72,4 +78,9 @@ const summary = computed(() => {
 .de-summary { font-size: 11px; line-height: 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .de-badges { display: flex; gap: 4px; height: 18px; overflow: hidden; }
 .de-handle { width: 1px; height: 1px; min-width: 0; min-height: 0; border: 0; background: transparent; opacity: 0; pointer-events: none; }
+/* 可連線時的把手：14px 圓點，觸控外加一圈透明的點擊範圍。 */
+.de-handle.de-handle-on {
+  width: 14px; height: 14px; border: 2px solid var(--t-panel); border-radius: 50%; background: var(--t-primary); opacity: 1; pointer-events: auto; cursor: crosshair;
+}
+.de-handle.de-handle-on::after { content: ''; position: absolute; inset: -8px; border-radius: 50%; }
 </style>
