@@ -13,7 +13,9 @@ namespace DynamicModules.Application.Dynamic.DemoService;
 /// <item>「互動紀錄」的「主旨」繁中標籤換成舊名稱，開啟後再由 <see cref="DemoStructure"/> 以客戶身分改成第三個值（兩邊都改）；</item>
 /// <item>設計案「需求確認 → 設計中」少「主管」群組（新版多給群組，示範 transitionGroups 只列出、不能勾）：挑有兩個群組的轉移，
 /// 拿掉後仍有「業務」，劇本由業務推這條轉移不受影響（§9.6.5、複核 R6）；</item>
-/// <item>設計案簽核流程第一關的繁中名稱換成舊名（只有新版改，Q27 下仍可勾；設計案劇本留一張簽核中的單，示範 inFlightApprovals）。</item>
+/// <item>設計案簽核流程第一關的繁中名稱換成舊名（只有新版改，Q27 下仍可勾；設計案劇本留一張簽核中的單，示範 inFlightApprovals）；</item>
+/// <item>列印範本「報價單」本文少最後一行備註（只有新版改，示範長值的「檢視」，§9.6.5 pkg1d1b）；</item>
+/// <item>任務規則「行銷活動派工」的繁中名稱換成舊名（只有新版改，示範任務規則可勾、只影響之後）。</item>
 /// </list>
 /// 儀表板引用了 CRM 的兩份報表，所以不拿掉報表（§11.1 最後一點）。
 /// </summary>
@@ -22,6 +24,8 @@ public static class DemoOldCrm
     public const string OldCompanyThai = "ชื่อบริษัท", OldSubject = "主題", CustomerSubject = "互動主旨", RemovedOption = "campaign.online";
     public const string NarrowedTransition = "transition:design-case:requirement>designing", RemovedGroup = "manager";
     public const string RenamedFlow = "crm-design-case-review", OldStageName = "業務主管審核";
+    public const string ShortenedTemplate = "quote-sheet", RemovedTemplateLine = "<p>備註：{{remark}}</p>";
+    public const string RenamedTaskRule = "crm-campaign-tasks", OldTaskRuleName = "活動派工";
 
     public static string Derive(string catalogText)
     {
@@ -43,6 +47,10 @@ public static class DemoOldCrm
                     groups.Remove(groups.First(g => g!.GetValue<string>() == RemovedGroup));
         foreach (var flow in root["approvalFlows"]!.AsArray().Where(f => (string?)f!["code"] == RenamedFlow))
             flow!["stages"]![0]!["name"]!["zh-TW"] = OldStageName;
+        foreach (var t in root["printTemplates"]!.AsArray().Where(t => (string?)t!["code"] == ShortenedTemplate))
+            t!["body"] = t["body"]!.GetValue<string>().Replace(RemovedTemplateLine, "");
+        foreach (var r in root["taskRules"]!.AsArray().Where(r => (string?)r!["code"] == RenamedTaskRule))
+            r!["name"]!["zh-TW"] = OldTaskRuleName;
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
     }
 
