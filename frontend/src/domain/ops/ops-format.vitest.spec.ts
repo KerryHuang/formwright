@@ -26,6 +26,7 @@ describe('incidentTitle', () => {
       .toBe('AI 權杖 #3 在 10 分鐘內修改記錄 #42 達 30 次，已暫停它對這筆的寫入');
     expect(incidentTitle(t, te, 'ops.title.accountMailFailed', { stage: 'auth', serverCode: 535 })).toBe('帳號信寄不出去（認證），伺服器回應 535');
     expect(incidentTitle(t, te, 'ops.title.adminEmailChanged')).toBe('系統管理員的帳號 Email 被另一位系統管理員變更');
+    expect(incidentTitle(t, te, 'ops.title.adminPasswordReset')).toBe('系統管理員帳號用寄信連結重設了密碼');
   });
   it('換語系就換文字；沒登記的代碼回代碼本身', () => {
     const en = i18n('en-US');

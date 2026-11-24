@@ -18,7 +18,7 @@ vi.mock('src/services/api/dynamic-api', () => ({
   dynamicApi: {
     getAdminUsers: vi.fn(), createUser: vi.fn(), updateUser: vi.fn(), resetUserPassword: vi.fn(), setUserActive: vi.fn(),
     getGroups: vi.fn(), getUsers: vi.fn(), getMe: vi.fn(), getDepartments: vi.fn(), setUserDepartment: vi.fn(), setUserSystemPrivileges: vi.fn(),
-    setUserEmail: vi.fn(), resendUserEmail: vi.fn(),
+    setUserEmail: vi.fn(), resendUserEmail: vi.fn(), sendResetLink: vi.fn(), getAuthOptions: vi.fn(),
   },
 }));
 const api = vi.mocked(dynamicApi);
@@ -98,6 +98,7 @@ describe('UsersPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+    api.getAuthOptions.mockResolvedValue({ passwordMinLength: 8 } as never);
   });
   afterEach(() => { mounted?.unmount(); document.body.innerHTML = ''; });
 
@@ -630,8 +631,43 @@ describe('UsersPage', () => {
 });
 
 describe('UsersPage Email（帳號安全設計 §12）', () => {
-  beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+    api.getAuthOptions.mockResolvedValue({ passwordMinLength: 8 } as never);
+  });
   afterEach(() => { mounted?.unmount(); document.body.innerHTML = ''; });
+
+  it('reset dialog: verified email defaults to sending a reset link; switching to temp password still works (au1b §7.5)', async () => {
+    api.sendResetLink.mockResolvedValue(undefined);
+    api.resetUserPassword.mockResolvedValue(undefined as never);
+    const w = await mountPage([user('admin', { isSystemAdmin: true }), user('ok01', { email: 'ok@example.com', emailVerified: true })]);
+    const notify = vi.spyOn(w.vm.$q, 'notify');
+    await click('user-reset-ok01');
+    expect(document.body.textContent).toContain('ok@example.com');
+    expect(q('user-reset-password')).toBeNull();
+    await click('user-reset-submit');
+    expect(api.sendResetLink).toHaveBeenCalledWith('ok01');
+    expect(api.resetUserPassword).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ type: 'positive', message: zhTW.users.resetLinkSent }));
+  });
+
+  it('reset dialog: no verified email, or own row, offers only a temporary password; the minimum comes from auth/options', async () => {
+    api.getAuthOptions.mockResolvedValue({ passwordMinLength: 10 } as never);
+    api.resetUserPassword.mockResolvedValue(undefined as never);
+    await mountPage([user('admin', { isSystemAdmin: true, email: 'a@example.com', emailVerified: true }), user('sales01', { email: 'x@example.com', emailVerified: false })]);
+    await click('user-reset-sales01');
+    expect(q('user-reset-no-email')).not.toBeNull();
+    expect(q('user-reset-mode-link')).toBeNull();
+    await fill('user-reset-password', '123456789');
+    await click('user-reset-submit');
+    expect(api.resetUserPassword).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain(zhTW.users.passwordTooShort.replace('{min}', '10'));
+    await click('user-reset-cancel');
+    await click('user-reset-admin');
+    expect(q('user-reset-mode-link')).toBeNull();
+    expect(api.sendResetLink).not.toHaveBeenCalled();
+  });
 
   it('shows the email column with an unverified mark, and the set-email dialog saves a trimmed address (blank clears)', async () => {
     api.setUserEmail.mockResolvedValue({ email: 'b@example.com', emailVerified: false, mailAvailable: true });
