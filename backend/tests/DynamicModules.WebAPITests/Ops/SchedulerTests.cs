@@ -1,4 +1,5 @@
 using DynamicModules.Application.Common;
+using DynamicModules.Application.Dynamic.OpsService;
 using DynamicModules.Application.Dynamic.OpsService.Scheduling;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.Policies;
@@ -123,7 +124,7 @@ public class SchedulerTests : IDisposable
     public async Task Timeout_Failed()
     {
         // 續租與租約都拉長到逾時之後，只看逾時本身
-        var limits = SchedulerLimits.Default with { Lease = TimeSpan.FromHours(2), Renew = TimeSpan.FromHours(1), MaxRun = TimeSpan.FromMinutes(10) };
+        var limits = SchedulerLimits.Default with { Lease = TimeSpan.FromHours(3), Renew = TimeSpan.FromHours(1), MaxRun = TimeSpan.FromMinutes(10) };
         var (runner, job) = await Single(limits: limits);
         job.Body = CountingJob.UntilCancelled;
 
@@ -281,6 +282,61 @@ public class SchedulerTests : IDisposable
         var row = await Row(_app, job.Key);
         row.LastStatus.Should().Be(ScheduledJobStatus.Succeeded);
         row.LeaseOwner.Should().BeNull();
+    }
+
+    /// <summary>
+    /// 續租呼叫不理會取消（卡死不回）時，工作做完後排程迴圈不能永遠卡在 finally：最多再等一個續租週期就放手、照常寫回結果。
+    /// </summary>
+    [Fact]
+    public async Task RenewIgnoresCancel_JobFinishes_TickStillCompletesAndWritesResult()
+    {
+        _spy.Hang = true;
+        _spy.IgnoreCancel = true;
+        // 租約拉長，重複推時鐘時不會碰到租約截止
+        var limits = SchedulerLimits.Default with { Lease = TimeSpan.FromHours(1), MaxRun = TimeSpan.FromHours(1) };
+        var (runner, job) = await Single(limits: limits);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        job.Body = async _ =>
+        {
+            await finish.Task;
+            return new JobOutcome(ScheduledJobStatus.Succeeded);
+        };
+
+        var tick = runner.TickAsync(CancellationToken.None);
+        await Within(job.Started.Task);
+        _clock.Advance(TimeSpan.FromMinutes(1));
+        await Within(_spy.Hanging.Task);   // 續租卡住且不看取消
+        finish.SetResult();
+        // 等待上限是一個續租週期：一分鐘一分鐘推時鐘，直到放手（不知道等待的計時器何時登記，所以重複推）
+        await Within(Task.Run(async () =>
+        {
+            while (!JobLogs(_app).Any(r => r.Message.Contains("已放手不等")))
+            {
+                _clock.Advance(TimeSpan.FromMinutes(1));
+                await Task.Delay(50);
+            }
+        }));
+        // 卡住的續租在交易內，放開它資料庫鎖才釋放，結果才寫得回去
+        _spy.Release();
+        await Within(tick);
+
+        (await Row(_app, job.Key)).LastStatus.Should().Be(ScheduledJobStatus.Succeeded);
+        JobLogs(_app).Should().Contain(r => r.Level == LogLevel.Warning && r.Message.Contains("續租"));
+    }
+
+    [Theory]
+    [InlineData(300, 60, true)]
+    [InlineData(61, 30, true)]
+    [InlineData(60, 30, false)]
+    [InlineData(60, 31, false)]
+    [InlineData(60, 60, false)]
+    public void Limits_LeaseMustExceedTwiceRenew(int leaseSeconds, int renewSeconds, bool valid)
+    {
+        var limits = SchedulerLimits.Default with { Lease = TimeSpan.FromSeconds(leaseSeconds), Renew = TimeSpan.FromSeconds(renewSeconds) };
+        var create = () => new JobRunner(_app.Services.GetRequiredService<IServiceScopeFactory>(), [], _clock,
+            OpsInstance.Create(_clock), _app.Services.GetRequiredService<IDatabaseErrors>(), NullLogger<JobRunner>.Instance, limits);
+        if (valid) create.Should().NotThrow();
+        else create.Should().Throw<ArgumentException>();
     }
 
     [Fact]

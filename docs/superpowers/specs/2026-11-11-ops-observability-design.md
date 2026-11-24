@@ -537,6 +537,7 @@ O1 就實作，log 與 O2 事件表共用同一套（主控判斷 T4）。指紋
   - 補列、搶租約、續租、寫結果都是交易型請求（經 `WriteGate`），各開一個短 DI scope；工作本身另開一個 scope。續租在自己的 scope 與交易，不巢狀在工作的交易裡。
   - 續租：不是持有者就中止工作、不寫結果（別人已接手，不能蓋掉新持有者的列），記 `leaseLost`；資料庫暫時失敗只記 Warning、下一週期再試，不判工作失敗。
   - 〔o1b 審查修正〕租約截止：工作的取消來源多一個「租約截止」計時器（走 `TimeProvider`），時間是租約到期前一個續租週期，只有續租成功才往後延；續租失敗或卡住不回都不會延，到了就中止工作、記 `leaseLost`、不寫結果。取代原本「續租失敗後才檢查剩餘時間」（續租卡住不回時永遠檢查不到，租約過期被別人接手時這裡還在跑）。`Renew` 必須小於 `Lease`。
+  - 〔票 #2 補記〕`SchedulerLimits.Validate()` 要求 `Lease` 大於兩倍 `Renew`（容得下一次續租失敗），`JobRunner` 建構時檢查，設錯就丟例外、排程器啟動失敗（出廠值 5 分／1 分不受影響）。工作做完後等續租迴圈收尾最多一個續租週期，續租呼叫不理會取消也不會讓 tick 卡住，逾時記 Warning 後照常寫回結果。`JobLeaseFence.NowUtc` 是送出請求前取的時刻，送出到執行的落差由租約截止（到期前一個續租週期）涵蓋。
   - 〔o1b 審查修正〕寫入的租約檢查：工作拿到 `JobRunContext`，寫入交易帶 `JobLeaseFence`，交易一開始先用條件式更新確認「持有者是我、租約還沒過期」（PostgreSQL 上順便鎖住工作列到交易結束，接手者的搶租約要等它提交），不成立就回 Conflict（代碼 `jobLeaseLost`）、交易回滾，工作丟 `JobLeaseLostException` 中止，結果記 `leaseLost`。寫結果本來就是 `WHERE 持有者=我`，接手者搶租約會改掉持有者，兩者互斥。
   - 結果：逾時記 `Failed`（`LastError`＝`timeout`）；程式關閉記 `Cancelled`，不累加連續失敗，下次預定時間＝結束時間（下一個 tick 任何實例都可接）；`PartiallyFailed` 也累加連續失敗。
   - 核心 `JobRunner` 在 Application，`SchedulerHostedService` 在 WebAPI；啟動先補工作列，再等一個檢查週期才跑第一次（不和冷啟動的第一位訪客搶資源）。計時器（續租、逾時、檢查週期）都走 `TimeProvider`，測試用手動時鐘快轉，不真的等待。

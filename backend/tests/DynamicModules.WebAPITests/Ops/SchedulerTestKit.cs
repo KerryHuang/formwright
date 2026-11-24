@@ -100,6 +100,13 @@ internal sealed class RenewSpy : IPipelineBehavior<RenewJobLeaseRequest, Service
 
     public int FailFirst { get; set; }
     public bool Hang { get; set; }
+
+    /// <summary>卡住時不理會取消（模擬不看 token 的卡死呼叫），要等 <see cref="Release"/> 才放開。</summary>
+    public bool IgnoreCancel { get; set; }
+
+    private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public void Release() => _release.TrySetResult();
     public int Calls => Volatile.Read(ref _calls);
 
     /// <summary>卡住的那次續租已經送出。</summary>
@@ -111,7 +118,8 @@ internal sealed class RenewSpy : IPipelineBehavior<RenewJobLeaseRequest, Service
         if (Hang)
         {
             Hanging.TrySetResult();
-            await Task.Delay(Timeout.Infinite, ct);
+            if (IgnoreCancel) await _release.Task;
+            else await Task.Delay(Timeout.Infinite, ct);
         }
         return await next();
     }

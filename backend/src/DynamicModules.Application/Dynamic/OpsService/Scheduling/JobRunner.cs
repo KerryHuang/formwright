@@ -21,7 +21,13 @@ public sealed class JobRunner(
 {
     public static readonly EventId JobFinished = new(5200, "JobFinished");
 
-    private readonly SchedulerLimits _limits = limits ?? SchedulerLimits.Default;
+    private readonly SchedulerLimits _limits = Validated(limits ?? SchedulerLimits.Default);
+
+    private static SchedulerLimits Validated(SchedulerLimits limits)
+    {
+        limits.Validate();
+        return limits;
+    }
 
     /// <summary>每一輪續租處理完（成功已延後截止、失敗已記 log、遺失已中止）時呼叫；給測試當同步屏障，正式環境不設。</summary>
     public Action? RenewRoundCompleted { get; init; }
@@ -135,7 +141,7 @@ public sealed class JobRunner(
         {
             // 先停續租再寫結果，免得續租讀到「不是持有者」而記一則假的租約遺失
             renewStop.Cancel();
-            await renewal;
+            await StopRenewalAsync(renewal, job.Key);
         }
 
         var why = (StopReason)Volatile.Read(ref reason);
@@ -180,6 +186,22 @@ public sealed class JobRunner(
         };
         logger.Log(level, JobFinished, outcome.Status == ScheduledJobStatus.Failed ? failure : null,
             "排程工作 {JobKey} 結束 {Result} {DurationMs} {JobError}", job.Key, result, duration, outcome.Error);
+    }
+
+    /// <summary>
+    /// 等續租迴圈收尾，最多等一個續租週期：續租呼叫若不理會取消（卡死不回），不能讓排程迴圈永遠卡在這裡、結果寫不回。
+    /// 放手後那次續租若晚到，租約已被結束寫回清掉，續租只會回「不是持有者」，無害。
+    /// </summary>
+    private async Task StopRenewalAsync(Task renewal, string key)
+    {
+        try
+        {
+            await renewal.WaitAsync(_limits.Renew, time);
+        }
+        catch (TimeoutException)
+        {
+            logger.LogWarning("排程工作 {JobKey} 的續租呼叫不理會取消，已放手不等", key);
+        }
     }
 
     /// <summary>租約截止＝租約到期前一個續租週期；已經過了就立刻截止。</summary>

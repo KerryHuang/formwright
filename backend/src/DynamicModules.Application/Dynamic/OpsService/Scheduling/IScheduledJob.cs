@@ -28,7 +28,7 @@ public sealed class JobRunContext(IServiceProvider services, string jobKey, stri
     public string JobKey { get; } = jobKey;
     public string Owner { get; } = owner;
 
-    /// <summary>給寫入交易用的租約檢查條件（取當下時間）。</summary>
+    /// <summary>給寫入交易用的租約檢查條件；<see cref="JobLeaseFence.NowUtc"/> 取建立這個物件的時刻（寫入請求送出前），不是交易實際執行時刻。</summary>
     public JobLeaseFence Fence() => new(JobKey, Owner, time.GetUtcNow().UtcDateTime);
 }
 
@@ -36,6 +36,10 @@ public sealed class JobRunContext(IServiceProvider services, string jobKey, stri
 /// 寫入交易內的租約檢查：這個持有者仍持有、而且租約還沒過期（條件式更新，影響列數 1 才算）。
 /// PostgreSQL 上這個 UPDATE 持有工作列的列鎖到交易結束，別的實例要等它提交後才搶得到租約，所以工作的寫入不會和接手者重疊。
 /// </summary>
+/// <remarks>
+/// 實際保證：<c>NowUtc</c> 是送出請求時刻，請求排隊或等鎖期間租約可能已到期而檢查仍通過；
+/// 由 <see cref="JobRunner"/> 的租約截止（到期前一個續租週期就取消工作）擋住，所以送出後到執行的落差必須小於一個續租週期。
+/// </remarks>
 public sealed record JobLeaseFence(string JobKey, string Owner, DateTime NowUtc)
 {
     /// <summary>租約已失效時寫入請求回的 Conflict 代碼。</summary>
