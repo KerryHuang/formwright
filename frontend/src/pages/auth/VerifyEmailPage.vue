@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useVerifyEmail } from 'src/application/dynamic/queries/account-security-queries';
+import { dynamicApi } from 'src/services/api/dynamic-api';
 import { useIdentityStore } from 'src/stores/use-identity-store';
 
 const { t } = useI18n();
 const identity = useIdentityStore();
-const verify = useVerifyEmail();
 /** 'verifying'：送出中；'ok'：已驗證；'invalid'：連結失效或用過；'failed'：連不上伺服器等。 */
 const state = ref<'verifying' | 'ok' | 'invalid' | 'failed'>('verifying');
 
@@ -15,10 +14,11 @@ onMounted(() => {
   const token = new URLSearchParams(window.location.hash.slice(1)).get('t') ?? '';
   if (window.location.hash) window.history.replaceState(window.history.state, '', window.location.pathname);
   if (!token) { state.value = 'invalid'; return; }
-  verify.mutate(token, {
-    onSuccess: () => { state.value = 'ok'; },
-    onError: (e) => { state.value = (e as { status?: number }).status === 400 ? 'invalid' : 'failed'; },
-  });
+  // 直接呼叫、不經 vue-query：權杖不留在 mutation cache（au1a 審查次要；單次使用、只送一次，不需要重試或快取）
+  dynamicApi.verifyEmail(token).then(
+    () => { state.value = 'ok'; },
+    (e) => { state.value = (e as { status?: number }).status === 400 ? 'invalid' : 'failed'; },
+  );
 });
 </script>
 

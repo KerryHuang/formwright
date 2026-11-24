@@ -37,6 +37,3 @@ export function useResendUserEmail() {
 
 export const useMailOutbox = (page: MaybeRef<number>) =>
   useQuery({ queryKey: ['mail-outbox', page], queryFn: () => dynamicApi.getMailOutbox(toValue(page)) });
-
-/** 驗證連結：匿名呼叫，權杖不進 query key 或 variables 以外的地方。 */
-export const useVerifyEmail = () => useMutation({ mutationFn: (token: string) => dynamicApi.verifyEmail(token) });

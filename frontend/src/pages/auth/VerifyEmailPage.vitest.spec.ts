@@ -12,15 +12,17 @@ import VerifyEmailPage from './VerifyEmailPage.vue';
 vi.mock('src/services/api/dynamic-api', () => ({ dynamicApi: { verifyEmail: vi.fn() } }));
 const api = vi.mocked(dynamicApi);
 let mounted: ReturnType<typeof mount> | undefined;
+let queryClient: QueryClient;
 
 async function mountAt(hash: string) {
   window.history.replaceState(null, '', `/verify-email${hash}`);
   setActivePinia(createPinia());
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:p(.*)*', component: { template: '<i/>' } }] });
   const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
+  queryClient = new QueryClient();
   mounted = mount(VerifyEmailPage, {
     attachTo: document.body,
-    global: { plugins: [[quasar.Quasar, { components: quasar, directives: quasar }], i18n, router, [VueQueryPlugin, { queryClient: new QueryClient() }]] },
+    global: { plugins: [[quasar.Quasar, { components: quasar, directives: quasar }], i18n, router, [VueQueryPlugin, { queryClient }]] },
   });
   await flushPromises();
 }
@@ -37,6 +39,14 @@ describe('VerifyEmailPage', () => {
     expect(window.location.hash).toBe('');
     expect(window.location.pathname).toBe('/verify-email');
     expect(q('verify-ok')?.textContent).toBe(zhTW.accountSecurity.verifyOk);
+  });
+
+  it('the token never lands in the vue-query caches (au1a review)', async () => {
+    api.verifyEmail.mockResolvedValue(undefined);
+    await mountAt('#t=SecretTok42');
+    expect(api.verifyEmail).toHaveBeenCalledWith('SecretTok42');
+    const cached = JSON.stringify([queryClient.getMutationCache().getAll().map((m) => m.state), queryClient.getQueryCache().getAll().map((x) => x.state)]);
+    expect(cached).not.toContain('SecretTok42');
   });
 
   it('shows the expired message on 400 and when there is no token', async () => {
