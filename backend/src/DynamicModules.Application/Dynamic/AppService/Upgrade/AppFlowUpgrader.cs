@@ -123,7 +123,8 @@ public sealed class AppFlowUpgrader(ISender sender, IModuleRepository modules, I
         {
             var code = item.Id["conversion:".Length..];
             var merged = Merge(item, ctx.Current.Conversions.First(c => c.Code == code), n.Conversions.First(c => c.Code == code));
-            if (AppFlowInstaller.ConversionInputOf(merged, ids) is not { } input) return Missing(item.Id, [AppMessages.UpgradeStrictMissing(code)]);
+            if (AppFlowInstaller.ConversionInputOf(merged, ids, out var missing) is not { } input)
+                return Missing(item.Id, [AppMessages.UpgradeStrictMissing(string.Join("、", missing.DefaultIfEmpty(code)))]);
             if ((failure = Fail(await sender.Send(new UpdateConversionRequest(code, input), ct), item.Id)) is not null) return failure;
         }
 
@@ -134,7 +135,9 @@ public sealed class AppFlowUpgrader(ISender sender, IModuleRepository modules, I
         foreach (var item in Modified("printTemplates"))
         {
             var code = item.Id["printTemplate:".Length..];
-            var merged = Merge(item, ctx.Current.PrintTemplates.First(t => t.Code == code), n.PrintTemplates.First(t => t.Code == code));
+            // 代號只在模組內唯一：現況、新版都同時比模組（同代號跨模組的預覽已標 codeAmbiguous，審查 M2）
+            var merged = Merge(item, ctx.Current.PrintTemplates.First(t => t.Code == code && t.Module == item.Module),
+                n.PrintTemplates.First(t => t.Code == code && t.Module == item.Module));
             var converted = AppPrintCodec.ToDatabase(merged.Body, merged.Module,
                 m => ids.ModuleKeys.GetValueOrDefault(m), name => ids.FieldIds.TryGetValue(name, out var id) ? id : null);
             if (converted.Body is null || converted.Dropped.Count > 0 || !ids.ModuleKeys.TryGetValue(merged.Module, out var moduleKey))

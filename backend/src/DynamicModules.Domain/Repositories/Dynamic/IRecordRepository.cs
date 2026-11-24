@@ -35,6 +35,8 @@ public interface IRecordRepository
         long fieldId, string refKey, IReadOnlyCollection<string>? ownerUserIds, int page, int size, CancellationToken ct);
     /// <summary>參照欄位 fieldId 的值等於 refKey、未刪除的記錄（追蹤中、不套資料範圍、不分頁），供刪除規劃。</summary>
     Task<IReadOnlyList<Record>> ListByRefAsync(long fieldId, string refKey, CancellationToken ct);
+    /// <summary>模組裡參照欄位有值（有索引列）的未刪除記錄數。</summary>
+    Task<int> CountByRefFieldAsync(long moduleId, long fieldId, CancellationToken ct);
     /// <summary>明細欄位 detailFieldId 指向 parentKey 的明細列 Id（含已刪除：軟刪除不清索引），供讀歷程。</summary>
     Task<IReadOnlyList<long>> ListDetailRowIdsAsync(long detailFieldId, string parentKey, CancellationToken ct);
     /// <summary>刪除某筆記錄在某欄位的索引列（欄位值被清空時用）。</summary>

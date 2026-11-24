@@ -194,6 +194,14 @@ public class AppUpgradeCodedTests : IDisposable
         r.StampCreated("admin", new DateTime(2026, 11, 3, 9, 0, 0));
         db.Set<Record>().Add(r);
         db.SaveChanges();
+        // 參照欄位照正式寫入路徑建索引（已轉出張數走索引計數，S5）
+        foreach (var (name, value) in values)
+        {
+            var fieldId = _rig.FieldId(Id, $"{module}.{name}");
+            if (value is not null && db.Set<Field>().Single(f => f.Id == fieldId).Type == FieldType.Reference)
+                db.Set<RecordIndex>().Add(new RecordIndex { RecordId = r.Id, FieldId = fieldId, RefKey = value.ToString() });
+        }
+        db.SaveChanges();
         return r.Id;
     });
 
@@ -716,5 +724,140 @@ public class AppUpgradeCodedTests : IDisposable
         await ApplyOkAsync(preview, Defaults(preview));
         _rig.Db(db => db.Set<Record>().Count()).Should().Be(2, "既有記錄、已轉出的單不變");
         _rig.Db(db => db.Set<PrintTemplate>().Single(t => t.Key == "uc-sheet").Body).Should().StartWith("<h2>");
+    }
+
+    // ---- 修正輪（審查 M1、M2、S1、S2、S4、S6）----
+
+    [Fact]
+    public async Task A60_EachChanged_FiredEffect_M1()
+    {
+        await OpenAsync();
+        Fact("uc-mark", "log");
+        // 整張改逐明細：冪等鍵的 ItemKey 從 0 變成明細 id，已記帳的單再觸發會重複記帳
+        await NewVersionAsync(p => Named(p, "events", "uc-mark")["effects"]![0]!["each"] = "ord-line");
+        var item = Item(await PreviewAsync(), "event:uc-mark");
+        Reason(item).Should().Be("firedEffect");
+        item.GetProperty("detail").GetString().Should().Be("log");
+    }
+
+    private static void SecondSheet(JsonObject p) => p["printTemplates"]!.AsArray().Add(JsonNode.Parse("""
+        { "module": "ship", "code": "uc-sheet", "name": { "zh-TW": "出貨單" }, "active": true, "body": "<p>{{note}}</p>" }
+        """));
+
+    [Fact]
+    public async Task PrintTemplateSameCodeInTwoModules_CodeAmbiguous_NeitherOverwritten_M2()
+    {
+        await OpenAsync(SecondSheet);
+        long OrdModule() => _rig.Db(db => db.Set<Module>().Single(m => m.Key == "uc-ord").Id);
+        long ShipModule() => _rig.Db(db => db.Set<Module>().Single(m => m.Key == "uc-ship").Id);
+        var ord = OrdModule();
+        var ship = ShipModule();
+        _rig.Db(db => { db.Set<PrintTemplate>().Single(t => t.Key == "uc-sheet" && t.ModuleId == ord).Body += "<p>客戶加的</p>"; });
+        await NewVersionAsync(p =>
+        {
+            SecondSheet(p);
+            p["printTemplates"]!.AsArray().Single(t => (string?)t!["module"] == "ship")!["body"] = "<h3>{{note}}</h3>";
+        });
+
+        var preview = await PreviewAsync();
+        var item = Item(preview, "printTemplate:uc-sheet");
+        Reason(item).Should().Be("codeAmbiguous");
+        item.GetProperty("applicable").GetBoolean().Should().BeFalse();
+        (await ApplyAsync(preview, ["printTemplate:uc-sheet"])).IsSuccessStatusCode.Should().BeFalse();
+        _rig.Db(db => db.Set<PrintTemplate>().Single(t => t.Key == "uc-sheet" && t.ModuleId == ord).Body).Should().Contain("客戶加的");
+        _rig.Db(db => db.Set<PrintTemplate>().Single(t => t.Key == "uc-sheet" && t.ModuleId == ship).Body).Should().NotContain("<h3>");
+    }
+
+    [Fact]
+    public async Task A37_CheckOnNewField_OverLimit_BackfillLimit_S1()
+    {
+        await OpenAsync();
+        _rig.Db(db =>
+        {
+            var moduleId = db.Set<Module>().Single(m => m.Key == "uc-move").Id;
+            db.Set<Record>().AddRange(Enumerable.Range(0, 1001).Select(_ =>
+            {
+                var r = new Record { ModuleId = moduleId, OwnerUserId = "admin", RowVersion = Guid.NewGuid().ToString() };
+                r.StampCreated("admin", new DateTime(2026, 11, 3, 9, 0, 0));
+                return r;
+            }));
+        });
+        (await _rig.Admin.PutAsJsonAsync($"{Base}/system/policies/check.maxBackfillRecords", new { value = 1000 })).IsSuccessStatusCode.Should().BeTrue();
+        await NewVersionAsync(p =>
+        {
+            Module(p, "move")["blocks"]![0]!["fields"]!.AsArray().Add(JsonNode.Parse(F("lot", "text", "批號")));
+            p["checks"]!.AsArray().Add(JsonNode.Parse("""
+                { "code": "uc-lot", "name": { "zh-TW": "批號上限" }, "active": true, "module": "move", "groupBy": ["move.lot"], "function": "sum",
+                  "field": "move.qty", "where": null, "assert": { "op": "lte", "limit": { "const": 100 } }, "message": { "zh-TW": "批號超過上限" } }
+                """));
+        });
+
+        var item = Item(await PreviewAsync(), "check:uc-lot");
+        Reason(item).Should().Be("backfillLimit", "新欄位不會建索引，模組記錄又超過上限，套用時一定被擋");
+        Affected(item).Should().Be(1001);
+    }
+
+    [Fact]
+    public async Task ExistingTaskRule_ModuleTasksOff_NoEnablesTasks_AndApplyKeepsOff_S2()
+    {
+        await OpenAsync();
+        _rig.Db(db => { db.Set<Module>().Single(m => m.Key == "uc-ord").TasksEnabled = false; });
+        await NewVersionAsync(p => Named(p, "taskRules", "uc-follow")["tasks"]![0]!["title"] = new JsonObject { ["zh-TW"] = "電話聯絡" });
+
+        var preview = await PreviewAsync();
+        var item = Item(preview, "taskRule:uc-follow");
+        Impacts(item).Select(x => x.Code).Should().NotContain("enablesTasks", "修改既有規則不會替客戶打開任務");
+        await ApplyOkAsync(preview, ["taskRule:uc-follow"]);
+        _rig.Db(db => db.Set<Module>().Single(m => m.Key == "uc-ord").TasksEnabled).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task CustomerDeletedEventAndConversion_StillGuarded_S4()
+    {
+        await OpenAsync();
+        Fact("uc-mark", "log");
+        var ord = Insert("ord", new() { ["no"] = "O-9" });
+        Insert("ship", new() { ["note"] = "S-9", ["fromOrd2"] = ord.ToString() });
+        _rig.Db(db =>
+        {
+            db.Set<ModuleEvent>().Remove(db.Set<ModuleEvent>().Single(e => e.Key == "uc-mark"));
+            db.Set<Conversion>().Remove(db.Set<Conversion>().Single(c => c.Key == "uc-ship2"));
+        });
+        await NewVersionAsync(p =>
+        {
+            Named(p, "events", "uc-mark")["effects"]![0]!["target"] = "ship";
+            Named(p, "events", "uc-mark")["effects"]![0]!["set"]![0]!["to"] = "ship.note";
+            Named(p, "conversions", "uc-ship2")["header"]!["sourceField"] = "ship.fromOrd3";
+        });
+
+        var preview = await PreviewAsync();
+        Reason(Item(preview, "event:uc-mark")).Should().Be("firedEffect", "客戶刪掉事件，事實仍在；勾回改過的效果會重複記帳");
+        var conversion = Item(preview, "conversion:uc-ship2");
+        Reason(conversion).Should().Be("conversionInUse");
+        Affected(conversion).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task CheckOnMasterModule_GuardRuns_AutoFilterable_S6()
+    {
+        await _rig.ImportAsync(SharedMasterPackages.Bp);
+        void Master(JsonObject p) => p["manifest"]!["requires"] = JsonNode.Parse("""{ "masters": [ { "id": "bp", "modules": ["partner"] } ] }""");
+        await OpenAsync(Master, new
+        {
+            groupMap = GroupMap(),
+            masters = new Dictionary<string, object> { ["bp"] = new Dictionary<string, object> { ["steward"] = new { mode = "create" } } }
+        });
+        await NewVersionAsync(p =>
+        {
+            Master(p);
+            p["checks"]!.AsArray().Add(JsonNode.Parse("""
+                { "code": "uc-bp-cap", "name": { "zh-TW": "名稱人數上限" }, "active": true, "module": "bp/partner", "groupBy": ["bp/partner.name"], "function": "sum",
+                  "field": "bp/partner.headcount", "where": null, "assert": { "op": "lte", "limit": { "const": 100 } }, "message": { "zh-TW": "人數超過上限" } }
+                """));
+        }, customize: Master);
+
+        var item = Item(await PreviewAsync(), "check:uc-bp-cap");
+        item.GetProperty("applicable").GetBoolean().Should().BeTrue();
+        Impacts(item).Select(x => x.Code).Should().Contain("autoFilterable", "主檔模組上的檢查一樣要跑守衛");
     }
 }

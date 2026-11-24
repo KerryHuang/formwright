@@ -34,10 +34,11 @@ public class CheckIndexer(
     /// <summary>
     /// 純判斷（套件更新設計 T46 第 3 點）：哪些欄位要開可篩選、哪些要回填索引、會不會超過政策 check.maxBackfillRecords。
     /// 不改欄位、不寫資料，升級預覽與 <see cref="PrepareAsync"/> 共用；Failure 是型別不支援（400）或回填超過上限（409）。
+    /// <paramref name="forceBackfill"/>：定義還引用了尚未建立、建立後沒有索引的欄位（升級預覽的新欄位），一樣要比回填上限。
     /// </summary>
     public sealed record IndexPlan(ServiceResult? Failure, List<Field> Enable, List<Field> Backfill, List<string> Notices);
 
-    public async Task<IndexPlan> PlanAsync(Module module, CheckDefinition def, CancellationToken ct)
+    public async Task<IndexPlan> PlanAsync(Module module, CheckDefinition def, CancellationToken ct, bool forceBackfill = false)
     {
         var notices = new List<string>();
         var fields = module.Blocks.SelectMany(b => b.Fields).Where(f => f.Status == FieldStatus.Active).ToDictionary(f => f.Id);
@@ -66,7 +67,7 @@ public class CheckIndexer(
             && await records.NeedsScaledBackfillAsync(sum.Id, ScaledNumber.ScaleOf(sum), ct))
             toBackfill.Add(sum);
 
-        if (toBackfill.Count > 0)
+        if (toBackfill.Count > 0 || forceBackfill)
         {
             var count = await records.CountByModuleAsync(module.Id, ct);
             var max = await policies.IntAsync(PolicyCatalog.CheckMaxBackfillRecords, null, ct);

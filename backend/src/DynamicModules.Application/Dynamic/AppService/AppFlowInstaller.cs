@@ -360,9 +360,18 @@ public sealed class AppFlowInstaller(ISender sender, IModuleRepository modules, 
     }
 
     /// <summary>任何一個欄位或選項被排除就回 null。升級修改既有轉換也走這一份（套件更新設計 T29、審查 S9）。</summary>
-    internal static ConversionInput? ConversionInputOf(AppConversion c, TemplateIdMap ids)
+    internal static ConversionInput? ConversionInputOf(AppConversion c, TemplateIdMap ids) => ConversionInputOf(c, ids, out _);
+
+    /// <summary>同上，另外交出找不到的欄位、選項對照名稱（升級的錯誤訊息填缺的是哪個，審查 S8）。</summary>
+    internal static ConversionInput? ConversionInputOf(AppConversion c, TemplateIdMap ids, out List<string> missing)
     {
-        bool Missing(params string?[] names) => names.Any(n => n is null || !ids.FieldIds.ContainsKey(n));
+        var gone = new List<string>();
+        missing = gone;
+        bool Missing(params string?[] names)
+        {
+            gone.AddRange(names.Where(n => n is null || !ids.FieldIds.ContainsKey(n)).Select(n => n ?? "?").Distinct());
+            return gone.Count > 0;
+        }
         long Id(string name) => ids.FieldIds[name];
         FillMapping Map(AppCopy x) => new(Id(x.From), Id(x.To));
 
@@ -375,10 +384,12 @@ public sealed class AppFlowInstaller(ISender sender, IModuleRepository modules, 
         }
         names.AddRange((c.Header.Set ?? []).Select(x => x.To));
         if (Missing([.. names])) return null;
-        if (c.SourceStates.Any(s => !ids.OptionIds.ContainsKey($"{c.Source}.{s}"))) return null;
+        gone.AddRange(c.SourceStates.Select(s => $"{c.Source}.{s}").Where(s => !ids.OptionIds.ContainsKey(s)));
+        if (gone.Count > 0) return null;
         // 固定值的選項：選項對照名稱是 <模組>.<選項代號>，模組取欄位限定名的模組部分（主檔符號含 <主檔 id>/）
         string OptionName(AppConversionSet x) => $"{x.To[..x.To.LastIndexOf('.')]}.{x.Option}";
-        if ((c.Header.Set ?? []).Any(x => !ids.OptionIds.ContainsKey(OptionName(x)))) return null;
+        gone.AddRange((c.Header.Set ?? []).Select(OptionName).Where(o => !ids.OptionIds.ContainsKey(o)));
+        if (gone.Count > 0) return null;
 
         var lines = c.Lines is { } ln
             ? new ConversionLines(ids.ModuleKeys[ln.SourceModule], ids.ModuleKeys[ln.TargetModule], Id(ln.SourceLineField),
