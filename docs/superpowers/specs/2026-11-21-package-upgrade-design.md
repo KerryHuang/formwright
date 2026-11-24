@@ -652,7 +652,7 @@ Demo 推導的舊版 CRM 另外推導幾處（§11.1 的做法，JSON 文字層�
 - 原因代碼 `statusFieldChanged`、`unlocksRecords`、`transitionGroups`、`approvalInFlight`、`flowInUse`、`priorityTaken`、`approverGroups`、`workflowInvalid`；`impacts` 的 `recordsInState`、`inFlightApprovals`；新轉移的附帶權限（T57）。
 - `SecondBatch` 拿掉 `workflows`、`approvalFlows`（T39）。
 - Demo：轉移群組、簽核關卡名稱、一筆送簽未核的設計案；`DemoStructureTests.cs:90` 改成 7；手冊。
-- 驗收：A16a、A25–A32、A51、A53、A55、A56、A57、A61、A64、A65、A72、S5。
+- 驗收：A25–A32、A51、A53、A55、A56、A57、A61、A64、A65、A72、S5。
 
 **pkg1d1b 內容**：
 - 轉換（T48、`ConversionInputOf` 改 internal）、事件（T49）、檢查（T46 第 3、5 點）、分錄、列印範本、任務規則（含主檔模組上的，T54；報表維持擋下，T60）。
@@ -661,7 +661,7 @@ Demo 推導的舊版 CRM 另外推導幾處（§11.1 的做法，JSON 文字層�
 - 原因代碼 `conversionInUse`、`firedEffect`、`backfillLimit`、`ledgerLocked`、`ledgerFreeze`；`impacts` 的 `futureOnly`、`enablesTasks`、`autoFilterable`。
 - `SecondBatch` 拿掉這六類，`/` 規則改成不套 Coded 類（T39、T54）。
 - Demo：列印範本、任務規則；`DemoStructureTests.cs:90` 改成 9；手冊。
-- 驗收：A16、A16b、A33–A41、A52、A54、A58–A60、A62、A63、A73；A16a 在這段合併時刪掉。
+- 驗收：A16、A16b、A33–A41、A52、A54、A58–A60、A62、A63、A73；A16a 已在這段合併時刪掉（驗收表與測試都拿掉）。
 
 **共用檔**（兩段都要動，所以依序做、不平行）：`AppUpgrader.cs`／新的 `AppFlowUpgrader.cs`、`AppUpgradePreviewer.cs`（`SecondBatch`、守衛串接）、`UpgradeResponses.cs`、更新頁、`ui.json` 四語、`DemoOldCrm.cs`、`DemoStructureTests.cs`、手冊。
 - **只有 pkg1d1a 動**：`UpgradeItems.cs`（相依規則、簽核流程拆屬性）、`UpgradeClassifier.cs`（如需）、`AppFlowInstaller.cs`（拆入口、嚴格模式）、`AppApprovalFlowCodec.cs`（收群組 id）、`PendingApprovalGuard.cs`、`LockedDataGuard.cs`、`SaveWorkflowHandler.cs`、`ApprovalConstraints.cs`（如需改簽名）、`ApprovalFlowHandlers.cs`、`DesignCaseScenario.cs`。
@@ -701,6 +701,26 @@ Demo 推導的舊版 CRM 另外推導幾處（§11.1 的做法，JSON 文字層�
   - 依賴不能套用的項目時，自己也標不能勾，新原因代碼 `dependsOnBlocked`，`detail` 是那幾項的 id（「、」分隔，更新頁換成名稱），可遞移（審查 S7，補進 §9.6.4 的代碼清單）。
   - 更新頁可讀性（走查 W1–W3）：狀態機、狀態、轉移項目帶顯示名稱（「模組」「模組：狀態」「模組：甲 → 乙」）；屬性名補四語標籤，群組 id 顯示群組名稱，簽核關卡與簽核人顯示摘要；「已是最新」「沒有可用的新版」「降版」三句進四語訊息表。
   - Demo 推導的舊版把設計案簽核第一關的舊名從「業務主管」改成「業務主管審核」，避免和簽核人姓名「業務主管」撞名（手冊 §22 照套用前的畫面寫）。
+
+#### 9.6.9 pkg1d1b 實作補記（2026-11-24）
+
+- **事實查詢的位置（技術類）**：本節原寫「`IEventRepository` 加依（事件代號、效果代號）查事實」，事實在 `IEventFactRepository`，所以加在那裡（`AnyByEffectAsync`）。
+- **預覽守衛集中一處（技術類）**：`UpgradeCodedGuards` 對轉換、事件、檢查、分錄、任務規則，以「現況為底、換上要寫的屬性」組出套用後的定義（同套用的 `Merge`），再呼叫設計器的同一份判斷：`CheckIndexer.PlanAsync`（從 `PrepareAsync` 拆出的純判斷）、`SaveLedgerHandler.Blocker`（從存檔 handler 抽出）、`ConversionLedger.ConvertedHeadersAsync`（數已轉出張數）。新版才有的欄位、選項在判斷時給臨時負數 id（等於不存在），檢查用到它們時 `PlanAsync` 不會列進自動可篩選。
+- **T48 的「追溯或數量欄位」範圍（技術類）**：表頭追溯欄位、`lines` 整段新增或拿掉、明細的來源與目標模組、追溯明細欄位、數量對應的 from／to；帶值（copy）與固定值（set）不算。已轉出張數以「目標模組裡追溯欄位有值的未刪除記錄」計。
+- **行為類代做（待使用者確認）**：
+  1. `kindChanged` 擴大到「所在的模組」：轉換換來源或目標、事件換來源、檢查與列印範本與任務規則換所在模組，一律標 `kindChanged`、不能勾（設計器本來也不能改這些；放行等於刪掉重建，會斷掉已有的事實、索引、任務）。繁中訊息改成「模組種類、擴充宿主或所在的模組不能更改」。選錯的代價：新版真的要搬模組時客戶只能手動在設計器重建。
+  2. `futureOnly` 只標在既有項目的修改，新增的不標（新增本來就沒有既有資料可影響）。選錯的代價：只是提示少一行。
+  3. `firedEffect` 的 `detail` 放效果代號（只標第一個命中的效果）；更新頁直接帶進訊息。代號對一般使用者不直覺，選錯的代價：要另補效果名稱的對照。
+  4. 分錄的「確認凍結」不替管理員按（Q21 延伸）：已有記錄的模組新設成分錄一律 `ledgerFreeze` 擋下，包含新版新勾分錄的既有模組。選錯的代價：Demo 或客戶要到設計器多按一次。
+- **已知限制**：
+  - **修改之間的相依沒有追蹤**：`dependsOn` 只連到現況沒有的項目。兩項都是修改、又彼此有關（例如沖銷事件 `ofEffect` 改指向另一個也被修改的事件新效果），只勾一項時預覽看不出來，套用回 400、整批還原。手冊已寫「請一起勾」。
+  - **T46 第 5 點**：合計欄位回填時小數位數不合，預覽不會先擋（`PlanAsync` 不讀資料值），套用時由 `PrepareAsync` 擋下並整批還原；手冊已寫。
+  - 套用的 warnings（任務規則自動啟用任務、檢查回填的提示）仍是繁中字串，未結構化。
+- **驗收構造差異**：
+  - A62 的既有任務規則改的是任務標題（不是偏移天數；偏移同步由 A40 驗），轉換那一格（目標寫主檔符號的轉換）未做，主檔符號換算本來就排在 pkg1d2（T43 第 5 點）。
+  - A63 另一格的「前端連勾狀態」沿用既有 `dependsOn` 連勾，沒有另寫前端測試；後端 400 已驗。
+  - A16 改用共用主檔貢獻的欄位構造第二批差異（轉換等已不再是第二批）。
+- **測試小節**：A16b、A33–A41、A52、A54、A58–A60、A62、A63、A73 在 `AppUpgradeCodedTests`（雙跑集，自帶一份含狀態機、分錄、事件、檢查、轉換、列印範本、任務規則的小套件 `uc`）；A16 在 `AppUpgradeApplyTests`；Demo 推導的舊版多兩項差異（報價單列印範本少最後一行備註、任務規則「行銷活動派工」舊名「活動派工」），`DemoStructureTests` 的項目數 7 → 9。
 
 ## 10. 畫面
 
@@ -838,7 +858,7 @@ Demo 產生器開啟「CRM 與銷售」時，不開目錄裡那份，改開一�
 
 - 分流 pkg1-8 原本把「下載目前設計」與稽核明細放在 pkg1d；本設計的套用在 pkg1c 就上線，所以兩者提前到 pkg1c，套用第一天就有。
 - pkg1a 要最先、盡早合併：越早上線，越多應用程式有基準。它很小，不必等後面的段設計審完。
-- pkg1c 合併、pkg1d 還沒合併時，新版若有第二批項目的差異：預覽照列，標「這一版還不能套用」，**整個套用被擋**（`blockers`）。不允許「只套第一批、基準卻換成新版」，否則第二批的差異下次就看不到了。內建套件在這段期間不升版即可。驗收 A16 原本只在這段期間成立；pkg1d 拆成三段後分成 A16a（pkg1d1a 合併後到 pkg1d1b 之間，pkg1d1b 合併時刪掉）、A16（pkg1d1b 合併後到 pkg1d2 之間，pkg1d2 合併時刪掉）與 A16b（pkg1d1b 起），各段的 `SecondBatch` 見 §9.6.7 的 blocker 狀態表。
+- pkg1c 合併、pkg1d 還沒合併時，新版若有第二批項目的差異：預覽照列，標「這一版還不能套用」，**整個套用被擋**（`blockers`）。不允許「只套第一批、基準卻換成新版」，否則第二批的差異下次就看不到了。內建套件在這段期間不升版即可。驗收 A16 原本只在這段期間成立；pkg1d 拆成三段後分成 A16a（pkg1d1a 合併後到 pkg1d1b 之間，已於 pkg1d1b 刪掉）、A16（pkg1d1b 合併後到 pkg1d2 之間，pkg1d2 合併時刪掉）與 A16b（pkg1d1b 起），各段的 `SecondBatch` 見 §9.6.7 的 blocker 狀態表。
 - pkg1a 是唯一有 migration 的段，不和其他會加 migration 的段平行（後端規則）。排程時特別注意 i3a（`NameI18n`）與 bk1（若它的設計帶 migration）：同一時間只能有一段在加 migration，誰後合併誰重產。
 - pkg1b、pkg1c 都動 `AppsPage.vue` 與 `ui.json`，依序做。
 
@@ -923,7 +943,6 @@ Demo 產生器開啟「CRM 與銷售」時，不開目錄裡那份，改開一�
 | A13 | 新版需要進銷存 1.3.0 才有的模組，客戶進銷存是 1.2.0 | 預覽 | `blockers`「請先更新 進銷存」 |
 | A14 | 版號相同 | 預覽 | 「已是最新」 |
 | A15 | 候選新版版號比目前小 | 預覽 | 409 |
-| A16a | pkg1d1a 已上線、pkg1d1b 未上線，新版改了轉換、事件、檢查、分錄、列印範本或任務規則；另一格新版只改了狀態機與簽核流程 | 預覽 | 前者那些項目 `notYetSupported`，`blockers` 有 `secondBatch`，`canApply` false；後者沒有 `secondBatch`，可以套用；pkg1d1b 合併時刪掉這條 |
 | A16 | pkg1d1b 已上線、pkg1d2 未上線，新版改了貢獻欄位、整合或 `mainModule` 是主檔符號的報表，或用到的共用主檔有新版 | 預覽 | 那些項目 `notYetSupported`，`blockers` 有 `secondBatch` 或 `masterPending`，`canApply` false；pkg1d2 合併時刪掉這條 |
 | A16b | pkg1d1b 已上線，新版只改了狀態機、列印範本等 pkg1d1a、pkg1d1b 的種類 | 預覽後套用 | 沒有 `secondBatch`，可以套用 |
 | A17 | 新版欄位 `excludeFromAi: true`（i3c 後），現況 false | 套用 | 變 true；反過來新版 false、現況 true 時不變 |
@@ -933,7 +952,7 @@ Demo 產生器開啟「CRM 與銷售」時，不開目錄裡那份，改開一�
 | A21 | 套用第 5 個項目時設計器指令回失敗 | 套用 | 回失敗與該項目識別；前 4 項也沒留下 |
 
 pkg1d 的案例（§9.6）分段：
-- pkg1d1a：A16a、A25–A32、A51、A53、A55、A56、A57、A61、A64、A65、A72，以及 §17.4 的 S5。
+- pkg1d1a：A25–A32、A51、A53、A55、A56、A57、A61、A64、A65、A72，以及 §17.4 的 S5。
 - pkg1d1b：A16、A16b、A33–A41、A52、A54、A58–A60、A62、A63、A73。
 - pkg1d2：A42–A50、A66–A71、A74。
 
