@@ -4,6 +4,7 @@ using DynamicModules.Application.Dynamic.DemoService.Commands.GenerateDemoData;
 using DynamicModules.Domain.Data;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Persistence.Seed;
+using DynamicModules.TestSupport;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,7 +17,7 @@ public class DemoPeopleTests
     /// <summary>產生器加完人員後把 maint01 拿掉，讓時間線上第一個 maint01 的步驟失敗。</summary>
     internal static void WithoutMaintenanceUser(IServiceCollection services) =>
         services.AddScoped<IDemoPeople>(sp => new DropMaintenance(
-            new DemoPeopleSeeder(sp.GetRequiredService<DynamicDbContext>(), sp.GetRequiredService<IBusinessTime>()),
+            new DemoPeopleSeeder(sp.GetRequiredService<DynamicDbContext>(), sp.GetRequiredService<IBusinessTime>(), sp.GetRequiredService<TimeProvider>()),
             sp.GetRequiredService<DynamicDbContext>()));
 
     private sealed class DropMaintenance(IDemoPeople inner, DynamicDbContext db) : IDemoPeople
@@ -56,5 +57,18 @@ public class DemoPeopleTests
         var db = host.Db.Context;
         (await db.Set<AppUser>().AsNoTracking().AnyAsync(u => u.UserId == "sales01")).Should().BeFalse();
         (await db.Set<PermissionGroup>().AsNoTracking().AnyAsync()).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task AddPeople_GivesDemoAccountsVerifiedEmails_ExceptFloor02_AndSetsSiteName()
+    {
+        await using var host = await DemoTestHost.CreateAsync();
+        await TestPermits.RunForTestsAsync(() => host.Services.GetRequiredService<IDemoPeople>().AddAsync(CancellationToken.None));
+
+        var users = await host.Db.Context.Set<AppUser>().AsNoTracking().Where(u => u.IsDemoAccount).ToListAsync();
+        users.Should().HaveCount(DemoPeople.Users.Length);
+        users.Should().OnlyContain(u => u.Email == u.UserId + "@example.com");
+        users.Where(u => u.EmailVerifiedUtc == null).Select(u => u.UserId).Should().Equal(DemoPeople.UnverifiedEmailUser);
+        (await host.Db.Context.Set<SystemSetting>().AsNoTracking().SingleAsync(s => s.Key == "site.name")).Value.Should().Be("示範科技");
     }
 }

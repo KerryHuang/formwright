@@ -77,6 +77,30 @@ public static class DemoPeople
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>沒驗證 Email 的示範帳號（示範路徑：管理員改它的 Email、在寄送紀錄看信、開連結，帳號安全設計 §13.5）。</summary>
+    public const string UnverifiedEmailUser = "floor02";
+
+    /// <summary>Demo 站的站台名稱（虛構，帳號安全設計 §13.1）。</summary>
+    public const string DemoSiteName = "示範科技";
+
+    /// <summary>
+    /// 示範帳號的虛構 Email（<c>&lt;帳號&gt;@example.com</c>，RFC 2606 保留網域）與站台名稱（帳號安全設計 §13.1）：
+    /// <see cref="UnverifiedEmailUser"/> 以外都算已驗證。只由 Demo 產生器呼叫，不放進 <see cref="EnsureAsync"/>（測試基底不受影響）。
+    /// 已有 Email 的帳號與已設的站台名稱不覆寫；會自行 SaveChanges。
+    /// </summary>
+    public static async Task EnsureAccountSecurityAsync(DynamicDbContext db, DateTime nowUtc, CancellationToken ct = default)
+    {
+        var ids = Users.Select(u => u.Id).ToList();
+        foreach (var user in await db.Set<AppUser>().Where(u => ids.Contains(u.UserId) && u.Email == null).ToListAsync(ct))
+        {
+            user.Email = $"{user.UserId}@example.com";
+            user.EmailVerifiedUtc = user.UserId == UnverifiedEmailUser ? null : nowUtc;
+        }
+        if (!await db.Set<SystemSetting>().AnyAsync(s => s.Key == Application.Dynamic.MailService.SiteName.Key, ct))
+            db.Set<SystemSetting>().Add(new SystemSetting { Key = Application.Dynamic.MailService.SiteName.Key, Value = DemoSiteName });
+        await db.SaveChangesAsync(ct);
+    }
+
     /// <summary>補齊示範組織（先要有 <see cref="Users"/>；createdTime 是營運時間）；已存在的部門與已有部門的使用者不覆寫；會自行 SaveChanges。</summary>
     public static async Task EnsureOrganizationAsync(DynamicDbContext db, DateTime createdTime, CancellationToken ct = default)
     {
