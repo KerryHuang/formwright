@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
-import { useChangePassword, useLogout } from 'src/application/dynamic/queries/auth-queries';
+import { useAuthOptions, useChangePassword, useLogout } from 'src/application/dynamic/queries/auth-queries';
 import { leftoverMessages } from 'src/presentation/dynamic/designer/api-error';
 import type { ApiError } from 'src/services/api/http';
 import { useIdentityStore } from 'src/stores/use-identity-store';
@@ -14,7 +14,10 @@ const identity = useIdentityStore();
 const change = useChangePassword();
 const logoutMutation = useLogout();
 
-const MIN_LENGTH = 8;
+// 最短長度讀 auth/options（政策 auth.passwordMinLength，帳號安全設計 §7.6）；讀回之前不顯示數字、交給後端判斷
+const options = useAuthOptions();
+const minLength = computed(() => options.data.value?.passwordMinLength);
+const newPasswordLabel = computed(() => (minLength.value === undefined ? t('auth.newPasswordBare') : t('auth.newPassword', { min: minLength.value })));
 const oldPassword = ref('');
 const newPassword = ref('');
 const confirm = ref('');
@@ -22,7 +25,8 @@ const error = ref('');
 
 const submit = () => {
   error.value = '';
-  if (newPassword.value.length < MIN_LENGTH) { error.value = t('auth.passwordTooShort'); return; }
+  const min = minLength.value;
+  if (min !== undefined && newPassword.value.length < min) { error.value = t('auth.passwordTooShort', { min }); return; }
   if (newPassword.value !== confirm.value) { error.value = t('auth.passwordMismatch'); return; }
   change.send({}, { oldPassword: oldPassword.value, newPassword: newPassword.value }, {
     onSuccess: () => { void router.replace('/'); },
@@ -47,7 +51,7 @@ const logout = () => {
         <q-card-section class="q-gutter-sm">
           <div v-if="identity.mustChangePassword" class="text-caption" data-testid="cp-required">{{ t('auth.changeRequired') }}</div>
           <q-input v-model="oldPassword" :label="t('auth.currentPassword')" type="password" autocomplete="current-password" dense outlined data-testid="cp-old" />
-          <q-input v-model="newPassword" :label="t('auth.newPassword')" type="password" autocomplete="new-password" dense outlined data-testid="cp-new" />
+          <q-input v-model="newPassword" :label="newPasswordLabel" type="password" autocomplete="new-password" dense outlined data-testid="cp-new" />
           <q-input v-model="confirm" :label="t('auth.confirmPassword')" type="password" autocomplete="new-password" dense outlined data-testid="cp-confirm" />
           <div v-if="error" class="text-negative" data-testid="cp-error">{{ error }}</div>
           <q-btn type="submit" color="primary" class="full-width" :label="t('auth.changePassword')" :loading="change.isPending.value" data-testid="cp-submit" />

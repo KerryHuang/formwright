@@ -25,7 +25,7 @@ const HOME: Record<string, string> = Object.fromEntries(Object.entries(TEXT).map
 
 const newI18n = () => createI18n({ legacy: false, locale: 'zh-TW', fallbackLocale: 'zh-TW', messages: { 'zh-TW': zhTW } as Record<string, typeof zhTW> });
 const options = (def: string, enabled: string[], hashes: Record<string, string> = {}): AuthOptions => ({
-  demoLoginEnabled: false, demoGenerating: false, demoAccounts: [], defaultLocale: def, enabledLocales: enabled,
+  demoLoginEnabled: false, demoGenerating: false, demoAccounts: [], defaultLocale: def, enabledLocales: enabled, passwordReset: 'available', passwordMinLength: 8,
   locales: BUILTIN_LOCALES.filter((l) => enabled.includes(l.code)).map((l) => ({ ...l, uiHash: hashes[l.code] ?? `H-${l.code}` })),
 });
 const never = <T>() => new Promise<T>(() => {});

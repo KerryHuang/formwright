@@ -55,6 +55,10 @@ const pickDemo = (id: string) => {
           <q-input v-model="password" :label="t('auth.password')" type="password" autocomplete="current-password" dense outlined data-testid="login-password" />
           <div v-if="error" class="text-negative" data-testid="login-error">{{ error }}</div>
           <q-btn type="submit" color="primary" class="full-width" :label="t('auth.login')" :loading="login.isPending.value" data-testid="login-submit" />
+          <!-- 忘記密碼（帳號安全設計 §7.4）：不可用時照樣顯示，點進去只寫請聯絡管理員 -->
+          <div class="text-right">
+            <router-link to="/forgot-password" class="text-caption text-primary" data-testid="login-forgot">{{ t('auth.forgotLink') }}</router-link>
+          </div>
         </q-card-section>
       </q-form>
       <template v-if="options.data.value?.demoLoginEnabled">

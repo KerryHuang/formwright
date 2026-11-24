@@ -35,5 +35,11 @@ export function useResendUserEmail() {
   return useMutation({ mutationFn: (id: string) => dynamicApi.resendUserEmail(id), onSuccess: () => qc.invalidateQueries({ queryKey: ['mail-outbox'] }) });
 }
 
+/** 管理員寄重設密碼連結（帳號安全設計 §7.5）：寄送紀錄跟著重取。 */
+export function useSendResetLink() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: string) => dynamicApi.sendResetLink(id), onSuccess: () => qc.invalidateQueries({ queryKey: ['mail-outbox'] }) });
+}
+
 export const useMailOutbox = (page: MaybeRef<number>) =>
   useQuery({ queryKey: ['mail-outbox', page], queryFn: () => dynamicApi.getMailOutbox(toValue(page)) });

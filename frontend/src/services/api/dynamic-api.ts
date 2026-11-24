@@ -366,6 +366,7 @@ export const dynamicApi = {
     http.post(`/admin/users/${encodeURIComponent(id)}/reset-password`, { password }).then(data),
   setUserEmail: (id: string, email: string | null) => http.put<AccountEmail>(`/admin/users/${encodeURIComponent(id)}/email`, { email }).then(data),
   resendUserEmail: (id: string) => http.post(`/admin/users/${encodeURIComponent(id)}/email/resend`).then(() => undefined),
+  sendResetLink: (id: string) => http.post(`/admin/users/${encodeURIComponent(id)}/send-reset-link`).then(() => undefined),
   setUserActive: (id: string, active: boolean) =>
     http.post(`/admin/users/${encodeURIComponent(id)}/${active ? 'activate' : 'deactivate'}`).then(data),
   getAdminGroups: () => http.get<AdminGroup[]>('/admin/groups').then(data),
@@ -456,6 +457,10 @@ export const dynamicApi = {
   setMyEmail: (body: { email: string | null; password: string }) => http.put<AccountEmail>('/account/email', body).then(data),
   resendMyEmail: () => http.post('/account/email/resend').then(() => undefined),
   verifyEmail: (token: string) => http.post('/auth/verify-email', { token }).then(() => undefined),
+  /** 忘記密碼：一律 202 與同一個內容（帳號安全設計 §7.2） */
+  forgotPassword: (userId: string) => http.post<{ linkMinutes: number }>('/auth/forgot-password', { userId }).then(data),
+  checkResetLink: (token: string) => http.post('/auth/reset-password/check', { token }).then(() => undefined),
+  resetPasswordByLink: (token: string, newPassword: string) => http.post('/auth/reset-password', { token, newPassword }).then(() => undefined),
   getMenu: () => http.get<MenuItem[]>('/menu').then(data),
   getThemeDefaults: () => http.get<ThemeDefaults>('/theme').then(data),
   saveMyTheme: (c: ThemeChoice) => http.put<MeTheme>('/me/theme', c).then(data),
