@@ -1123,7 +1123,7 @@ SSO、AD／LDAP 列第二版候選（使用者 2026-11-17 裁決），au1 不做
 **技術類**
 
 1. 匿名 `POST auth/verify-email` 拆成外層（不是交易型請求：交易外 `AsNoTracking` 依雜湊預查權杖，查不到、過期、用過、用途不符直接回同一個 400）與內層 `ApplyEmailVerifyRequest`（交易：重查權杖、帳號啟用、權杖 Email 等於目前 Email 後寫入；只收雜湊）。無效權杖不再排進全庫寫入佇列。au1b 的 `reset-password/check`、`reset-password` 照同一寫法。
-2. `EmailResendGate` 交易內只檢查，交易提交成功後才記時間（`AfterCommitActions`）；寫入本來就逐筆排隊，檢查與記錄之間不會有兩筆同時通過。
+2. `EmailResendGate` 交易內只檢查，交易提交成功後才記時間（`AfterCommitActions`）；寫入逐筆排隊，但記時間在交易釋放寫入鎖之後，同帳號兩個並行請求在極短空窗內可能都通過，最多多寄一封驗證信（第二次安全複審建議 1，已知限制；程式註解待 backlog 票一併更正）。
 3. 單封帳號信組信丟例外時，該列就地記 `failed`、原因 `composeFailed`（介面「信件內容無法產生」），記 Warning，不回滾整個領取交易；同一輪後面的信照寄。
 4. 站台網址（`SitePublicUrl`）只認絕對 http／https 網址：格式不對的鍵當成沒設、啟動記警告，所以新鍵填錯會退回舊鍵（不默默蓋掉）。非 Development 環境用 http 且不是 loopback 時只記啟動警告、不拒絕啟動——與 `Mcp:AllowHttp` 一致，50 人以下客戶常見純內網 http 部署，拒絕啟動會讓既有部署起不來。
 5. 寄送紀錄 `page` 夾在 1 到 `int.MaxValue / 50`，不溢位。
