@@ -97,7 +97,7 @@ public sealed class SecondFactorFailureAudit
 /// 第二因素的驗證，第二步登入與重新驗證端點共用（§8.3、§8.9）。順序：<c>TryBegin</c> →（驗證碼時）解金鑰，解不開歸還名額、
 /// 不佔帳號層 → 帳號層佔名額並立即提交（交易外，複審 N5）→ 這一次觸發了暫停就送 <see cref="RecordTwoFactorLockoutRequest"/> → 比對。
 /// 碼錯在這裡結算 <c>Complete(false)</c> 與稽核；碼對回 <see cref="SecondFactorMatch"/>，由呼叫端消耗後結算。
-/// Demo 站不套帳號層（§8.3 領域顧問必修），Demo 的 <c>mfa01</c> 不檢查重放（§13.4）。
+/// Demo 站不套帳號層（§8.3 領域顧問必修），Demo 的 <c>mfa01</c> 不檢查重放（§13.4），錯碼也不算進帳號＋IP、IP、帳號層（§26.1）。
 /// </summary>
 public sealed class SecondFactorVerifier(
     ITwoFactorRepository twoFactor, ITotpSecretProtector protector, LoginThrottle throttle, IAuditLog audit, ISender sender, AuthSettings auth,
@@ -121,6 +121,7 @@ public sealed class SecondFactorVerifier(
             return (null, login ? TwoFactorErrors.Throttled() : ReauthVerifier.Throttled());
         }
         var useRecovery = recoveryCode is not null;
+        var demoMfa = auth.DemoLoginEnabled && user.UserId == DemoAccounts.MfaUser;
         try
         {
             byte[]? secret = null;
@@ -159,7 +160,6 @@ public sealed class SecondFactorVerifier(
                 }
             }
 
-            var demoMfa = auth.DemoLoginEnabled && user.UserId == DemoAccounts.MfaUser;
             if (useRecovery)
             {
                 var hash = RecoveryCodes.Hash(recoveryCode);
@@ -175,7 +175,9 @@ public sealed class SecondFactorVerifier(
             throw;
         }
 
-        throttle.Complete(key, ip, false);
+        // Demo 站的 mfa01 驗證碼是公開提示的，錯碼不算進帳號＋IP、IP、帳號層：否則同一出口的下一次一鍵登入會被擋（走查 r2）；每張憑證 5 次照常
+        if (demoMfa) throttle.Release(key, ip);
+        else throttle.Complete(key, ip, false);
         logger.LogWarning("帳號 {UserId} 第二因素錯誤", user.UserId);
         await FailAsync(failures, user.UserId, useRecovery ? "recoveryCodeWrong" : "twoFactorWrong", ct);
         return (null, TwoFactorErrors.Wrong());
@@ -206,7 +208,8 @@ public sealed class SecondFactorVerifier(
             await FailAsync(failures, match.UserId, "twoFactorExpired", ct);
             return TwoFactorErrors.Expired();
         }
-        throttle.Complete(match.Key, match.Ip, consumed);
+        if (!consumed && match.SkipReplay) throttle.Release(match.Key, match.Ip);   // Demo 的 mfa01，同上
+        else throttle.Complete(match.Key, match.Ip, consumed);
         if (consumed) return null;
         await FailAsync(failures, match.UserId, "twoFactorWrong", ct);
         return TwoFactorErrors.Wrong();

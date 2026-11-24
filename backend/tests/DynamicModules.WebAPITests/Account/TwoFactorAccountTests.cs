@@ -473,6 +473,30 @@ public class TwoFactorAccountTests
         (await Second(visitor, next.GetProperty("code").GetString())).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
+    /// <summary>
+    /// 走查 r2：Demo 站同一個來源一鍵登入 mfa01、同一張憑證錯 5 次（第 6 次被拒、回 <c>twoFactorExpired</c>）→ 再一鍵登入拿到新憑證，
+    /// 正確碼照常登入（F35「下一位訪客照常登入」也涵蓋同一出口；Demo 站的錯碼不算進帳號＋IP、IP、帳號層）。
+    /// </summary>
+    [Fact]
+    public async Task Demo_SameIp_FiveWrongOnOneTicket_OneClickAgain_SignsIn()
+    {
+        using var build = DemoApp();
+        await SeedMfa(build);
+        using var site = DemoApp(build.ConnectionString);
+        var c = Client(site, "203.0.113.80");
+        for (var round = 0; round < 2; round++)
+        {
+            var hint = (await Json(await DemoLogin(c, DemoAccounts.MfaUser))).GetProperty("demoHint");
+            var wrong = hint.GetProperty("code").GetString() == "000000" ? "000001" : "000000";
+            for (var i = 0; i < 5; i++) (await ErrorCode(await Second(c, wrong))).Should().Be("twoFactorWrong");
+            (await ErrorCode(await Second(c, wrong))).Should().Be("twoFactorExpired");
+        }
+        var again = await DemoLogin(c, DemoAccounts.MfaUser);
+        again.StatusCode.Should().Be(HttpStatusCode.OK);
+        var code = (await Json(again)).GetProperty("demoHint").GetProperty("code").GetString();
+        (await Second(c, code)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
     /// <summary>F28：Demo 站 sales01 啟用雙因素、admin 改 auth 分類政策、admin 啟用雙因素 → 都 403 demoSite；重設雙因素也 403。</summary>
     [Fact]
     public async Task F28_Demo_SetupAuthPolicyAndReset_All403DemoSite()
