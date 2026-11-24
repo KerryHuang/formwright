@@ -4,5 +4,23 @@
     "en-US": "{0} → {1}, applied {2}, skipped {3}",
     "th": "{0} → {1} ใช้ {2} รายการ ข้าม {3} รายการ",
     "vi": "{0} → {1}, đã áp dụng {2} mục, bỏ qua {3} mục"
+  },
+  "AppUpgradeUpToDate": {
+    "zh-TW": "已是最新",
+    "en-US": "This app is already up to date",
+    "th": "แอปพลิเคชันนี้เป็นเวอร์ชันล่าสุดแล้ว",
+    "vi": "Ứng dụng đã là phiên bản mới nhất"
+  },
+  "AppUpgradeNoCandidate": {
+    "zh-TW": "沒有可用的新版",
+    "en-US": "No newer version is available",
+    "th": "ไม่มีเวอร์ชันใหม่ให้ใช้",
+    "vi": "Không có phiên bản mới"
+  },
+  "AppUpgradeDowngrade": {
+    "zh-TW": "新版的版號比目前的小，不支援降版",
+    "en-US": "The new version number is lower than the current one. Downgrading is not supported",
+    "th": "หมายเลขเวอร์ชันใหม่ต่ำกว่าเวอร์ชันปัจจุบัน ไม่รองรับการลดเวอร์ชัน",
+    "vi": "Số phiên bản mới nhỏ hơn phiên bản hiện tại, không hỗ trợ hạ phiên bản"
   }
 }
