@@ -9,7 +9,7 @@ import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import {
   applyErrorLines, CATEGORY_ORDER, confirmCounts, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatProp, groupItems, isLong,
-  moduleNames, NOT_APPLICABLE, toggleItem,
+  localItemId, moduleNames, NOT_APPLICABLE, selectableItems, splitSelection, toggleItem,
 } from 'src/presentation/dynamic/upgrade/upgrade-view';
 import type { I18nText } from 'src/domain/dynamic/types';
 import { dynamicApi, type UpgradeBody, type UpgradeGroup, type UpgradeGroupChoice, type UpgradeItem } from 'src/services/api/dynamic-api';
@@ -34,7 +34,9 @@ const forbidden = computed(() => isForbidden(error.value));
 const name = (n: Parameters<typeof resolveI18n>[0]) => resolveI18n(n, locale.value);
 
 const chips = ref<string[]>([...DEFAULT_CATEGORIES]);
-const allItems = computed(() => [...(data.value?.items ?? []), ...(data.value?.masters.flatMap((m) => m.items) ?? [])]);
+// 應用程式與一起更新的共用主檔放在同一份勾選清單：主檔項目的識別加 master:<主檔 id>/，跨份相依照樣連勾（§9.6.3、T37）
+const allItems = computed(() => (data.value ? selectableItems(data.value) : []));
+const masterItems = (id: string) => allItems.value.filter((i) => i.id.startsWith(`master:${id}/`));
 const chipCounts = computed(() => countByChip(allItems.value));
 const chipList = computed(() => [...CATEGORY_ORDER, NOT_APPLICABLE].filter((c) => chipCounts.value[c]));
 const toggle = (c: string) => { chips.value = chips.value.includes(c) ? chips.value.filter((x) => x !== c) : [...chips.value, c]; };
@@ -42,22 +44,30 @@ const sections = computed(() => {
   if (!data.value) return [];
   return [
     {
-      key: data.value.app, title: null as string | null, hasBaseline: true, pendingGroups: [] as UpgradeGroup[],
+      key: data.value.app, master: null as string | null, title: null as string | null, hasBaseline: true, pendingGroups: [] as UpgradeGroup[],
       modules: moduleNames(apps.data.value ?? [], data.value.app, data.value.items), groups: groupItems(filterItems(data.value.items, chips.value)),
     },
     ...data.value.masters.map((m) => ({
       key: `master:${m.id}`,
-      title: t('apps.upgrade.master', { name: name(m.name), from: m.fromVersion, to: m.toVersion }),
+      master: m.id,
+      // 主檔沒有新版、只列上次略過而這次要用到的項目（T56）：版號不變，標題不寫箭頭
+      title: m.fromVersion === m.toVersion
+        ? t('apps.upgrade.masterSkipped', { name: name(m.name), version: m.fromVersion })
+        : t('apps.upgrade.master', { name: name(m.name), from: m.fromVersion, to: m.toVersion }),
       hasBaseline: m.hasBaseline,
       pendingGroups: m.groups,
       modules: moduleNames(apps.data.value ?? [], m.id, m.items),
-      groups: groupItems(filterItems(m.items, chips.value)),
+      groups: groupItems(filterItems(masterItems(m.id), chips.value)),
     })),
   ];
 });
 
 
-const labelOf = (i: UpgradeItem) => (i.label ? name(i.label) : i.id.slice(i.id.indexOf(':') + 1));
+const labelOf = (i: UpgradeItem) => {
+  if (i.label) return name(i.label);
+  const id = localItemId(i.id);
+  return id.slice(id.indexOf(':') + 1);
+};
 const kindOf = (i: UpgradeItem) => t(`apps.upgrade.section.${i.section}`);
 const groupTitle = (g: { key: string; module: string | null }, modules: Map<string, I18nText>) => {
   if (g.module === null) return t(`apps.upgrade.group.${g.key.slice(1)}`);
@@ -85,37 +95,47 @@ const dependsLabel = (ids: string[]) => ids.map((id) => {
   return hit ? labelOf(hit) : id;
 }).join('、');
 const effectLabel = (effect: string) => (te(`apps.upgrade.effect.${effect}`) ? t(`apps.upgrade.effect.${effect}`) : effect);
-// dependsOnBlocked 的 detail 是不能套用的那幾項 id（以「、」分隔），換成名稱（審查 S7）
+// dependsOnBlocked 的 detail 是不能套用的那幾項 id（以「、」分隔），換成名稱（審查 S7）；integrationUnbound 的 detail 是應用程式 id，換成名稱（T51）
+const appName = (id: string) => {
+  const hit = apps.data.value?.find((a) => a.key === id);
+  return hit ? name(hit.name) : id;
+};
 const reasonLabel = (i: UpgradeItem) => {
   if (!i.reason) return '';
-  const detail = i.reason === 'dependsOnBlocked' && i.detail ? dependsLabel(i.detail.split('、')) : i.detail;
+  const detail = i.reason === 'dependsOnBlocked' && i.detail ? dependsLabel(i.detail.split('、'))
+    : i.reason === 'integrationUnbound' && i.detail ? appName(i.detail) : i.detail;
   return te(`apps.upgrade.reason.${i.reason}`) ? t(`apps.upgrade.reason.${i.reason}`, { n: i.affectedRecords ?? 0, detail: detail ?? '' }) : i.reason;
 };
 
 // 勾選：預覽載入（含改群組對應後重新預覽）時回到後端的預設勾選
 const selected = ref<Set<string>>(new Set());
-watch(() => data.value?.token, () => { selected.value = defaultSelection(data.value?.items ?? []); }, { immediate: true });
-const canTick = (i: UpgradeItem) => !!data.value?.canApply && i.applicable && (data.value?.items ?? []).includes(i);
+watch(() => data.value?.token, () => { selected.value = defaultSelection(allItems.value); }, { immediate: true });
+const canTick = (i: UpgradeItem) => !!data.value?.canApply && i.applicable;
 function tick(i: UpgradeItem, on: boolean) {
-  const r = toggleItem(data.value?.items ?? [], selected.value, i.id, on);
+  const r = toggleItem(allItems.value, selected.value, i.id, on);
   selected.value = r.selected;
   if (r.together.length) $q.notify({ message: t(on ? 'apps.upgrade.together' : 'apps.upgrade.togetherOff', { items: dependsLabel(r.together) }) });
 }
 
-// 群組對應（§10.2 第 3 點）：只列後端給的代號（新代號、失效的、略過過而新物件用得到的），改了就帶 groupMap 重新預覽
+// 群組對應（§10.2 第 3 點）：只列後端給的代號（新代號、失效的、略過過而新物件用得到的），改了就帶 groupMap 重新預覽；
+// 共用主檔的代號另放 masterGroupMap.<主檔 id>（§9.6.3）
 const groupOptions = computed(() => [
   ...(adminGroups.data.value ?? []).map((g) => ({ label: `${t('apps.upgrade.mapTo')}：${name(g.nameI18n)}`, value: `map:${g.id}` })),
   { label: t('apps.upgrade.groupChoice.create'), value: 'create' },
   { label: t('apps.upgrade.groupChoice.skip'), value: 'skip' },
 ]);
 const choiceValue = (c: { mode: string; groupId?: number | null }) => (c.mode === 'map' ? `map:${c.groupId}` : c.mode);
-function choose(code: string, value: string) {
+function choose(master: string | null, code: string, value: string) {
   const choice: UpgradeGroupChoice = value.startsWith('map:') ? { mode: 'map', groupId: Number(value.slice(4)) } : { mode: value as 'create' | 'skip' };
-  body.value = { ...body.value, groupMap: { ...(body.value.groupMap ?? {}), [code]: choice } };
+  if (master === null) body.value = { ...body.value, groupMap: { ...(body.value.groupMap ?? {}), [code]: choice } };
+  else {
+    const all = body.value.masterGroupMap ?? {};
+    body.value = { ...body.value, masterGroupMap: { ...all, [master]: { ...(all[master] ?? {}), [code]: choice } } };
+  }
 }
 
 const confirming = ref(false);
-const summary = computed(() => confirmCounts(data.value?.items ?? [], selected.value));
+const summary = computed(() => confirmCounts(allItems.value, selected.value));
 // 套用回 400 的逐項原因（§8.3）：項目識別換成名稱；重新預覽後清掉
 const applyErrors = ref<{ label: string; messages: string[] }[]>([]);
 watch(() => data.value?.token, () => { applyErrors.value = []; });
@@ -123,7 +143,8 @@ async function apply() {
   if (!data.value) return;
   applyErrors.value = [];
   try {
-    const result = await applying.mutateAsync({ ...body.value, token: data.value.token, items: [...selected.value] });
+    const picked = splitSelection(selected.value, data.value.masters.map((m) => m.id));
+    const result = await applying.mutateAsync({ ...body.value, token: data.value.token, ...picked });
     confirming.value = false;
     $q.notify({
       type: 'positive', timeout: 0, closeBtn: true, message: t('apps.upgrade.applied', { version: data.value.toVersion }),
@@ -212,7 +233,7 @@ const viewing = ref<{ title: string; value: string } | null>(null);
               {{ name(g.name) }} <span class="text-muted">({{ g.code }})</span>：{{ t(`apps.upgrade.groupReason.${g.reason}`) }}
             </div>
             <q-select class="col-12 col-sm-7" dense outlined emit-value map-options :options="groupOptions" :model-value="choiceValue(g.choice)"
-              :aria-label="g.code" data-testid="upgrade-group-choice" @update:model-value="(v: string) => choose(g.code, v)" />
+              :aria-label="g.code" data-testid="upgrade-group-choice" @update:model-value="(v: string) => choose(null, g.code, v)" />
           </div>
         </div>
 
@@ -228,8 +249,13 @@ const viewing = ref<{ title: string; value: string } | null>(null);
           <q-banner v-if="!s.hasBaseline" rounded class="bg-warning-soft q-my-sm" data-testid="upgrade-master-no-baseline">{{ t('apps.upgrade.noBaseline') }}</q-banner>
           <div v-if="s.pendingGroups.length" class="q-my-sm" data-testid="upgrade-master-groups">
             <div class="text-subtitle2">{{ t('apps.upgrade.groupsTitle') }}</div>
-            <div v-for="g in s.pendingGroups" :key="g.code" class="text-body2">
-              {{ name(g.name) }} <span class="text-muted">({{ g.code }})</span>：{{ t(`apps.upgrade.groupReason.${g.reason}`) }}・{{ t(`apps.upgrade.groupChoice.${g.choice.mode}`) }}
+            <div v-for="g in s.pendingGroups" :key="g.code" class="row items-center q-col-gutter-sm q-mb-xs upgrade-group" data-testid="upgrade-group">
+              <div class="col-12 col-sm-5 text-body2">
+                {{ name(g.name) }} <span class="text-muted">({{ g.code }})</span>：{{ t(`apps.upgrade.groupReason.${g.reason}`) }}
+              </div>
+              <q-select class="col-12 col-sm-7" dense outlined emit-value map-options :options="groupOptions" :model-value="choiceValue(g.choice)"
+                :aria-label="`${name(g.name)} (${g.code})`" data-testid="upgrade-master-group-choice"
+                @update:model-value="(v: string) => choose(s.master, g.code, v)" />
             </div>
           </div>
           <div v-if="!s.groups.length" class="text-muted q-my-sm">{{ t('apps.upgrade.nothing') }}</div>

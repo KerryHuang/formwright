@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AppInfo, UpgradeItem } from 'src/services/api/dynamic-api';
 import type { I18nText } from 'src/domain/dynamic/types';
-import { applyErrorLines, confirmCounts, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatProp, formatValue, groupItems, isLong, moduleNames, NOT_APPLICABLE, toggleItem } from './upgrade-view';
+import { applyErrorLines, confirmCounts, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatProp, formatValue, groupItems, isLong, moduleNames, NOT_APPLICABLE, selectableItems, splitSelection, toggleItem } from './upgrade-view';
 
 const item = (id: string, category: UpgradeItem['category'], extra: Partial<UpgradeItem> = {}): UpgradeItem => ({
   id, section: 'fields', module: 'lead', label: null, category, defaultSelected: false, applicable: true, reason: null,
@@ -158,5 +158,64 @@ describe('formatProp', () => {
   it('falls back to the raw value for other properties', () => {
     expect(formatProp('priority', 2, ctx)).toBe('2');
     expect(formatProp('when', { op: 'and' }, ctx)).toBe('{"op":"and"}');
+  });
+});
+
+// 共用主檔一起更新（套件更新設計 §9.6.3、T35、T37、T56）：主檔項目與應用程式項目在同一份勾選清單
+describe('shared masters', () => {
+  const master = (id: string, items: UpgradeItem[]) => ({
+    id, name: { 'zh-TW': id }, fromVersion: '1.0.1', toVersion: '1.1.0', hasBaseline: true, groups: [], items, counts: {},
+  });
+  const preview = {
+    items: [item('report:byFax', 'added', { section: 'reports', dependsOn: ['master:partner/field:partner.fax'] }), item('field:lead.x', 'newOnly')],
+    masters: [
+      master('partner', [item('field:partner.fax', 'added', { module: 'partner' }), item('field:partner.memo', 'newOnly', { module: 'partner', dependsOn: ['field:partner.fax'] })]),
+      master('contact', [item('field:contact.fax', 'added', { module: 'contact', dependsOn: ['master:partner/field:partner.fax'] })]),
+    ],
+  };
+  const all = selectableItems(preview);
+
+  it('prefixes master items and their own dependsOn; cross-file dependsOn stays', () => {
+    expect(all.map((i) => i.id)).toEqual([
+      'report:byFax', 'field:lead.x', 'master:partner/field:partner.fax', 'master:partner/field:partner.memo', 'master:contact/field:contact.fax',
+    ]);
+    expect(all[3].dependsOn).toEqual(['master:partner/field:partner.fax']);
+    expect(all[4].dependsOn).toEqual(['master:partner/field:partner.fax']);
+  });
+
+  it('ticking an app item pulls in the master item it depends on; unticking the master item drops its dependents', () => {
+    const on = toggleItem(all, new Set(), 'report:byFax', true);
+    expect([...on.selected].sort()).toEqual(['master:partner/field:partner.fax', 'report:byFax']);
+    const off = toggleItem(all, new Set(['report:byFax', 'master:partner/field:partner.fax', 'master:partner/field:partner.memo', 'master:contact/field:contact.fax']),
+      'master:partner/field:partner.fax', false);
+    expect([...off.selected]).toEqual([]);
+  });
+
+  // T56：上次略過的主檔項目與依賴它的應用程式項目後端都標預設不勾，畫面照用
+  it('default selection includes master items the backend selected and leaves skipped-before ones off', () => {
+    const p = {
+      items: [item('report:byFax', 'added', { dependsOn: ['master:partner/field:partner.fax'] })],
+      masters: [master('partner', [item('field:partner.fax', 'skippedBefore'), item('field:partner.memo', 'newOnly', { defaultSelected: true })])],
+    };
+    expect([...defaultSelection(selectableItems(p))]).toEqual(['master:partner/field:partner.memo']);
+  });
+
+  it('splits the selection into items and masters, every listed master present', () => {
+    expect(splitSelection(new Set(['report:byFax', 'master:partner/field:partner.fax']), ['partner', 'contact'])).toEqual({
+      items: ['report:byFax'], masters: { partner: ['field:partner.fax'], contact: [] },
+    });
+  });
+
+  it('maps masters.<id>.items.<item> errors to the master item and names its own missing items', () => {
+    const labelOf = (i: UpgradeItem) => `L(${i.id})`;
+    expect(applyErrorLines({
+      'masters.partner.items.field:partner.memo': ['要一起套用：field:partner.fax'],
+      'items.report:byFax': ['要一起套用：master:partner/field:partner.fax'],
+      'masters.ghost': ['unknown'],
+    }, all, labelOf)).toEqual([
+      { label: 'L(master:partner/field:partner.memo)', messages: ['要一起套用：L(master:partner/field:partner.fax)'] },
+      { label: 'L(report:byFax)', messages: ['要一起套用：L(master:partner/field:partner.fax)'] },
+      { label: 'masters.ghost', messages: ['unknown'] },
+    ]);
   });
 });

@@ -168,8 +168,14 @@ export interface UpgradeMasterPreview {
 }
 
 export interface UpgradeGroupChoice { mode: 'map' | 'create' | 'skip'; groupId?: number | null }
-export interface UpgradeBody { groupMap?: Record<string, UpgradeGroupChoice>; moduleKeys?: Record<string, string> }
-export interface UpgradeApplyBody extends UpgradeBody { token: string; items: string[] }
+export interface UpgradeBody {
+  groupMap?: Record<string, UpgradeGroupChoice>;
+  moduleKeys?: Record<string, string>;
+  /** Group mapping per shared master updated along (master id → code → choice; §9.6.3). */
+  masterGroupMap?: Record<string, Record<string, UpgradeGroupChoice>>;
+}
+/** `masters`: ticked item ids per shared master (master id → item ids without the `master:` prefix; §9.6.3, T35). */
+export interface UpgradeApplyBody extends UpgradeBody { token: string; items: string[]; masters?: Record<string, string[]> }
 
 export interface UpgradePreview {
   app: string;

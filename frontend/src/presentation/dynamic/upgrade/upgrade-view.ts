@@ -1,5 +1,5 @@
 import type { I18nText } from 'src/domain/dynamic/types';
-import type { AppInfo, UpgradeCategory, UpgradeItem } from 'src/services/api/dynamic-api';
+import type { AppInfo, UpgradeCategory, UpgradeItem, UpgradePreview } from 'src/services/api/dynamic-api';
 
 /**
  * Filter chips in display order (design §10.2 point 4). DEFAULT_CATEGORIES is only the page's initial filter (a screen rule);
@@ -114,6 +114,37 @@ export function moduleNames(apps: AppInfo[], appKey: string, items: UpgradeItem[
   return map;
 }
 
+/** A shared master's item on this page: same form as the backend's cross-file dependsOn `master:<master id>/<item id>` (§9.6.3, T37). */
+export const masterItemId = (master: string, id: string) => `master:${master}/${id}`;
+
+/** The item id without its `master:<id>/` prefix. */
+export const localItemId = (id: string) => (id.startsWith('master:') ? id.slice(id.indexOf('/') + 1) : id);
+
+/**
+ * One list for ticking across the app and the shared masters updated with it (§9.6.3): master items get `master:<id>/` ids,
+ * their own dependsOn (plain ids inside that master) gets the same prefix, and `master:` dependsOn already points across.
+ */
+export function selectableItems(preview: Pick<UpgradePreview, 'items' | 'masters'>): UpgradeItem[] {
+  return [
+    ...preview.items,
+    ...preview.masters.flatMap((m) => m.items.map((i) => ({
+      ...i, id: masterItemId(m.id, i.id), dependsOn: i.dependsOn.map((d) => (d.startsWith('master:') ? d : masterItemId(m.id, d))),
+    }))),
+  ];
+}
+
+/** Splits the page's selection into the apply body's `items` and `masters` (every listed master present, possibly empty). */
+export function splitSelection(selected: Set<string>, masters: string[]): { items: string[]; masters: Record<string, string[]> } {
+  const out = { items: [] as string[], masters: Object.fromEntries(masters.map((m) => [m, [] as string[]])) };
+  for (const id of selected) {
+    const slash = id.indexOf('/');
+    const master = id.startsWith('master:') && slash > 0 ? id.slice(7, slash) : null;
+    if (master !== null && out.masters[master]) out.masters[master].push(id.slice(slash + 1));
+    else out.items.push(id);
+  }
+  return out;
+}
+
 /** Initial selection: what the backend marked applicable and selected by default (design §20 point 3; never re-decided here). */
 export function defaultSelection(items: UpgradeItem[]): Set<string> {
   return new Set(items.filter((i) => i.applicable && i.defaultSelected).map((i) => i.id));
@@ -152,7 +183,8 @@ export function confirmCounts(items: UpgradeItem[], selected: Set<string>): { by
 
 /**
  * 400 from apply (design §8.3): one line per error key, the item part shown with its label.
- * Keys are `items.<id>`, `<id>.<detail>` or `<id>`; ids contain dots, so the longest listed id that prefixes the key wins.
+ * Keys are `items.<id>`, `<id>.<detail>`, `<id>` or `masters.<master id>.items.<id>` (items from {@link selectableItems});
+ * ids contain dots, so the longest listed id that prefixes the key wins.
  */
 export function applyErrorLines(
   errors: Record<string, string[]> | undefined, items: UpgradeItem[], labelOf: (i: UpgradeItem) => string,
@@ -163,8 +195,14 @@ export function applyErrorLines(
   const pattern = ids.length ? new RegExp(ids.map((i) => i.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g') : null;
   const named = (m: string) => (pattern ? m.replace(pattern, (id) => labelOf(byId.get(id)!)) : m);
   return Object.entries(errors ?? {}).map(([key, messages]) => {
-    const bare = key.startsWith('items.') ? key.slice(6) : key;
+    // 主檔的鍵是 masters.<主檔 id>.items.<項目識別>（T35），換成本頁的 master:<主檔 id>/<項目識別>；訊息裡主檔自己的項目識別也換名稱
+    const at = key.startsWith('masters.') ? key.indexOf('.items.') : -1;
+    const master = at > 0 ? key.slice(8, at) : null;
+    const bare = master !== null ? masterItemId(master, key.slice(at + 7)) : key.startsWith('items.') ? key.slice(6) : key;
     const hit = ids.find((i) => bare === i.id || bare.startsWith(`${i.id}.`));
-    return { label: hit ? labelOf(hit) : bare, messages: messages.map(named) };
+    const own = master !== null ? ids.filter((i) => i.id.startsWith(`master:${master}/`)) : [];
+    const local = own.length ? new RegExp(own.map((i) => localItemId(i.id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g') : null;
+    const named2 = (m: string) => (local ? named(m).replace(local, (id) => labelOf(byId.get(masterItemId(master!, id))!)) : named(m));
+    return { label: hit ? labelOf(hit) : bare, messages: messages.map(named2) };
   });
 }
