@@ -151,6 +151,23 @@ export function defaultSelection(items: UpgradeItem[]): Set<string> {
 }
 
 /**
+ * Selection after a re-preview (e.g. the group mapping changed): keep the manual choice for items that are still listed and
+ * applicable, use the new default for items that were not listed before, and drop an item whose listed dependency is not selected
+ * (transitively), so the apply request never lacks a dependency.
+ */
+export function reconcileSelection(items: UpgradeItem[], previousItems: UpgradeItem[], previousSelected: Set<string>): Set<string> {
+  const known = new Set(previousItems.map((i) => i.id));
+  const next = new Set(items.filter((i) => i.applicable && (known.has(i.id) ? previousSelected.has(i.id) : i.defaultSelected)).map((i) => i.id));
+  const byId = new Map(items.map((i) => [i.id, i]));
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const id of next)
+      if (byId.get(id)!.dependsOn.some((d) => byId.has(d) && !next.has(d))) { next.delete(id); changed = true; }
+  }
+  return next;
+}
+
+/**
  * Ticking or unticking one item (design §6.5): ticking also ticks everything it depends on (transitively);
  * unticking also unticks everything that depends on it. Returns the new selection and the ids pulled in or dropped with it.
  */

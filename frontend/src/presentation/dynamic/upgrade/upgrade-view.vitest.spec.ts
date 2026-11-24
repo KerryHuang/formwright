@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AppInfo, UpgradeItem } from 'src/services/api/dynamic-api';
 import type { I18nText } from 'src/domain/dynamic/types';
-import { applyErrorLines, confirmCounts, confirmSections, mastersOnly, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatProp, formatValue, groupItems, isLong, moduleNames, NOT_APPLICABLE, selectableItems, splitSelection, toggleItem } from './upgrade-view';
+import { applyErrorLines, confirmCounts, confirmSections, mastersOnly, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatProp, formatValue, groupItems, isLong, moduleNames, NOT_APPLICABLE, reconcileSelection, selectableItems, splitSelection, toggleItem } from './upgrade-view';
 
 const item = (id: string, category: UpgradeItem['category'], extra: Partial<UpgradeItem> = {}): UpgradeItem => ({
   id, section: 'fields', module: 'lead', label: null, category, defaultSelected: false, applicable: true, reason: null,
@@ -86,6 +86,35 @@ describe('selection (§6.5, §10.2 point 7)', () => {
 
   it('default selection follows the backend', () => {
     expect([...defaultSelection([mk('a'), mk('b', [], 'customerOnly', false)])]).toEqual(['a']);
+  });
+});
+
+describe('reconcileSelection (pkg1c review S8): re-preview after changing the group mapping keeps the manual selection', () => {
+  const mk = (id: string, extra: Partial<UpgradeItem> = {}) => item(id, 'added', { defaultSelected: true, ...extra });
+
+  it('keeps a manual untick and a manual tick for items that are still listed and applicable', () => {
+    const before = [mk('a'), mk('b', { defaultSelected: false })];
+    const after = [mk('a'), mk('b', { defaultSelected: false })];
+    // the user unticked a and ticked b
+    expect([...reconcileSelection(after, before, new Set(['b']))].sort()).toEqual(['b']);
+  });
+
+  it('drops a selected item that is no longer applicable or no longer listed', () => {
+    const before = [mk('a'), mk('b'), mk('c')];
+    const after = [mk('a'), mk('b', { applicable: false, reason: 'unmatched' })];
+    expect([...reconcileSelection(after, before, new Set(['a', 'b', 'c']))]).toEqual(['a']);
+  });
+
+  it('uses the new default for items that were not listed before', () => {
+    const before = [mk('a')];
+    const after = [mk('a'), mk('n'), mk('m', { defaultSelected: false })];
+    expect([...reconcileSelection(after, before, new Set(['a']))].sort()).toEqual(['a', 'n']);
+  });
+
+  it('drops an item whose listed dependency ended up unselected, so the apply is never sent with a missing dependency', () => {
+    const before = [mk('a'), mk('b', { dependsOn: ['a'] })];
+    const after = [mk('a', { applicable: false }), mk('b', { dependsOn: ['a'] })];
+    expect([...reconcileSelection(after, before, new Set(['a', 'b']))]).toEqual([]);
   });
 });
 

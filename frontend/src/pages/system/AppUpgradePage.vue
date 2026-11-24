@@ -9,7 +9,7 @@ import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import {
   applyErrorLines, CATEGORY_ORDER, confirmSections, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatProp, groupItems, isLong, mastersOnly,
-  localItemId, moduleNames, NOT_APPLICABLE, selectableItems, splitSelection, toggleItem,
+  localItemId, moduleNames, NOT_APPLICABLE, reconcileSelection, selectableItems, splitSelection, toggleItem,
 } from 'src/presentation/dynamic/upgrade/upgrade-view';
 import type { I18nText } from 'src/domain/dynamic/types';
 import { dynamicApi, type UpgradeBody, type UpgradeGroup, type UpgradeGroupChoice, type UpgradeItem } from 'src/services/api/dynamic-api';
@@ -107,9 +107,14 @@ const reasonLabel = (i: UpgradeItem) => {
   return te(`apps.upgrade.reason.${i.reason}`) ? t(`apps.upgrade.reason.${i.reason}`, { n: i.affectedRecords ?? 0, detail: detail ?? '' }) : i.reason;
 };
 
-// 勾選：預覽載入（含改群組對應後重新預覽）時回到後端的預設勾選
+// 勾選：第一次載入用後端的預設勾選；改群組對應等重新預覽時保留手動選擇（仍在清單、仍可勾的才留，新出現的項目用預設，審查 S8）
 const selected = ref<Set<string>>(new Set());
-watch(() => data.value?.token, () => { selected.value = defaultSelection(allItems.value); }, { immediate: true });
+let shownItems: UpgradeItem[] | null = null;
+watch(() => data.value?.token, (token) => {
+  if (!token) return;
+  selected.value = shownItems ? reconcileSelection(allItems.value, shownItems, selected.value) : defaultSelection(allItems.value);
+  shownItems = allItems.value;
+}, { immediate: true });
 const canTick = (i: UpgradeItem) => !!data.value?.canApply && i.applicable;
 function tick(i: UpgradeItem, on: boolean) {
   const r = toggleItem(allItems.value, selected.value, i.id, on);
