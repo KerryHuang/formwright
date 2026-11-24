@@ -25,6 +25,12 @@ export function incidentTitle(t: Translate, te: Exists, titleKey: string, params
     const code = str(params, 'serverCode');
     return t('ops.titles.channel', { stage: labelOr(t, te, `ops.stage.${stage}`, stage) }) + (code ? t('ops.titles.channelCode', { code }) : '');
   }
+  if (titleKey === 'ops.title.accountMailFailed') {
+    const stage = str(params, 'stage');
+    const code = str(params, 'serverCode');
+    return t('ops.titles.accountMail', { stage: labelOr(t, te, `ops.stage.${stage}`, stage) }) + (code ? t('ops.titles.channelCode', { code }) : '');
+  }
+  if (titleKey === 'ops.title.adminEmailChanged') return t('ops.titles.adminEmailChanged');
   if (titleKey === 'ops.title.rulePaused') return t('ops.titles.rulePaused', { rule: str(params, 'ruleKey'), failures: str(params, 'failures') });
   if (titleKey === 'ops.title.mcpWriteLoop') {
     return t('ops.titles.mcpWriteLoop', {

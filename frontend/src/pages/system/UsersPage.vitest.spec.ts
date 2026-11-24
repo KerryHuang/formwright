@@ -18,6 +18,7 @@ vi.mock('src/services/api/dynamic-api', () => ({
   dynamicApi: {
     getAdminUsers: vi.fn(), createUser: vi.fn(), updateUser: vi.fn(), resetUserPassword: vi.fn(), setUserActive: vi.fn(),
     getGroups: vi.fn(), getUsers: vi.fn(), getMe: vi.fn(), getDepartments: vi.fn(), setUserDepartment: vi.fn(), setUserSystemPrivileges: vi.fn(),
+    setUserEmail: vi.fn(), resendUserEmail: vi.fn(),
   },
 }));
 const api = vi.mocked(dynamicApi);
@@ -620,3 +621,29 @@ describe('UsersPage', () => {
     });
   });
 });
+
+describe('UsersPage Email（帳號安全設計 §12）', () => {
+  beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }); });
+  afterEach(() => { mounted?.unmount(); document.body.innerHTML = ''; });
+
+  it('shows the email column with an unverified mark, and the set-email dialog saves a trimmed address (blank clears)', async () => {
+    api.setUserEmail.mockResolvedValue({ email: 'b@example.com', emailVerified: false, mailAvailable: true });
+    await mountPage([user('admin', { isSystemAdmin: true }), user('sales01', { email: 'a@example.com', emailVerified: false }), user('ok01', { email: 'ok@example.com', emailVerified: true })]);
+    expect(q('user-row-sales01')!.textContent).toContain('a@example.com');
+    expect(q('user-row-sales01')!.textContent).toContain(zhTW.users.emailUnverified);
+    expect(q('user-row-ok01')!.textContent).not.toContain(zhTW.users.emailUnverified);
+
+    await click('user-email-sales01');
+    expect(q('user-email-resend')).not.toBeNull();
+    await fill('user-email-input', '  b@example.com ');
+    await click('user-email-save');
+    expect(api.setUserEmail).toHaveBeenCalledWith('sales01', 'b@example.com');
+
+    await click('user-email-ok01');
+    expect(q('user-email-resend')).toBeNull();
+    await fill('user-email-input', '   ');
+    await click('user-email-save');
+    expect(api.setUserEmail).toHaveBeenLastCalledWith('ok01', null);
+  });
+});
+

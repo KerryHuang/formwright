@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n';
 import {
   useAdminUsers, useCreateUser, useResetPassword, useSetUserActive, useSetUserSystemPrivileges, useUpdateUser,
 } from 'src/application/dynamic/queries/admin-queries';
+import { useResendUserEmail, useSetUserEmail } from 'src/application/dynamic/queries/account-security-queries';
 import { useDepartments, useSetUserDepartment } from 'src/application/dynamic/queries/organization-queries';
 import { useGroups } from 'src/application/dynamic/queries/permissions-queries';
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
@@ -41,6 +42,7 @@ const columns = computed<QTableColumn<AdminUser>[]>(() => [
   { name: 'displayName', label: t('users.displayName'), align: 'left', field: 'displayName' },
   { name: 'groups', label: t('users.groups'), align: 'left', field: (u) => groupNames(u.groupIds) },
   { name: 'department', label: t('users.department'), align: 'left', field: (u) => deptPath(u.departmentId) },
+  { name: 'email', label: t('users.email'), align: 'left', field: (u) => u.email ?? '' },
   { name: 'status', label: t('users.status'), align: 'left', field: (u) => statusLabel(u) },
   { name: 'admin', label: t('users.systemAdmin'), align: 'left', field: (u) => (u.isSystemAdmin ? t('users.systemAdmin') : '') },
   // 有效結果（含群組、系統管理員自動擁有）；儲存格與卡片都畫成小標籤
@@ -159,6 +161,34 @@ function submitReset() {
   });
 }
 
+// 設定 Email（帳號安全設計 §12）：空白＝清除；一律要點驗證信才算驗證
+const emailTarget = ref<AdminUser | null>(null);
+const emailInput = ref('');
+const emailError = ref('');
+const setEmail = useSetUserEmail();
+const resendEmail = useResendUserEmail();
+function openEmail(u: AdminUser) {
+  emailTarget.value = u;
+  emailInput.value = u.email ?? '';
+  emailError.value = '';
+}
+function submitEmail() {
+  emailError.value = '';
+  setEmail.mutate({ id: emailTarget.value!.userId, email: emailInput.value.trim() || null }, {
+    onSuccess: (r) => {
+      emailTarget.value = null;
+      $q.notify({ type: r.email && !r.mailAvailable ? 'warning' : 'positive', message: r.email ? (r.mailAvailable ? t('users.emailSaved') : t('users.emailSavedNoMail')) : t('users.emailCleared') });
+    },
+    onError: (e) => { emailError.value = joinList(leftoverMessages(e as unknown as ApiError, [])) || t('users.saveFailed'); },
+  });
+}
+function resend() {
+  resendEmail.mutate(emailTarget.value!.userId, {
+    onSuccess: () => { emailTarget.value = null; $q.notify({ type: 'positive', message: t('users.emailResent') }); },
+    onError: (e) => { emailError.value = joinList(leftoverMessages(e as unknown as ApiError, [])) || t('users.saveFailed'); },
+  });
+}
+
 const deactivateTarget = ref<AdminUser | null>(null);
 const setActive = useSetUserActive();
 function toggle(u: AdminUser) {
@@ -199,6 +229,7 @@ function runSetActive(u: AdminUser, active: boolean) {
           >
             <template v-for="c in cols" :key="c.name">
               <q-td v-if="c.name === 'actions'" :align="c.align" @click.stop>
+                <q-btn flat dense color="primary" :label="t('users.setEmail')" :data-testid="`user-email-${row.userId}`" @click="openEmail(row)" />
                 <q-btn flat dense color="primary" :label="t('users.resetPassword')" :data-testid="`user-reset-${row.userId}`" @click="openReset(row)" />
                 <q-btn
                   flat dense :color="row.isActive ? 'negative' : 'primary'" :label="row.isActive ? t('users.deactivate') : t('users.activate')"
@@ -207,6 +238,9 @@ function runSetActive(u: AdminUser, active: boolean) {
               </q-td>
               <q-td v-else-if="c.name === 'systemPrivileges'" :align="c.align" :data-testid="`user-sp-${row.userId}`">
                 <q-badge v-for="tag in sysTags(row)" :key="tag" outline color="primary" class="q-mr-xs" :label="tag" />
+              </q-td>
+              <q-td v-else-if="c.name === 'email'" :align="c.align" style="overflow-wrap: anywhere">
+                {{ c.value }}<q-badge v-if="row.email && !row.emailVerified" outline color="warning" class="q-ml-xs" :label="t('users.emailUnverified')" />
               </q-td>
               <q-td v-else :align="c.align">{{ c.value }}</q-td>
             </template>
@@ -225,11 +259,16 @@ function runSetActive(u: AdminUser, active: boolean) {
                     <q-item-label v-if="c.name === 'systemPrivileges'" :data-testid="`user-sp-${row.userId}`">
                       <q-badge v-for="tag in sysTags(row)" :key="tag" outline color="primary" class="q-mr-xs" :label="tag" />
                     </q-item-label>
-                    <q-item-label v-else style="overflow-wrap: anywhere">{{ c.value }}</q-item-label>
+                    <q-item-label v-else style="overflow-wrap: anywhere">
+                      {{ c.value }}<q-badge
+                        v-if="c.name === 'email' && row.email && !row.emailVerified" outline color="warning" class="q-ml-xs" :label="t('users.emailUnverified')"
+                      />
+                    </q-item-label>
                   </q-item-section>
                 </q-item>
               </q-list>
               <q-card-actions align="right" @click.stop>
+                <q-btn flat dense color="primary" :label="t('users.setEmail')" :data-testid="`user-email-${row.userId}`" @click="openEmail(row)" />
                 <q-btn flat dense color="primary" :label="t('users.resetPassword')" :data-testid="`user-reset-${row.userId}`" @click="openReset(row)" />
                 <q-btn
                   flat dense :color="row.isActive ? 'negative' : 'primary'" :label="row.isActive ? t('users.deactivate') : t('users.activate')"
@@ -292,6 +331,27 @@ function runSetActive(u: AdminUser, active: boolean) {
           <q-card-actions align="right">
             <q-btn flat :label="t('users.cancel')" data-testid="user-reset-cancel" @click="resetTarget = null" />
             <q-btn color="primary" :label="t('users.save')" :loading="reset.isPending.value" data-testid="user-reset-submit" @click="submitReset" />
+          </q-card-actions>
+        </q-card>
+      </q-dialog>
+
+      <q-dialog :model-value="emailTarget !== null" @update:model-value="emailTarget = null">
+        <q-card style="width: 420px; max-width: 95vw">
+          <q-card-section class="text-h6">{{ t('users.setEmail') }}：{{ emailTarget?.userId }}</q-card-section>
+          <q-card-section>
+            <q-input
+              v-model="emailInput" type="email" :label="t('users.email')" :hint="t('users.emailHint')" dense outlined
+              :error="!!emailError" :error-message="emailError" data-testid="user-email-input"
+            />
+          </q-card-section>
+          <q-card-actions align="right">
+            <q-btn
+              v-if="emailTarget?.email && !emailTarget.emailVerified" flat no-caps color="primary" :label="t('users.emailResend')"
+              :loading="resendEmail.isPending.value" data-testid="user-email-resend" @click="resend"
+            />
+            <q-space />
+            <q-btn flat :label="t('users.cancel')" @click="emailTarget = null" />
+            <q-btn color="primary" :label="t('users.save')" :loading="setEmail.isPending.value" data-testid="user-email-save" @click="submitEmail" />
           </q-card-actions>
         </q-card>
       </q-dialog>

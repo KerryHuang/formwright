@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useMailSettings, useSaveMailSettings, useTestMailSettings } from 'src/application/dynamic/queries/ops-queries';
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
+import MailOutboxSection from 'src/presentation/ops/MailOutboxSection.vue';
 import { mailTestError } from 'src/domain/ops/ops-format';
 import type { MailSettingsInput, SmtpSecurity } from 'src/domain/ops/ops-types';
 import { joinList } from 'src/i18n/translate';
@@ -151,10 +152,12 @@ function sendTest() {
         />
       </div>
       <div class="text-caption text-muted">{{ t('ops.mail.testHint') }}</div>
+      <q-separator />
+      <MailOutboxSection />
     </div>
   </q-page>
 </template>
 
 <style scoped>
-.mail-page { max-width: 720px; }
+.mail-page { max-width: 960px; }
 </style>

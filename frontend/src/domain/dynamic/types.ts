@@ -357,7 +357,26 @@ export interface AdminUser {
   effectiveSystemPrivileges: SystemPrivileges;
   /** 提供系統權限的群組；系統管理員另有一筆 `systemAdmin`。個人那份不重複列。 */
   systemPrivilegeSources: SystemPrivilegeSource[];
+  /** 帳號安全設計 §12：沒設時伺服器省略。 */
+  email?: string | null;
+  emailVerified?: boolean;
 }
+
+/** 設定 Email 的回應：mailAvailable 為 false 時驗證信寄不出去（寄信設定或站台網址沒設）。 */
+export interface AccountEmail { email?: string | null; emailVerified: boolean; mailAvailable: boolean }
+
+/** GET account/security（帳號安全設計 §12）。canChangeEmail：帳號有密碼（改 Email 要重新輸入密碼）。 */
+export interface AccountSecurity extends AccountEmail { userId: string; canChangeEmail: boolean }
+
+export type MailOutboxStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'skipped' | 'expired';
+
+/** 帳號信寄送紀錄的一列；previewBody 只在 Demo 站（收件匣）有。 */
+export interface MailOutboxItem {
+  id: number; createdUtc: string; kind: string; userId?: string | null; toAddress: string; status: MailOutboxStatus;
+  attempts: number; lastError?: string | null; sentUtc?: string | null; previewBody?: string | null;
+}
+
+export interface MailOutboxPage { items: MailOutboxItem[]; total: number; page: number; pageSize: number; publicUrlMissing: boolean; demoInbox: boolean }
 export interface DesignerFlags { read: boolean; add: boolean; edit: boolean; delete: boolean }
 /** 設計器四個動作與權限設定；直接設定或有效結果都用這個形狀，欄位名稱區分。 */
 export interface SystemPrivileges { designer: DesignerFlags; permissionAdmin: boolean }

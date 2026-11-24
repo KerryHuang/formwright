@@ -32,6 +32,7 @@ const routes = [
   { path: '/change-password', component: page },
   { path: '/service-unavailable', component: page, meta: { public: true } },
   { path: '/dynamic/:moduleKey', component: page },
+  { path: '/verify-email', component: page, meta: { public: true, anyone: true } },
 ];
 
 let meResponse: { status: number; data: unknown };
@@ -117,6 +118,21 @@ describe('auth guard', () => {
     const router = setup();
     await router.push('/login');
     expect(router.currentRoute.value.path).toBe('/');
+  });
+
+  it('the verify-email link opens for anonymous, logged-in and forced-password-change sessions alike', async () => {
+    meResponse = { status: 401, data: {} };
+    let router = setup();
+    await router.push('/verify-email');
+    expect(router.currentRoute.value.path).toBe('/verify-email');
+    meResponse = { status: 200, data: { userId: 'admin', mustChangePassword: false } };
+    router = setup();
+    await router.push('/verify-email');
+    expect(router.currentRoute.value.path).toBe('/verify-email');
+    meResponse = { status: 200, data: { userId: 'admin', mustChangePassword: true } };
+    router = setup();
+    await router.push('/verify-email');
+    expect(router.currentRoute.value.path).toBe('/verify-email');
   });
 
   it('mustChangePassword forces /change-password for every other page', async () => {

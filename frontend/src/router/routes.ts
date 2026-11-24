@@ -4,6 +4,8 @@ export const routes: RouteRecordRaw[] = [
   { path: '/login', component: () => import('src/pages/auth/LoginPage.vue'), meta: { public: true } },
   { path: '/service-unavailable', component: () => import('src/pages/auth/ServiceUnavailablePage.vue'), meta: { public: true } },
   { path: '/change-password', component: () => import('src/pages/auth/ChangePasswordPage.vue') },
+  // 驗證 Email 的連結（帳號安全設計 §12）：登入與否都能開，所以 anyone 讓守衛不把已登入的人導回首頁
+  { path: '/verify-email', component: () => import('src/pages/auth/VerifyEmailPage.vue'), meta: { public: true, anyone: true } },
   {
     path: '/',
     component: () => import('src/layouts/MainLayout.vue'),
@@ -14,6 +16,7 @@ export const routes: RouteRecordRaw[] = [
       { path: 'dynamic/:moduleKey/:id(\\d+)', component: () => import('src/pages/dynamic/DetailPage.vue') },
       { path: 'dynamic/:moduleKey/:id(\\d+)/edit', component: () => import('src/pages/dynamic/FormPage.vue') },
       { path: 'account/ai-tokens', component: () => import('src/pages/account/AiTokensPage.vue') },
+      { path: 'account/security', component: () => import('src/pages/account/AccountSecurityPage.vue') },
       { path: 'tasks', component: () => import('src/pages/tasks/MyTasksPage.vue') },
       { path: 'approvals', component: () => import('src/pages/approvals/ApprovalCenterPage.vue') },
       { path: 'reports', component: () => import('src/pages/reports/ReportListPage.vue') },
