@@ -28,10 +28,18 @@ function useStartSession() {
     qc.clear();
     identity.setSession(u.userId, u.mustChangePassword);
     // 登入回應沒有 isDemoAccount；導頁前先從 /me 補齊，守衛才擋得住 Demo 帳號進改密碼頁。失敗時留 false，下次載入由守衛補。
-    try {
-      identity.setDemoAccount((await dynamicApi.getMe()).isDemoAccount === true);
-    } catch { /* keep false */ }
+    // 強制綁定（§8.7）同樣從 /me 補；漏掉時後端 403 twoFactorEnrollmentRequired 會再導去綁定頁
+    await refreshFromMe(identity, true);
   };
+}
+
+/** 從 /me 補 Demo 帳號與強制綁定兩個旗標；失敗時保留原值。 */
+async function refreshFromMe(identity: ReturnType<typeof useIdentityStore>, demo: boolean) {
+  try {
+    const me = await dynamicApi.getMe();
+    if (demo) identity.setDemoAccount(me.isDemoAccount === true);
+    identity.setEnrollmentRequired(me.twoFactorEnrollmentRequired === true);
+  } catch { /* keep */ }
 }
 
 /** 要第二步時（帳號安全設計 §8.3）還沒有 session，不開始；由呼叫端顯示第二步畫面。 */
@@ -55,7 +63,7 @@ export function useDemoLogin() {
 /** 登入第二步：驗證碼或復原碼同樣綁當次提交。 */
 export function useTwoFactorLogin() {
   const start = useStartSession();
-  return useSecretMutation((take: (v: object) => { code?: string; recoveryCode?: string }) =>
+  return useSecretMutation((take: (v: object) => { code?: string; recoveryCode?: string; rememberDevice?: boolean; deviceLabel?: string }) =>
     useMutation({ ...SECRET_MUTATION, mutationFn: (v: object) => dynamicApi.twoFactorLogin(take(v)), onSuccess: start }));
 }
 
@@ -84,6 +92,10 @@ export function useChangePassword() {
     useMutation({
       ...SECRET_MUTATION,
       mutationFn: (v: object) => dynamicApi.changePassword(take(v)),
-      onSuccess: (u) => identity.setSession(u.userId, u.mustChangePassword),
+      // 改完密碼才輪到強制綁定（§8.7 F17）：導頁前先問 /me，守衛直接導去綁定頁，不先打到被擋的政策 API
+      onSuccess: async (u) => {
+        identity.setSession(u.userId, u.mustChangePassword);
+        await refreshFromMe(identity, false);
+      },
     }));
 }

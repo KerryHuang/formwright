@@ -13,7 +13,9 @@ import { joinList } from 'src/i18n/translate';
 
 // 帳號安全頁的雙因素卡（帳號安全設計 §8.2、§8.4、§8.9）：啟用、重新綁定、關閉、重新產生復原碼都在同一個對話框分步驟走。
 // 金鑰與復原碼明文只存在這個元件的 ref，關閉對話框就清掉；密碼、驗證碼用 secret mutation 綁當次提交。
+// 強制綁定頁（§8.7）也用這張卡：status.required 時不給關閉；綁定完成、按「我已保存」後送 enabled。
 const props = defineProps<{ status: TwoFactorStatus }>();
+const emit = defineEmits<{ enabled: [] }>();
 const { t } = useI18n();
 const $q = useQuasar();
 
@@ -75,8 +77,10 @@ function openDialog(m: Mode) {
 }
 
 function close() {
+  const finishedBinding = step.value === 'codes' && (mode.value === 'enable' || mode.value === 'rebind');
   clearSecrets();
   open.value = false;
+  if (finishedBinding) emit('enabled');
 }
 
 const fail = (e: unknown) => { error.value = joinList(leftoverMessages(e as unknown as ApiError, [])) || t('twoFactor.failed'); };
@@ -157,6 +161,7 @@ function onToggle(v: boolean) {
       <q-banner v-if="status.blocked === 'keysNotPersisted'" dense class="bg-info-soft" data-testid="security-2fa-keys">{{ t('twoFactor.keysNotPersisted') }}</q-banner>
       <q-banner v-else-if="status.blocked === 'demoSite'" dense class="bg-info-soft" data-testid="security-2fa-demo">{{ t('twoFactor.demoSite') }}</q-banner>
       <div v-else-if="!status.hasPassword" class="text-muted" data-testid="security-2fa-no-password">{{ t('twoFactor.noPassword') }}</div>
+      <div v-if="status.enabled && status.required" class="text-caption text-muted" data-testid="security-2fa-required">{{ t('twoFactor.requiredHint') }}</div>
     </q-card-section>
     <q-card-actions v-if="canBind" align="right" class="q-gutter-xs">
       <q-btn v-if="!status.enabled" flat no-caps color="primary" :label="t('twoFactor.enable')" data-testid="security-2fa-enable" @click="openDialog('enable')" />
@@ -166,7 +171,10 @@ function onToggle(v: boolean) {
           @click="openDialog('regenerate')"
         />
         <q-btn flat no-caps color="primary" :label="t('twoFactor.rebind')" data-testid="security-2fa-rebind" @click="openDialog('rebind')" />
-        <q-btn flat no-caps color="negative" :label="t('twoFactor.disable')" data-testid="security-2fa-disable" @click="openDialog('disable')" />
+        <q-btn
+          v-if="!status.required" flat no-caps color="negative" :label="t('twoFactor.disable')" data-testid="security-2fa-disable"
+          @click="openDialog('disable')"
+        />
       </template>
     </q-card-actions>
   </q-card>

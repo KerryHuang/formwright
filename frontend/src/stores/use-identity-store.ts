@@ -8,6 +8,8 @@ export const useIdentityStore = defineStore('identity', () => {
   const mustChangePassword = ref(false);
   /** Demo accounts have no password; the change-password link and page are unavailable to them. */
   const isDemoAccount = ref(false);
+  /** 強制雙因素的寬限已過、還沒啟用（帳號安全設計 §8.7）：只能開強制綁定頁，後端也只放行綁定與登出。 */
+  const twoFactorEnrollmentRequired = ref(false);
   /** Users from GET /users, filled by MainLayout. */
   const users = ref<User[]>([]);
 
@@ -20,6 +22,10 @@ export const useIdentityStore = defineStore('identity', () => {
     isDemoAccount.value = v;
   }
 
+  function setEnrollmentRequired(v: boolean) {
+    twoFactorEnrollmentRequired.value = v;
+  }
+
   function setUsers(list: User[]) {
     users.value = list;
   }
@@ -28,8 +34,11 @@ export const useIdentityStore = defineStore('identity', () => {
     userId.value = '';
     mustChangePassword.value = false;
     isDemoAccount.value = false;
+    twoFactorEnrollmentRequired.value = false;
     users.value = [];
   }
 
-  return { userId, mustChangePassword, isDemoAccount, users, setSession, setDemoAccount, setUsers, clear };
+  return {
+    userId, mustChangePassword, isDemoAccount, twoFactorEnrollmentRequired, users, setSession, setDemoAccount, setEnrollmentRequired, setUsers, clear,
+  };
 });

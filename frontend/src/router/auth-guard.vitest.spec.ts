@@ -23,13 +23,14 @@ import { VueQueryPlugin } from '@tanstack/vue-query';
 import { mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
 import { LOCALE_KEY } from 'src/i18n/locale';
-import { handleUnauthorized, installAuthGuard, safeRedirect } from './auth-guard';
+import { handleTwoFactorEnrollmentRequired, handleUnauthorized, installAuthGuard, safeRedirect } from './auth-guard';
 
 const page = { template: '<i/>' };
 const routes = [
   { path: '/', component: page },
   { path: '/login', component: page, meta: { public: true } },
   { path: '/change-password', component: page },
+  { path: '/account/two-factor-setup', component: page },
   { path: '/service-unavailable', component: page, meta: { public: true } },
   { path: '/dynamic/:moduleKey', component: page },
   { path: '/verify-email', component: page, meta: { public: true, anyone: true } },
@@ -142,6 +143,40 @@ describe('auth guard', () => {
     expect(router.currentRoute.value.path).toBe('/change-password');
     await router.push('/change-password');
     expect(router.currentRoute.value.path).toBe('/change-password');
+  });
+
+  // 強制綁定雙因素（帳號安全設計 §8.7）：只能開綁定頁，而且不先載入政策（後端會 403）
+  it('twoFactorEnrollmentRequired forces the setup page before loading session settings', async () => {
+    meResponse = { status: 200, data: { userId: 'admin', mustChangePassword: false, twoFactorEnrollmentRequired: true } };
+    const router = setup();
+    await router.push('/dynamic/order');
+    expect(router.currentRoute.value.path).toBe('/account/two-factor-setup');
+    await router.push('/');
+    expect(router.currentRoute.value.path).toBe('/account/two-factor-setup');
+    expect(effCalls).toBe(0);
+  });
+
+  it('a forced password change comes before the forced two-factor setup', async () => {
+    meResponse = { status: 200, data: { userId: 'admin', mustChangePassword: true, twoFactorEnrollmentRequired: true } };
+    const router = setup();
+    await router.push('/account/two-factor-setup');
+    expect(router.currentRoute.value.path).toBe('/change-password');
+  });
+
+  it('without enrollment required the setup page sends you home', async () => {
+    meResponse = { status: 200, data: { userId: 'admin', mustChangePassword: false } };
+    const router = setup();
+    await router.push('/account/two-factor-setup');
+    expect(router.currentRoute.value.path).toBe('/');
+  });
+
+  it('403 twoFactorEnrollmentRequired during use flags the session and opens the setup page', async () => {
+    meResponse = { status: 200, data: { userId: 'admin', mustChangePassword: false } };
+    const router = setup();
+    await router.push('/dynamic/order');
+    handleTwoFactorEnrollmentRequired(router);
+    await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/account/two-factor-setup'));
+    expect(useIdentityStore().twoFactorEnrollmentRequired).toBe(true);
   });
 
   it('demo accounts cannot enter /change-password directly', async () => {

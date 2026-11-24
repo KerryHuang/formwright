@@ -8,7 +8,7 @@ export interface ApiError {
   status: number;
   errors?: Record<string, string[]>;
   message?: string;
-  /** Machine-readable reason: passwordChangeRequired on 403, stale / ledgerFreezeConfirm on 409, network when the request never got a response. */
+  /** Machine-readable reason: passwordChangeRequired / twoFactorEnrollmentRequired on 403, stale / ledgerFreezeConfirm on 409, network when the request never got a response. */
   code?: string;
   /** Values that go with code, e.g. { count } for ledgerFreezeConfirm. */
   params?: Record<string, unknown>;
@@ -44,6 +44,7 @@ const isBrowserAbort = (err: { code?: string; message?: string } | undefined) =>
 export interface AuthHandlers {
   onUnauthorized(): void;
   onPasswordChangeRequired(): void;
+  onTwoFactorEnrollmentRequired(): void;
 }
 
 let authHandlers: AuthHandlers | undefined;
@@ -95,6 +96,7 @@ const SIGN_IN_URLS = ['/auth/login', '/auth/demo-login'];
 export function handleAuthFailure(err: ApiError, url?: string) {
   if (err.status === 401 && !SIGN_IN_URLS.includes(url ?? '')) authHandlers?.onUnauthorized();
   else if (err.status === 403 && err.code === 'passwordChangeRequired') authHandlers?.onPasswordChangeRequired();
+  else if (err.status === 403 && err.code === 'twoFactorEnrollmentRequired') authHandlers?.onTwoFactorEnrollmentRequired();
 }
 
 http.interceptors.response.use((r) => r, (e) => {

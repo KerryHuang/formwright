@@ -12,7 +12,7 @@ import AccountSecurityPage from './AccountSecurityPage.vue';
 
 vi.mock('src/services/api/dynamic-api', () => ({ dynamicApi: {
   getAccountSecurity: vi.fn(), setMyEmail: vi.fn(), resendMyEmail: vi.fn(),
-  startTwoFactorSetup: vi.fn(), enableTwoFactor: vi.fn(), disableTwoFactor: vi.fn(), regenerateRecoveryCodes: vi.fn(),
+  startTwoFactorSetup: vi.fn(), enableTwoFactor: vi.fn(), disableTwoFactor: vi.fn(), regenerateRecoveryCodes: vi.fn(), clearTrustedDevices: vi.fn(),
 } }));
 const api = vi.mocked(dynamicApi);
 let mounted: ReturnType<typeof mount> | undefined;
@@ -28,7 +28,7 @@ async function mountPage(data: Partial<AccountSecurity> = {}) {
   const Host = { render: () => h(quasar.QLayout, null, () => h(quasar.QPageContainer, null, () => h(AccountSecurityPage))) };
   mounted = mount(Host, {
     attachTo: document.body,
-    global: { plugins: [[quasar.Quasar, { components: quasar, directives: quasar, plugins: { Notify: quasar.Notify } }], i18n, router, [VueQueryPlugin, { queryClient }]] },
+    global: { plugins: [[quasar.Quasar, { components: quasar, directives: quasar, plugins: { Notify: quasar.Notify, Dialog: quasar.Dialog } }], i18n, router, [VueQueryPlugin, { queryClient }]] },
   });
   await flushPromises();
 }
@@ -150,6 +150,42 @@ describe('AccountSecurityPage', () => {
       await mountPage({ twoFactor: { ...off, blocked: 'demoSite' } });
       expect(q('security-2fa-demo')).not.toBeNull();
       expect(q('security-2fa-enable')).toBeNull();
+    });
+  });
+
+  describe('記住的裝置與強制（帳號安全設計 §8.5、§8.7）', () => {
+    const on: TwoFactorStatus = { enabled: true, recoveryCodesLeft: 10, unreadable: false, blocked: null, remindAtOrBelow: 2, hasPassword: true };
+    const devices = [{ label: 'Chrome 131／macOS', createdUtc: '2026-11-20T01:00:00Z', lastUsedUtc: '2026-11-24T02:30:00Z' }];
+
+    it('在強制範圍內不給關閉，只能重新綁定', async () => {
+      await mountPage({ twoFactor: { ...on, required: true } });
+      expect(q('security-2fa-disable')).toBeNull();
+      expect(q('security-2fa-rebind')).not.toBeNull();
+      expect(q('security-2fa-required')).not.toBeNull();
+    });
+
+    it('列出記住的裝置（營運時區的最近使用時間），確認後全部取消記住', async () => {
+      api.clearTrustedDevices.mockResolvedValue(undefined);
+      await mountPage({ twoFactor: on, trustedDevices: devices });
+      expect(q('security-devices-card')!.textContent).toContain('記住的裝置：1 台');
+      expect(q('security-devices')!.textContent).toContain('Chrome 131／macOS');
+      expect(q('security-devices')!.textContent).toContain('2026-11-24 10:30');
+      q('security-devices-clear')!.click();
+      await flushPromises();
+      const ok = [...document.body.querySelectorAll('.q-dialog button')].find((b) => b.textContent?.includes(zhTW.trustedDevices.clearAll)) as HTMLElement;
+      ok.click();
+      await flushPromises();
+      expect(api.clearTrustedDevices).toHaveBeenCalledTimes(1);
+    });
+
+    it('Demo 站：按鈕停用並寫「Demo 站不能變更」；沒啟用雙因素時不顯示這張卡', async () => {
+      await mountPage({ twoFactor: { ...on, blocked: 'demoSite' }, trustedDevices: devices, trustedDevicesBlocked: 'demoSite' });
+      expect(q('security-devices-demo')!.textContent).toContain(zhTW.trustedDevices.demoSite);
+      expect(q('security-devices-clear')!.hasAttribute('disabled') || q('security-devices-clear')!.classList.contains('disabled')).toBe(true);
+      mounted?.unmount();
+      document.body.innerHTML = '';
+      await mountPage({ twoFactor: { ...on, enabled: false }, trustedDevices: [] });
+      expect(q('security-devices-card')).toBeNull();
     });
   });
 });

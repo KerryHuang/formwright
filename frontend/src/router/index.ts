@@ -2,7 +2,7 @@ import { defineRouter } from '#q-app';
 import { createRouter, createWebHistory } from 'vue-router';
 import { queryClient } from 'src/boot/tanstack-query';
 import { setAuthHandlers } from 'src/services/api/http';
-import { handlePasswordChangeRequired, handleUnauthorized, installAuthGuard } from './auth-guard';
+import { handlePasswordChangeRequired, handleTwoFactorEnrollmentRequired, handleUnauthorized, installAuthGuard } from './auth-guard';
 import { routes } from './routes';
 
 export default defineRouter(() => {
@@ -11,6 +11,7 @@ export default defineRouter(() => {
   setAuthHandlers({
     onUnauthorized: () => handleUnauthorized(router, queryClient),
     onPasswordChangeRequired: () => handlePasswordChangeRequired(router),
+    onTwoFactorEnrollmentRequired: () => handleTwoFactorEnrollmentRequired(router),
   });
   return router;
 });

@@ -352,6 +352,8 @@ export interface AuthOptions {
   passwordReset: 'available' | 'contactAdmin';
   /** 政策 auth.passwordMinLength 的生效值；前端提示與「送出一定會被擋」的檢查都讀它，不另存常數（§7.6） */
   passwordMinLength: number;
+  /** 政策 auth.twoFactorRememberDays 的生效值（§8.5）；0＝不顯示「記住這台裝置」。 */
+  rememberDeviceDays?: number;
 }
 
 export interface AdminUser {
@@ -381,7 +383,14 @@ export interface AdminUser {
 export interface AccountEmail { email?: string | null; emailVerified: boolean; mailAvailable: boolean }
 
 /** GET account/security（帳號安全設計 §12）。canChangeEmail：帳號有密碼（改 Email 要重新輸入密碼）。 */
-export interface AccountSecurity extends AccountEmail { userId: string; canChangeEmail: boolean; twoFactor?: TwoFactorStatus | null }
+export interface AccountSecurity extends AccountEmail {
+  userId: string; canChangeEmail: boolean; twoFactor?: TwoFactorStatus | null;
+  /** 記住的裝置（§8.5，只列仍有效的）；trustedDevicesBlocked：不能取消記住的原因（Demo 站）。 */
+  trustedDevices?: TrustedDevice[]; trustedDevicesBlocked?: 'demoSite' | null;
+}
+
+/** 記住這台裝置的一筆（§8.5）：標籤是登入時的瀏覽器與作業系統。 */
+export interface TrustedDevice { label: string; createdUtc: string; lastUsedUtc?: string | null }
 
 /**
  * 帳號安全頁的雙因素狀態（§8.2、§12）。unreadable：金鑰解不開（換過金鑰），要用復原碼重新綁定；
@@ -390,6 +399,8 @@ export interface AccountSecurity extends AccountEmail { userId: string; canChang
 export interface TwoFactorStatus {
   enabled: boolean; enabledUtc?: string | null; recoveryCodesLeft: number; unreadable: boolean; blocked?: 'keysNotPersisted' | 'demoSite' | null;
   remindAtOrBelow: number; hasPassword: boolean;
+  /** 在強制範圍內（§8.7）：不能關閉。 */
+  required?: boolean;
 }
 
 /** 開始綁定：金鑰明文只回這一次；pendingMinutes 內要輸入驗證碼完成。 */
@@ -446,7 +457,9 @@ export interface Me {
   permissionAdmin: boolean;
   theme: MeTheme;
   /** 雙因素狀態（帳號安全設計 §8.6）；舊伺服器沒有這個欄位。 */
-  twoFactor?: { enabled: boolean; required: boolean; graceUntil?: string | null; recoveryCodesLeft: number } | null;
+  twoFactor?: { enabled: boolean; required: boolean; graceUntil?: string | null; recoveryCodesLeft: number; rememberedDevices?: number } | null;
+  /** 強制雙因素的寬限已過、還沒啟用（§8.7）：只能開強制綁定頁。 */
+  twoFactorEnrollmentRequired?: boolean;
 }
 
 /** GetModule response: every status of field and option, for the designer. */

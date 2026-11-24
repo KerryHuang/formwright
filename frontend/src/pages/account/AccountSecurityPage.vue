@@ -2,7 +2,8 @@
 import { useQuasar } from 'quasar';
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useAccountSecurity, useResendMyEmail, useSetMyEmail } from 'src/application/dynamic/queries/account-security-queries';
+import { useAccountSecurity, useClearTrustedDevices, useResendMyEmail, useSetMyEmail } from 'src/application/dynamic/queries/account-security-queries';
+import { formatTime } from 'src/domain/ops/ops-format';
 import { leftoverMessages } from 'src/presentation/dynamic/designer/api-error';
 import type { ApiError } from 'src/services/api/http';
 import { joinList } from 'src/i18n/translate';
@@ -34,6 +35,16 @@ function submit() {
     },
     onError: (e) => { error.value = joinList(leftoverMessages(e as unknown as ApiError, [])) || t('accountSecurity.saveFailed'); },
   });
+}
+
+const devices = computed(() => data.value?.trustedDevices ?? []);
+const clearDevices = useClearTrustedDevices();
+function confirmClear() {
+  $q.dialog({ message: t('trustedDevices.clearConfirm'), cancel: true, persistent: true, ok: { label: t('trustedDevices.clearAll'), color: 'negative' } })
+    .onOk(() => clearDevices.mutate(undefined, {
+      onSuccess: () => $q.notify({ type: 'positive', message: t('trustedDevices.cleared') }),
+      onError: (e) => $q.notify({ type: 'negative', message: joinList(leftoverMessages(e as unknown as ApiError, [])) || t('accountSecurity.saveFailed') }),
+    }));
 }
 
 const resend = useResendMyEmail();
@@ -94,6 +105,32 @@ function resendMail() {
       </div>
       <div v-if="data.twoFactor" class="col-12 col-md-6">
         <TwoFactorCard :status="data.twoFactor" />
+      </div>
+      <!-- 記住的裝置（帳號安全設計 §8.5、Q17）：只列仍有效的；Demo 站不能取消（mfa01 是共用帳號） -->
+      <div v-if="data.twoFactor?.enabled" class="col-12 col-md-6">
+        <q-card flat bordered data-testid="security-devices-card">
+          <q-card-section>
+            <div class="text-subtitle1">{{ t('trustedDevices.title') }}</div>
+            <div class="text-caption text-muted">{{ t('trustedDevices.count', { count: devices.length }) }}</div>
+          </q-card-section>
+          <q-list v-if="devices.length" separator dense data-testid="security-devices">
+            <q-item v-for="(d, i) in devices" :key="i">
+              <q-item-section>
+                <q-item-label style="overflow-wrap: anywhere">{{ d.label }}</q-item-label>
+                <q-item-label caption>{{ t('trustedDevices.lastUsed', { time: formatTime(d.lastUsedUtc ?? d.createdUtc) }) }}</q-item-label>
+              </q-item-section>
+            </q-item>
+          </q-list>
+          <q-card-section v-if="data.trustedDevicesBlocked === 'demoSite'" class="q-pt-none text-caption text-muted" data-testid="security-devices-demo">
+            {{ t('trustedDevices.demoSite') }}
+          </q-card-section>
+          <q-card-actions align="right">
+            <q-btn
+              flat no-caps color="negative" :label="t('trustedDevices.clearAll')" :disable="!devices.length || !!data.trustedDevicesBlocked"
+              :loading="clearDevices.isPending.value" data-testid="security-devices-clear" @click="confirmClear"
+            />
+          </q-card-actions>
+        </q-card>
       </div>
     </div>
 

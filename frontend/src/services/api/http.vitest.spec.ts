@@ -23,12 +23,20 @@ describe('http', () => {
   describe('auth handlers', () => {
     const onUnauthorized = vi.fn();
     const onPasswordChangeRequired = vi.fn();
+    const onTwoFactorEnrollmentRequired = vi.fn();
     const fail = (status: number, data: unknown) => {
       http.defaults.adapter = async (config) => Promise.reject({ config, response: { status, data } });
     };
     beforeEach(() => {
       vi.clearAllMocks();
-      setAuthHandlers({ onUnauthorized, onPasswordChangeRequired });
+      setAuthHandlers({ onUnauthorized, onPasswordChangeRequired, onTwoFactorEnrollmentRequired });
+    });
+
+    it('403 twoFactorEnrollmentRequired（帳號安全設計 §8.7）只叫強制綁定的 handler', async () => {
+      fail(403, { message: '請先啟用雙因素驗證', code: 'twoFactorEnrollmentRequired' });
+      await expect(http.get('/menu')).rejects.toEqual({ status: 403, message: '請先啟用雙因素驗證', code: 'twoFactorEnrollmentRequired' });
+      expect(onTwoFactorEnrollmentRequired).toHaveBeenCalledTimes(1);
+      expect(onPasswordChangeRequired).not.toHaveBeenCalled();
     });
 
     it('calls onUnauthorized on a 401 from a normal request', async () => {

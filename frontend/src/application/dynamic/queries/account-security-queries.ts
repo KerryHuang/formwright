@@ -88,6 +88,15 @@ export function useRegenerateRecoveryCodes() {
     }));
 }
 
+/** 全部取消記住（§8.5）：帳號安全頁與 /me 的裝置數跟著重取。 */
+export function useClearTrustedDevices() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => dynamicApi.clearTrustedDevices(),
+    onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: ['account-security'] }), qc.invalidateQueries({ queryKey: ['me'] })]),
+  });
+}
+
 /** 管理員重設別人的雙因素（§8.8）：清單與寄送紀錄跟著重取。 */
 export function useResetUserTwoFactor() {
   const qc = useQueryClient();

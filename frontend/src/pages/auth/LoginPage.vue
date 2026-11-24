@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuasar } from 'quasar';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthOptions, useDemoLogin, useLogin, useTwoFactorLogin } from 'src/application/dynamic/queries/auth-queries';
@@ -9,6 +9,7 @@ import BrandMark from 'src/presentation/brand/BrandMark.vue';
 import LocaleSwitcher from 'src/presentation/locale/LocaleSwitcher.vue';
 import { safeRedirect } from 'src/router/auth-guard';
 import type { ApiError } from 'src/services/api/http';
+import { deviceLabel } from 'src/services/ops/error-reporter';
 
 const { t } = useI18n();
 const $q = useQuasar();
@@ -28,6 +29,9 @@ const challenge = ref<TwoFactorChallenge | null>(null);
 const useRecovery = ref(false);
 const code = ref('');
 const recoveryCode = ref('');
+// 記住這台裝置（§8.5）：天數是政策 auth.twoFactorRememberDays 的生效值，0 時不顯示；預設不勾
+const remember = ref(false);
+const rememberDays = computed(() => options.data.value?.rememberDeviceDays ?? 0);
 
 const enter = (u: AuthUser) => {
   // 用復原碼登入：提示剩幾組（§8.4）
@@ -42,6 +46,7 @@ const done = (r: LoginResult) => {
     code.value = '';
     recoveryCode.value = '';
     password.value = '';
+    remember.value = false;
     return;
   }
   enter(r);
@@ -65,7 +70,8 @@ const failSecond = (e: unknown) => {
 const submitSecond = () => {
   error.value = '';
   const proof = useRecovery.value ? { recoveryCode: recoveryCode.value.trim() } : { code: code.value.trim() };
-  secondStep.send({}, proof, { onSuccess: enter, onError: failSecond });
+  const device = remember.value && rememberDays.value > 0 ? { rememberDevice: true, deviceLabel: deviceLabel() } : {};
+  secondStep.send({}, { ...proof, ...device }, { onSuccess: enter, onError: failSecond });
 };
 const back = () => {
   challenge.value = null;
@@ -105,6 +111,10 @@ const pickDemo = (id: string) => {
           <q-input
             v-else v-model="recoveryCode" :label="t('twoFactor.recoveryCode')" autocomplete="off" autofocus dense outlined
             data-testid="login-recovery"
+          />
+          <q-checkbox
+            v-if="rememberDays > 0" v-model="remember" dense :label="t('twoFactor.rememberDevice', { days: rememberDays })"
+            data-testid="login-remember"
           />
           <div v-if="error" class="text-negative" data-testid="login-error">{{ error }}</div>
           <q-btn type="submit" color="primary" class="full-width" :label="t('twoFactor.verify')" :loading="secondStep.isPending.value" data-testid="login-second-submit" />

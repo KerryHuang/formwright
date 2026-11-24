@@ -59,6 +59,17 @@ export function browserFamily(ua: string = typeof navigator === 'undefined' ? ''
   return 'Other';
 }
 
+/** 作業系統家族（記住這台裝置的標籤，帳號安全設計 §8.5）：不帶版本，認不出就是 Other。 */
+export function osFamily(ua: string = typeof navigator === 'undefined' ? '' : navigator.userAgent): string {
+  const rules: [string, RegExp][] = [
+    ['iOS', /iPhone|iPad|iPod/], ['Android', /Android/], ['Windows', /Windows/], ['macOS', /Mac OS X|Macintosh/], ['ChromeOS', /CrOS/], ['Linux', /Linux/],
+  ];
+  return rules.find(([, re]) => re.test(ua))?.[0] ?? 'Other';
+}
+
+/** 記住這台裝置的標籤：瀏覽器與作業系統，例如「Chrome 131／macOS」。 */
+export const deviceLabel = (ua?: string) => `${browserFamily(ua)}／${osFamily(ua)}`;
+
 const encoder = new TextEncoder();
 const bytes = (r: ClientErrorReport) => encoder.encode(JSON.stringify(r)).length;
 
