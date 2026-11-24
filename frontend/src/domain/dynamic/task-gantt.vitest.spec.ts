@@ -3,7 +3,7 @@ import { normalizeGantt } from 'src/services/api/task-normalize';
 import { cardWire } from 'src/presentation/tasks/board/board-fixtures';
 import { ganttWire } from 'src/presentation/tasks/gantt/gantt-fixtures';
 import {
-  addMonths, barGeometry, canSchedule, dayAtX, draggedDates, formatGanttDate, ganttLines, ganttWeeks, minorTicks, monthTicks, phoneWindow, replaceCardLocally, scheduleCardLocally,
+  addMonths, barGeometry, canSchedule, dayAtX, draggedDates, formatGanttDate, formatGanttDayOfMonth, ganttLines, ganttWeeks, minorTicks, monthTicks, phoneWindow, replaceCardLocally, scheduleCardLocally,
   shiftPhoneWindow, shiftWindow, spanGeometry, startOfWeek, todayPosition, windowDays, windowFor,
 } from './task-gantt';
 
@@ -72,6 +72,12 @@ describe('甘特圖日期運算', () => {
     expect(formatGanttDate('2026-11-16', 'en-US', { month: 'short' })).toBe('Nov');
     expect(formatGanttDate('2026-11-16', 'vi', { month: 'numeric', day: 'numeric' })).toBe('16/11');
     expect(formatGanttDate('2026-11-16', 'zh-TW', { month: 'numeric', day: 'numeric' })).toBe('11/16');
+  });
+
+  it('日數不帶「日」字尾；同語系與選項重複格式化結果一致（快取）', () => {
+    expect(formatGanttDayOfMonth('2026-11-16', 'zh-TW')).toBe('16');
+    expect(formatGanttDayOfMonth('2026-11-05', 'en-US')).toBe('5');
+    expect(formatGanttDate('2026-11-16', 'zh-TW', { weekday: 'short' })).toBe(formatGanttDate('2026-11-16', 'zh-TW', { weekday: 'short' }));
   });
 });
 

@@ -139,9 +139,25 @@ export function minorTicks(w: TaskGanttWindow, scale: GanttScale): GanttTick[] {
   return segments(starts, w);
 }
 
+// Intl.DateTimeFormat 建構很貴（500 列＋刻度每次重算都會建幾百個），依語系與選項快取。
+const formatters = new Map<string, Intl.DateTimeFormat>();
+const formatterFor = (locale: string, opts: Intl.DateTimeFormatOptions): Intl.DateTimeFormat => {
+  const key = `${locale}|${JSON.stringify(opts)}`;
+  let f = formatters.get(key);
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, { ...opts, timeZone: 'UTC' });
+    formatters.set(key, f);
+  }
+  return f;
+};
+
 /** 依語系格式化日期（UTC，避免瀏覽器時區把日期推前一天）。 */
 export const formatGanttDate = (iso: string, locale: string, opts: Intl.DateTimeFormatOptions): string =>
-  new Intl.DateTimeFormat(locale, { ...opts, timeZone: 'UTC' }).format(new Date(dayNumber(iso) * DAY_MS));
+  formatterFor(locale, opts).format(new Date(dayNumber(iso) * DAY_MS));
+
+/** 只要日數（不帶「日」這類單位字尾；zh-TW 的 day: numeric 會是「16日」）。 */
+export const formatGanttDayOfMonth = (iso: string, locale: string): string =>
+  formatterFor(locale, { day: 'numeric' }).formatToParts(new Date(dayNumber(iso) * DAY_MS)).find((p) => p.type === 'day')?.value ?? '';
 
 // ---- 分組（GT-T10：伺服器回平鋪的列，分組在前端做） ----
 

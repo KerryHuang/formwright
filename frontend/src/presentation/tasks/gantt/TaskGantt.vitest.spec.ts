@@ -229,7 +229,7 @@ describe('TaskGantt', () => {
   it('G56 lists unscheduled tasks with their start date and the over-100 notice', async () => {
     const w = await mountGantt(() => ganttWire({ unscheduledTotal: 130, unscheduledTruncated: true }));
     expect(w.get('[data-testid="gantt-unscheduled-title"]').text()).toBe('未排程（130）');
-    expect(w.get('[data-testid="gantt-unscheduled-start-20"]').text()).toBe('開始日 11/20');
+    expect(w.get('[data-testid="gantt-unscheduled-start-20"]').text()).toBe('開始日 2026/11/20');
     expect(w.find('[data-testid="gantt-unscheduled-start-21"]').exists()).toBe(false);
     expect(w.get('[data-testid="gantt-unscheduled-more"]').text()).toBe('還有 128 筆，請加上篩選');
     const none = await mountGantt(() => ganttWire({ unscheduled: [], unscheduledTotal: 0 }));
@@ -494,6 +494,119 @@ describe('TaskGantt', () => {
     await setDates(w, '2026-11-18', '2026-11-20');
     expect(saveButton().classList.contains('disabled')).toBe(false);
     expect(notified(spy)).toEqual([]);
+  });
+
+  it('day scale labels show the day number without a day suffix, then the weekday (zh-TW)', async () => {
+    const w = await mountGantt(serverLike);
+    await w.get('[data-testid="gantt-scale-day"]').trigger('click');
+    await flushPromises();
+    expect(w.findAll('[data-testid="gantt-minor"]')[0].text()).toBe('16 週一');
+  });
+
+  it('a milestone keeps its whole diamond inside the track even on the first and last day of the window', async () => {
+    const w = await mountGantt(() => ganttWire({ rows: [cardWire({ id: 8, title: '寄合約', dueDate: '2026-11-16' })], spans: [], total: 1 }));
+    // 中心位置（百分比）交給 CSS 夾在 10px 到「寬度減 10px」之間，菱形斜角半長約 9.9px
+    const style = w.get('[data-testid="gantt-milestone-8"]').attributes('style') ?? '';
+    expect(style).toContain('--gantt-ms');
+    expect(style).not.toMatch(/(^|;)\s*left:/);
+    expect(Number(/--gantt-ms: ([\d.]+)%/.exec(style)?.[1])).toBeCloseTo((0.5 / 91) * 100, 3);
+  });
+
+  describe('loading states (same key refetch)', () => {
+    const deferred = () => {
+      let resolve!: (v: unknown) => void;
+      const promise = new Promise((r) => { resolve = r; });
+      return { promise, resolve };
+    };
+
+    it('shows an updating indicator while the same query refetches, and keeps the chart', async () => {
+      const w = await mountGantt();
+      expect(w.find('[data-testid="gantt-refreshing"]').exists()).toBe(false);
+      const d = deferred();
+      calls = mockHttp((c) => (c.url === '/tasks/gantt' ? d.promise : []));
+      await w.get('[data-testid="gantt-today"]').trigger('click');
+      await flushPromises();
+      expect(w.find('[data-testid="gantt-refreshing"]').exists()).toBe(true);
+      expect(w.find('[data-testid="gantt-bar-5"]').exists()).toBe(true);
+      d.resolve(ganttWire());
+      await flushPromises();
+      expect(w.find('[data-testid="gantt-refreshing"]').exists()).toBe(false);
+    });
+
+    it('a failed refetch that still has old data shows the failure and retry above the old chart', async () => {
+      let fail = false;
+      const w = await mountGantt(() => (fail ? new HttpFail(500, {}) : ganttWire()));
+      fail = true;
+      await w.get('[data-testid="gantt-today"]').trigger('click');
+      await flushPromises();
+      expect(w.find('[data-testid="gantt-load-failed"]').exists()).toBe(true);
+      expect(w.find('[data-testid="gantt-bar-5"]').exists()).toBe(true);
+      fail = false;
+      await w.get('[data-testid="gantt-retry"]').trigger('click');
+      await flushPromises();
+      expect(w.find('[data-testid="gantt-load-failed"]').exists()).toBe(false);
+    });
+
+    it('a slow answer for an old scale never overwrites the newer one', async () => {
+      const day = deferred();
+      const month = deferred();
+      const w = await mountGantt((b) => {
+        const scale = b.config?.scale;
+        if (scale === 'day') return day.promise;
+        if (scale === 'month') return month.promise;
+        return ganttWire();
+      });
+      await w.get('[data-testid="gantt-scale-day"]').trigger('click');
+      await flushPromises();
+      await w.get('[data-testid="gantt-scale-month"]').trigger('click');
+      await flushPromises();
+      month.resolve(serverLike({ viewId: null, config: { scale: 'month' }, window: { from: '2026-11-01', to: '2027-04-30' } }));
+      await flushPromises();
+      day.resolve(serverLike({ viewId: null, config: { scale: 'day' }, window: { from: '2026-11-16', to: '2026-11-29' } }));
+      await flushPromises();
+      expect(w.get('[data-testid="gantt-range"]').text()).toBe('2026/11/01 – 2027/04/30');
+      expect(w.findAll('[data-testid="gantt-major"]')).toHaveLength(6);
+      expect(w.findAll('[data-testid="gantt-minor"]')).toHaveLength(0);
+    });
+
+    it('a failed shift shows the failure; retry loads that window', async () => {
+      let fail = false;
+      const w = await mountGantt((b) => (fail && b.window ? new HttpFail(500, {}) : serverLike(b)));
+      fail = true;
+      await w.get('[data-testid="gantt-next"]').trigger('click');
+      await flushPromises();
+      expect(w.find('[data-testid="gantt-load-failed"]').exists()).toBe(true);
+      fail = false;
+      await w.get('[data-testid="gantt-retry"]').trigger('click');
+      await flushPromises();
+      expect(w.find('[data-testid="gantt-load-failed"]').exists()).toBe(false);
+      expect(w.get('[data-testid="gantt-range"]').text()).toBe('2027/02/15 – 2027/05/16');
+    });
+
+    it('after a saved change the chart is fetched again and follows the server dates', async () => {
+      quasar.Screen.lt.md = true;
+      const srv = statefulServer();
+      const w = await mountGantt(() => srv.gantt(), 'zh-TW', srv.schedule);
+      const before = ganttCalls().length;
+      await w.get('[data-testid="gantt-bar-7"]').trigger('click');
+      await flushPromises();
+      await setDates(w, '2026-11-30', '2026-12-10');
+      await save();
+      expect(ganttCalls().length).toBeGreaterThan(before);
+      expect(pctOf(w.get('[data-testid="gantt-bar-7"]'), 'left')).toBeCloseTo((14 / 91) * 100, 3);
+    });
+  });
+
+  it('measures the first paint of 500 rows and a scale switch (reference only, no assertion)', async () => {
+    const rows = Array.from({ length: 500 }, (_, i) => cardWire({ id: 1000 + i, title: `任務 ${i}`, startDate: '2026-11-16', dueDate: '2026-12-20', level: 'standalone' }));
+    const t0 = performance.now();
+    const w = await mountGantt((b) => ({ ...serverLike(b), rows, spans: [], total: 500 }));
+    const t1 = performance.now();
+    await w.get('[data-testid="gantt-scale-day"]').trigger('click');
+    await flushPromises();
+    const t2 = performance.now();
+    process.stderr.write(`[gantt perf] 500 rows first paint ${(t1 - t0).toFixed(0)}ms, scale switch ${(t2 - t1).toFixed(0)}ms\n`);
+    expect(w.findAll('[data-testid^="gantt-bar-"]').length).toBeGreaterThan(0);
   });
 
   it('G61 the scale labels follow the interface language', async () => {

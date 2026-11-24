@@ -6,7 +6,7 @@ import { useFetchGanttToday, useGantt } from 'src/application/dynamic/queries/ta
 import type { BoardCard, GanttSource, TaskGanttConfig, TaskGanttData, TaskGanttWindow } from 'src/domain/dynamic/task-board-types';
 import type { ApiError } from 'src/services/api/http';
 import {
-  barGeometry, canSchedule, dayAtX, dayNumber, draggedDates, formatGanttDate, ganttLines, ganttWeeks, GANTT_LEFT_WIDTH, GANTT_LEFT_WIDTH_TABLET, minorTicks,
+  barGeometry, canSchedule, dayAtX, dayNumber, draggedDates, formatGanttDate, formatGanttDayOfMonth, ganttLines, ganttWeeks, GANTT_LEFT_WIDTH, GANTT_LEFT_WIDTH_TABLET, minorTicks,
   monthTicks, phoneWindow, shiftPhoneWindow, shiftWindow, spanGeometry, todayPosition, windowDays, windowFor, type GanttDragPart, type GanttLine, type GanttScale,
 } from 'src/domain/dynamic/task-gantt';
 import { progressView, taskStatusColor } from 'src/domain/dynamic/task-types';
@@ -67,6 +67,8 @@ watch(() => query.error.value, (e) => {
 const shownScale = computed<GanttScale>(() => scale.value ?? data.value?.config.scale ?? 'week');
 // 上一段還沒換成新的一段前不能再平移（平移以畫面上的時間窗為起點）
 const busy = computed(() => query.isPlaceholderData.value);
+// 同一組查詢鍵在背景重抓（已有資料、不是換鍵的保留畫面）：畫面照舊，只加「更新中」提示
+const refreshing = computed(() => query.isFetching.value && !query.isLoading.value && !query.isPlaceholderData.value);
 
 // ---- 手機週清單（§11.5.4.7） ----
 const phoneData = ref<TaskGanttData | null>(null);
@@ -223,7 +225,7 @@ const majors = computed(() => (data.value ? monthTicks(data.value.window) : []).
 const minors = computed(() => (data.value ? minorTicks(data.value.window, shownScale.value) : []).map((x) => ({
   ...x,
   label: shownScale.value === 'day'
-    ? `${formatGanttDate(x.date, locale.value, { day: 'numeric' })} ${formatGanttDate(x.date, locale.value, { weekday: 'short' })}`
+    ? `${formatGanttDayOfMonth(x.date, locale.value)} ${formatGanttDate(x.date, locale.value, { weekday: 'short' })}`
     : formatGanttDate(x.date, locale.value, { month: 'numeric', day: 'numeric' }),
 })));
 // 格線：日、週刻度畫在每一格的左緣，月刻度畫在每月一日
@@ -287,6 +289,7 @@ const shortDate = (iso: string) => formatGanttDate(iso, locale.value, { month: '
         <q-btn flat dense no-caps color="primary" :label="t('taskBoard.retry')" data-testid="gantt-retry" @click="query.refetch()" />
       </div>
       <q-linear-progress v-else-if="!phoneData" indeterminate class="q-my-sm" data-testid="gantt-loading" />
+      <q-linear-progress v-else-if="refreshing" indeterminate class="q-my-sm" :aria-label="t('locale.loading')" data-testid="gantt-refreshing" />
       <template v-if="phoneData">
         <q-banner v-if="!phoneData.scopeAvailable" dense rounded class="bg-info-soft q-mb-sm" role="status" data-testid="gantt-scope-unavailable">
           {{ t('taskGantt.scopeUnavailable') }}
@@ -326,7 +329,7 @@ const shortDate = (iso: string) => formatGanttDate(iso, locale.value, { month: '
               <q-item-section>
                 <q-item-label class="gantt-two-lines" :class="{ 'text-strike text-muted': closed(c) }">{{ c.title }}</q-item-label>
                 <q-item-label caption class="row items-center q-gutter-x-sm">
-                  <span v-if="c.startDate">{{ t('taskGantt.startOnly', { date: shortDate(c.startDate) }) }}</span>
+                  <span v-if="c.startDate">{{ t('taskGantt.startOnly', { date: fullDate(c.startDate) }) }}</span>
                   <q-badge outline :color="taskStatusColor(c.status)" :label="t(`tasks.status.${c.status}`)" />
                 </q-item-label>
               </q-item-section>
@@ -351,11 +354,12 @@ const shortDate = (iso: string) => formatGanttDate(iso, locale.value, { month: '
         </div>
         <span class="text-body2" aria-live="polite" data-testid="gantt-range">{{ rangeText }}</span>
       </div>
-      <div v-if="query.error.value && !data" class="text-negative q-py-sm" data-testid="gantt-load-failed">
+      <div v-if="query.error.value" class="text-negative q-py-sm" data-testid="gantt-load-failed">
         {{ t('taskGantt.loadFailed') }}
         <q-btn flat dense no-caps color="primary" :label="t('taskBoard.retry')" data-testid="gantt-retry" @click="query.refetch()" />
       </div>
       <q-linear-progress v-else-if="query.isLoading.value" indeterminate class="q-my-sm" data-testid="gantt-loading" />
+      <q-linear-progress v-else-if="refreshing" indeterminate class="q-my-sm" :aria-label="t('locale.loading')" data-testid="gantt-refreshing" />
       <template v-if="data">
         <q-banner v-if="!data.scopeAvailable" dense rounded class="bg-info-soft q-mb-sm" role="status" data-testid="gantt-scope-unavailable">
           {{ t('taskGantt.scopeUnavailable') }}
@@ -466,7 +470,7 @@ const shortDate = (iso: string) => formatGanttDate(iso, locale.value, { month: '
                     </button>
                     <button
                       v-else type="button" class="gantt-milestone" :class="[barClass(line.card), dragClass(line.card)]"
-                      :style="{ left: pct(geometry(line.card)!.left + geometry(line.card)!.width / 2) }"
+                      :style="{ '--gantt-ms': pct(geometry(line.card)!.left + geometry(line.card)!.width / 2) }"
                       :aria-label="barLabel(line.card)" :data-testid="`gantt-milestone-${line.card.id}`" @pointerdown="onDragStart($event, line.card, 'milestone')" @click="onBar(line.card)"
                     >
                       <q-tooltip>
@@ -495,7 +499,7 @@ const shortDate = (iso: string) => formatGanttDate(iso, locale.value, { month: '
               <q-item-section>
                 <q-item-label class="gantt-unscheduled-title" :class="{ 'text-strike text-muted': closed(c) }">{{ c.title }}</q-item-label>
                 <q-item-label caption class="row items-center q-gutter-x-sm">
-                  <span v-if="c.startDate" :data-testid="`gantt-unscheduled-start-${c.id}`">{{ t('taskGantt.startOnly', { date: shortDate(c.startDate) }) }}</span>
+                  <span v-if="c.startDate" :data-testid="`gantt-unscheduled-start-${c.id}`">{{ t('taskGantt.startOnly', { date: fullDate(c.startDate) }) }}</span>
                   <span>{{ assigneeLabel(c) }}</span>
                   <q-badge outline :color="taskStatusColor(c.status)" :label="t(`tasks.status.${c.status}`)" />
                 </q-item-label>
@@ -643,6 +647,8 @@ const shortDate = (iso: string) => formatGanttDate(iso, locale.value, { month: '
   width: 14px;
   height: 14px;
   margin-left: -7px;
+  /* 菱形轉 45 度後斜角半長約 9.9px：中心夾在軌道兩端內 10px，時間窗第一天與最後一天也不被切到 */
+  left: clamp(10px, var(--gantt-ms, 0%), calc(100% - 10px));
   transform: rotate(45deg);
   border-radius: 2px;
 }
