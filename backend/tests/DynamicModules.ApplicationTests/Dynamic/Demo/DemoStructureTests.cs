@@ -54,7 +54,7 @@ public class DemoStructureTests(DemoGeneratedFixture fx)
     {
         fx.Generated();
 
-        // 套件更新設計 §5.4、U21：Demo 產生器經 AppOpener 開啟，基準不必另寫；CRM 開的是推導的舊版，基準是推導文字，其他是目錄原文
+        // 套件更新設計 §5.4、U21：Demo 產生器經 AppOpener 開啟，基準不必另寫；CRM 與往來對象開的是推導的舊版，基準是推導文字，其他是目錄原文
         var catalog = fx.Host.Services.GetRequiredService<AppCatalog>();
         var db = fx.Host.Db.Context;
         var apps = await db.Set<App>().AsNoTracking().ToListAsync();
@@ -62,14 +62,15 @@ public class DemoStructureTests(DemoGeneratedFixture fx)
         apps.Select(a => a.Key).Should().Contain(DemoCatalog.AppIds).And.Contain(["partner", "contact"]);
         foreach (var app in apps)
             baselines.Should().ContainKey(app.Id, app.Key).WhoseValue.PackageJson.Should().Be(
-                app.Key == DemoCatalog.CrmAppId ? DemoOldCrm.Derive(catalog.OriginalOf(app.Key)!) : catalog.OriginalOf(app.Key), app.Key);
-        var crm = apps.Single(a => a.Key == DemoCatalog.CrmAppId);
-        crm.PackageVersion.Should().Be(DemoOldCrm.Older(catalog.BuiltIns.Single(p => p.Manifest.Id == crm.Key).Manifest.Version));
+                app.Key == DemoCatalog.CrmAppId ? DemoOldCrm.Derive(catalog.OriginalOf(app.Key)!)
+                : app.Key == DemoOldCrm.PartnerId ? DemoOldCrm.DerivePartner(catalog.OriginalOf(app.Key)!) : catalog.OriginalOf(app.Key), app.Key);
+        foreach (var key in new[] { DemoCatalog.CrmAppId, DemoOldCrm.PartnerId })
+            apps.Single(a => a.Key == key).PackageVersion.Should().Be(DemoOldCrm.Older(catalog.BuiltIns.Single(p => p.Manifest.Id == key).Manifest.Version), key);
     }
 
-    /// <summary>U21 與 §11.2 pkg1b 的示範路徑：CRM 有新版，預覽列出各分類；進銷存已是最新。</summary>
+    /// <summary>U21 與 §11.2 pkg1b、pkg1d2 的示範路徑：CRM 有新版，預覽列出各分類與往來對象的主檔段；進銷存自己已是最新、只有主檔段。</summary>
     [Fact]
-    public async Task Generate_CrmPreview_ShowsEveryDemoCategory_AndInventoryIsUpToDate()
+    public async Task Generate_CrmPreview_ShowsEveryDemoCategory_AndInventoryOnlyHasTheMaster()
     {
         fx.Generated();
 
@@ -95,12 +96,26 @@ public class DemoStructureTests(DemoGeneratedFixture fx)
             "本文少一行，只有新版改（pkg1d1b）");
         Item($"taskRule:{DemoOldCrm.RenamedTaskRule}").Should().Match<UpgradeItemResponse>(i => i.Category == "newOnly" && i.Applicable && i.DefaultSelected
             && i.Impacts!.Any(x => x.Code == "futureOnly"));
+        Item($"field:{DemoOldCrm.PartnerId}/partner.{DemoOldCrm.ContributedField}").Should().Match<UpgradeItemResponse>(i => i.Category == "newOnly"
+            && i.Applicable && i.DefaultSelected && i.Properties.Single().Locale == "th", "貢獻的泰文標籤只有新版改（pkg1d2）");
         preview.Blockers.Should().BeEmpty();
         preview.Counts["customerAdded"].Should().Be(1);
-        preview.Items.Should().HaveCount(9, "示範之外不能有假差異");
+        preview.Items.Should().HaveCount(10, "示範之外不能有假差異");
+        ShouldListOnlyThePartnerLabel(preview);
 
-        var inventory = await fx.Host.Send(new PreviewAppUpgradeRequest(DemoCatalog.InventoryAppId, new UpgradeBody(null, null)));
-        inventory.IsConflict.Should().BeTrue("進銷存照目錄版開啟，已是最新");
+        var inventory = (UpgradePreview)(await fx.Host.Send(new PreviewAppUpgradeRequest(DemoCatalog.InventoryAppId, new UpgradeBody(null, null)))).Data!;
+        inventory.Items.Should().BeEmpty("進銷存照目錄版開啟，自己已是最新");
+        inventory.FromVersion.Should().Be(inventory.ToVersion);
+        inventory.CanApply.Should().BeTrue();
+        ShouldListOnlyThePartnerLabel(inventory);
+    }
+
+    private static void ShouldListOnlyThePartnerLabel(UpgradePreview preview)
+    {
+        var partner = preview.Masters.Should().ContainSingle(m => m.Id == DemoOldCrm.PartnerId).Subject;
+        partner.FromVersion.Should().NotBe(partner.ToVersion);
+        partner.Items.Should().ContainSingle().Which.Should().Match<UpgradeItemResponse>(i => i.Id == $"field:{DemoOldCrm.PartnerField}"
+            && i.Category == "newOnly" && i.Applicable && i.DefaultSelected && i.Properties.Single().Locale == "th", "主檔推導舊版只換地址的泰文標籤");
     }
 
     [Fact]

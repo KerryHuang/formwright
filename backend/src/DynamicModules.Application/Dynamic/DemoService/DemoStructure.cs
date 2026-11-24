@@ -55,6 +55,10 @@ public sealed class DemoStructure(
             ["partner"] = new() { ["steward"] = new GroupMapEntry("map", groupIds["mis"]) },
             ["contact"] = new() { ["steward"] = new GroupMapEntry("map", groupIds["mis"]) }
         };
+        // 往來對象先以推導舊版開啟，之後的應用程式直接綁定它，更新頁才有主檔段可示範（§9.6.5 pkg1d2）
+        var partner = await appOpener.OpenTextAsync(DemoOldCrm.DerivePartner(catalog.OriginalOf(DemoOldCrm.PartnerId)!),
+            new OpenAppBody(null, null, masterMap[DemoOldCrm.PartnerId], null, masterMap), ct, asMaster: true);
+        if (!partner.Result.IsSuccess) return (null, Fail($"開啟共用主檔 {DemoOldCrm.PartnerId}", partner.Result));
         var opened = new Dictionary<string, TemplateIdMap>();
         foreach (var (appId, map) in new (string, (string Code, string Group)[])[]
         {
@@ -65,7 +69,7 @@ public sealed class DemoStructure(
         {
             var groupMap = map.ToDictionary(m => m.Code, m => new GroupMapEntry("map", groupIds[m.Group]));
             var body = new OpenAppBody(null, null, groupMap, null, masterMap);
-            // CRM 開推導出的舊版，示範升級預覽（套件更新設計 §11.1）；其他照目錄版開啟，示範「已是最新」
+            // CRM 開推導出的舊版，示範升級預覽（套件更新設計 §11.1）；其他照目錄版開啟，自己已是最新、只有往來對象有新版
             var app = appId == DemoCatalog.CrmAppId
                 ? await appOpener.OpenTextAsync(DemoOldCrm.Derive(catalog.OriginalOf(appId)!), body, ct)
                 : await appOpener.OpenAsync(appId, body, ct);

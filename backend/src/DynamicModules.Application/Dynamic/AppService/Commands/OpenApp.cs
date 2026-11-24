@@ -58,14 +58,15 @@ public class AppOpener(
 
     /// <summary>
     /// 內部入口（套件更新設計 §11.1，只給 Demo 產生器用、HTTP 不開）：開啟一份給定的內建套件文字，走同一條讀取、規劃、開啟的路徑，
-    /// 基準存這份文字。Demo 用它開由目錄版推導出的舊版，示範升級預覽。
+    /// 基準存這份文字。Demo 用它開由目錄版推導出的舊版，示範升級預覽；共用主檔的文字也收（<paramref name="asMaster"/> 為 true，
+    /// 要在使用它的應用程式之前開，之後的應用程式直接綁定，§9.6.5 pkg1d2）。
     /// </summary>
-    public async Task<AppOpenOutcome> OpenTextAsync(string packageJson, OpenAppBody body, CancellationToken ct)
+    public async Task<AppOpenOutcome> OpenTextAsync(string packageJson, OpenAppBody body, CancellationToken ct, bool asMaster = false)
     {
         var (package, errors) = await packages.ReadAsync(packageJson, ct);
         if (package is null) return new AppOpenOutcome(ServiceResult.Invalid(new Dictionary<string, string[]> { ["package"] = [.. errors] }), null);
         TemplateIdMap? ids = null;
-        var result = await OpenCoreAsync(package.Manifest.Id, body, asMaster: false, i => ids = i, ct,
+        var result = await OpenCoreAsync(package.Manifest.Id, body, asMaster, i => ids = i, ct,
             new SourcedPackage(package, AppPackageSource.BuiltIn, packageJson));
         return new AppOpenOutcome(result, result.IsSuccess ? ids : null);
     }

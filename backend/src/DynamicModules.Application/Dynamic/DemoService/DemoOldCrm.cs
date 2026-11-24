@@ -15,8 +15,11 @@ namespace DynamicModules.Application.Dynamic.DemoService;
 /// 拿掉後仍有「業務」，劇本由業務推這條轉移不受影響（§9.6.5、複核 R6）；</item>
 /// <item>設計案簽核流程第一關的繁中名稱換成舊名（只有新版改，Q27 下仍可勾；設計案劇本留一張簽核中的單，示範 inFlightApprovals）；</item>
 /// <item>列印範本「報價單」本文少最後一行備註（只有新版改，示範長值的「檢視」，§9.6.5 pkg1d1b）；</item>
-/// <item>任務規則「行銷活動派工」的繁中名稱換成舊名（只有新版改，示範任務規則可勾、只影響之後）。</item>
+/// <item>任務規則「行銷活動派工」的繁中名稱換成舊名（只有新版改，示範任務規則可勾、只影響之後）；</item>
+/// <item>往來對象貢獻的「產業」泰文標籤換成舊譯名（貢獻的只有新版改，§9.6.5 pkg1d2）。</item>
 /// </list>
+/// 共用主檔「往來對象」也以推導舊版開啟（<see cref="DerivePartner"/>）：版號減一、「地址」的泰文標籤換成舊譯名，
+/// CRM、進銷存、MES 的更新頁都出現同一段主檔（§9.6.5 pkg1d2）。
 /// 儀表板引用了 CRM 的兩份報表，所以不拿掉報表（§11.1 最後一點）。
 /// </summary>
 public static class DemoOldCrm
@@ -26,6 +29,8 @@ public static class DemoOldCrm
     public const string RenamedFlow = "crm-design-case-review", OldStageName = "業務主管審核";
     public const string ShortenedTemplate = "quote-sheet", RemovedTemplateLine = "<p>備註：{{remark}}</p>";
     public const string RenamedTaskRule = "crm-campaign-tasks", OldTaskRuleName = "活動派工";
+    public const string ContributedField = "industry", OldIndustryThai = "ประเภทอุตสาหกรรม";
+    public const string PartnerId = "partner", PartnerField = "partner.address", OldAddressThai = "ที่อยู่ติดต่อ";
 
     public static string Derive(string catalogText)
     {
@@ -51,8 +56,26 @@ public static class DemoOldCrm
             t!["body"] = t["body"]!.GetValue<string>().Replace(RemovedTemplateLine, "");
         foreach (var r in root["taskRules"]!.AsArray().Where(r => (string?)r!["code"] == RenamedTaskRule))
             r!["name"]!["zh-TW"] = OldTaskRuleName;
-        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+        foreach (var c in root["contributions"]!.AsArray().Where(c => (string?)c!["master"] == PartnerId))
+            foreach (var f in c!["fields"]!.AsArray().Where(f => (string?)f!["code"] == ContributedField))
+                f!["label"]!["th"] = OldIndustryThai;
+        return Write(root);
     }
+
+    /// <summary>推導舊版的共用主檔「往來對象」：版號減一、「地址」的泰文標籤換成舊譯名（只有新版改）。</summary>
+    public static string DerivePartner(string catalogText)
+    {
+        var root = JsonNode.Parse(catalogText)!.AsObject();
+        var manifest = root["manifest"]!.AsObject();
+        manifest["version"] = Older(manifest["version"]!.GetValue<string>());
+        foreach (var module in root["modules"]!.AsArray())
+            foreach (var field in module!["blocks"]!.AsArray().SelectMany(b => b!["fields"]!.AsArray()))
+                if ($"{module["code"]}.{field!["code"]}" == PartnerField) field["label"]!["th"] = OldAddressThai;
+        return Write(root);
+    }
+
+    private static string Write(JsonNode root) =>
+        root.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
 
     /// <summary>比目錄版小一版：修訂號減一，修訂號是 0 時次版號減一、修訂號 99。</summary>
     public static string Older(string version)
