@@ -2,12 +2,13 @@
 import { useI18n } from 'vue-i18n';
 
 // 設計頁工具列（§10.2）：唯讀者只有「全圖」、節點清單、試算；手機只留圖示。
+// 結構編輯（fg3e）：整理排版與刪除只在 `structure`（平板以上、有編輯權）時出現，手機與唯讀不顯示（§10.5、U62）。
 // 捨棄草稿只在「已發布過、而且有草稿」時出現；只有草稿、從未發布的流程沒有版本可回，改在更多選單提供「刪除流程」（U64）。
 defineProps<{
   readonly: boolean; phone: boolean; showFlowProps: boolean; undoable: boolean; redoable: boolean; dirty: boolean; busy: boolean;
-  errorCount: number; canDiscard: boolean; canDelete: boolean; listOpen?: boolean; trialOpen?: boolean;
+  errorCount: number; canDiscard: boolean; canDelete: boolean; listOpen?: boolean; trialOpen?: boolean; structure?: boolean; removable?: boolean;
 }>();
-const emit = defineEmits<{ fit: []; flowProps: []; undo: []; redo: []; validate: []; save: []; publish: []; discard: []; deleteFlow: []; issues: []; nodeList: []; trial: [] }>();
+const emit = defineEmits<{ fit: []; flowProps: []; undo: []; redo: []; validate: []; save: []; publish: []; discard: []; deleteFlow: []; issues: []; nodeList: []; trial: []; relayout: []; remove: [] }>();
 const { t } = useI18n();
 </script>
 
@@ -30,6 +31,10 @@ const { t } = useI18n();
     <template v-if="!readonly">
       <q-btn flat dense round icon="undo" :disable="!undoable" :aria-label="t('approval.designer.graph.undo')" data-testid="tb-undo" @click="emit('undo')" />
       <q-btn flat dense round icon="redo" :disable="!redoable" :aria-label="t('approval.designer.graph.redo')" data-testid="tb-redo" @click="emit('redo')" />
+      <template v-if="structure">
+        <q-btn flat dense round icon="delete_outline" :disable="!removable" :aria-label="t('approval.designer.graph.remove')" :title="t('approval.designer.graph.remove')" data-testid="tb-remove" @click="emit('remove')" />
+        <q-btn flat dense round icon="account_tree" :aria-label="t('approval.designer.graph.relayout')" :title="t('approval.designer.graph.relayout')" data-testid="tb-relayout" @click="emit('relayout')" />
+      </template>
       <q-btn flat dense no-caps icon="rule" :label="phone ? undefined : t('approval.designer.graph.validate')" :aria-label="t('approval.designer.graph.validate')" :disable="busy" data-testid="tb-validate" @click="emit('validate')" />
       <q-btn
         v-if="errorCount > 0" flat dense no-caps color="negative" icon="error" :label="String(errorCount)" :aria-label="t('approval.designer.graph.errorsBadge', { n: errorCount })"

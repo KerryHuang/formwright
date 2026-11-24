@@ -5,7 +5,7 @@ import { createI18n } from 'vue-i18n';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import DesignerToolbar from './DesignerToolbar.vue';
 
-const base = { readonly: false, phone: false, showFlowProps: false, undoable: false, redoable: false, dirty: false, busy: false, errorCount: 0, canDiscard: false, canDelete: false, trialOpen: false };
+const base = { readonly: false, phone: false, showFlowProps: false, undoable: false, redoable: false, dirty: false, busy: false, errorCount: 0, canDiscard: false, canDelete: false, trialOpen: false, structure: false, removable: false };
 function mountBar(props: Partial<typeof base> = {}) {
   const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
   return mount(DesignerToolbar, { props: { ...base, ...props }, attachTo: document.body, global: { plugins: [[quasar.Quasar, { components: quasar }], i18n] } });
@@ -29,6 +29,19 @@ describe('DesignerToolbar', () => {
     const phone = mountBar({ phone: true });
     expect(phone.get('[data-testid="tb-trial"]').text()).not.toContain('試算');
     expect(phone.get('[data-testid="tb-trial"]').attributes('aria-label')).toBe('試算');
+  });
+
+  it('relayout and delete only when structure editing is on (tablet and up, can edit); delete needs a removable selection', async () => {
+    expect(mountBar().find('[data-testid="tb-relayout"]').exists()).toBe(false);
+    expect(mountBar({ readonly: true, structure: true }).find('[data-testid="tb-remove"]').exists()).toBe(false);
+    const w = mountBar({ structure: true });
+    expect(w.get('[data-testid="tb-remove"]').attributes('disabled')).toBeDefined();
+    expect(w.get('[data-testid="tb-relayout"]').attributes('aria-label')).toBe('整理排版');
+    await w.get('[data-testid="tb-relayout"]').trigger('click');
+    expect(w.emitted('relayout')).toHaveLength(1);
+    const r = mountBar({ structure: true, removable: true });
+    await r.get('[data-testid="tb-remove"]').trigger('click');
+    expect(r.emitted('remove')).toHaveLength(1);
   });
 
   it('save is highlighted only when there are unsaved changes', () => {

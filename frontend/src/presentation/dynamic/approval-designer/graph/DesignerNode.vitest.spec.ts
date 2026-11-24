@@ -8,7 +8,7 @@ import type { DesignerNodeData } from './designer-graph';
 import type { NodeTrial } from './designer-trial';
 
 const data = (p: Partial<DesignerNodeData> = {}): DesignerNodeData => ({
-  kind: 'approval', label: '財務', summary: '直屬主管 · 第 1 層 · 或簽', icon: 'person', width: 168, height: 84, skip: false, errors: 0, warnings: 0, selected: false, ariaLabel: '財務 · 簽核', ...p,
+  kind: 'approval', label: '財務', summary: '直屬主管 · 第 1 層 · 或簽', icon: 'person', width: 168, height: 84, skip: false, errors: 0, warnings: 0, selected: false, editable: false, ariaLabel: '財務 · 簽核', ...p,
 });
 const mountNode = (d: DesignerNodeData) => mount(DesignerNode, {
   props: { data: d }, global: { plugins: [[quasar.Quasar, { components: quasar }], createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } })], stubs: { Handle: true } },
@@ -23,6 +23,19 @@ describe('DesignerNode', () => {
     expect(w.get('[data-testid="de-summary"]').text()).toContain('或簽');
     expect(w.find('.q-icon').text()).toBe('person');
     expect(w.find('[data-testid="de-skip"]').exists()).toBe(true);
+  });
+
+  it('connect handles only when editable; start has no in handle and end no out handle (fg3e)', () => {
+    const conn = (w: ReturnType<typeof mountNode>, id: string) => w.get(`[data-testid="${id}"]`).attributes('connectable');
+    const ro = mountNode(data());
+    expect([conn(ro, 'de-handle-in'), conn(ro, 'de-handle-out')]).toEqual(['false', 'false']);
+    const ed = mountNode(data({ editable: true }));
+    expect([conn(ed, 'de-handle-in'), conn(ed, 'de-handle-out')]).toEqual(['true', 'true']);
+    expect(ed.get('[data-testid="de-handle-out"]').classes()).toContain('de-handle-on');
+    const start = mountNode(data({ editable: true, kind: 'start' }));
+    expect([conn(start, 'de-handle-in'), conn(start, 'de-handle-out')]).toEqual(['false', 'true']);
+    const end = mountNode(data({ editable: true, kind: 'end' }));
+    expect([conn(end, 'de-handle-in'), conn(end, 'de-handle-out')]).toEqual(['true', 'false']);
   });
 
   it('a button with an accessible name; Enter and Space open it', async () => {
