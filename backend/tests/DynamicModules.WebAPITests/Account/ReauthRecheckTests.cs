@@ -34,7 +34,7 @@ public class ReauthRecheckTests
     private static async Task<ServiceResult> Race(TestApp app, Func<ReauthResult, IRequest<ServiceResult>> inner, Action<AppUser> meanwhile)
     {
         await using var scope = app.Services.CreateAsyncScope();
-        var (ok, error) = await scope.ServiceProvider.GetRequiredService<IReauthVerifier>().VerifyPasswordAsync("sales01", Password, "10.0.0.1", default);
+        var (ok, error) = await scope.ServiceProvider.GetRequiredService<IReauthVerifier>().VerifyPasswordAsync("sales01", Password, "203.0.113.1", default);
         ok.Should().NotBeNull(error?.Message);
         await Db(app, async db => meanwhile(await db.Set<AppUser>().SingleAsync(u => u.UserId == "sales01")));
         return await scope.ServiceProvider.GetRequiredService<ISender>().Send(inner(ok!));
