@@ -41,4 +41,10 @@ public interface ISqlDialect
     /// PostgreSQL 的 CROSS JOIN 不能帶 ON，回 <c>JOIN</c>，連接順序交給規劃器。
     /// </summary>
     string OrderedJoin();
+
+    /// <summary>
+    /// 「記錄 JSON 欄（文字）裡這個頂層鍵沒有值」的條件：缺鍵、null、空白字串、空陣列，或根不是物件。
+    /// param 是已加上 @ 的鍵名參數（純鍵名，不含路徑語法）；數字 0、false、物件、非空陣列都算有值。
+    /// </summary>
+    string JsonKeyEmpty(string column, string param);
 }

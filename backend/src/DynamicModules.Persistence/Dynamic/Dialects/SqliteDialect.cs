@@ -35,4 +35,14 @@ public sealed class SqliteDialect : ISqlDialect
     public string IndexHint(string index) => $" INDEXED BY {index}";
 
     public string OrderedJoin() => "CROSS JOIN";
+
+    // json_type 對缺鍵、根不是物件都回 NULL；空白字串用 trim 去掉 ASCII 空白（空格、\t \n \v \f \r）
+    public string JsonKeyEmpty(string column, string param)
+    {
+        var path = $"('$.\"' || {param} || '\"')";
+        var type = $"json_type({column}, {path})";
+        return $"({type} IS NULL OR {type} = 'null' "
+            + $"OR ({type} = 'text' AND trim(json_extract({column}, {path}), ' ' || char(9, 10, 11, 12, 13)) = '') "
+            + $"OR ({type} = 'array' AND json_array_length({column}, {path}) = 0))";
+    }
 }

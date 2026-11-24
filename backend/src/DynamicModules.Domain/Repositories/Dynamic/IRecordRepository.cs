@@ -12,6 +12,9 @@ public interface IRecordRepository
     Task<bool> AnyByModuleAsync(long moduleId, CancellationToken ct);
     /// <summary>模組內未刪除記錄的 Id 與 ValuesJson（不追蹤、只取這兩欄），依 Id 遞增；供守衛逐筆判斷狀態與欄位值。</summary>
     Task<IReadOnlyList<RecordValues>> ListLiveValuesAsync(long moduleId, CancellationToken ct);
+
+    /// <summary>模組裡未刪除、而且這個欄位鍵沒有值的記錄數（缺鍵、null、空白字串、空陣列都算沒有值）；資料庫端計數，不讀出內容。</summary>
+    Task<int> CountLiveMissingValueAsync(long moduleId, string fieldKey, CancellationToken ct);
     /// <summary>模組內未刪除記錄的筆數。</summary>
     Task<int> CountByModuleAsync(long moduleId, CancellationToken ct);
     /// <summary>擴充模組中、host 鍵為 hostKey 的未刪除記錄。</summary>

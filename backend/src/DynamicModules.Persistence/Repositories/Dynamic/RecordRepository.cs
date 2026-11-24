@@ -22,6 +22,24 @@ public class RecordRepository(DynamicDbContext db, ISqlDialect dialect, IDatabas
         await db.Set<Record>().AsNoTracking().Where(r => r.ModuleId == moduleId && !r.DeleteFlag).OrderBy(r => r.Id)
             .Select(r => new RecordValues(r.Id, r.ValuesJson)).ToListAsync(ct);
 
+    public async Task<int> CountLiveMissingValueAsync(long moduleId, string fieldKey, CancellationToken ct)
+    {
+        // 鍵會進 SQLite 的 JSON 路徑字串，含引號或反斜線的不是系統產生的欄位鍵
+        if (fieldKey.Contains('"') || fieldKey.Contains('\\')) throw new ArgumentException("欄位鍵含不允許的字元", nameof(fieldKey));
+        var sql = $"SELECT COUNT(*) FROM \"Dynamic_Record\" r WHERE r.\"ModuleId\" = @m AND r.\"DeleteFlag\" = {dialect.Bool(false)} AND {dialect.JsonKeyEmpty("r.\"ValuesJson\"", "@k")}";
+        var connection = db.Database.GetDbConnection();
+        var transaction = db.Database.CurrentTransaction?.GetDbTransaction();
+        await db.Database.OpenConnectionAsync(ct);
+        try
+        {
+            return await connection.ExecuteScalarAsync<int>(new CommandDefinition(sql, new { m = moduleId, k = fieldKey }, transaction, cancellationToken: ct));
+        }
+        finally
+        {
+            await db.Database.CloseConnectionAsync();
+        }
+    }
+
     public Task<bool> AnyByModuleAsync(long moduleId, CancellationToken ct) =>
         db.Set<Record>().AnyAsync(r => r.ModuleId == moduleId, ct);
 

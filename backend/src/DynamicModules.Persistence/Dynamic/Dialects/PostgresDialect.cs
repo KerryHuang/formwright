@@ -38,4 +38,13 @@ public sealed class PostgresDialect : ISqlDialect
     public string IndexHint(string index) => "";
 
     public string OrderedJoin() => "JOIN";
+
+    // ValuesJson 在 PostgreSQL 是 text，轉 jsonb 後取鍵；根不是物件時 -> 回 NULL。btrim 去掉與 SQLite 版相同的 ASCII 空白
+    public string JsonKeyEmpty(string column, string param)
+    {
+        var v = $"(({column})::jsonb -> CAST({param} AS text))";
+        return $"({v} IS NULL OR jsonb_typeof({v}) = 'null' "
+            + $"OR (jsonb_typeof({v}) = 'string' AND btrim({v} #>> '{{}}', E' \t\n\v\f\r') = '') "
+            + $"OR (jsonb_typeof({v}) = 'array' AND jsonb_array_length({v}) = 0))";
+    }
 }

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using DynamicModules.Domain.Repositories.Dynamic;
 
 namespace DynamicModules.Application.Dynamic.FieldService;
@@ -10,17 +9,6 @@ namespace DynamicModules.Application.Dynamic.FieldService;
 public sealed class FieldChangeImpact(IRecordRepository records)
 {
     /// <summary>模組裡這個欄位沒有值的記錄數（缺鍵、null、空字串、空陣列都算沒有值）。</summary>
-    public async Task<int> MissingValueCountAsync(long moduleId, string fieldKey, CancellationToken ct)
-    {
-        var count = 0;
-        foreach (var r in await records.ListLiveValuesAsync(moduleId, ct))
-        {
-            using var doc = JsonDocument.Parse(r.ValuesJson);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty(fieldKey, out var v)) { count++; continue; }
-            if (v.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined
-                || (v.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(v.GetString()))
-                || (v.ValueKind == JsonValueKind.Array && v.GetArrayLength() == 0)) count++;
-        }
-        return count;
-    }
+    public Task<int> MissingValueCountAsync(long moduleId, string fieldKey, CancellationToken ct) =>
+        records.CountLiveMissingValueAsync(moduleId, fieldKey, ct);
 }
