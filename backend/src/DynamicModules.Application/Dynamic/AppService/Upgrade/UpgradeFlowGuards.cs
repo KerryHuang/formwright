@@ -206,7 +206,7 @@ public sealed class UpgradeFlowGuards(
         return cand;
     }
 
-    /// <summary>交給入口約束的流程清單：現況的流程，加上閉包裡新版的流程（修改的以新版定義取代現況那一份，T58）。</summary>
+    /// <summary>交給入口約束的流程清單：現況的流程，加上閉包裡新版的流程（修改的以套用後的定義取代現況那一份，T58、審查 S5）。</summary>
     private static List<FlowState> FlowSet(
         AppUpgradePreviewer.CompareContext ctx, Module module, string code, IReadOnlySet<string> closure,
         IReadOnlyDictionary<string, UpgradeItemResponse> byId, List<FlowState> current, List<ApprovalFlow> rows,
@@ -220,13 +220,28 @@ public sealed class UpgradeFlowGuards(
             var (input, _) = AppApprovalFlowCodec.ToInput(nf, lookups, groups, c => c);
             if (input is null) continue;
             var row = rows.FirstOrDefault(f => f.Key == key);
+            var existing = set.FirstOrDefault(f => f.Flow.Key == key);
+            var it = byId[id];
+            // 既有流程比照套用（AppFlowUpgrader.UpdateFlowAsync）：只換要寫入的屬性，其餘保留現況（審查 S5）；簽核人一律保留現況
+            bool Applied(string prop) => row is null || existing is null || it.Properties.Any(p => p.Name == prop && p.Result != CustomerOnly);
+            var (cd, nd) = (existing?.Definition ?? input.Definition, input.Definition);
+            var approvers = cd.Stages.ToDictionary(s => s.Code, s => s.Approvers);
+            var definition = existing is null ? nd : cd with
+            {
+                Shape = Applied("shape") ? nd.Shape : cd.Shape,
+                When = Applied("when") ? nd.When : cd.When,
+                RejectTo = Applied("rejectTo") ? nd.RejectTo : cd.RejectTo,
+                Stages = Applied("stages") ? nd.Stages.Select(s => approvers.TryGetValue(s.Code, out var a) ? s with { Approvers = a } : s).ToList() : cd.Stages
+            };
             var flow = new ApprovalFlow
             {
-                Id = row?.Id ?? temp(), Key = key, NameI18n = input.Name, ModuleId = module.Id, ToOptionId = input.ToOptionId,
-                Priority = input.Priority, Active = input.Active
+                Id = row?.Id ?? temp(), Key = key, NameI18n = input.Name, ModuleId = module.Id,
+                ToOptionId = Applied("to") ? input.ToOptionId : row!.ToOptionId,
+                Priority = Applied("priority") ? input.Priority : row!.Priority,
+                Active = Applied("active") ? input.Active : row!.Active
             };
             set.RemoveAll(f => f.Flow.Key == key);
-            set.Add(new FlowState(flow, input.Definition, 0));
+            set.Add(new FlowState(flow, definition, existing?.VersionId ?? 0));
         }
         return set;
     }

@@ -721,6 +721,30 @@ public class AppUpgradeFlowTests : IDisposable
         AssertRolledBack(before);
     }
 
+    // ---- 審查 S5：候選流程清單以「套用後的定義」判斷 ----
+
+    [Fact]
+    public async Task S5_CustomerChangedRejectTo_NewStageNameOnly_JudgedWithCustomerRejectTo_Applies()
+    {
+        await OpenAsync();
+        // 客戶加了 check → won（需簽核），退回改成 check；照新版的退回 sent，check → sent 不存在會違規
+        var (check, won) = (Option("check"), Option("won"));
+        _rig.Db(db =>
+        {
+            var moduleId = db.Set<Module>().Single(m => m.Key == DealKey).Id;
+            var wf = db.Set<Workflow>().Single(w => w.ModuleId == moduleId);
+            wf.Transitions = [.. wf.Transitions, new WorkflowTransition(check, won, [], new TransitionApproval(true, ApprovalNoMatch.Block))];
+        });
+        EditDefinition("uf-win", d => d with { RejectTo = check });
+        await NewVersionAsync(p => Flow(p, "uf-win")["stages"]![0]!["name"] = new JsonObject { ["zh-TW"] = "主管核准" });
+        var preview = await PreviewAsync();
+        var item = Item(preview, "approvalFlow:uf-win");
+        item.GetProperty("applicable").GetBoolean().Should().BeTrue(item.ToString());
+        await ApplyOkAsync(preview, ["approvalFlow:uf-win"]);
+        DefinitionOf("uf-win").RejectTo.Should().Be(check, "客戶改的退回保留");
+        DefinitionOf("uf-win").Stages[0].Name.Resolve("zh-TW").Should().Be("主管核准");
+    }
+
     // ---- A64 ----
 
     [Fact]
