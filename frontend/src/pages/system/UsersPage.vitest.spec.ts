@@ -113,6 +113,13 @@ describe('UsersPage', () => {
     expect((q('user-id') as HTMLInputElement).value).toBe('sales01');
   });
 
+  it('820 wide (tablet): cards too, so the actions are reachable without horizontal scrolling (au1a walkthrough G1)', async () => {
+    await mountPage(USERS, 820);
+    expect(document.body.querySelector('[data-testid^="user-row-"]')).toBeNull();
+    expect(q('user-card-sales01')).not.toBeNull();
+    for (const id of ['user-email-sales01', 'user-reset-sales01', 'user-toggle-sales01']) expect(q(id)).not.toBeNull();
+  });
+
   it('click a row opens the edit dialog; action buttons do not', async () => {
     await mountPage(USERS, 1366);
     expect(q('user-row-sales01')!.classList.contains('row-clickable')).toBe(true);
