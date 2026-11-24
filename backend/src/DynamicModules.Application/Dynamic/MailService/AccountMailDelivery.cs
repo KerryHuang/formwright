@@ -49,7 +49,8 @@ public static class MailSkipReasons
 {
     public const string NotConfigured = "notConfigured", PasswordUnreadable = "passwordUnreadable", NoPublicUrl = "noPublicUrl",
         UnknownAccount = "unknownAccount", Inactive = "inactive", EmailChanged = AccountToken.EmailChanged, PasswordChanged = AccountToken.PasswordChanged,
-        Deactivated = AccountToken.Deactivated, Superseded = AccountToken.Superseded, NotSupported = "notSupported";
+        Deactivated = AccountToken.Deactivated, Superseded = AccountToken.Superseded, NotSupported = "notSupported",
+        ComposeFailed = "composeFailed";
 }
 
 /// <summary>站台名稱（外觀設定，§12、Q18）：存在 <see cref="SystemSetting"/> 的鍵值表。帳號信的寄件名稱、主旨前綴、信中公司名稱讀它。</summary>
@@ -109,7 +110,8 @@ public sealed record MailClaimResult(MailClaim? Claim, bool Done = false, bool L
 
 /// <summary>
 /// 領取一封並在寄送前的同一個短交易裡重查資格、產生權杖、組信（§6.2、§6.3）：
-/// 寄信設定沒設好、密碼解不開、帶連結的信沒有站台網址或資格不符 → 記 <c>skipped</c>；過了 <c>NotAfterUtc</c> → 記 <c>expired</c>。
+/// 寄信設定沒設好、密碼解不開、帶連結的信沒有站台網址或資格不符 → 記 <c>skipped</c>；過了 <c>NotAfterUtc</c> → 記 <c>expired</c>；
+/// 組信丟例外 → 記 <c>failed</c>（<c>composeFailed</c>）。
 /// 帶連結的信每次領取都換一把新權杖，作廢同帳號、同用途、同一個 Email 還沒用過的舊權杖。
 /// </summary>
 public sealed record ClaimMailRequest(string ClaimedBy) : IRequest<ServiceResult>, ITransactionalRequest;
@@ -117,7 +119,8 @@ public sealed record ClaimMailRequest(string ClaimedBy) : IRequest<ServiceResult
 public sealed class ClaimMailHandler(
     IMailOutboxRepository outbox, IAccountTokenRepository tokens, IAccountRepository accounts, IMailSettingsRepository mailSettings,
     ISystemSettingRepository settings, IAlertSecretProtector protector, AlertMailOptions site, AuthSettings auth, IPolicyReader policies,
-    CachedSystemPolicy system, LocaleRegistry registry, Common.Localization.IMessageCatalog messages, IUnitOfWork uow, TimeProvider time)
+    CachedSystemPolicy system, LocaleRegistry registry, Common.Localization.IMessageCatalog messages, IUnitOfWork uow, TimeProvider time,
+    ILogger<ClaimMailHandler> logger)
     : IRequestHandler<ClaimMailRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(ClaimMailRequest r, CancellationToken ct)
@@ -183,7 +186,14 @@ public sealed class ClaimMailHandler(
             link = (site.PublicUrl?.TrimEnd('/') ?? "") + "/verify-email#t=" + secret;
         }
 
-        var composed = AccountMailComposer.Compose(row, siteName, link, linkHours, messages, context, system.BusinessOffset);
+        AlertMail composed;
+        try { composed = AccountMailComposer.Compose(row, siteName, link, linkHours, messages, context, system.BusinessOffset); }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            // 單封組不出來（種類不認得、參數壞掉等）就地記 failed，不讓整個領取交易回滾、卡住後面的信（au1a 審查 S2）
+            logger.LogWarning(e, "帳號信 {OutboxId}（{Kind}）組信失敗，標失敗", row.Id, row.Kind);
+            return await Close(MailOutboxStatus.Failed, MailSkipReasons.ComposeFailed);
+        }
         if (smtp is not null) smtp = smtp with { FromName = smtp.FromName ?? siteName };
         return Ok(new MailClaimResult(new MailClaim(row.Id, composed, smtp, password, attempts)));
     }

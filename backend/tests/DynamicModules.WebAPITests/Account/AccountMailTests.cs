@@ -522,6 +522,32 @@ public class AccountMailTests
     }
 
     [Fact]
+    public async Task Review_S2_OneUncomposableMail_MarkedFailed_RestOfQueueStillSent()
+    {
+        var mail = new FakeMailSender();
+        using var app = App(mail);
+        await ConfigureMail(app);
+        await Db(app, db =>
+        {
+            db.Set<MailOutbox>().Add(new MailOutbox
+            {
+                Kind = MailKinds.EmailChanged, UserId = "sales01", ToAddress = "old@example.com", Locale = "zh-TW", ParamsJson = "{broken",
+                CreatedUtc = Now(app), NextAttemptUtc = Now(app), Status = MailOutboxStatus.Pending,
+            });
+            return Task.CompletedTask;
+        });
+        (await SetEmail(app, "sales02", "b@example.com")).EnsureSuccessStatusCode();
+
+        await Dispatch(app);
+
+        var rows = await Rows(app);
+        rows[0].Status.Should().Be(MailOutboxStatus.Failed);
+        rows[0].LastError.Should().Be(MailSkipReasons.ComposeFailed);
+        rows[1].Status.Should().Be(MailOutboxStatus.Sent, "壞掉的一封不卡住後面的信");
+        mail.Calls.Should().ContainSingle().Which.Settings.ToAddresses.Should().Equal("b@example.com");
+    }
+
+    [Fact]
     public async Task Review_S5_ResendGate_NotArmedWhenCommitFails()
     {
         var spy = new TxSpy();
