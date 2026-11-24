@@ -20,6 +20,9 @@ const loginLocation = (redirect: string) => ({ path: '/login', query: redirect =
 
 const SERVICE_UNAVAILABLE = '/service-unavailable';
 
+/** 強制綁定雙因素頁（帳號安全設計 §12）。 */
+export const TWO_FACTOR_SETUP = '/account/two-factor-setup';
+
 /**
  * 登入前就要知道語系資訊與預設、啟用語系：消費啟動那一次 auth/options（最晚在啟動預算到時 resolve，不另打 API）。
  * 決定語系與載入介面文字在 src/i18n/startup.ts，這裡不套語系、不等文字。
@@ -55,6 +58,7 @@ export function installAuthGuard(router: Router) {
         const me = await dynamicApi.getMe();
         identity.setSession(me.userId, me.mustChangePassword);
         identity.setDemoAccount(me.isDemoAccount === true);
+        identity.setEnrollmentRequired(me.twoFactorEnrollmentRequired === true);
         admin = { userId: me.userId, isSystemAdmin: me.isSystemAdmin === true };
         // 版面載入前就知道能不能存，Demo 訪客不會在空窗內打到儲存 API
         if (me.theme) useThemeStore().applyMe(me.theme);
@@ -79,6 +83,12 @@ export function installAuthGuard(router: Router) {
       endPreview(i18n);
       return to.path === '/change-password' ? true : '/change-password';
     }
+    // 強制綁定雙因素（§8.7）排在改密碼之後、載入營運時區之前：期間後端只放行綁定、/auth/* 與 GET /me
+    if (identity.twoFactorEnrollmentRequired) {
+      endPreview(i18n);
+      return to.path === TWO_FACTOR_SETUP ? true : TWO_FACTOR_SETUP;
+    }
+    if (to.path === TWO_FACTOR_SETUP) return '/';
     if (identity.isDemoAccount && to.path === '/change-password') return '/';
     // 登入後的頁面才用得到營運時區：每次登入後的第一次導覽載入一次（公開頁面與強制改密碼頁不載）
     if (!to.meta.public && !sessionSettingsLoaded()) {
@@ -111,4 +121,10 @@ export function handleUnauthorized(router: Router, queryClient: QueryClient) {
 export function handlePasswordChangeRequired(router: Router) {
   useIdentityStore().mustChangePassword = true;
   if (router.currentRoute.value.path !== '/change-password') void router.replace('/change-password');
+}
+
+/** 403 twoFactorEnrollmentRequired（§8.7）：寬限在使用中到期、或管理員剛把帳號納入強制範圍。 */
+export function handleTwoFactorEnrollmentRequired(router: Router) {
+  useIdentityStore().setEnrollmentRequired(true);
+  if (router.currentRoute.value.path !== TWO_FACTOR_SETUP) void router.replace(TWO_FACTOR_SETUP);
 }

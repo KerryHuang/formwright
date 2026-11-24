@@ -86,6 +86,13 @@
     </q-drawer>
 
     <q-page-container>
+      <!-- 強制雙因素的寬限期間（帳號安全設計 §8.7）：每頁頂端提示到期日（營運時區）與「現在啟用」 -->
+      <q-banner v-if="graceUntil" dense class="bg-warning-soft" data-testid="two-factor-grace">
+        {{ t('twoFactor.graceBanner', { date: graceUntil }) }}
+        <template #action>
+          <q-btn flat dense no-caps color="primary" :label="t('twoFactor.enableNow')" to="/account/security" data-testid="two-factor-grace-enable" />
+        </template>
+      </q-banner>
       <!-- keyed by user: a new session remounts the page, so it refetches and re-initialises -->
       <router-view :key="identity.userId" />
     </q-page-container>
@@ -107,6 +114,7 @@ import { useBusinessTimeWatch } from 'src/application/dynamic/queries/use-busine
 import { recordRecent } from 'src/application/dynamic/recent-modules';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import { groupMenu, systemLinks } from 'src/domain/dynamic/menu-nav';
+import { formatTime } from 'src/domain/ops/ops-format';
 import LocaleSwitcher from 'src/presentation/locale/LocaleSwitcher.vue';
 import NotificationBell from 'src/presentation/notifications/NotificationBell.vue';
 import AppBreadcrumb from 'src/presentation/theme/AppBreadcrumb.vue';
@@ -139,6 +147,10 @@ const { data: menu } = useMenu();
 const menuGroups = computed(() => groupMenu(menu.value ?? [], locale.value));
 const { data: me } = useMe();
 const links = computed(() => systemLinks(me.value));
+const graceUntil = computed(() => {
+  const tf = me.value?.twoFactor;
+  return tf?.required && !tf.enabled && tf.graceUntil ? formatTime(tf.graceUntil) : '';
+});
 // 「AI 存取權杖」入口（MCP 設計 §13.5）：能用就顯示；不能用的原因是管理員關閉、不在可用對象、政策有誤時，只有已經有權杖的人才顯示
 // （要能進去看與撤銷）；Demo 站（demoSite、accountBlocked）固定顯示，頁面會說明為什麼不開放。
 const mcp = useMyMcp();

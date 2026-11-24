@@ -127,7 +127,7 @@ describe('dynamicApi export and import', () => {
   it('exportRecords and exportTemplate route 401 and passwordChangeRequired through the auth handlers', async () => {
     const onUnauthorized = vi.fn();
     const onPasswordChangeRequired = vi.fn();
-    setAuthHandlers({ onUnauthorized, onPasswordChangeRequired });
+    setAuthHandlers({ onUnauthorized, onPasswordChangeRequired, onTwoFactorEnrollmentRequired: vi.fn() });
     const calls = [
       () => dynamicApi.exportRecords('crm', 'csv', {}, 'zh-TW'),
       () => dynamicApi.exportTemplate('crm'),

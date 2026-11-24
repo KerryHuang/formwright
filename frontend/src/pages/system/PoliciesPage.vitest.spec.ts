@@ -27,11 +27,11 @@ const PACKAGE: SystemPolicy = {
 };
 let mounted: ReturnType<typeof mount> | undefined;
 
-async function mountPage(over: { isSystemAdmin?: boolean; policies?: SystemPolicy[]; demo?: boolean } = {}) {
+async function mountPage(over: { isSystemAdmin?: boolean; policies?: SystemPolicy[]; demo?: boolean; twoFactor?: unknown } = {}) {
   api.getAuthOptions.mockResolvedValue({ demoLoginEnabled: over.demo ?? false } as never);
   api.getMe.mockResolvedValue({
     userId: 'admin', displayName: 'A', mustChangePassword: false, isSystemAdmin: over.isSystemAdmin ?? true, groups: [],
-    designer: { read: true, add: true, edit: true, delete: true },
+    designer: { read: true, add: true, edit: true, delete: true }, twoFactor: over.twoFactor ?? null,
   } as never);
   api.getSystemPolicies.mockResolvedValue(over.policies ?? [RULES, PACKAGE]);
   const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
@@ -163,5 +163,44 @@ describe('PoliciesPage', () => {
     } finally {
       setBusinessOffset('+08:00');
     }
+  });
+
+  describe('強制雙因素（帳號安全設計 §8.7）', () => {
+    const mode = (effective: string): SystemPolicy => ({
+      code: 'auth.twoFactorMode', category: 'auth', kind: 'choice', scope: 'system', factory: 'optional', effective, options: ['optional', 'all', 'groups'],
+    });
+    const admins: SystemPolicy = { code: 'auth.twoFactorRequireAdmins', category: 'auth', kind: 'boolean', scope: 'system', factory: true, effective: false, value: false };
+    const grace: SystemPolicy = { code: 'auth.twoFactorGraceDays', category: 'auth', kind: 'integer', scope: 'system', unit: 'days', min: 0, max: 90, factory: 0, effective: 0 };
+    const wait = () => new Promise((r) => setTimeout(r, 50));
+
+    it('強制模式下「選用時強制系統管理員」停用、寫「強制時固定包含系統管理員」；選用模式照常', async () => {
+      await mountPage({ policies: [mode('all'), admins, grace] });
+      expect(q('policy-fixed-auth.twoFactorRequireAdmins')!.textContent).toContain('強制時固定包含系統管理員');
+      expect(q('policy-save-auth.twoFactorRequireAdmins')).toBeNull();
+      mounted?.unmount();
+      document.body.innerHTML = '';
+      await mountPage({ policies: [mode('optional'), admins, grace] });
+      expect(q('policy-fixed-auth.twoFactorRequireAdmins')).toBeNull();
+      expect(q('policy-save-auth.twoFactorRequireAdmins')).not.toBeNull();
+    });
+
+    it('自己還沒啟用、改成強制且寬限 0：存檔前提示「存檔後你也必須立刻啟用雙因素驗證」，取消不送', async () => {
+      await mountPage({ policies: [mode('optional'), admins, grace], twoFactor: { enabled: false, required: false, recoveryCodesLeft: 0 } });
+      api.saveSystemPolicy.mockResolvedValue({ ...mode('all'), value: 'all' });
+      const select = mounted!.findAllComponents(quasar.QSelect).find((c) => (c.props('options') as unknown[] | undefined)?.length === 3)!;
+      select.vm.$emit('update:modelValue', 'all');
+      await flushPromises();
+      q('policy-save-auth.twoFactorMode')!.click();
+      await wait(); await wait();
+      expect(document.body.querySelector('.q-dialog')!.textContent).toContain('存檔後你也必須立刻啟用雙因素驗證');
+      ([...document.body.querySelectorAll('.q-dialog button')][0] as HTMLElement).click();
+      await wait();
+      expect(api.saveSystemPolicy).not.toHaveBeenCalled();
+      q('policy-save-auth.twoFactorMode')!.click();
+      await wait(); await wait();
+      ([...document.body.querySelectorAll('.q-dialog button')].at(-1) as HTMLElement).click();
+      await wait(); await flushPromises();
+      expect(api.saveSystemPolicy).toHaveBeenCalledWith('auth.twoFactorMode', 'all');
+    });
   });
 });

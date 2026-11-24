@@ -314,8 +314,8 @@ describe('LoginPage 首屏共用啟動那次 auth/options（i4b 計畫判斷 12�
       expect(q('login-password')).toBeNull();
       expect(api.getMe).not.toHaveBeenCalled();
       expect(router.currentRoute.value.path).toBe('/login');
-      // 不提供「記住這台裝置」（au1c2）
-      expect(document.body.textContent).not.toContain('記住');
+      // 政策天數是 0（或舊伺服器沒給）時不顯示「記住這台裝置」（§8.5）
+      expect(q('login-remember')).toBeNull();
 
       api.twoFactorLogin.mockResolvedValue({ userId: 'admin', displayName: 'A', mustChangePassword: false });
       api.getMe.mockResolvedValue({ isDemoAccount: false } as never);
@@ -324,6 +324,33 @@ describe('LoginPage 首屏共用啟動那次 auth/options（i4b 計畫判斷 12�
       await flushPromises();
       expect(api.twoFactorLogin).toHaveBeenCalledWith({ code: '123456' });
       expect(router.currentRoute.value.fullPath).toBe('/dynamic/order');
+    });
+
+    it('記住這台裝置：顯示政策天數，勾了才送 rememberDevice 與瀏覽器／作業系統標籤（§8.5）', async () => {
+      await mountPage({ ...off, rememberDeviceDays: 30 });
+      api.login.mockResolvedValue({ twoFactorRequired: true } as never);
+      await submit();
+      expect(q('login-remember')!.textContent).toContain('記住這台裝置 30 天');
+      api.twoFactorLogin.mockResolvedValue({ userId: 'admin', displayName: 'A', mustChangePassword: false });
+      api.getMe.mockResolvedValue({ isDemoAccount: false } as never);
+      q('login-remember')!.click();
+      await flushPromises();
+      await fill('login-code', '123456');
+      q('login-second-submit')!.click();
+      await flushPromises();
+      expect(api.twoFactorLogin).toHaveBeenCalledWith({ code: '123456', rememberDevice: true, deviceLabel: expect.stringMatching(/／/) });
+    });
+
+    it('登入後 /me 說要強制綁定 → 導到強制綁定頁（§8.7）', async () => {
+      const { router } = await mountPage(off);
+      installAuthGuard(router);
+      api.login.mockResolvedValue({ userId: 'admin', displayName: 'A', mustChangePassword: false } as never);
+      api.getMe.mockResolvedValue({ userId: 'admin', mustChangePassword: false, isDemoAccount: false, twoFactorEnrollmentRequired: true } as never);
+      await submit();
+      await flushPromises();
+      expect(useIdentityStore().twoFactorEnrollmentRequired).toBe(true);
+      expect(router.currentRoute.value.path).toBe('/account/two-factor-setup');
+      expect(api.getEffectivePolicies).not.toHaveBeenCalled();
     });
 
     it('can switch to a recovery code; wrong code shows the localized 400 message and stays', async () => {

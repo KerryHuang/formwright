@@ -4,6 +4,8 @@ export const routes: RouteRecordRaw[] = [
   { path: '/login', component: () => import('src/pages/auth/LoginPage.vue'), meta: { public: true } },
   { path: '/service-unavailable', component: () => import('src/pages/auth/ServiceUnavailablePage.vue'), meta: { public: true } },
   { path: '/change-password', component: () => import('src/pages/auth/ChangePasswordPage.vue') },
+  // 強制綁定雙因素（帳號安全設計 §8.7、§12）：和改密碼頁一樣不套主版面，只能綁定或登出
+  { path: '/account/two-factor-setup', component: () => import('src/pages/auth/TwoFactorSetupPage.vue') },
   // 驗證 Email 的連結（帳號安全設計 §12）：登入與否都能開，所以 anyone 讓守衛不把已登入的人導回首頁
   { path: '/verify-email', component: () => import('src/pages/auth/VerifyEmailPage.vue'), meta: { public: true, anyone: true } },
   // 寄信重設密碼（帳號安全設計 §12）：申請頁只給未登入的人；重設連結登入與否都能開（同 /verify-email）

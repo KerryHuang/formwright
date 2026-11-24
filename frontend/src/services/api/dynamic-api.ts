@@ -451,7 +451,8 @@ export const dynamicApi = {
   login: (body: { userId: string; password: string }) => http.post<LoginResult>('/auth/login', body).then(data),
   demoLogin: (userId: string) => http.post<LoginResult>('/auth/demo-login', { userId }).then(data),
   /** 登入第二步（帳號安全設計 §8.3）：驗證碼與復原碼擇一。 */
-  twoFactorLogin: (body: { code?: string; recoveryCode?: string }) => http.post<AuthUser>('/auth/two-factor', body).then(data),
+  twoFactorLogin: (body: { code?: string; recoveryCode?: string; rememberDevice?: boolean; deviceLabel?: string }) =>
+    http.post<AuthUser>('/auth/two-factor', body).then(data),
   logout: () => http.post('/auth/logout').then(data),
   changePassword: (body: { oldPassword: string; newPassword: string }) =>
     http.post<AuthUser>('/auth/change-password', body).then(data),
@@ -462,6 +463,8 @@ export const dynamicApi = {
   startTwoFactorSetup: (body: TwoFactorProof) => http.post<TwoFactorSetup>('/account/two-factor/setup', body).then(data),
   enableTwoFactor: (code: string) => http.post<{ recoveryCodes: string[] }>('/account/two-factor/enable', { code }).then(data),
   disableTwoFactor: (body: TwoFactorProof) => http.post('/account/two-factor/disable', body).then(() => undefined),
+  /** 取消記住所有裝置（§8.5）：下次在任何裝置登入都要第二步；不登出目前的 session。 */
+  clearTrustedDevices: () => http.delete('/account/trusted-devices').then(() => undefined),
   regenerateRecoveryCodes: (body: { password: string; code: string }) =>
     http.post<{ recoveryCodes: string[] }>('/account/two-factor/recovery-codes', body).then(data),
   verifyEmail: (token: string) => http.post('/auth/verify-email', { token }).then(() => undefined),

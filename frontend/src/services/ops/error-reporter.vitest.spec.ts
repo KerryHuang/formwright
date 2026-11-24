@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { http } from 'src/services/api/http';
 import { buildInfo, clientVersion } from './build-info';
 import {
-  CLIENT_ERRORS_URL, FIELD_MAX, LIMITS, browserFamily, buildReport, clientFrames, createReporter, isApiError, isChunkLoadError, normalizeMessage,
+  CLIENT_ERRORS_URL, FIELD_MAX, LIMITS, browserFamily, buildReport, deviceLabel, osFamily, clientFrames, createReporter, isApiError, isChunkLoadError, normalizeMessage,
   sendReport, shouldReport,
   type ClientErrorReport,
 } from './error-reporter';
@@ -242,5 +242,19 @@ describe('與後端指紋相同的正規化', () => {
       'save@https://x/assets/FormPage-Qw3r5t6y.js:1:2', '    at fourth (https://x/a.js:1:1)',
     ].join('\n');
     expect(clientFrames(stack)).toEqual(['loadRow@ListPage.js', '?@index.js', 'save@FormPage.js']);
+  });
+});
+
+describe('記住這台裝置的標籤（帳號安全設計 §8.5）', () => {
+  const mac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+  const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+  const android = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36';
+  const windows = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0';
+  it('作業系統家族不帶版本；iPhone 不算 macOS、Android 不算 Linux', () => {
+    expect([mac, iphone, android, windows, 'curl/8'].map((u) => osFamily(u))).toEqual(['macOS', 'iOS', 'Android', 'Windows', 'Other']);
+  });
+  it('標籤是瀏覽器／作業系統', () => {
+    expect(deviceLabel(mac)).toBe('Chrome 131／macOS');
+    expect(deviceLabel(windows)).toBe('Edge 131／Windows');
   });
 });

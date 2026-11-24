@@ -8,6 +8,7 @@ import { useSaveSystemPolicy, useSystemPolicies } from 'src/application/dynamic/
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
 import { setBusinessOffset } from 'src/domain/dynamic/business-time';
 import { groupByCategory, policyRangeText, policyValueText, samePolicyValue, type PolicyValue, type SystemPolicy } from 'src/domain/dynamic/policy-types';
+import { TWO_FACTOR_MODE, TWO_FACTOR_REQUIRE_ADMINS, adminsFixed, operatorMustEnrollAfterSave } from 'src/domain/dynamic/two-factor-policy';
 import PolicyValueEditor from 'src/presentation/policies/PolicyValueEditor.vue';
 import { useRecipientNames } from 'src/presentation/policies/useRecipientNames';
 
@@ -21,6 +22,11 @@ const { options: recipientOptions, names, ready: recipientsReady } = useRecipien
 // Demo 站的帳號安全分類唯讀（帳號安全設計 §13.5）：後端照樣回 403，這裡不讓人改了才被擋（走查 G2）
 const authOptions = useAuthOptions();
 const readonlyRow = (p: SystemPolicy) => authOptions.data.value?.demoLoginEnabled === true && p.category === 'auth';
+// 強制模式下「選用時強制系統管理員」固定包含、不能改（§8.7，後端存檔時也不看）；看的是已存的生效模式
+const effectiveOf = (code: string) => policies.data.value?.find((x) => x.code === code)?.effective;
+const fixedAdmins = (p: SystemPolicy) => p.code === TWO_FACTOR_REQUIRE_ADMINS && adminsFixed(effectiveOf(TWO_FACTOR_MODE));
+// 只收群組的收件人政策（auth.twoFactorGroups）：選項只列群組
+const optionsFor = (p: SystemPolicy) => (p.groupsOnly ? recipientOptions.value.filter((o) => o.value.startsWith('group:')) : recipientOptions.value);
 
 /** 草稿＝沒設時看到出廠值；存檔失敗時保留，讓使用者改。 */
 const drafts = reactive<Record<string, PolicyValue>>({});
@@ -39,6 +45,14 @@ const TIME_ZONE = 'locale.timeZone';
 
 /** 改營運時區前先確認（設計 §3.5）；成功後本頁立即換用新偏移，其他分頁由 useBusinessTimeWatch 要求重新整理。 */
 function submit(p: SystemPolicy, value: PolicyValue | null) {
+  // 存檔後自己要立刻綁定雙因素（§8.7）：先確認
+  const m = me.data.value;
+  const effective = Object.fromEntries((policies.data.value ?? []).map((x) => [x.code, x.effective]));
+  if (m && operatorMustEnrollAfterSave(p.code, value, p.factory, effective, m)) {
+    Dialog.create({ message: t('policies.twoFactorSelfWarning'), cancel: true, persistent: true, ok: { label: t('policies.confirm') } })
+      .onOk(() => send(p, value));
+    return;
+  }
   if (p.code !== TIME_ZONE) return send(p, value);
   Dialog.create({ message: t('policies.timeZoneWarning'), cancel: true, persistent: true, ok: { label: t('policies.confirm') } })
     .onOk(() => send(p, value));
@@ -82,9 +96,10 @@ function send(p: SystemPolicy, value: PolicyValue | null) {
               </div>
             </div>
             <div class="col-12 col-md-6">
-              <PolicyValueEditor v-model="drafts[p.code]" :meta="p" @update:valid="(v: boolean) => (invalid[p.code] = !v)" :label="t(nameKey(p.code))" :recipient-options="recipientOptions" :recipients-ready="recipientsReady" :disable="save.isPending.value || readonlyRow(p)" />
+              <PolicyValueEditor v-model="drafts[p.code]" :meta="p" @update:valid="(v: boolean) => (invalid[p.code] = !v)" :label="t(nameKey(p.code))" :recipient-options="optionsFor(p)" :recipients-ready="recipientsReady" :disable="save.isPending.value || readonlyRow(p) || fixedAdmins(p)" />
               <div v-if="errors[p.code]" class="text-negative text-caption q-mt-xs" :data-testid="`policy-error-${p.code}`">{{ errors[p.code] }}</div>
               <div v-if="readonlyRow(p)" class="text-muted text-caption q-mt-xs" :data-testid="`policy-readonly-${p.code}`">{{ t('policies.demoAuthReadonly') }}</div>
+              <div v-else-if="fixedAdmins(p)" class="text-muted text-caption q-mt-xs" :data-testid="`policy-fixed-${p.code}`">{{ t('policies.twoFactorAdminsFixed') }}</div>
               <div v-else class="row q-gutter-sm q-mt-xs">
                 <q-btn
                   color="primary" unelevated no-caps dense class="q-px-md" :label="t('policies.save')" :disable="!dirty(p) || save.isPending.value"

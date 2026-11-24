@@ -14,6 +14,8 @@ export interface PolicyMeta {
   options?: string[];
   /** 收件人政策另外允許的動態項目（例：`ruleEditor`＝該規則的最後修改者；維運設計 §17.2.5）。 */
   dynamicRecipients?: string[];
+  /** 收件人政策只收群組（`group:<id>`，例：auth.twoFactorGroups）。 */
+  groupsOnly?: boolean;
 }
 
 /** 動態收件人項目的四語標籤鍵（`policies.recipients.dynamic.<項目>`）。 */
