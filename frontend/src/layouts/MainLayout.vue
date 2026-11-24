@@ -18,10 +18,10 @@
         <NotificationBell />
         <LocaleSwitcher class="q-mr-sm" :allow-preview="me?.isSystemAdmin === true" />
         <q-btn
-          v-if="!identity.isDemoAccount" flat dense no-caps class="q-mr-sm" icon="key" :label="$q.screen.lt.sm ? undefined : t('auth.changePassword')"
-          :aria-label="t('auth.changePassword')" to="/change-password" data-testid="change-password-link"
+          v-if="!identity.isDemoAccount" flat dense no-caps class="q-mr-sm" icon="shield" :label="$q.screen.lt.sm ? undefined : t('accountSecurity.title')"
+          :aria-label="t('accountSecurity.title')" to="/account/security" data-testid="account-security-link"
         >
-          <q-tooltip v-if="$q.screen.lt.sm">{{ t('auth.changePassword') }}</q-tooltip>
+          <q-tooltip v-if="$q.screen.lt.sm">{{ t('accountSecurity.title') }}</q-tooltip>
         </q-btn>
         <q-btn
           v-if="showAiEntry" flat dense no-caps class="q-mr-sm" icon="smart_toy" :label="$q.screen.lt.sm ? undefined : t('aiTokens.entry')"

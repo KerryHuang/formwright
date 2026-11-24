@@ -11,7 +11,7 @@ import zhTW from 'shared/i18n/zh-TW/ui.json';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 import AppearancePage from './AppearancePage.vue';
 
-vi.mock('src/services/api/dynamic-api', () => ({ dynamicApi: { getMe: vi.fn(), saveSiteTheme: vi.fn() } }));
+vi.mock('src/services/api/dynamic-api', () => ({ dynamicApi: { getMe: vi.fn(), saveSiteTheme: vi.fn(), getThemeDefaults: vi.fn() } }));
 const api = vi.mocked(dynamicApi);
 
 const SITE: MeTheme = { ...FACTORY_ME_THEME, defaultMode: 'light', defaultStyle: 'enterprise' };
@@ -41,6 +41,7 @@ const modeButton = (label: string) => [...document.body.querySelectorAll('[data-
 describe('AppearancePage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    api.getThemeDefaults.mockResolvedValue({ mode: 'light', style: 'enterprise' });
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   });
   afterEach(() => { mounted?.unmount(); document.body.innerHTML = ''; });
@@ -83,7 +84,21 @@ describe('AppearancePage', () => {
     expect(api.saveSiteTheme).not.toHaveBeenCalled();
     q('appearance-save')!.click();
     await flushPromises();
-    expect(api.saveSiteTheme).toHaveBeenCalledWith({ mode: 'dark', style: 'industrial' });
+    expect(api.saveSiteTheme).toHaveBeenCalledWith({ mode: 'dark', style: 'industrial', siteName: '' });
+  });
+
+  it('站台名稱：載入目前值、去頭尾空白後跟著儲存送出（帳號安全設計 §12）', async () => {
+    api.getThemeDefaults.mockResolvedValue({ mode: 'light', style: 'enterprise', siteName: '示範科技' });
+    api.saveSiteTheme.mockResolvedValue({ mode: 'light', style: 'enterprise', siteName: '新名稱' });
+    await mountPage();
+    const input = q('appearance-site-name') as HTMLInputElement;
+    expect(input.value).toBe('示範科技');
+    input.value = ' 新名稱 ';
+    input.dispatchEvent(new Event('input'));
+    await flushPromises();
+    q('appearance-save')!.click();
+    await flushPromises();
+    expect(api.saveSiteTheme).toHaveBeenCalledWith(expect.objectContaining({ siteName: '新名稱' }));
   });
 
   it('儲存失敗顯示錯誤，草稿回到原值', async () => {

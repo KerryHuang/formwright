@@ -1,5 +1,5 @@
 import type {
-  AdminGroup, AdminUser, AttachmentSettings, PrintTemplateDefinition, PrintTemplateOption, UploadedAttachment, DeleteCheck, DeleteTargetRef, AdminUserCreate, AdminUserUpdate, AuthOptions, AuthUser, ConditionNode, ConvertBody, Conversion, DesignerField, DetailRowPayload, DynamicRecord, EntitySummary, FieldConfig, FieldType, Group, GroupImpact, I18nText, LightPage, ListView, Me, MenuItem, ModuleDetail, ModulePermissions, ModuleSchema, RecordConversion,
+  AccountEmail, AccountSecurity, AdminGroup, AdminUser, MailOutboxPage, AttachmentSettings, PrintTemplateDefinition, PrintTemplateOption, UploadedAttachment, DeleteCheck, DeleteTargetRef, AdminUserCreate, AdminUserUpdate, AuthOptions, AuthUser, ConditionNode, ConvertBody, Conversion, DesignerField, DetailRowPayload, DynamicRecord, EntitySummary, FieldConfig, FieldType, Group, GroupImpact, I18nText, LightPage, ListView, Me, MenuItem, ModuleDetail, ModulePermissions, ModuleSchema, RecordConversion,
   ImportPreview, ImportResult, PagedResponse, RecordHistoryEntry, RelatedTab, Rule, RollupSource, SystemPrivileges, User, ViewSort, Workflow, WorkflowResponse,
 } from 'src/domain/dynamic/types';
 import type {
@@ -364,6 +364,8 @@ export const dynamicApi = {
     http.put<SystemPrivileges>(`/admin/users/${encodeURIComponent(id)}/system-privileges`, body).then(data),
   resetUserPassword: (id: string, password: string) =>
     http.post(`/admin/users/${encodeURIComponent(id)}/reset-password`, { password }).then(data),
+  setUserEmail: (id: string, email: string | null) => http.put<AccountEmail>(`/admin/users/${encodeURIComponent(id)}/email`, { email }).then(data),
+  resendUserEmail: (id: string) => http.post(`/admin/users/${encodeURIComponent(id)}/email/resend`).then(() => undefined),
   setUserActive: (id: string, active: boolean) =>
     http.post(`/admin/users/${encodeURIComponent(id)}/${active ? 'activate' : 'deactivate'}`).then(data),
   getAdminGroups: () => http.get<AdminGroup[]>('/admin/groups').then(data),
@@ -450,6 +452,10 @@ export const dynamicApi = {
   changePassword: (body: { oldPassword: string; newPassword: string }) =>
     http.post<AuthUser>('/auth/change-password', body).then(data),
   getMe: () => http.get<Me>('/me').then(data),
+  getAccountSecurity: () => http.get<AccountSecurity>('/account/security').then(data),
+  setMyEmail: (body: { email: string | null; password: string }) => http.put<AccountEmail>('/account/email', body).then(data),
+  resendMyEmail: () => http.post('/account/email/resend').then(() => undefined),
+  verifyEmail: (token: string) => http.post('/auth/verify-email', { token }).then(() => undefined),
   getMenu: () => http.get<MenuItem[]>('/menu').then(data),
   getThemeDefaults: () => http.get<ThemeDefaults>('/theme').then(data),
   saveMyTheme: (c: ThemeChoice) => http.put<MeTheme>('/me/theme', c).then(data),
@@ -701,6 +707,7 @@ export const dynamicApi = {
   getMailSettings: () => http.get<MailSettings>('/system/mail-settings').then(data),
   saveMailSettings: (body: MailSettingsInput) => http.put('/system/mail-settings', body).then(data),
   testMailSettings: () => http.post<MailTestResult>('/system/mail-settings/test').then(data),
+  getMailOutbox: (page: number) => http.get<MailOutboxPage>('/system/mail-outbox', { params: { page } }).then(data),
   getAudit: (f: AuditFilter, cursor?: string) =>
     http.get<AuditList>('/system/ops/audit', { params: { ...Object.fromEntries(Object.entries(f).filter(([, v]) => v)), cursor } }).then(data),
   /** AI 連線（MCP）權杖（設計 §13.4）：本人 me/mcp/*，管理員 system/mcp/*。 */

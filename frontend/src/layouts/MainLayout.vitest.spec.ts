@@ -373,7 +373,7 @@ describe('MainLayout menu', () => {
       };
       const router = createRouter({
         history: createMemoryHistory(),
-        routes: [{ path: '/', component: { template: '<i/>' } }, { path: '/login', component: { template: '<i/>' } }, { path: '/change-password', component: { template: '<i/>' } }],
+        routes: [{ path: '/', component: { template: '<i/>' } }, { path: '/login', component: { template: '<i/>' } }, { path: '/change-password', component: { template: '<i/>' } }, { path: '/account/security', component: { template: '<i/>' } }],
       });
       await router.push('/');
       const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
@@ -386,27 +386,27 @@ describe('MainLayout menu', () => {
       return { w, router, queryClient, calls };
     };
 
-    it('has no identity select; shows the user name, change-password and logout', async () => {
+    it('has no identity select; shows the user name, account security and logout', async () => {
       const { w } = await logoutSetup();
       expect(w.find('[data-testid="identity-select"]').exists()).toBe(false);
       expect(w.find('[data-testid="current-user"]').text()).toContain('管理員小明');
-      expect(w.find('[data-testid="change-password-link"]').exists()).toBe(true);
+      expect(w.find('[data-testid="account-security-link"]').exists()).toBe(true);
       expect(w.find('[data-testid="logout"]').exists()).toBe(true);
       w.unmount();
     });
 
-    it('hides the change-password link for demo accounts', async () => {
+    it('hides the account security link for demo accounts', async () => {
       const { w } = await logoutSetup({ isDemoAccount: true });
       expect(w.find('[data-testid="logout"]').exists()).toBe(true);
-      expect(w.find('[data-testid="change-password-link"]').exists()).toBe(false);
+      expect(w.find('[data-testid="account-security-link"]').exists()).toBe(false);
       w.unmount();
     });
 
-    it('change-password link goes to /change-password', async () => {
+    it('account security link (replaces change-password) goes to /account/security', async () => {
       const { w, router } = await logoutSetup();
-      await w.find('[data-testid="change-password-link"]').trigger('click');
+      await w.find('[data-testid="account-security-link"]').trigger('click');
       await flushPromises();
-      expect(router.currentRoute.value.path).toBe('/change-password');
+      expect(router.currentRoute.value.path).toBe('/account/security');
       w.unmount();
     });
 
@@ -579,7 +579,7 @@ describe('AI access entry', () => {
   };
   const link = (w: ReturnType<typeof mount>) => w.find('[data-testid="ai-tokens-link"]');
 
-  it('shows next to change-password when the user can use MCP, and goes to /account/ai-tokens', async () => {
+  it('shows next to account security when the user can use MCP, and goes to /account/ai-tokens', async () => {
     const { w } = await mountWith({ enabled: true, canUse: true });
     expect(link(w).exists()).toBe(true);
     expect(link(w).attributes('href')).toBe('/account/ai-tokens');

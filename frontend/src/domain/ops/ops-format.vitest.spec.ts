@@ -24,6 +24,8 @@ describe('incidentTitle', () => {
     expect(incidentTitle(t, te, 'ops.title.privilegeChanged', { change: 'revoked' })).toBe('有人的設計器或權限設定權限被收回');
     expect(incidentTitle(t, te, 'ops.title.mcpWriteLoop', { tokenId: 3, recordId: 42, count: 30, minutes: 10 }))
       .toBe('AI 權杖 #3 在 10 分鐘內修改記錄 #42 達 30 次，已暫停它對這筆的寫入');
+    expect(incidentTitle(t, te, 'ops.title.accountMailFailed', { stage: 'auth', serverCode: 535 })).toBe('帳號信寄不出去（認證），伺服器回應 535');
+    expect(incidentTitle(t, te, 'ops.title.adminEmailChanged')).toBe('系統管理員的帳號 Email 被另一位系統管理員變更');
   });
   it('換語系就換文字；沒登記的代碼回代碼本身', () => {
     const en = i18n('en-US');

@@ -90,18 +90,18 @@ describe('MainLayout 響應式選單', () => {
     w.unmount();
   });
 
-  it('390px 英文介面：「變更密碼」只有圖示，帶 aria-label 與 tooltip，不擠壓品牌名', async () => {
+  it('390px 英文介面：「帳號安全」只有圖示，帶 aria-label 與 tooltip，不擠壓品牌名', async () => {
     const { w } = await mountAtWidth(390, 'en-US');
-    const link = w.get('[data-testid="change-password-link"]');
-    expect(link.text()).not.toContain(enUS.auth.changePassword);
-    expect(link.attributes('aria-label')).toBe(enUS.auth.changePassword);
+    const link = w.get('[data-testid="account-security-link"]');
+    expect(link.text()).not.toContain(enUS.accountSecurity.title);
+    expect(link.attributes('aria-label')).toBe(enUS.accountSecurity.title);
     expect(link.findComponent(quasar.QTooltip).exists()).toBe(true);
     w.unmount();
   });
 
-  it('1366px 英文介面：「變更密碼」維持文字', async () => {
+  it('1366px 英文介面：「帳號安全」維持文字', async () => {
     const { w } = await mountAtWidth(1366, 'en-US');
-    expect(w.get('[data-testid="change-password-link"]').text()).toContain(enUS.auth.changePassword);
+    expect(w.get('[data-testid="account-security-link"]').text()).toContain(enUS.accountSecurity.title);
     w.unmount();
   });
 

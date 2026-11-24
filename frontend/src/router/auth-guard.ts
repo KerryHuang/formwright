@@ -71,6 +71,8 @@ export function installAuthGuard(router: Router) {
       }
     }
     if (!identity.userId) return to.meta.public ? true : loginLocation(to.fullPath);
+    // 登入與否都能開的公開頁（驗證 Email 連結）：強制改密碼與「已登入回首頁」都不套用
+    if (to.meta.anyone) return true;
     // 強制改密碼優先（Demo 帳號被管理員重設密碼後會同時成立）；只在非強制時擋 Demo 的改密碼入口。
     // 要在載入營運時區之前：強制改密碼期間後端只放行 /auth/* 與 GET /me，政策 API 會回 403
     if (identity.mustChangePassword) {

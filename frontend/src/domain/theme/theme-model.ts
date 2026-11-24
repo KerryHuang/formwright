@@ -6,7 +6,8 @@ export type ResolvedMode = 'light' | 'dark';
 
 /** 個人設定；null 代表跟隨全站預設。 */
 export interface ThemeChoice { mode: ThemeMode | null; style: ThemeStyle | null }
-export interface ThemeDefaults { mode: ThemeMode; style: ThemeStyle }
+/** siteName：站台名稱（帳號信寄件名稱與主旨前綴）；GET /theme 沒設時省略，PUT 省略＝不變、""＝清除。 */
+export interface ThemeDefaults { mode: ThemeMode; style: ThemeStyle; siteName?: string | null }
 export interface MeTheme extends ThemeChoice {
   effectiveMode: ThemeMode; effectiveStyle: ThemeStyle;
   defaultMode: ThemeMode; defaultStyle: ThemeStyle; canSave: boolean;
