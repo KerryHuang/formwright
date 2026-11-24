@@ -348,7 +348,7 @@ function runSetActive(u: AdminUser, active: boolean) {
 
       <q-dialog :model-value="resetTarget !== null" @update:model-value="resetTarget = null" @hide="resetPassword = ''">
         <q-card style="width: 400px; max-width: 95vw">
-          <q-card-section class="text-h6">{{ t('users.resetPassword') }}：{{ resetTarget }}</q-card-section>
+          <q-card-section class="text-h6">{{ t('users.resetPasswordFor', { id: resetTarget }) }}</q-card-section>
           <q-card-section class="q-gutter-sm">
             <template v-if="resetEmail">
               <q-radio
