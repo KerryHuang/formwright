@@ -1137,3 +1137,40 @@ SSO、AD／LDAP 列第二版候選（使用者 2026-11-17 裁決），au1 不做
 4. 匿名 `GET /theme` 不回站台名稱，只回模式與風格：登入頁等匿名畫面不顯示站台名稱（§12 只把它用在信件與驗證器 App），未登入者不必看到公司名稱。日後登入頁要顯示站台名稱時再開放。
 5. 使用者管理在 1024 寬以下改用卡片（平板一列兩張），1366 以上維持表格；照簽核中心的做法（走查 G1）。
 6. 寄送紀錄這一頁都沒有說明時不顯示「說明」欄（走查 G3）。
+
+## 25. au1b 實作決定（2026-11-25）
+
+範圍：§7 寄信重設密碼、§8.10 `security.adminPasswordReset`、§9 四項政策、§10 API、§11、§12 畫面、§13.2／§13.5 Demo、§18.2 R1–R22。技術類為實作者決定；標「使用者行為」的是代做的行為決定，附選錯代價，審查或使用者可推翻。
+
+**技術類**
+
+1. `reset-password/check`、`reset-password` 照 §24.1 技術類 1：外層（非交易型）在交易外 `AsNoTracking` 依雜湊預查權杖與帳號，無效一律回同一個 400 `resetLinkInvalid`；`reset-password` 的新密碼雜湊也在外層、交易外算好，內層 `ApplyPasswordResetRequest`（交易）只收權杖雜湊與密碼雜湊，重查權杖、帳號、Email 後寫入。PBKDF2 不佔全庫寫入鎖。
+2. 本人改密碼 `ChangePasswordRequest` 同樣拆成外層與內層 `ApplyChangePasswordRequest`：外層走 `IReauthVerifier`（舊密碼輸錯和登入共用 `LoginThrottle`、記 `account.reauthFailed`），內層以 `StillValidFor` 重比 stamp。對外回應不變：舊密碼錯仍是 `oldPassword` 欄位錯誤與原訊息，限流時回 429。
+3. 改密碼的共同後續集中在 `PasswordChangeEffects.ApplyAsync`（本人改、管理員設暫時密碼、緊急救援、用連結重設四處共用）：作廢這個帳號還沒用的 `passwordReset` 權杖與還沒寄的重設信（原因 `passwordChanged`），Email 已驗證時排一封 `passwordChanged` 通知。**只作廢重設密碼連結，不動驗證信**：以 §7.1 第 7 點為準；§6.3 表格「作廢所有權杖」的寫法較寬，驗證信與密碼無關，作廢只會讓使用者多點一次重寄。
+4. 緊急救援（`AdminBootstrap.ResetAsync`）在啟動時呼叫同一個 `PasswordChangeEffects`；其中作廢未寄信件的 `SkipUnsentAsync` 是交易外的 `ExecuteUpdate`，不經 PostgreSQL 全庫寫入鎖。啟動階段沒有並行寫入，屬已知且可接受的例外。`AdminBootstrap` 的長度檢查改讀政策 `auth.passwordMinLength`，刪掉原本的常數。
+5. 領取帶權杖的信時（§24 技術類 2 的同一個短交易）：`passwordReset` 重查 `PasswordResetEligibility`，不符記 `skipped` 並以原因代碼為說明；不是管理員寄的（參數 `by: self`）且政策 `auth.passwordResetEnabled` 已關閉時記 `skipped`、原因 `disabled`（R20b）。管理員寄的（`by: admin`）不看這項政策（Q20）。au1a 的 `notSupported` 常數移除，介面文字保留給舊紀錄顯示。
+6. 忘記密碼申請（外層 `ForgotPasswordRequest`，非交易型）：輸入先 trim、轉小寫，以前 128 字為鍵過節流，再做一次雜湊（固定成本，拉近不同帳號的回應時間），查帳號判斷資格；符合才送交易型 `EnqueuePasswordResetRequest`（重查資格後排信），不符以 `IAuditLog.TryWriteNowAsync` 在交易外寫「被拒」稽核（帳號不存在時 `TargetId` 留空，不記輸入字串）。任何例外記 Warning 後照常回 202。**已知限制（D21 部分達成）**：符合資格的路徑多一次寫入交易，回應時間仍可能比不符資格的路徑長一些。
+7. 節流 `AnonymousAccountThrottle`（singleton、記憶體內）：申請端每 IP 15 分鐘 10 次、每個輸入 1 小時 N 次（政策 `auth.passwordResetMaxPerHour`）；被擋的那次不計入次數。權杖端點（`verify-email`、`reset-password/check`、`reset-password`）共用每 IP 15 分鐘 30 次，超過回 429 `tooManyAttempts`（訊息沿用「嘗試次數過多，請稍後再試」）。站台重啟歸零，多台部署各自計數。
+8. 「系統能不能寄重設信」（`auth/options` 的 `passwordReset`）由 `PasswordResetAvailability` 判斷，依序看：政策關閉、Demo 站之外的寄信可用性（`AccountMailAvailability`）、健康檢查看板 `database.writable` 為嚴重。資料庫可寫與否讀 `HealthCheckEngine.Board`（最近一次健康檢查結果），不在請求內另開探測。
+9. 管理員寄重設連結 `SendResetLinkRequest` 的 60 秒閘門 `ResetLinkGate` 比照 `EmailResendGate`：交易內只檢查、提交後才記時間（同 §24.1 技術類 2 的已知空窗）。
+10. 前端 `/forgot-password` 只給未登入的人（已登入導回首頁）；`/reset-password` 登入與否都能開（meta `anyone`，同 `/verify-email`）。權杖讀 `#t=` 後立刻從網址列清掉，直接呼叫 API、不經 vue-query，不進任何快取。
+11. 密碼最短長度：後端各 validator（建立使用者、管理員重設、本人改密碼、用連結重設）一律以 `PasswordLength.AtLeastPolicyMin` 讀政策，錯誤訊息帶目前的值；前端從 `auth/options` 的 `passwordMinLength` 取得，讀到之前不顯示數字、不先擋（交給後端）。刪掉 `ChangePasswordValidator.MinLength`、`AdminBootstrap` 的長度常數、`UsersPage.vue` 的 `MIN_PASSWORD`、`ChangePasswordPage.vue` 的 `MIN_LENGTH`。
+12. 新增後端訊息放在新基準檔 `ServerTextBaseline/password-reset.json`；安全事件標題 `alert.TitleAdminPasswordReset` 跟其他告警標題一起放 `alert.json`（該測試要求 `alert.` 鍵集合與 `alert.json` 完全相同）。
+13. Demo 的 `mfa01` 由 `DemoPeople.EnsureAccountSecurityAsync` 建立（`DemoAccounts.MfaUser` 是 Demo 守衛與種子共用的常數）：示範帳號、啟用、沒有群組、Email `mfa01@example.com` 已驗證、沒有雙因素（au1c 補）。
+
+**使用者行為（代做）**
+
+1. 管理員對**自己**寄重設連結回 409 `useChangePassword`（「自己的密碼請用「變更密碼」」），前端自己那列的重設對話框只有暫時密碼。理由：管理員已登入，寄連結給自己只是繞路，而且會讓「另一位管理員重設」的安全事件語意混淆。選錯代價：管理員想測試重設信時要用另一個帳號。
+2. Demo 站的檢查排在管理員寄連結的最前面：不是 `mfa01` 一律 403 `demoSite`（訊息「Demo 站只有 mfa01 可示範重設密碼」），連「對自己」也先回這個。理由：Demo 訪客都是 admin，先講明 Demo 規則比較好懂。選錯代價：Demo 站上 admin 對自己寄時看到的是 Demo 訊息而不是「請到變更密碼」。
+3. 管理員重設對話框：對方 Email 已驗證時兩個選項、預設「寄重設連結」；沒有已驗證 Email 時只顯示「這個帳號沒有已驗證的 Email，只能設定暫時密碼」與密碼欄。寄連結的說明寫「不會改變現有密碼，也不會登出對方；連結只能用一次」。選錯代價：習慣直接設暫時密碼的管理員要多點一下切換。
+4. 忘記密碼頁在系統不能寄信時，連輸入框都不顯示，只寫請聯絡系統管理員；登入頁的「忘記密碼？」連結則一律顯示（§7.4）。選錯代價：管理員剛設好寄信後，使用者要重新整理頁面才看得到表單。
+5. 用連結重設成功後不自動登入，導回登入頁並提示「密碼已重設，請用新密碼登入」（R3）；重設表單要求輸入兩次新密碼。
+6. Demo 站忘記密碼頁多一行「Demo 站只有 mfa01 可示範重設密碼」，依 `auth/options` 的 `demoLoginEnabled` 判斷（R22）。
+7. 稽核原因與寄送紀錄說明新增 `noVerifiedEmail`、`disabled`、`unavailable`（只在稽核）、`demoRestricted` 四種，四語介面文字齊備。
+
+**可寫死（補列 §22）**：申請端每 IP 15 分鐘 10 次、權杖端點每 IP 15 分鐘 30 次、管理員寄連結同帳號 60 秒一次、權杖輸入長度 1–100 字（超過直接當無效）、忘記密碼的輸入鍵截 128 字、輸入超過 50 字（帳號長度上限）不查資料庫、政策 `auth.passwordMinLength` 的下限 8（安全底線，政策範圍 8–128）。
+
+**偏離設計之處**
+
+- §6.3「改密碼作廢所有權杖」只作廢 `passwordReset`（見技術類 3）。
+- D21 回應時間只部分拉近（見技術類 6）。
