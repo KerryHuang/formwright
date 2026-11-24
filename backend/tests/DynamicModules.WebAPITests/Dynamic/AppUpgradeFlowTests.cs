@@ -656,39 +656,69 @@ public class AppUpgradeFlowTests : IDisposable
     /// 測試替身：存狀態機時，同一份輸入同時含兩條指定的轉移就回 409，模擬「兩項各自判斷都能套、合起來才違反設計器守衛」
     /// （套件驗證看的是整份新版，真實守衛很難構造出只在現況上才成立的組合，設計 A57 指定用替身）。
     /// </summary>
-    private sealed class PairConflict(Func<(long From, long To)[]?> pair) : IPipelineBehavior<SaveWorkflowRequest, ServiceResult>
+    private sealed class PairConflict(Func<(long From, long To)[]?> pair, Func<ServiceResult>? result = null) : IPipelineBehavior<SaveWorkflowRequest, ServiceResult>
     {
         public Task<ServiceResult> Handle(SaveWorkflowRequest request, RequestHandlerDelegate<ServiceResult> next, CancellationToken ct) =>
             pair() is { } p && p.All(x => request.Workflow.Transitions.Any(t => t.From == x.From && t.To == x.To))
-                ? Task.FromResult(ServiceResult.Conflict("測試替身：兩條轉移合起來違反守衛"))
+                ? Task.FromResult(result?.Invoke() ?? ServiceResult.Conflict("測試替身：兩條轉移合起來違反守衛"))
                 : next();
+    }
+
+    /// <summary>A57 共用：開啟、出新版（兩條新轉移＋一個第一批的新選項），回傳預覽與要勾的項目。</summary>
+    private async Task<(JsonElement Preview, string[] Items)> PairSetupAsync(Func<ServiceResult>? result)
+    {
+        (long, long)[]? pair = null;
+        _rig.Dispose();
+        _rig = new SharedMasterRig(new TestApp { ExtraServices = s => s.AddTransient<IPipelineBehavior<SaveWorkflowRequest, ServiceResult>>(_ => new PairConflict(() => pair, result)) });
+        await OpenAsync();
+        await NewVersionAsync(p =>
+        {
+            Wf(p)["transitions"]!.AsArray().Add(JsonNode.Parse("""{ "from": "check", "to": "returned", "groups": ["wh"] }"""));
+            Wf(p)["transitions"]!.AsArray().Add(JsonNode.Parse("""{ "from": "returned", "to": "sent", "groups": ["sales"] }"""));
+            p["modules"]![0]!["blocks"]![0]!["fields"]![2]!["options"]!.AsArray().Add(JsonNode.Parse("""{ "code": "b", "label": { "zh-TW": "乙" } }"""));
+        });
+        var preview = await PreviewAsync();
+        string[] items = ["transition:deal:check>returned", "transition:deal:returned>sent", "option:deal.b"];
+        foreach (var id in items) Item(preview, id).GetProperty("applicable").GetBoolean().Should().BeTrue(id);
+        pair = [(Option("check"), Option("returned")), (Option("returned"), Option("sent"))];
+        return (preview, items);
+    }
+
+    private void AssertRolledBack((string, string) before)
+    {
+        VersionAndBaseline().Should().Be(before, "整批回滾，基準與版號不變");
+        WorkflowOf().Transitions.Should().NotContain(t => t.From == Option("check") && t.To == Option("returned"));
+        _rig.Db(db => db.Set<AppOption>().Any(o => o.Name == "deal.b")).Should().BeFalse("第一批先寫入的新選項也要隨整批回滾（審查 S2）");
     }
 
     [Fact]
     public async Task A57_TwoItemsValidAloneConflictTogether_409WithPassItems_RolledBack()
     {
-        (long, long)[]? pair = null;
-        _rig.Dispose();
-        _rig = new SharedMasterRig(new TestApp { ExtraServices = s => s.AddTransient<IPipelineBehavior<SaveWorkflowRequest, ServiceResult>>(_ => new PairConflict(() => pair)) });
-        await OpenAsync();
+        var (preview, items) = await PairSetupAsync(null);
         var before = VersionAndBaseline();
-        await NewVersionAsync(p =>
-        {
-            Wf(p)["transitions"]!.AsArray().Add(JsonNode.Parse("""{ "from": "check", "to": "returned", "groups": ["wh"] }"""));
-            Wf(p)["transitions"]!.AsArray().Add(JsonNode.Parse("""{ "from": "returned", "to": "sent", "groups": ["sales"] }"""));
-        });
-        var preview = await PreviewAsync();
-        string[] items = ["transition:deal:check>returned", "transition:deal:returned>sent"];
-        foreach (var id in items) Item(preview, id).GetProperty("applicable").GetBoolean().Should().BeTrue(id);
-
-        pair = [(Option("check"), Option("returned")), (Option("returned"), Option("sent"))];
         var res = await ApplyAsync(preview, items);
         res.StatusCode.Should().Be(HttpStatusCode.Conflict);
         var message = await res.Content.ReadAsStringAsync();
         message.Should().Contain("transition:deal:check>returned、transition:deal:returned>sent", "訊息前面是這一趟包含的項目清單（複核 R3）");
         message.Should().Contain("測試替身");
-        VersionAndBaseline().Should().Be(before, "整批回滾，基準與版號不變");
-        WorkflowOf().Transitions.Should().NotContain(t => t.From == Option("check") && t.To == Option("returned"));
+        AssertRolledBack(before);
+    }
+
+    [Fact]
+    public async Task A57_PassInvalid400_KeyStartsWithFirstItem_MessageListsPassItems_RolledBack()
+    {
+        var (preview, items) = await PairSetupAsync(
+            () => ServiceResult.Invalid(new Dictionary<string, string[]> { ["transitions"] = ["測試替身：合起來不合法"] }));
+        var before = VersionAndBaseline();
+        var res = await ApplyAsync(preview, items);
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await JsonOf(res);
+        var errors = body.GetProperty("errors").EnumerateObject().ToList();
+        errors.Should().ContainSingle();
+        errors[0].Name.Should().Be("transition:deal:check>returned.transitions", "鍵是第一個項目 id.原鍵，前端才對應得到項目（審查 M1）");
+        var message = errors[0].Value[0].GetString();
+        message.Should().Contain("transition:deal:check>returned、transition:deal:returned>sent").And.Contain("測試替身");
+        AssertRolledBack(before);
     }
 
     // ---- A64 ----

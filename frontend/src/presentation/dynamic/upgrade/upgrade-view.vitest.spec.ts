@@ -100,6 +100,16 @@ describe('apply errors (§8.3, review M5)', () => {
     ]);
   });
 
+  // 審查 M1：狀態機一趟失敗的 400，鍵掛第一個項目、訊息前綴是整趟的項目清單
+  it('maps a workflow pass failure to its first item and names every item in the message', () => {
+    const pass = [item('transition:deal:check>returned', 'added', { section: 'workflows' }), item('transition:deal:returned>sent', 'added', { section: 'workflows' })];
+    expect(applyErrorLines({
+      'transition:deal:check>returned.transitions': ['這一趟包含的項目：transition:deal:check>returned、transition:deal:returned>sent：bad'],
+    }, pass, labelOf)).toEqual([
+      { label: 'L(transition:deal:check>returned)', messages: ['這一趟包含的項目：L(transition:deal:check>returned)、L(transition:deal:returned>sent)：bad'] },
+    ]);
+  });
+
   it('is empty without errors', () => {
     expect(applyErrorLines(undefined, items, labelOf)).toEqual([]);
   });

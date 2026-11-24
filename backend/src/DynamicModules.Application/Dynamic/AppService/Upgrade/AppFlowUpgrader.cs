@@ -161,13 +161,16 @@ public sealed class AppFlowUpgrader(ISender sender, IModuleRepository modules, I
     private static ServiceResult? PassFailure(ServiceResult r, IEnumerable<UpgradeItemResponse> items)
     {
         if (r.IsSuccess) return null;
-        var ids = string.Join("、", items.Select(i => i.Id).Distinct());
+        var list = items.Select(i => i.Id).Distinct().ToList();
+        var ids = string.Join("、", list);
         if (r.IsForbidden) return r;
         if (r.IsConflict) return ServiceResult.Conflict($"{AppMessages.UpgradeModulePass(ids)}：{r.Message}");
         if (r.IsNotFound) return ServiceResult.NotFound($"{AppMessages.UpgradeModulePass(ids)}：{r.Message}");
+        // 鍵掛在第一個項目（前端依 <id>、<id>.… 對應到項目），整趟的項目清單放進訊息前綴（同 409）
+        var first = list.FirstOrDefault() ?? "";
         return ServiceResult.Invalid(r.Errors.Count == 0
-            ? new Dictionary<string, string[]> { [ids] = [r.Message ?? AppMessages.UpgradeItemNotApplicable] }
-            : r.Errors.ToDictionary(e => $"{ids}.{e.Key}", e => e.Value));
+            ? new Dictionary<string, string[]> { [first] = [$"{AppMessages.UpgradeModulePass(ids)}：{r.Message ?? AppMessages.UpgradeItemNotApplicable}"] }
+            : r.Errors.ToDictionary(e => $"{first}.{e.Key}", e => e.Value.Select(m => $"{AppMessages.UpgradeModulePass(ids)}：{m}").ToArray()));
     }
 
     /// <summary>
