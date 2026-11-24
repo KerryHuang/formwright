@@ -487,4 +487,36 @@ public class AccountMailTests
         spy.Begins.Should().Be(before + 1);
         (await User(app, "sales01")).EmailVerifiedUtc.Should().NotBeNull();
     }
+
+    [Fact]
+    public async Task Review_S1_SelfChangeEmail_SharesThe60sGateWithResend()
+    {
+        using var app = App(new FakeMailSender());
+        Task<HttpResponseMessage> Change(string email) =>
+            app.AsUser().PutAsJsonAsync("/api/v3/dynamic/account/email", new { email, password = app.InitialAdminPassword });
+
+        (await Change("a@example.com")).StatusCode.Should().Be(HttpStatusCode.OK);
+        var again = await Change("b@example.com");
+        again.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+        (await Json(again)).GetProperty("code").GetString().Should().Be("emailResendTooSoon");
+        (await app.AsUser().PostAsync("/api/v3/dynamic/account/email/resend", null)).StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+        (await User(app, "admin")).Email.Should().Be("a@example.com");
+
+        app.Time.Advance(MailDeliveryLimits.ResendGap);
+        (await Change("b@example.com")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await Rows(app)).Count(r => r.Kind == MailKinds.EmailVerify).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Review_S5_ResendGate_NotArmedWhenCommitFails()
+    {
+        var spy = new TxSpy();
+        using var app = App(new FakeMailSender(), configure: a => SpyTransactions(a, spy));
+        await SetUserRow(app, "sales01", u => u.Email = "a@example.com");
+
+        spy.FailNextCommit = true;
+        (await app.AsUser().PostAsync($"{Users}/sales01/email/resend", null)).StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        (await app.AsUser().PostAsync($"{Users}/sales01/email/resend", null)).StatusCode.Should().Be(HttpStatusCode.OK, "提交失敗不算寄過");
+        (await app.AsUser().PostAsync($"{Users}/sales01/email/resend", null)).StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+    }
 }
