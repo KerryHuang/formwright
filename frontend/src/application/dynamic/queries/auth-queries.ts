@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
-import type { AuthUser } from 'src/domain/dynamic/types';
+import { isTwoFactorChallenge, type AuthUser, type LoginResult } from 'src/domain/dynamic/types';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 import { i18n } from 'src/i18n/instance';
 import { takeStartupAuthOptions } from 'src/i18n/startup';
@@ -34,16 +34,29 @@ function useStartSession() {
   };
 }
 
+/** 要第二步時（帳號安全設計 §8.3）還沒有 session，不開始；由呼叫端顯示第二步畫面。 */
+function useStartUnlessChallenged() {
+  const start = useStartSession();
+  return async (r: LoginResult) => { if (!isTwoFactorChallenge(r)) await start(r); };
+}
+
 /** 密碼用 send 綁定當次提交，不進 mutation variables（見 useSecretMutation）。 */
 export function useLogin() {
-  const start = useStartSession();
+  const start = useStartUnlessChallenged();
   return useSecretMutation((take: (b: { userId: string }) => { password: string }) =>
     useMutation({ ...SECRET_MUTATION, mutationFn: (b: { userId: string }) => dynamicApi.login({ ...b, ...take(b) }), onSuccess: start }));
 }
 
 export function useDemoLogin() {
-  const start = useStartSession();
+  const start = useStartUnlessChallenged();
   return useMutation({ mutationFn: (userId: string) => dynamicApi.demoLogin(userId), onSuccess: start });
+}
+
+/** 登入第二步：驗證碼或復原碼同樣綁當次提交。 */
+export function useTwoFactorLogin() {
+  const start = useStartSession();
+  return useSecretMutation((take: (v: object) => { code?: string; recoveryCode?: string }) =>
+    useMutation({ ...SECRET_MUTATION, mutationFn: (v: object) => dynamicApi.twoFactorLogin(take(v)), onSuccess: start }));
 }
 
 /**

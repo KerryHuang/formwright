@@ -15,7 +15,7 @@ import { resetStartupForTests, startLocale } from 'src/i18n/startup';
 import LoginPage from './LoginPage.vue';
 
 vi.mock('src/services/api/dynamic-api', () => ({
-  dynamicApi: { getAuthOptions: vi.fn(), getUiMessages: vi.fn(), login: vi.fn(), demoLogin: vi.fn(), getMe: vi.fn(), getEffectivePolicies: vi.fn() },
+  dynamicApi: { getAuthOptions: vi.fn(), getUiMessages: vi.fn(), login: vi.fn(), demoLogin: vi.fn(), twoFactorLogin: vi.fn(), getMe: vi.fn(), getEffectivePolicies: vi.fn() },
 }));
 const api = vi.mocked(dynamicApi);
 
@@ -302,5 +302,65 @@ describe('LoginPage 首屏共用啟動那次 auth/options（i4b 計畫判斷 12�
     await boot();
     expect(api.getAuthOptions).toHaveBeenCalledTimes(2);
     expect(q('demo-account-sales01')).not.toBeNull();
+  });
+
+  describe('second step (two-factor, account security design §8.3)', () => {
+    it('correct password with 2FA shows the code step without starting a session; correct code signs in', async () => {
+      const { router } = await mountPage(off, '/dynamic/order');
+      api.login.mockResolvedValue({ twoFactorRequired: true } as never);
+      await submit();
+      expect(q('login-second-step')).not.toBeNull();
+      expect(q('login-password')).toBeNull();
+      expect(api.getMe).not.toHaveBeenCalled();
+      expect(router.currentRoute.value.path).toBe('/login');
+      // 不提供「記住這台裝置」（au1c2）
+      expect(document.body.textContent).not.toContain('記住');
+
+      api.twoFactorLogin.mockResolvedValue({ userId: 'admin', displayName: 'A', mustChangePassword: false });
+      api.getMe.mockResolvedValue({ isDemoAccount: false } as never);
+      await fill('login-code', ' 123456 ');
+      q('login-second-submit')!.click();
+      await flushPromises();
+      expect(api.twoFactorLogin).toHaveBeenCalledWith({ code: '123456' });
+      expect(router.currentRoute.value.fullPath).toBe('/dynamic/order');
+    });
+
+    it('can switch to a recovery code; wrong code shows the localized 400 message and stays', async () => {
+      await mountPage(off);
+      api.login.mockResolvedValue({ twoFactorRequired: true } as never);
+      await submit();
+      q('login-toggle-recovery')!.click();
+      await flushPromises();
+      api.twoFactorLogin.mockRejectedValue({ status: 400, code: 'twoFactorWrong', message: '驗證碼不正確' });
+      await fill('login-recovery', 'abcd-efgh-ijkl-mnop');
+      q('login-second-submit')!.click();
+      await flushPromises();
+      expect(api.twoFactorLogin).toHaveBeenCalledWith({ recoveryCode: 'abcd-efgh-ijkl-mnop' });
+      expect(q('login-error')!.textContent).toContain('驗證碼不正確');
+      expect(q('login-second-step')).not.toBeNull();
+    });
+
+    it('expired ticket goes back to the password step with the message', async () => {
+      await mountPage(off);
+      api.login.mockResolvedValue({ twoFactorRequired: true } as never);
+      await submit();
+      api.twoFactorLogin.mockRejectedValue({ status: 400, code: 'twoFactorExpired', message: '驗證已逾時，請重新輸入密碼' });
+      await fill('login-code', '000000');
+      q('login-second-submit')!.click();
+      await flushPromises();
+      expect(q('login-second-step')).toBeNull();
+      expect(q('login-password')).not.toBeNull();
+      expect(q('login-error')!.textContent).toContain('重新輸入密碼');
+    });
+
+    it('demo mfa01 shows the current code and a recovery code hint', async () => {
+      await mountPage(on);
+      api.demoLogin.mockResolvedValue({ twoFactorRequired: true, demoHint: { code: '654321', recoveryCode: 'OMPQ-P7NN-EINB-ARSN' } } as never);
+      q('demo-account-sales01')!.click();
+      await flushPromises();
+      expect(q('login-demo-hint')!.textContent).toContain('654321');
+      expect(q('login-demo-hint')!.textContent).toContain('OMPQ-P7NN-EINB-ARSN');
+      expect(q('demo-accounts')).toBeNull();
+    });
   });
 });

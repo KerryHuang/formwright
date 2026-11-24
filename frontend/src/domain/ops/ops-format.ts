@@ -32,6 +32,10 @@ export function incidentTitle(t: Translate, te: Exists, titleKey: string, params
   }
   if (titleKey === 'ops.title.adminEmailChanged') return t('ops.titles.adminEmailChanged');
   if (titleKey === 'ops.title.adminPasswordReset') return t('ops.titles.adminPasswordReset');
+  // 雙因素與金鑰的安全事件（帳號安全設計 §8.8、§8.7、§8.11）：標題不帶參數
+  for (const k of ['adminTwoFactorReset', 'twoFactorFailures', 'rescueConfigLeft', 'keysNotPersisted', 'keysMayBeLost']) {
+    if (titleKey === `ops.title.${k}`) return t(`ops.titles.${k}`);
+  }
   if (titleKey === 'ops.title.rulePaused') return t('ops.titles.rulePaused', { rule: str(params, 'ruleKey'), failures: str(params, 'failures') });
   if (titleKey === 'ops.title.mcpWriteLoop') {
     return t('ops.titles.mcpWriteLoop', {

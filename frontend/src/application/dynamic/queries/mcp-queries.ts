@@ -22,7 +22,7 @@ export const useMcpCalls = (id: MaybeRefOrGetter<number | null>) =>
 
 export function useCreateMcpToken() {
   const qc = useQueryClient();
-  return useSecretMutation((take: (v: { name: string; scopes: string[]; expiresOn: string | null }) => { password: string }) =>
+  return useSecretMutation((take: (v: { name: string; scopes: string[]; expiresOn: string | null }) => { password: string; code?: string }) =>
     useMutation({
       ...SECRET_MUTATION,
       gcTime: 0,

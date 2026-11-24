@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useCreateMcpToken } from 'src/application/dynamic/queries/mcp-queries';
+import { useMe } from 'src/application/dynamic/queries/permissions-queries';
 import DateSelect from 'src/components/framework/DateSelect.vue';
 import type { McpInfo } from 'src/domain/mcp/mcp-types';
 import { leftoverMessages } from 'src/presentation/dynamic/designer/api-error';
@@ -16,6 +17,10 @@ const props = defineProps<{ modelValue: boolean; info: McpInfo }>();
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>();
 const { t, te } = useI18n();
 const create = useCreateMcpToken();
+// 啟用雙因素的帳號建權杖要再輸入驗證碼（帳號安全設計 §8.9）
+const me = useMe();
+const needsCode = computed(() => me.data.value?.twoFactor?.enabled === true);
+const code = ref('');
 
 const name = ref('');
 const password = ref('');
@@ -30,6 +35,7 @@ watch(() => props.modelValue, (open) => {
   if (!open) return;
   name.value = '';
   password.value = '';
+  code.value = '';
   error.value = '';
   secret.value = null;
   copyState.value = 'idle';
@@ -41,8 +47,8 @@ function submit() {
   error.value = '';
   // 空值或日期只打一半（框架會回英文的格式錯誤）一律送 null，讓後端回「到期日須在 X 到 Y 之間」
   const date = expiresOn.value && /^\d{4}-\d{2}-\d{2}$/.test(expiresOn.value) ? expiresOn.value : null;
-  create.send({ name: name.value, scopes: [...scopes.value], expiresOn: date }, { password: password.value }, {
-    onSuccess: (r) => { secret.value = r.token; password.value = ''; },
+  create.send({ name: name.value, scopes: [...scopes.value], expiresOn: date }, needsCode.value ? { password: password.value, code: code.value.trim() } : { password: password.value }, {
+    onSuccess: (r) => { secret.value = r.token; password.value = ''; code.value = ''; },
     onError: (e) => { error.value = joinList(leftoverMessages(e as unknown as ApiError, [])) || t('aiTokens.dialog.createFailed'); },
   });
 }
@@ -61,6 +67,7 @@ async function copy() {
 function close() {
   secret.value = null;
   password.value = '';
+  code.value = '';
   confirmClose.value = false;
   create.reset();
   emit('update:modelValue', false);
@@ -99,6 +106,10 @@ const envExample = computed(() => `export FORMWRIGHT_TOKEN='${secret.value ?? ''
             <q-input
               v-model="password" type="password" autocomplete="current-password" :label="t('aiTokens.dialog.password')"
               :hint="t('aiTokens.dialog.passwordHint')" dense outlined data-testid="ai-password"
+            />
+            <q-input
+              v-if="needsCode" v-model="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" :label="t('twoFactor.code')"
+              :hint="t('aiTokens.dialog.codeHint')" dense outlined data-testid="ai-code"
             />
             <div v-if="error" class="text-negative" data-testid="ai-create-error">{{ error }}</div>
           </q-card-section>

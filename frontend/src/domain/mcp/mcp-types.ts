@@ -51,4 +51,5 @@ export interface McpTokenCall {
   reasonCode?: string | null;
 }
 
-export interface McpCreateBody { name: string; scopes: string[]; expiresOn: string | null; password: string }
+/** 啟用雙因素的帳號另要 code（帳號安全設計 §8.9）。 */
+export interface McpCreateBody { name: string; scopes: string[]; expiresOn: string | null; password: string; code?: string }

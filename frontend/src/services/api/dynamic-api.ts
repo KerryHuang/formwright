@@ -1,5 +1,5 @@
 import type {
-  AccountEmail, AccountSecurity, AdminGroup, AdminUser, MailOutboxPage, AttachmentSettings, PrintTemplateDefinition, PrintTemplateOption, UploadedAttachment, DeleteCheck, DeleteTargetRef, AdminUserCreate, AdminUserUpdate, AuthOptions, AuthUser, ConditionNode, ConvertBody, Conversion, DesignerField, DetailRowPayload, DynamicRecord, EntitySummary, FieldConfig, FieldType, Group, GroupImpact, I18nText, LightPage, ListView, Me, MenuItem, ModuleDetail, ModulePermissions, ModuleSchema, RecordConversion,
+  AccountEmail, AccountSecurity, LoginResult, TwoFactorProof, TwoFactorSetup, AdminGroup, AdminUser, MailOutboxPage, AttachmentSettings, PrintTemplateDefinition, PrintTemplateOption, UploadedAttachment, DeleteCheck, DeleteTargetRef, AdminUserCreate, AdminUserUpdate, AuthOptions, AuthUser, ConditionNode, ConvertBody, Conversion, DesignerField, DetailRowPayload, DynamicRecord, EntitySummary, FieldConfig, FieldType, Group, GroupImpact, I18nText, LightPage, ListView, Me, MenuItem, ModuleDetail, ModulePermissions, ModuleSchema, RecordConversion,
   ImportPreview, ImportResult, PagedResponse, RecordHistoryEntry, RelatedTab, Rule, RollupSource, SystemPrivileges, User, ViewSort, Workflow, WorkflowResponse,
 } from 'src/domain/dynamic/types';
 import type {
@@ -366,6 +366,7 @@ export const dynamicApi = {
     http.post(`/admin/users/${encodeURIComponent(id)}/reset-password`, { password }).then(data),
   setUserEmail: (id: string, email: string | null) => http.put<AccountEmail>(`/admin/users/${encodeURIComponent(id)}/email`, { email }).then(data),
   resendUserEmail: (id: string) => http.post(`/admin/users/${encodeURIComponent(id)}/email/resend`).then(() => undefined),
+  resetUserTwoFactor: (id: string) => http.post(`/admin/users/${encodeURIComponent(id)}/reset-two-factor`).then(() => undefined),
   sendResetLink: (id: string) => http.post(`/admin/users/${encodeURIComponent(id)}/send-reset-link`).then(() => undefined),
   setUserActive: (id: string, active: boolean) =>
     http.post(`/admin/users/${encodeURIComponent(id)}/${active ? 'activate' : 'deactivate'}`).then(data),
@@ -447,8 +448,10 @@ export const dynamicApi = {
   getUiMessages: (code: string, v?: string) =>
     http.get<Record<string, string>>(`/i18n/ui/${encodeURIComponent(code)}`, v ? { params: { v } } : undefined)
       .then((r) => ({ hash: String(r.headers['x-ui-hash'] ?? ''), messages: r.data })),
-  login: (body: { userId: string; password: string }) => http.post<AuthUser>('/auth/login', body).then(data),
-  demoLogin: (userId: string) => http.post<AuthUser>('/auth/demo-login', { userId }).then(data),
+  login: (body: { userId: string; password: string }) => http.post<LoginResult>('/auth/login', body).then(data),
+  demoLogin: (userId: string) => http.post<LoginResult>('/auth/demo-login', { userId }).then(data),
+  /** 登入第二步（帳號安全設計 §8.3）：驗證碼與復原碼擇一。 */
+  twoFactorLogin: (body: { code?: string; recoveryCode?: string }) => http.post<AuthUser>('/auth/two-factor', body).then(data),
   logout: () => http.post('/auth/logout').then(data),
   changePassword: (body: { oldPassword: string; newPassword: string }) =>
     http.post<AuthUser>('/auth/change-password', body).then(data),
@@ -456,6 +459,11 @@ export const dynamicApi = {
   getAccountSecurity: () => http.get<AccountSecurity>('/account/security').then(data),
   setMyEmail: (body: { email: string | null; password: string }) => http.put<AccountEmail>('/account/email', body).then(data),
   resendMyEmail: () => http.post('/account/email/resend').then(() => undefined),
+  startTwoFactorSetup: (body: TwoFactorProof) => http.post<TwoFactorSetup>('/account/two-factor/setup', body).then(data),
+  enableTwoFactor: (code: string) => http.post<{ recoveryCodes: string[] }>('/account/two-factor/enable', { code }).then(data),
+  disableTwoFactor: (body: TwoFactorProof) => http.post('/account/two-factor/disable', body).then(() => undefined),
+  regenerateRecoveryCodes: (body: { password: string; code: string }) =>
+    http.post<{ recoveryCodes: string[] }>('/account/two-factor/recovery-codes', body).then(data),
   verifyEmail: (token: string) => http.post('/auth/verify-email', { token }).then(() => undefined),
   /** 忘記密碼：一律 202 與同一個內容（帳號安全設計 §7.2） */
   forgotPassword: (userId: string) => http.post<{ linkMinutes: number }>('/auth/forgot-password', { userId }).then(data),

@@ -18,7 +18,7 @@ vi.mock('src/services/api/dynamic-api', () => ({
   dynamicApi: {
     getAdminUsers: vi.fn(), createUser: vi.fn(), updateUser: vi.fn(), resetUserPassword: vi.fn(), setUserActive: vi.fn(),
     getGroups: vi.fn(), getUsers: vi.fn(), getMe: vi.fn(), getDepartments: vi.fn(), setUserDepartment: vi.fn(), setUserSystemPrivileges: vi.fn(),
-    setUserEmail: vi.fn(), resendUserEmail: vi.fn(), sendResetLink: vi.fn(), getAuthOptions: vi.fn(),
+    setUserEmail: vi.fn(), resendUserEmail: vi.fn(), sendResetLink: vi.fn(), getAuthOptions: vi.fn(), resetUserTwoFactor: vi.fn(),
   },
 }));
 const api = vi.mocked(dynamicApi);
@@ -160,6 +160,20 @@ describe('UsersPage', () => {
     await click('user-reset-sales01');
     expect(q('user-id')).toBeNull();
     expect(q('user-reset-password')).not.toBeNull();
+  });
+
+  it('two-factor column and reset (account security design §8.8): only for others with it on or unreadable, after confirming', async () => {
+    api.resetUserTwoFactor.mockResolvedValue(undefined);
+    await mountPage([
+      user('admin', { isSystemAdmin: true, twoFactor: 'on' }), user('sales01', { twoFactor: 'unreadable' }), user('old01', { twoFactor: 'off' }),
+    ]);
+    expect(q('user-row-sales01')!.textContent).toContain(zhTW.users.twoFactorStates.unreadable);
+    expect(q('user-reset-2fa-admin')).toBeNull();
+    expect(q('user-reset-2fa-old01')).toBeNull();
+    await click('user-reset-2fa-sales01');
+    expect(api.resetUserTwoFactor).not.toHaveBeenCalled();
+    await click('user-2fa-confirm-ok');
+    expect(api.resetUserTwoFactor).toHaveBeenCalledWith('sales01');
   });
 
   it('wide screens keep the table', async () => {

@@ -11,7 +11,7 @@ import { dynamicApi } from 'src/services/api/dynamic-api';
 import AiTokensPage from './AiTokensPage.vue';
 
 vi.mock('src/services/api/dynamic-api', () => ({
-  dynamicApi: { getMyMcp: vi.fn(), getMyMcpTokens: vi.fn(), createMcpToken: vi.fn(), revokeMyMcpToken: vi.fn(), getMcpTokenCalls: vi.fn() },
+  dynamicApi: { getMyMcp: vi.fn(), getMyMcpTokens: vi.fn(), createMcpToken: vi.fn(), revokeMyMcpToken: vi.fn(), getMcpTokenCalls: vi.fn(), getMe: vi.fn() },
 }));
 const api = vi.mocked(dynamicApi);
 
@@ -58,6 +58,7 @@ describe('AiTokensPage', () => {
     api.getMyMcp.mockResolvedValue(INFO);
     api.getMyMcpTokens.mockResolvedValue([TOKEN()]);
     api.getMcpTokenCalls.mockResolvedValue([]);
+    api.getMe.mockResolvedValue({ userId: 'sales01', twoFactor: { enabled: false, required: false, recoveryCodesLeft: 0 } } as never);
   });
   afterEach(() => { mounted?.unmount(); document.body.innerHTML = ''; });
 
@@ -141,6 +142,27 @@ describe('AiTokensPage', () => {
     // 明文與密碼都不留在查詢與 mutation 快取
     const cache = JSON.stringify([queryClient.getMutationCache().getAll().map((m) => m.state.variables)]);
     expect(cache).not.toContain('pw-123456');
+  });
+
+  it('asks for the authenticator code when the account has two-factor on (account security design §8.9)', async () => {
+    api.getMe.mockResolvedValue({ userId: 'sales01', twoFactor: { enabled: true, required: false, recoveryCodesLeft: 10 } } as never);
+    api.createMcpToken.mockResolvedValue(CREATED);
+    await mountPage();
+    await click('ai-create');
+    await fill('ai-name', '新的');
+    await fill('ai-password', 'pw-123456');
+    await fill('ai-code', ' 123456 ');
+    await click('ai-submit');
+    expect(api.createMcpToken).toHaveBeenCalledWith({
+      name: '新的', scopes: ['business.read'], expiresOn: INFO.defaultExpiresOn, password: 'pw-123456', code: '123456',
+    });
+    expect(JSON.stringify(queryClient.getMutationCache().getAll().map((m) => m.state.variables))).not.toContain('123456');
+  });
+
+  it('no code field without two-factor', async () => {
+    await mountPage();
+    await click('ai-create');
+    expect(q('ai-code')).toBeNull();
   });
 
   it('asks before closing the one-time screen, and closing wipes the plaintext', async () => {

@@ -6,11 +6,14 @@ import { h } from 'vue';
 import { createI18n } from 'vue-i18n';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
-import type { AccountSecurity } from 'src/domain/dynamic/types';
+import type { AccountSecurity, TwoFactorStatus } from 'src/domain/dynamic/types';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 import AccountSecurityPage from './AccountSecurityPage.vue';
 
-vi.mock('src/services/api/dynamic-api', () => ({ dynamicApi: { getAccountSecurity: vi.fn(), setMyEmail: vi.fn(), resendMyEmail: vi.fn() } }));
+vi.mock('src/services/api/dynamic-api', () => ({ dynamicApi: {
+  getAccountSecurity: vi.fn(), setMyEmail: vi.fn(), resendMyEmail: vi.fn(),
+  startTwoFactorSetup: vi.fn(), enableTwoFactor: vi.fn(), disableTwoFactor: vi.fn(), regenerateRecoveryCodes: vi.fn(),
+} }));
 const api = vi.mocked(dynamicApi);
 let mounted: ReturnType<typeof mount> | undefined;
 let queryClient: QueryClient;
@@ -72,5 +75,73 @@ describe('AccountSecurityPage', () => {
     await mountPage({ canChangeEmail: false, email: null });
     expect(q('security-email-edit')).toBeNull();
     expect(q('security-email-none')).not.toBeNull();
+  });
+
+  describe('two-factor card (account security design §8.2)', () => {
+    const off: TwoFactorStatus = { enabled: false, recoveryCodesLeft: 0, unreadable: false, blocked: null, remindAtOrBelow: 2, hasPassword: true };
+    const on: TwoFactorStatus = { ...off, enabled: true, recoveryCodesLeft: 10 };
+    const click = async (id: string) => { q(id)!.click(); await flushPromises(); };
+
+    it('enable: password → QR and key → code → recovery codes shown once; secrets cleared after closing', async () => {
+      await mountPage({ twoFactor: off });
+      expect(q('security-2fa-status')!.textContent).toContain(zhTW.twoFactor.statusOff);
+      api.startTwoFactorSetup.mockResolvedValue({ secret: 'JBSWY3DPEHPK3PXP', otpAuthUri: 'otpauth://totp/Formwright:sales01?secret=JBSWY3DPEHPK3PXP', pendingMinutes: 10 });
+      api.enableTwoFactor.mockResolvedValue({ recoveryCodes: ['AAAA-BBBB-CCCC-DDDD', 'EEEE-FFFF-GGGG-HHHH'] });
+      await click('security-2fa-enable');
+      expect(q('security-2fa-code')).toBeNull();
+      await fill('security-2fa-password', 'pw-1');
+      await click('security-2fa-submit');
+      expect(api.startTwoFactorSetup).toHaveBeenCalledWith({ password: 'pw-1' });
+      expect(q('security-2fa-qr')!.getAttribute('src')).toMatch(/^data:image\/svg\+xml/);
+      expect(q('security-2fa-secret')!.textContent).toBe('JBSWY3DPEHPK3PXP');
+      await fill('security-2fa-confirm-code', '123456');
+      await click('security-2fa-finish');
+      expect(api.enableTwoFactor).toHaveBeenCalledWith('123456');
+      expect(q('security-2fa-codes')!.textContent).toContain('AAAA-BBBB-CCCC-DDDD');
+      expect(JSON.stringify(queryClient.getMutationCache().getAll().map((m) => m.state))).not.toContain('pw-1');
+      await click('security-2fa-codes-done');
+      expect(q('security-2fa-codes')).toBeNull();
+    });
+
+    it('disable can use a recovery code; regenerate needs the authenticator code', async () => {
+      await mountPage({ twoFactor: on });
+      expect(q('security-2fa-left')!.textContent).toContain('10');
+      api.disableTwoFactor.mockResolvedValue(undefined);
+      await click('security-2fa-disable');
+      await fill('security-2fa-password', 'pw-1');
+      await click('security-2fa-toggle');
+      await fill('security-2fa-recovery', ' AAAA-BBBB-CCCC-DDDD ');
+      await click('security-2fa-submit');
+      expect(api.disableTwoFactor).toHaveBeenCalledWith({ password: 'pw-1', recoveryCode: 'AAAA-BBBB-CCCC-DDDD' });
+
+      api.regenerateRecoveryCodes.mockResolvedValue({ recoveryCodes: ['ZZZZ-YYYY-XXXX-WWWW'] });
+      await click('security-2fa-regenerate');
+      expect(q('security-2fa-toggle')).toBeNull();
+      await fill('security-2fa-password', 'pw-1');
+      await fill('security-2fa-code', '654321');
+      await click('security-2fa-submit');
+      expect(api.regenerateRecoveryCodes).toHaveBeenCalledWith({ password: 'pw-1', code: '654321' });
+      expect(q('security-2fa-codes')!.textContent).toContain('ZZZZ-YYYY-XXXX-WWWW');
+    });
+
+    it('low recovery codes warn; unreadable key defaults rebind to a recovery code', async () => {
+      await mountPage({ twoFactor: { ...on, recoveryCodesLeft: 2, unreadable: true } });
+      expect(q('security-2fa-left')!.textContent).toContain(zhTW.twoFactor.recoveryLow);
+      expect(q('security-2fa-unreadable')).not.toBeNull();
+      expect(q('security-2fa-regenerate')).toBeNull();
+      await click('security-2fa-rebind');
+      expect(q('security-2fa-recovery')).not.toBeNull();
+    });
+
+    it('keys not persisted or demo site: explains why and offers no enable button', async () => {
+      await mountPage({ twoFactor: { ...off, blocked: 'keysNotPersisted' } });
+      expect(q('security-2fa-keys')!.textContent).toContain(zhTW.twoFactor.keysNotPersisted);
+      expect(q('security-2fa-enable')).toBeNull();
+      mounted?.unmount();
+      document.body.innerHTML = '';
+      await mountPage({ twoFactor: { ...off, blocked: 'demoSite' } });
+      expect(q('security-2fa-demo')).not.toBeNull();
+      expect(q('security-2fa-enable')).toBeNull();
+    });
   });
 });

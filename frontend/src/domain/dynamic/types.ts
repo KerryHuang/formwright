@@ -327,7 +327,16 @@ export interface AuthUser {
   userId: string;
   displayName: string;
   mustChangePassword: boolean;
+  /** 用復原碼過第二步時剩下的組數（帳號安全設計 §8.4）；其他登入方式沒有。 */
+  recoveryCodesLeft?: number | null;
 }
+
+/** 密碼正確、要第二步（帳號安全設計 §8.3）：憑證在 HttpOnly cookie；Demo 站的 mfa01 另附目前的驗證碼與一組復原碼。 */
+export interface TwoFactorChallenge { twoFactorRequired: true; demoHint?: { code: string; recoveryCode?: string | null } | null }
+
+export type LoginResult = AuthUser | TwoFactorChallenge;
+
+export const isTwoFactorChallenge = (r: LoginResult): r is TwoFactorChallenge => (r as TwoFactorChallenge).twoFactorRequired === true;
 
 export interface AuthOptions {
   demoLoginEnabled: boolean;
@@ -364,13 +373,30 @@ export interface AdminUser {
   /** 帳號安全設計 §12：沒設時伺服器省略。 */
   email?: string | null;
   emailVerified?: boolean;
+  /** 雙因素狀態（§8.8）：on、off、unreadable（金鑰解不開，要本人用復原碼重綁或管理員重設）。 */
+  twoFactor?: 'on' | 'off' | 'unreadable';
 }
 
 /** 設定 Email 的回應：mailAvailable 為 false 時驗證信寄不出去（寄信設定或站台網址沒設）。 */
 export interface AccountEmail { email?: string | null; emailVerified: boolean; mailAvailable: boolean }
 
 /** GET account/security（帳號安全設計 §12）。canChangeEmail：帳號有密碼（改 Email 要重新輸入密碼）。 */
-export interface AccountSecurity extends AccountEmail { userId: string; canChangeEmail: boolean }
+export interface AccountSecurity extends AccountEmail { userId: string; canChangeEmail: boolean; twoFactor?: TwoFactorStatus | null }
+
+/**
+ * 帳號安全頁的雙因素狀態（§8.2、§12）。unreadable：金鑰解不開（換過金鑰），要用復原碼重新綁定；
+ * blocked：不能綁定的原因（`keysNotPersisted` 金鑰沒保存、`demoSite` Demo 站）；remindAtOrBelow：復原碼剩這麼少就提醒重產。
+ */
+export interface TwoFactorStatus {
+  enabled: boolean; enabledUtc?: string | null; recoveryCodesLeft: number; unreadable: boolean; blocked?: 'keysNotPersisted' | 'demoSite' | null;
+  remindAtOrBelow: number; hasPassword: boolean;
+}
+
+/** 開始綁定：金鑰明文只回這一次；pendingMinutes 內要輸入驗證碼完成。 */
+export interface TwoFactorSetup { secret: string; otpAuthUri: string; pendingMinutes: number }
+
+/** 重新驗證身分：密碼＋驗證碼或復原碼擇一（§8.9）。 */
+export interface TwoFactorProof { password: string; code?: string; recoveryCode?: string }
 
 export type MailOutboxStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'skipped' | 'expired';
 
@@ -419,6 +445,8 @@ export interface Me {
   /** 有效的「權限設定」：能改模組權限（權限軸設計 §8）。 */
   permissionAdmin: boolean;
   theme: MeTheme;
+  /** 雙因素狀態（帳號安全設計 §8.6）；舊伺服器沒有這個欄位。 */
+  twoFactor?: { enabled: boolean; required: boolean; graceUntil?: string | null; recoveryCodesLeft: number } | null;
 }
 
 /** GetModule response: every status of field and option, for the designer. */

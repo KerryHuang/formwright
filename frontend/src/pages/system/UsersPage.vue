@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n';
 import {
   useAdminUsers, useCreateUser, useResetPassword, useSetUserActive, useSetUserSystemPrivileges, useUpdateUser,
 } from 'src/application/dynamic/queries/admin-queries';
-import { useResendUserEmail, useSendResetLink, useSetUserEmail } from 'src/application/dynamic/queries/account-security-queries';
+import { useResendUserEmail, useResetUserTwoFactor, useSendResetLink, useSetUserEmail } from 'src/application/dynamic/queries/account-security-queries';
 import { useAuthOptions } from 'src/application/dynamic/queries/auth-queries';
 import { useDepartments, useSetUserDepartment } from 'src/application/dynamic/queries/organization-queries';
 import { useGroups } from 'src/application/dynamic/queries/permissions-queries';
@@ -48,6 +48,8 @@ const columns = computed<QTableColumn<AdminUser>[]>(() => [
   { name: 'department', label: t('users.department'), align: 'left', field: (u) => deptPath(u.departmentId) },
   { name: 'email', label: t('users.email'), align: 'left', field: (u) => u.email ?? '' },
   { name: 'status', label: t('users.status'), align: 'left', field: (u) => statusLabel(u) },
+  // 雙因素只標已啟用或無法讀取；未啟用留白（卡片版面不列空值）
+  { name: 'twoFactor', label: t('users.twoFactor'), align: 'left', field: (u) => (u.twoFactor && u.twoFactor !== 'off' ? t(`users.twoFactorStates.${u.twoFactor}`) : '') },
   { name: 'admin', label: t('users.systemAdmin'), align: 'left', field: (u) => (u.isSystemAdmin ? t('users.systemAdmin') : '') },
   // 有效結果（含群組、系統管理員自動擁有）；儲存格與卡片都畫成小標籤
   { name: 'systemPrivileges', label: t('systemPrivileges.title'), align: 'left', field: (u) => joinList(sysTags(u)) },
@@ -209,6 +211,16 @@ function resend() {
   });
 }
 
+// 重設雙因素（帳號安全設計 §8.8）：自己那列不顯示（本人到「帳號安全」頁關閉，後端對自己回 400）
+const twoFactorTarget = ref<AdminUser | null>(null);
+const resetTwoFactor = useResetUserTwoFactor();
+function runResetTwoFactor() {
+  resetTwoFactor.mutate(twoFactorTarget.value!.userId, {
+    onSuccess: () => { twoFactorTarget.value = null; $q.notify({ type: 'positive', message: t('users.twoFactorReset') }); },
+    onError: (e) => { twoFactorTarget.value = null; notifyFail(e); },
+  });
+}
+
 const deactivateTarget = ref<AdminUser | null>(null);
 const setActive = useSetUserActive();
 function toggle(u: AdminUser) {
@@ -255,6 +267,10 @@ function runSetActive(u: AdminUser, active: boolean) {
                 />
                 <q-btn flat dense color="primary" :label="t('users.resetPassword')" :data-testid="`user-reset-${row.userId}`" @click="openReset(row)" />
                 <q-btn
+                  v-if="row.twoFactor && row.twoFactor !== 'off' && row.userId !== identity.userId" flat dense color="primary"
+                  :label="t('users.resetTwoFactor')" :data-testid="`user-reset-2fa-${row.userId}`" @click="twoFactorTarget = row"
+                />
+                <q-btn
                   flat dense :color="row.isActive ? 'negative' : 'primary'" :label="row.isActive ? t('users.deactivate') : t('users.activate')"
                   :disable="row.userId === identity.userId" :data-testid="`user-toggle-${row.userId}`" @click="toggle(row)"
                 />
@@ -297,6 +313,10 @@ function runSetActive(u: AdminUser, active: boolean) {
                   @click="openEmail(row)"
                 />
                 <q-btn flat dense color="primary" :label="t('users.resetPassword')" :data-testid="`user-reset-${row.userId}`" @click="openReset(row)" />
+                <q-btn
+                  v-if="row.twoFactor && row.twoFactor !== 'off' && row.userId !== identity.userId" flat dense color="primary"
+                  :label="t('users.resetTwoFactor')" :data-testid="`user-reset-2fa-${row.userId}`" @click="twoFactorTarget = row"
+                />
                 <q-btn
                   flat dense :color="row.isActive ? 'negative' : 'primary'" :label="row.isActive ? t('users.deactivate') : t('users.activate')"
                   :disable="row.userId === identity.userId" :data-testid="`user-toggle-${row.userId}`" @click="toggle(row)"
@@ -395,6 +415,19 @@ function runSetActive(u: AdminUser, active: boolean) {
             <q-space />
             <q-btn flat :label="t('users.cancel')" @click="emailTarget = null" />
             <q-btn color="primary" :label="t('users.save')" :loading="setEmail.isPending.value" data-testid="user-email-save" @click="submitEmail" />
+          </q-card-actions>
+        </q-card>
+      </q-dialog>
+
+      <q-dialog :model-value="twoFactorTarget !== null" @update:model-value="twoFactorTarget = null">
+        <q-card style="width: 400px; max-width: 95vw">
+          <q-card-section>{{ t('users.confirmResetTwoFactor', { name: twoFactorTarget?.displayName ?? '' }) }}</q-card-section>
+          <q-card-actions align="right">
+            <q-btn flat :label="t('users.cancel')" @click="twoFactorTarget = null" />
+            <q-btn
+              color="negative" :label="t('users.resetTwoFactor')" :loading="resetTwoFactor.isPending.value" data-testid="user-2fa-confirm-ok"
+              @click="runResetTwoFactor"
+            />
           </q-card-actions>
         </q-card>
       </q-dialog>

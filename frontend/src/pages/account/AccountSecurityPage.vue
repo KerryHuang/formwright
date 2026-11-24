@@ -6,6 +6,7 @@ import { useAccountSecurity, useResendMyEmail, useSetMyEmail } from 'src/applica
 import { leftoverMessages } from 'src/presentation/dynamic/designer/api-error';
 import type { ApiError } from 'src/services/api/http';
 import { joinList } from 'src/i18n/translate';
+import TwoFactorCard from 'src/presentation/account/TwoFactorCard.vue';
 
 const { t } = useI18n();
 const $q = useQuasar();
@@ -90,6 +91,9 @@ function resendMail() {
             <q-btn flat no-caps color="primary" :label="t('auth.changePassword')" to="/change-password" data-testid="security-password-link" />
           </q-card-actions>
         </q-card>
+      </div>
+      <div v-if="data.twoFactor" class="col-12 col-md-6">
+        <TwoFactorCard :status="data.twoFactor" />
       </div>
     </div>
 
