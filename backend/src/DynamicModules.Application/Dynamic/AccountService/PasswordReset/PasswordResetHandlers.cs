@@ -345,7 +345,8 @@ public sealed record ApplyPasswordResetRequest(string TokenHash, string Password
 
 public sealed class ApplyPasswordResetHandler(
     IAccountTokenRepository tokens, IAccountRepository accounts, PasswordChangeEffects effects, McpTokenRevoker mcpTokens, ICurrentLocale locale,
-    AuditContext audit, IUnitOfWork uow, TimeProvider time, ILogger<ApplyPasswordResetHandler> logger) : IRequestHandler<ApplyPasswordResetRequest, ServiceResult>
+    LoginThrottle throttle, AfterCommitActions afterCommit, AuditContext audit, IUnitOfWork uow, TimeProvider time,
+    ILogger<ApplyPasswordResetHandler> logger) : IRequestHandler<ApplyPasswordResetRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(ApplyPasswordResetRequest r, CancellationToken ct)
     {
@@ -365,6 +366,9 @@ public sealed class ApplyPasswordResetHandler(
         row.UsedUtc = now;
         row.RevokedReason = AccountToken.Used;
         var revoked = await mcpTokens.RevokeAllAsync(user.UserId, McpRevokeReason.PasswordReset, user.UserId, ct);
+        // 記憶體裡的登入失敗計數也一併解除（手冊「重設成功會解除鎖定」，au1b 審查 S3）；提交成功才清
+        var userId = user.UserId;
+        afterCommit.Add("auth.clearLoginThrottle", () => throttle.ClearAccount(userId));
         await uow.CommitAsync(ct);
         audit.Target(user.UserId, user.DisplayName);
         audit.Detail("revokedMcpTokens", revoked);

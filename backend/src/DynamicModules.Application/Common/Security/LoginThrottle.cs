@@ -74,6 +74,21 @@ public sealed class LoginThrottle(TimeProvider time)
         }
     }
 
+    /// <summary>
+    /// 用寄信連結重設密碼成功後（§7.1 第 5 點「解除鎖定」）：清掉這個帳號的帳號層與帳號＋IP 失敗計數、放慢狀態；
+    /// IP 層不清（擋的是來源，不是帳號）。<paramref name="userId"/> 用登入的正規化鍵（小寫）。
+    /// </summary>
+    public void ClearAccount(string userId)
+    {
+        var key = userId.ToLowerInvariant();
+        lock (_gate)
+        {
+            _failures.Remove("a|" + key);
+            foreach (var pair in _failures.Keys.Where(k => k.StartsWith("p|" + key + "|", StringComparison.Ordinal)).ToList()) _failures.Remove(pair);
+            _lastAttempt.Remove(key);
+        }
+    }
+
     /// <summary>嘗試沒有結果（例外）時歸還名額，不算失敗。</summary>
     public void Release(string userId, string ip)
     {
