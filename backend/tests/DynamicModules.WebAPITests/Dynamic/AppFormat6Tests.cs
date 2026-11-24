@@ -313,6 +313,33 @@ public class AppFormat6Tests
             .Should().Contain("contributions[0].fields[nameLength].config.resultType: 結果型別必須是 number、currency 或 date");
     }
 
+    /// <summary>#99：公式算出的型別和 resultType 不符（日期公式標 number、數值公式標 date），套件驗證比照設計器擋下。</summary>
+    [Fact]
+    public void Formula_ResultTypeNotMatchingComputedType_IsRejected()
+    {
+        Errors(Crm("\"formula\": \"{credit} * 2\", \"resultType\": \"number\"", "\"formula\": \"{credit} * 2\", \"resultType\": \"date\""))
+            .Should().Contain("contributions[0].fields[nameLength].config.resultType: 公式不正確：結果型別與設定不符");
+        const string phone = "{ \"code\": \"phone\", \"type\": \"phone\", \"label\": { \"zh-TW\": \"電話\" }, \"config\": {} },";
+        var json = Master(phone, phone
+            + " { \"code\": \"since\", \"type\": \"date\", \"label\": { \"zh-TW\": \"起始日\" }, \"config\": {} },"
+            + " { \"code\": \"due\", \"type\": \"formula\", \"label\": { \"zh-TW\": \"到期\" }, \"config\": { \"formula\": \"DATEADD({since}, 30)\", \"resultType\": \"number\" } },");
+        AloneErrors(json).Should().Contain(e => e.Contains("partner.due") && e.Contains("結果型別與設定不符"));
+        AloneErrors(json.Replace("\"resultType\": \"number\"", "\"resultType\": \"date\"")).Should().BeEmpty();
+    }
+
+    /// <summary>#99：欄位 config 是字串或陣列時，格式層直接報錯，不是跳過所有 config 檢查。</summary>
+    [Theory]
+    [InlineData("\"oops\"")]
+    [InlineData("[]")]
+    public void FieldConfig_NotAnObject_IsRejected(string config)
+    {
+        var errors = AloneErrors(Crm("{ \"code\": \"credit\", \"type\": \"currency\", \"label\": { \"zh-TW\": \"信用額度\" }, \"config\": {} }",
+            "{ \"code\": \"credit\", \"type\": \"currency\", \"label\": { \"zh-TW\": \"信用額度\" }, \"config\": " + config + " }"));
+        errors.Should().Contain(e => e.Contains("credit") && e.Contains("config 必須是物件"));
+        var master = AloneErrors(Master("\"config\": { \"format\": \"BP-{0000}\", \"showInList\": true }", "\"config\": " + config));
+        master.Should().Contain(e => e.Contains("partner.no") && e.Contains("config 必須是物件"));
+    }
+
     /// <summary>停用的貢獻欄位被啟用中的公式引用：開啟時停用會被設計器的規則擋下，所以匯入時就擋，訊息照設計器。</summary>
     [Fact]
     public void Contribution_AnInactiveFieldUsedByAnActiveFormula_IsRejected()

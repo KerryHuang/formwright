@@ -2,6 +2,7 @@ using System.Text.Json;
 using DynamicModules.Application.Dynamic.AppService.Data;
 using DynamicModules.Application.Dynamic.AppService.SharedMasters;
 using DynamicModules.Application.Dynamic.FieldService.Data;
+using DynamicModules.Application.Dynamic.TemplateService;
 using DynamicModules.Application.Dynamic.TemplateService.Data;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.ValueObjects;
@@ -132,6 +133,8 @@ public static partial class AppPackageValidator
         }
     }
 
+    private static bool IsFormulaResultType(TemplateField f) => FieldRules.IsFormulaResultType(ConfigString(f.Config, "resultType"));
+
     private static IEnumerable<TemplateField> FieldsOf(TemplateModule m) =>
         m.Blocks.Where(b => b is not null).SelectMany(b => b.Fields).Where(f => f is not null);
 
@@ -191,6 +194,13 @@ public static partial class AppPackageValidator
 
             // 貢獻欄位的符號空間：本貢獻的欄位，加上主檔模組的基本欄位（有定義時）
             bool Local(string code) => codes.ContainsKey(code) || baseFields.Contains(code);
+            // 公式算出的型別和 resultType 不符（#99）：範圍是本貢獻的欄位加主檔基本欄位（定義未知時只看本貢獻）
+            var formulaScope = (definition is null ? [] : FieldsOf(definition).Where(g => g.Code is not null))
+                .GroupBy(g => g.Code!).ToDictionary(g => g.Key, g => g.First());
+            foreach (var (code, g) in codes) formulaScope[code] = g;
+            foreach (var f in codes.Values.Where(f => f.Type == FieldType.Formula && IsFormulaResultType(f)))
+                if (TemplateValidator.FormulaResultTypeMismatch(f, formulaScope) is { } mismatch)
+                    errors.Add($"{at}.fields[{f.Code}].config.resultType: {mismatch}");
             foreach (var f in codes.Values)
                 ContributionFieldReferences($"{at}.fields[{f.Code}]", c, f, modules, scope, definition is not null, Local, errors);
 

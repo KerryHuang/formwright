@@ -195,7 +195,7 @@ public static partial class AppPackageValidator
     private static void CheckConfigKeys(string module, TemplateField f, int formatVersion, List<string> errors)
     {
         var at = $"{module}.{f.Code}";
-        if (f.Config.ValueKind != JsonValueKind.Object) return;
+        if (f.Config.ValueKind != JsonValueKind.Object) { errors.Add($"{at}: config 必須是物件"); return; }
         foreach (var prop in f.Config.EnumerateObject())
         {
             if (!ConfigKeys.Contains(prop.Name)) { errors.Add($"{at}: config 不認得 \"{prop.Name}\""); continue; }

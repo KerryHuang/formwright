@@ -4,6 +4,7 @@ using DynamicModules.Application.Dynamic.FieldService.Data;
 using DynamicModules.Application.Dynamic.ModuleService.Data;
 using DynamicModules.Application.Dynamic.TemplateService.Data;
 using DynamicModules.Domain.Entities.Dynamic;
+using DynamicModules.Domain.Formulas;
 using DynamicModules.Domain.Modules;
 using DynamicModules.Domain.Policies;
 using DynamicModules.Domain.ValueObjects;
@@ -156,6 +157,38 @@ public static partial class TemplateValidator
         }
     }
 
+    /// <summary>
+    /// 公式算出的型別和 resultType 不符時回傳設計器的訊息（#99，比對邏輯是 <see cref="FieldRules.ResultTypeMatches"/>，和設計器同一份）。
+    /// 把範本欄位代號換成暫時的欄位 Id 後交給 <see cref="FormulaParser"/>；公式本身不能解析、或引用不在 <paramref name="scope"/> 的欄位時回 null，那些由其他檢查報。
+    /// </summary>
+    internal static string? FormulaResultTypeMismatch(TemplateField f, IReadOnlyDictionary<string, TemplateField> scope)
+    {
+        if (f.Type != FieldType.Formula || FormulaOf(f) is not { } formula) return null;
+        var ids = new Dictionary<string, long>();
+        var module = new Module { Blocks = [new Block()] };
+        foreach (var (code, g) in scope)
+        {
+            var id = ids.Count + 1L;
+            ids[code] = id;
+            module.Blocks[0].Fields.Add(new Field
+            {
+                Id = id, Type = g.Type, Status = FieldStatus.Active,
+                Config = new FieldConfig { ResultType = g.Config.ValueKind == JsonValueKind.Object ? ConfigString(g.Config, "resultType") : null }
+            });
+        }
+        var unknown = false;
+        var withIds = FormulaReference().Replace(formula, x =>
+        {
+            if (ids.TryGetValue(x.Groups[1].Value, out var id)) return $"{{{id}}}";
+            unknown = true;
+            return x.Value;
+        });
+        if (unknown) return null;
+        var parsed = FormulaParser.Parse(withIds, module);
+        if (parsed.Error is not null) return null;
+        return FieldRules.ResultTypeMatches(parsed.Type, ConfigString(f.Config, "resultType")) ? null : FieldRules.ResultTypeMismatchError;
+    }
+
     private static void ValidateFieldConfig(
         TemplateModule m, TemplateField f, Dictionary<string, TemplateField> fields,
         Dictionary<string, TemplateModule> modules, List<string> errors)
@@ -173,6 +206,8 @@ public static partial class TemplateValidator
 
         if (f.Type == FieldType.Formula && !FieldRules.IsFormulaResultType(ConfigString(config, "resultType")))
             errors.Add($"{at}: {FieldRules.ResultTypeError}");
+        else if (FormulaResultTypeMismatch(f, fields) is { } mismatch)
+            errors.Add($"{at}: {mismatch}");
 
         if (config.TryGetProperty("defaultValue", out var dv))
             foreach (var code in OptionRefs(f, dv).Where(c => f.Options.All(o => o.Code != c)))
