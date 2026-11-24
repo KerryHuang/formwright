@@ -472,7 +472,8 @@ public sealed class AppUpgradePreviewer(
             if (item.IsPermission && item.Owner is not null && !C.ContainsKey(item.Owner)) continue;
             if (UpgradeClassifier.Classify(b, nv, cv, hasBaseline, excluded.Contains(id)) is not { } r) continue;
             // 現況有對照列、比對模式匯出卻表達不了（§6.1）：無法比對，不當成客戶已刪除（勾回會重建一份）
-            // 停用的流程圖格式流程匯出時略過（套件格式還沒有流程圖），資料庫裡仍有同 Key 的流程：也是表達不了，不是客戶刪除
+            // 停用的流程圖格式流程匯出時略過（套件格式還沒有流程圖），資料庫裡仍有同 Key 的流程：也是表達不了，不是客戶刪除；
+            // 同 Key 的流程掛在別的模組（不在本應用程式匯出範圍）而撞名，也涵蓋在內
             if (cv is null && nv is not null && (Unmatched(item, bindings, memberIds, reportCodes)
                     || (item.Section == "approvalFlows" && await approvalFlows.ModuleKeyOfAsync(id["approvalFlow:".Length..], ct) is not null)))
                 r = new UpgradeClassifier.Result(UpgradeClassifier.Unmatched, false, false, UpgradeClassifier.ReasonUnmatched, r.Properties);

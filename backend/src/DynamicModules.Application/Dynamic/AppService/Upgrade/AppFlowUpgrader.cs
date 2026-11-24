@@ -319,6 +319,29 @@ public sealed class AppFlowUpgrader(ISender sender, IModuleRepository modules, I
     }
 
     /// <summary>
+    /// 既有流程的定義合併（套用與預覽守衛共用）：以現況 <paramref name="cd"/> 為底，<paramref name="applied"/> 為 true 的屬性取新版 <paramref name="nd"/>；
+    /// 簽核人一律保留現況（Q27）；套件格式沒有流程圖，不留舊定義的 Nodes／Edges。
+    /// </summary>
+    internal static ApprovalDefinition MergeDefinition(ApprovalDefinition cd, ApprovalDefinition nd, Func<string, bool> applied)
+    {
+        var approvers = cd.Stages.ToDictionary(s => s.Code, s => s.Approvers);
+        static bool Unmatched(ApproverSource a) => a.UnmatchedGroups is { Count: > 0 } || a.CandidatesUnmatched;
+        return cd with
+        {
+            Nodes = null,
+            Edges = null,
+            Shape = applied("shape") ? nd.Shape : cd.Shape,
+            When = applied("when") ? nd.When : cd.When,
+            RejectTo = applied("rejectTo") ? nd.RejectTo : cd.RejectTo,
+            // 略過群組不能變成少簽（簽核設計 §14.4）：保留的簽核人有頂替時，新版的「找不到人就略過」改成交給備援
+            Stages = applied("stages")
+                ? nd.Stages.Select(s => approvers.TryGetValue(s.Code, out var a)
+                    ? s with { Approvers = a, OnEmpty = Unmatched(a) && s.OnEmpty == ApprovalOnEmpty.Skip ? ApprovalOnEmpty.Fallback : s.OnEmpty } : s).ToList()
+                : cd.Stages
+        };
+    }
+
+    /// <summary>
     /// 既有流程的修改（T29、T44）：現況（客戶群組 Key 換 id）與新版（套件群組經群組對應換 id）各自轉成輸入，在 id 層合併：
     /// 寫入的屬性取新版；簽核人一律保留現況，依關卡代號逐關配上（Q27，關卡代號集合不同時預覽已擋下）。
     /// </summary>
@@ -346,23 +369,7 @@ public sealed class AppFlowUpgrader(ISender sender, IModuleRepository modules, I
         // 現況以資料庫的定義為底：比對模式匯出只寫出對應到的群組，被略過、由備援頂替的來源（UnmatchedGroups）要從資料庫保留（T42）
         var cd = await flows.GetByKeyAsync(key, ct) is { CurrentVersionId: { } versionId } && await flows.GetVersionAsync(versionId, ct) is { } version
             ? version.Definition : current.Definition;
-        var nd = incoming.Definition;
-        var approvers = cd.Stages.ToDictionary(s => s.Code, s => s.Approvers);
-        static bool Unmatched(ApproverSource a) => a.UnmatchedGroups is { Count: > 0 } || a.CandidatesUnmatched;
-        var definition = cd with
-        {
-            // 套件格式沒有流程圖：定義以 stages 為準，不留下舊定義的 Nodes／Edges
-            Nodes = null,
-            Edges = null,
-            Shape = props.Contains("shape") ? nd.Shape : cd.Shape,
-            When = props.Contains("when") ? nd.When : cd.When,
-            RejectTo = props.Contains("rejectTo") ? nd.RejectTo : cd.RejectTo,
-            // 略過群組不能變成少簽（簽核設計 §14.4）：保留的簽核人有頂替時，新版的「找不到人就略過」改成交給備援
-            Stages = props.Contains("stages")
-                ? nd.Stages.Select(s => approvers.TryGetValue(s.Code, out var a)
-                    ? s with { Approvers = a, OnEmpty = Unmatched(a) && s.OnEmpty == ApprovalOnEmpty.Skip ? ApprovalOnEmpty.Fallback : s.OnEmpty } : s).ToList()
-                : cd.Stages
-        };
+        var definition = MergeDefinition(cd, incoming.Definition, props.Contains);
         var input = current with
         {
             Name = new I18nText(name.Select(x => KeyValuePair.Create(x.Key, x.Value))),

@@ -1045,4 +1045,40 @@ public class AppUpgradeFlowTests : IDisposable
         item.GetProperty("applicable").GetBoolean().Should().BeTrue(item.ToString());
         await ApplyOkAsync(preview, ["approvalFlow:uf-win"]);
     }
+
+    /// <summary>M1：流程或關卡的 when 引用這次才新增的選項（條件值 opt_-N 是字串臨時 id），預覽不誤標 workflowInvalid，照預設套用成功。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task S1_WhenReferencesNewOption_NotMisjudged_AppliesByDefault(bool onStage)
+    {
+        await OpenAsync();
+        await NewVersionAsync(p =>
+        {
+            AddOption(p, "hold", "暫緩");
+            var cond = JsonNode.Parse("""{ "all": [ { "field": "deal.status", "op": "ne", "value": "opt_hold" } ] }""");
+            var flow = Flow(p, "uf-check");
+            if (onStage) flow["stages"]![0]!["when"] = cond; else flow["when"] = cond;
+        });
+        var preview = await PreviewAsync();
+        var item = Item(preview, "approvalFlow:uf-check");
+        item.GetProperty("applicable").GetBoolean().Should().BeTrue(item.ToString());
+        await ApplyOkAsync(preview, Defaults(preview));
+    }
+
+    /// <summary>M1：流程 when 引用這次才新增的欄位，可勾。</summary>
+    [Fact]
+    public async Task S1_WhenReferencesNewField_Applicable()
+    {
+        await OpenAsync();
+        await NewVersionAsync(p =>
+        {
+            p["modules"]![0]!["blocks"]![0]!["fields"]!.AsArray().Add(JsonNode.Parse("""{ "code": "note", "type": "text", "label": { "zh-TW": "備註" }, "config": {} }"""));
+            Flow(p, "uf-check")["when"] = JsonNode.Parse("""{ "all": [ { "field": "deal.note", "op": "eq", "value": "x" } ] }""");
+        });
+        var preview = await PreviewAsync();
+        var item = Item(preview, "approvalFlow:uf-check");
+        item.GetProperty("applicable").GetBoolean().Should().BeTrue(item.ToString());
+        await ApplyOkAsync(preview, Defaults(preview));
+    }
 }

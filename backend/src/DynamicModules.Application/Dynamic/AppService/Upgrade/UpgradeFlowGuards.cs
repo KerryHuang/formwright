@@ -147,6 +147,9 @@ public sealed class UpgradeFlowGuards(
         bool Walk(System.Text.Json.JsonElement e) => e.ValueKind switch
         {
             System.Text.Json.JsonValueKind.Number => e.TryGetInt64(out var n) && temp.Contains(n),
+            // 條件值裡的選項是字串 opt_<id>（AppReportCodec.ConvertValue），新選項的 id 是臨時負數
+            System.Text.Json.JsonValueKind.String => System.Text.RegularExpressions.Regex.Match(e.GetString() ?? "", @"^opt_(-?\d+)$") is { Success: true } m
+                && long.TryParse(m.Groups[1].Value, out var id) && temp.Contains(id),
             System.Text.Json.JsonValueKind.Array => e.EnumerateArray().Any(Walk),
             System.Text.Json.JsonValueKind.Object => e.EnumerateObject().Any(p => Walk(p.Value)),
             _ => false
@@ -247,14 +250,7 @@ public sealed class UpgradeFlowGuards(
             // 既有流程比照套用（AppFlowUpgrader.UpdateFlowAsync）：只換要寫入的屬性，其餘保留現況（審查 S5）；簽核人一律保留現況
             bool Applied(string prop) => row is null || existing is null || it.Properties.Any(p => p.Name == prop && p.Result != CustomerOnly);
             var (cd, nd) = (existing?.Definition ?? input.Definition, input.Definition);
-            var approvers = cd.Stages.ToDictionary(s => s.Code, s => s.Approvers);
-            var definition = existing is null ? nd : cd with
-            {
-                Shape = Applied("shape") ? nd.Shape : cd.Shape,
-                When = Applied("when") ? nd.When : cd.When,
-                RejectTo = Applied("rejectTo") ? nd.RejectTo : cd.RejectTo,
-                Stages = Applied("stages") ? nd.Stages.Select(s => approvers.TryGetValue(s.Code, out var a) ? s with { Approvers = a } : s).ToList() : cd.Stages
-            };
+            var definition = existing is null ? nd : AppFlowUpgrader.MergeDefinition(cd, nd, Applied);
             var flow = new ApprovalFlow
             {
                 Id = row?.Id ?? temp(), Key = key, NameI18n = input.Name, ModuleId = module.Id,
