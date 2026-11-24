@@ -53,7 +53,7 @@ const columns = computed<QTableColumn<AdminUser>[]>(() => [
   { name: 'admin', label: t('users.systemAdmin'), align: 'left', field: (u) => (u.isSystemAdmin ? t('users.systemAdmin') : '') },
   // 有效結果（含群組、系統管理員自動擁有）；儲存格與卡片都畫成小標籤
   { name: 'systemPrivileges', label: t('systemPrivileges.title'), align: 'left', field: (u) => joinList(sysTags(u)) },
-  { name: 'actions', label: '', align: 'right', field: 'userId' },
+  { name: 'actions', label: '', align: 'right', field: 'userId', classes: 'users-actions-col', headerClasses: 'users-actions-col' },
 ]);
 const sysTags = (u: AdminUser) => systemPrivilegeTags(u.effectiveSystemPrivileges).map((k) => t(`systemPrivileges.${k}`));
 const statusLabel = (u: AdminUser) => {
@@ -260,7 +260,7 @@ function runSetActive(u: AdminUser, active: boolean) {
             @click="openEdit(row)" @keydown.enter.self.prevent="openEdit(row)" @keydown.space.self.prevent="openEdit(row)"
           >
             <template v-for="c in cols" :key="c.name">
-              <q-td v-if="c.name === 'actions'" :align="c.align" @click.stop>
+              <q-td v-if="c.name === 'actions'" :align="c.align" :class="c.classes" @click.stop>
                 <q-btn
                   v-if="row.userId !== identity.userId" flat dense color="primary" :label="t('users.setEmail')" :data-testid="`user-email-${row.userId}`"
                   @click="openEmail(row)"
@@ -444,3 +444,14 @@ function runSetActive(u: AdminUser, active: boolean) {
     </template>
   </q-page>
 </template>
+
+<style scoped>
+/* 欄多時表格會橫捲；操作欄固定在右側，不必捲到底才看得到 */
+.users-actions-col {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--t-panel);
+  border-left: 1px solid var(--t-border);
+}
+</style>
