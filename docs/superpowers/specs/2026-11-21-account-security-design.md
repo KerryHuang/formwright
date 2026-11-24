@@ -212,7 +212,7 @@ SSO、AD／LDAP 列第二版候選（使用者 2026-11-17 裁決），au1 不做
 
 同一封信重試時換一把新權杖、舊的作廢。程式在產生權杖之後、寄出之前當掉：列停在 `sending`，期限過後重領、再換一把，前一把從沒寄出也已作廢。
 
-**改了會影響資格的事，同交易取消還沒寄的信**：改 Email、清空 Email、任何路徑的改密碼（§7.1 第 5 點）、停用帳號時，該帳號 `pending`／`sending` 的 `passwordReset`、`emailVerify` 列標 `skipped`（原因代碼 `emailChanged`、`passwordChanged`、`deactivated`），未用的權杖一併作廢。`sending` 中的那一封若在交易後才寄出，寄出的連結因為第 1、2 步或使用時的檢查（§7.1 第 5 點）而無效。
+**改了會影響資格的事，同交易取消還沒寄的信**：改 Email、清空 Email、停用帳號時，該帳號 `pending`／`sending` 的 `passwordReset`、`emailVerify` 列標 `skipped`（原因代碼 `emailChanged`、`deactivated`），未用的權杖一併作廢；任何路徑的改密碼（§7.1 第 5、7 點）只取消 `passwordReset` 列（原因代碼 `passwordChanged`）、只作廢未用的重設密碼權杖，驗證信與密碼無關、不動（au1b 審查 S7）。`sending` 中的那一封若在交易後才寄出，寄出的連結因為第 1、2 步或使用時的檢查（§7.1 第 5 點）而無效。
 
 ### 6.4 信件內容與語系
 
@@ -1146,7 +1146,7 @@ SSO、AD／LDAP 列第二版候選（使用者 2026-11-17 裁決），au1 不做
 
 1. `reset-password/check`、`reset-password` 照 §24.1 技術類 1：外層（非交易型）在交易外 `AsNoTracking` 依雜湊預查權杖與帳號，無效一律回同一個 400 `resetLinkInvalid`；`reset-password` 的新密碼雜湊也在外層、交易外算好，內層 `ApplyPasswordResetRequest`（交易）只收權杖雜湊與密碼雜湊，重查權杖、帳號、Email 後寫入。PBKDF2 不佔全庫寫入鎖。
 2. 本人改密碼 `ChangePasswordRequest` 同樣拆成外層與內層 `ApplyChangePasswordRequest`：外層走 `IReauthVerifier`（舊密碼輸錯和登入共用 `LoginThrottle`、記 `account.reauthFailed`），內層以 `StillValidFor` 重比 stamp。對外回應不變：舊密碼錯仍是 `oldPassword` 欄位錯誤與原訊息，限流時回 429。
-3. 改密碼的共同後續集中在 `PasswordChangeEffects.ApplyAsync`（本人改、管理員設暫時密碼、緊急救援、用連結重設四處共用）：作廢這個帳號還沒用的 `passwordReset` 權杖與還沒寄的重設信（原因 `passwordChanged`），Email 已驗證時排一封 `passwordChanged` 通知。**只作廢重設密碼連結，不動驗證信**：以 §7.1 第 7 點為準；§6.3 表格「作廢所有權杖」的寫法較寬，驗證信與密碼無關，作廢只會讓使用者多點一次重寄。
+3. 改密碼的共同後續集中在 `PasswordChangeEffects.ApplyAsync`（本人改、管理員設暫時密碼、緊急救援、用連結重設四處共用）：作廢這個帳號還沒用的 `passwordReset` 權杖與還沒寄的重設信（原因 `passwordChanged`），Email 已驗證時排一封 `passwordChanged` 通知。**只作廢重設密碼連結，不動驗證信**：以 §7.1 第 7 點為準；§6.3 原本「作廢所有權杖」的寫法較寬（已改寫），驗證信與密碼無關，作廢只會讓使用者多點一次重寄。
 4. 緊急救援（`AdminBootstrap.ResetAsync`）在啟動時呼叫同一個 `PasswordChangeEffects`；其中作廢未寄信件的 `SkipUnsentAsync` 是交易外的 `ExecuteUpdate`，不經 PostgreSQL 全庫寫入鎖。啟動階段沒有並行寫入，屬已知且可接受的例外。`AdminBootstrap` 的長度檢查改讀政策 `auth.passwordMinLength`，刪掉原本的常數。
 5. 領取帶權杖的信時（§24 技術類 2 的同一個短交易）：`passwordReset` 重查 `PasswordResetEligibility`，不符記 `skipped` 並以原因代碼為說明；不是管理員寄的（參數 `by: self`）且政策 `auth.passwordResetEnabled` 已關閉時記 `skipped`、原因 `disabled`（R20b）。管理員寄的（`by: admin`）不看這項政策（Q20）。au1a 的 `notSupported` 常數移除，介面文字保留給舊紀錄顯示。
 6. 忘記密碼申請（外層 `ForgotPasswordRequest`，非交易型）：輸入先 trim、轉小寫，以前 128 字為鍵過節流，再做一次雜湊（固定成本，拉近不同帳號的回應時間），查帳號判斷資格；符合才送交易型 `EnqueuePasswordResetRequest`（重查資格後排信），不符以 `IAuditLog.TryWriteNowAsync` 在交易外寫「被拒」稽核（帳號不存在時 `TargetId` 留空，不記輸入字串）。任何例外記 Warning 後照常回 202。**已知限制（D21 部分達成）**：符合資格的路徑多一次寫入交易，回應時間仍可能比不符資格的路徑長一些。
@@ -1172,5 +1172,5 @@ SSO、AD／LDAP 列第二版候選（使用者 2026-11-17 裁決），au1 不做
 
 **偏離設計之處**
 
-- §6.3「改密碼作廢所有權杖」只作廢 `passwordReset`（見技術類 3）。
+- §6.3 原寫「改密碼作廢所有權杖」，實作只作廢 `passwordReset`（見技術類 3）；§6.3 已改寫成一致（au1b 審查 S7）。
 - D21 回應時間只部分拉近（見技術類 6）。
