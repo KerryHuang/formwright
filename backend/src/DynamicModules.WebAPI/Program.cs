@@ -100,6 +100,7 @@ builder.Services.AddSingleton<DynamicModules.Application.Dynamic.OpsService.Heal
 builder.Services.AddSingleton<DynamicModules.Application.Dynamic.MailService.IMailSender, MailKitMailSender>();
 builder.Services.AddSingleton<DynamicModules.Application.Dynamic.OpsService.Alerts.IAlertSecretProtector, DataProtectionAlertSecretProtector>();
 builder.Services.AddSingleton(new DynamicModules.Application.Dynamic.OpsService.Alerts.AlertMailOptions(SitePublicUrl.Read(builder.Configuration)));
+startupWarnings.AddRange(SitePublicUrl.Warnings(builder.Configuration, builder.Environment.IsDevelopment()));
 builder.Services.AddHostedService<MailDeliveryHostedService>();
 builder.Services.AddSingleton(new AuthSettings(builder.Configuration.GetValue<bool>("Demo:LoginEnabled")));
 // 語系包匯入（語系包 i4d1 計畫判斷 15）：沒明確設定時公開 Demo 站（Demo:LoginEnabled）關閉，只能預覽報告
