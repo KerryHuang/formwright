@@ -101,7 +101,7 @@ public sealed class SecondFactorFailureAudit
 /// </summary>
 public sealed class SecondFactorVerifier(
     ITwoFactorRepository twoFactor, ITotpSecretProtector protector, LoginThrottle throttle, IAuditLog audit, ISender sender, AuthSettings auth,
-    ITransactionManager transactions, TimeProvider time, ILogger<SecondFactorVerifier> logger)
+    ITransactionManager transactions, IUnitOfWork uow, TimeProvider time, ILogger<SecondFactorVerifier> logger)
 {
     /// <summary>
     /// <paramref name="failures"/>：失敗稽核的寫法（第二步或重新驗證，見 <see cref="SecondFactorFailureAudit"/>）。
@@ -155,6 +155,9 @@ public sealed class SecondFactorVerifier(
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
+                        // 寫到一半失敗的稽核、寄送列還在請求的 DbContext 追蹤裡，丟掉，免得被同一請求之後的提交帶出去（#107）；
+                        // 呼叫端都在交易外、讀帳號不追蹤，沒有別的待存修改
+                        uow.Discard();
                         logger.LogError(ex, "帳號 {UserId} 第二步暫停的稽核、事件與通知沒有寫成功", user.UserId);
                     }
                 }

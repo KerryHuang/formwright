@@ -340,6 +340,50 @@ public class TwoFactorLoginTests
         (await ErrorCode(await Second(next, Code(app, secret)))).Should().Be("twoFactorLocked");
     }
 
+    /// <summary>
+    /// #107：暫停紀錄寫到一半失敗（稽核列已加進請求的 DbContext 追蹤、還沒存進去）→ 同一請求之後的寫入不能把它帶出去。
+    /// 第 10 次剛好是正確碼：照常登入成功，但沒有 <c>twoFactorLocked</c> 的稽核（那一筆已隨暫停紀錄的失敗遺失，§26.1 S5）。
+    /// </summary>
+    [Fact]
+    public async Task LockoutRecordFailsMidWrite_TrackedRowNotCarriedIntoLaterCommit()
+    {
+        var failing = new FailingStateProbe();
+        using var app = NewApp(a => a.ExtraServices = s =>
+        {
+            s.AddSingleton(failing);
+            s.AddTransient<MediatR.IPipelineBehavior<RecordTwoFactorLockoutRequest, Application.Common.ServiceResult>, AddThenThrowLockoutBehavior>();
+        });
+        await AddUser(app, "tf01");
+        var (secret, _) = await Enroll(app, "tf01");
+        for (var i = 0; i < 9; i++)
+        {
+            var c = Client(app, "198.51.100." + (i + 1));
+            await Password(c, "tf01");
+            await Second(c, WrongCode(app, secret));
+        }
+        failing.Armed = true;
+        NextStep(app);
+        var tenth = Client(app, "198.51.100.10");
+        await Password(tenth, "tf01");
+        (await Second(tenth, Code(app, secret))).StatusCode.Should().Be(HttpStatusCode.OK);
+        failing.Armed = false;
+        (await Audits(app, "login.failed")).Should().NotContain(a => a.ReasonCode == "twoFactorLocked", "暫停紀錄失敗時追蹤中的稽核列已丟掉");
+        (await Audits(app, "login.succeeded")).Should().ContainSingle();
+    }
+
+    /// <summary>模擬暫停紀錄在稽核列加進追蹤之後、存檔之前失敗（同 <c>SaveChanges</c> 丟例外時的追蹤狀態）。</summary>
+    private sealed class AddThenThrowLockoutBehavior(FailingStateProbe probe, Application.Common.Audit.IAuditLog audit)
+        : MediatR.IPipelineBehavior<RecordTwoFactorLockoutRequest, Application.Common.ServiceResult>
+    {
+        public Task<Application.Common.ServiceResult> Handle(RecordTwoFactorLockoutRequest request,
+            MediatR.RequestHandlerDelegate<Application.Common.ServiceResult> next, CancellationToken ct)
+        {
+            if (!probe.Armed) return next();
+            audit.Add(request.LockedEntry);
+            throw new InvalidOperationException("模擬暫停紀錄存檔失敗");
+        }
+    }
+
     private sealed class ThrowingLockoutBehavior(FailingStateProbe probe)
         : MediatR.IPipelineBehavior<RecordTwoFactorLockoutRequest, Application.Common.ServiceResult>
     {
