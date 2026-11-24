@@ -264,6 +264,10 @@ describe('FlowDesignerPage', () => {
     expect(input).not.toBeNull();
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
     expect(w.find('[data-testid="n-a"]').exists()).toBe(true);
+    // 焦點在屬性面板裡的其他控制項（單選、開關、按鈕）也不刪：只有畫布或 body 上才刪
+    document.body.querySelector('[data-testid="de-panel"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
+    await flushPromises();
+    expect(w.find('[data-testid="n-a"]').exists()).toBe(true);
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete' }));
     await flushPromises();
     expect(w.find('[data-testid="n-a"]').exists()).toBe(false);

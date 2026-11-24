@@ -1,4 +1,4 @@
-import { computed, ref, shallowRef } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import { pruneCondition } from 'src/domain/dynamic/condition';
 import type { GraphIssueMap } from 'src/domain/dynamic/approval-graph-errors';
 import type { ApprovalFlow, ApprovalFlowLayout, ApproverSource, GraphDefinition } from 'src/domain/dynamic/approval-flow-types';
@@ -115,6 +115,13 @@ export function useGraphDesigner(canEdit: () => boolean) {
   function markSaved(sent?: string) { if (snapshot.value) savedJson.value = sent ?? JSON.stringify(snapshot.value); lastKey = null; }
 
   const select = (s: Selection) => { selection.value = s; };
+  // 復原、重做或刪除讓選取的節點或線不見時回流程層，屬性面板不會變空白（同步：同一個動作接著選新節點時以後選的為準）
+  watch(state, (g) => {
+    const s = selection.value;
+    if (!g || s.kind === 'flow') return;
+    const exists = s.kind === 'node' ? g.definition.nodes.some((n) => n.id === s.id) : g.definition.edges.some((e) => e.id === s.id);
+    if (!exists) selection.value = FLOW_SELECTION;
+  }, { flush: 'sync' });
   /** 409 之後「覆蓋」要用的新基準（回應 params 帶的權杖與版本）。 */
   function setTokens(t: { draftRev?: string | null; versionId?: number | null }) {
     server.value = { ...server.value, ...(t.draftRev !== undefined ? { draftRev: t.draftRev } : {}), ...(t.versionId !== undefined ? { versionId: t.versionId } : {}) };

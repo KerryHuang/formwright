@@ -42,6 +42,21 @@ describe('useGraphDesigner', () => {
     expect(d.redoable.value).toBe(true);
   });
 
+  it('when undo or redo removes the selected node or edge, the selection falls back to the flow (the panel is never blank)', () => {
+    const d = mk();
+    d.load(flow());
+    d.edit((s) => ({ ...s!, definition: { ...s!.definition, nodes: [...s!.definition.nodes, { id: 'x', kind: 'end' }] }, positions: { ...s!.positions, x: { x: 0, y: 0 } } }));
+    d.select({ kind: 'node', id: 'x' });
+    d.undo();
+    expect(d.selection.value).toEqual({ kind: 'flow' });
+    d.select({ kind: 'edge', id: 'e2' });
+    d.edit((s) => ({ ...s!, definition: { ...s!.definition, edges: s!.definition.edges.filter((e) => e.id !== 'e2') } }));
+    expect(d.selection.value).toEqual({ kind: 'flow' });
+    d.select({ kind: 'node', id: 'a' });
+    d.undo();
+    expect(d.selection.value).toEqual({ kind: 'node', id: 'a' }); // 還在的不動
+  });
+
   it('typing in one field is one undo step; another action cuts it', () => {
     const d = mk();
     d.load(flow());

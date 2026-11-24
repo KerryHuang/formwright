@@ -151,12 +151,16 @@ async function tidy() {
   await nextTick();
   canvas.value?.fitAll();
 }
-/** Delete（與 Mac 的 Backspace）刪除選取的節點或線（J75 deleteKeyCode=null，走自己的動作）；焦點在輸入框、對話框、選單裡時不攔。 */
+/**
+ * Delete（與 Mac 的 Backspace）刪除選取的節點或線（J75 deleteKeyCode=null，走自己的動作）。
+ * 只在焦點在畫布裡或沒有焦點（body）時才刪；屬性面板、工具列、對話框、選單裡的任何控制項（單選、開關、按鈕、下拉）都不攔。
+ */
 function onKeydown(e: KeyboardEvent) {
   if (e.key !== 'Delete' && e.key !== 'Backspace') return;
   if (!structure.value || !edit.removable.value || e.defaultPrevented || e.isComposing) return;
-  const el = e.target as HTMLElement | null;
-  if (el?.closest?.('input, textarea, select, [contenteditable="true"], .q-dialog, .q-menu')) return;
+  const el = e.target instanceof Element ? e.target : null;
+  const onCanvas = !el || el === document.body || el === document.documentElement || !!el.closest('[data-testid="de-canvas"]');
+  if (!onCanvas || el?.closest('input, textarea, select, [contenteditable="true"]')) return;
   e.preventDefault();
   edit.remove();
 }
