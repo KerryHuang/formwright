@@ -53,11 +53,13 @@ const fail = (e: unknown) => {
   error.value = (localized && err.message) || t('auth.loginFailed');
 };
 
-// 第二步的 400（驗證碼錯、已失效）與 429（暫停）訊息後端已依語系產生；憑證失效（逾時、錯太多次）回到第一步重新輸入密碼
+// 第二步的 400（驗證碼錯、已失效）與 429（暫停）訊息後端已依語系產生；400 的訊息在 errors.code、不在 message（走查 G1）。
+// 憑證失效（逾時、錯太多次）回到第一步重新輸入密碼
 const failSecond = (e: unknown) => {
   const err = e as ApiError;
-  const localized = err.status === 400 || err.status === 429 || err.status === 503 || err.code === 'network';
-  error.value = (localized && err.message) || t('auth.loginFailed');
+  const localized = err.status === 429 || err.status === 503 || err.code === 'network';
+  const message = err.status === 400 ? Object.values(err.errors ?? {}).flat()[0] ?? err.message : localized ? err.message : undefined;
+  error.value = message || t('auth.loginFailed');
   if (err.code === 'twoFactorExpired') challenge.value = null;
 };
 const submitSecond = () => {

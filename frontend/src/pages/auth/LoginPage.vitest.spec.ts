@@ -11,6 +11,7 @@ import { useIdentityStore } from 'src/stores/use-identity-store';
 import { resetSessionSettings } from 'src/application/dynamic/session-settings';
 import { businessOffset, setBusinessOffset } from 'src/domain/dynamic/business-time';
 import { installAuthGuard } from 'src/router/auth-guard';
+import { toApiError } from 'src/services/api/http';
 import { resetStartupForTests, startLocale } from 'src/i18n/startup';
 import LoginPage from './LoginPage.vue';
 
@@ -331,12 +332,13 @@ describe('LoginPage 首屏共用啟動那次 auth/options（i4b 計畫判斷 12�
       await submit();
       q('login-toggle-recovery')!.click();
       await flushPromises();
-      api.twoFactorLogin.mockRejectedValue({ status: 400, code: 'twoFactorWrong', message: '驗證碼不正確' });
+      // 實際的 400 形狀（走查 G1）：訊息在 errors.code、沒有 message／title，經 toApiError 轉成 ApiError
+      api.twoFactorLogin.mockRejectedValue(toApiError({ response: { status: 400, data: { code: 'twoFactorWrong', errors: { code: ['驗證碼錯誤或已過期'] } } } }));
       await fill('login-recovery', 'abcd-efgh-ijkl-mnop');
       q('login-second-submit')!.click();
       await flushPromises();
       expect(api.twoFactorLogin).toHaveBeenCalledWith({ recoveryCode: 'abcd-efgh-ijkl-mnop' });
-      expect(q('login-error')!.textContent).toContain('驗證碼不正確');
+      expect(q('login-error')!.textContent).toContain('驗證碼錯誤或已過期');
       expect(q('login-second-step')).not.toBeNull();
     });
 
@@ -344,7 +346,7 @@ describe('LoginPage 首屏共用啟動那次 auth/options（i4b 計畫判斷 12�
       await mountPage(off);
       api.login.mockResolvedValue({ twoFactorRequired: true } as never);
       await submit();
-      api.twoFactorLogin.mockRejectedValue({ status: 400, code: 'twoFactorExpired', message: '驗證已逾時，請重新輸入密碼' });
+      api.twoFactorLogin.mockRejectedValue(toApiError({ response: { status: 400, data: { code: 'twoFactorExpired', errors: { code: ['驗證已逾時，請重新輸入密碼'] } } } }));
       await fill('login-code', '000000');
       q('login-second-submit')!.click();
       await flushPromises();
