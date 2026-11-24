@@ -294,7 +294,7 @@ public sealed class VerifyEmailHandler(IAccountTokenRepository tokens, PasswordR
     {
         // 用權杖的匿名端點每 IP 15 分鐘 30 次（§7.3，au1b 補上；§24 技術類 8）
         if (!throttle.TryToken(PasswordReset.AnonymousAccountThrottle.IpOf(r.ClientIp)))
-            return ServiceResult.TooManyRequests(MessageRef.Of(MessageText.ReauthThrottled), "tooManyAttempts");
+            return PasswordReset.PasswordResetErrors.Throttled();
         var token = (r.Token ?? "").Trim();
         if (token.Length is 0 or > 100) return EmailVerifyToken.Invalid();
         var hash = McpSecrets.Hash(token);
