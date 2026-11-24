@@ -65,6 +65,24 @@ public class ApprovalDefinitionValidatorTests : ApprovalTestBase
     }
 
     [Fact]
+    public async Task InitiatorPick_RenameStageCode_DropsUnmatchedFlag_400()
+    {
+        // 票 #9（a5d 複審 N4）：改關卡代碼讓上一版同代碼比對不到，不能藉此一次清掉標記又留空候選
+        await BuildRig();
+        var module = (await Svc<IModuleRepository>().GetByKeyAsync(_r.Module, includeChildren: true, CancellationToken.None))!;
+        var flagged = new ApproverSource(ApprovalSources.InitiatorPick, CandidateGroupIds: [], Min: 1, Max: 1, CandidatesUnmatched: true);
+        var previous = Valid(Stage("pick", flagged));
+        Task<Dictionary<string, string[]>> Save(params ApprovalStageDef[] stages) =>
+            Svc<ApprovalDefinitionValidator>().ValidateAsync(module, module.Workflow!, Valid(stages), previous, CancellationToken.None);
+        var cleared = flagged with { CandidatesUnmatched = false };
+
+        E(await Save(Stage("pick2", cleared)), "stages[0].approvers").Should().Be(ApprovalMessages.PickCandidatesUnmatchedRemoved);
+        (await Save(Stage("pick2", flagged))).Should().BeEmpty("改代碼但標記保留");
+        (await Save(Stage("pick2", cleared with { CandidateGroupIds = [BoardGroup] }))).Should().BeEmpty("改代碼並先選了候選群組");
+        (await Save(Stage("pick", flagged), Stage("extra", cleared))).Should().BeEmpty("略過標記的關卡還在，另加的新關卡候選留空仍是「不限」");
+    }
+
+    [Fact]
     public async Task OnEmptySkip_SourceUnmatched_400()
     {
         // 審查 M2：開啟套件後標成對不上的關卡不能設 skip（不經備援），存檔或啟用時就擋；fallback 可以

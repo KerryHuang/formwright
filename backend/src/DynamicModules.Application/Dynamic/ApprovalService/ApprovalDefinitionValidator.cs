@@ -113,7 +113,7 @@ public sealed partial class ApprovalDefinitionValidator(
         {
             if (ConditionError(s.When) is { } se) Err($"{p}.when", ApprovalMessages.WhenInvalid(se));
             if (s.Approvers is null) Err($"{p}.approvers", ApprovalMessages.SourceInvalid);
-            else if (SourceError(s.Approvers, before?.Approvers) is { } ae) Err($"{p}.approvers", ae);
+            else if (SourceError(s.Approvers, before?.Approvers, before is null) is { } ae) Err($"{p}.approvers", ae);
             if (s.Mode is not (ApprovalModes.All or ApprovalModes.Any)) Err($"{p}.mode", ApprovalMessages.ModeInvalid);
             if (s.DueHours is { } h && (h < 1 || (h > limits.MaxDueHours && h > (before?.DueHours ?? 0))))
                 Err($"{p}.dueHours", ApprovalMessages.DueHours(limits.MaxDueHours, previous is not null));
@@ -126,13 +126,25 @@ public sealed partial class ApprovalDefinitionValidator(
                      && (s.EditableFields ?? []).Any(HiddenForDerivable(s, d.FallbackApprovers, hiddenRows, grants, groupsOf, restricted).Contains)) Err($"{p}.editableFields", ApprovalMessages.EditableFieldHidden);
         }
 
+        /// <summary>上一版有略過標記的發起人自選關卡（sequence 的關卡或 graph 的簽核節點），代碼在這一版已不存在。</summary>
+        private bool RenamedUnmatchedPick()
+        {
+            if (previous is null) return false;
+            static bool Marked(ApproverSource? s) => s is { Source: ApprovalSources.InitiatorPick, CandidatesUnmatched: true };
+            var oldMarked = (previous.Stages ?? []).Where(o => Marked(o.Approvers)).Select(o => o.Code)
+                .Concat((previous.Nodes ?? []).Where(o => o is { Kind: ApprovalNodeKinds.Approval } && Marked(o.AsStage().Approvers)).Select(o => o.Id));
+            var current = (d.Stages ?? []).Select(o => o.Code).Concat((d.Nodes ?? []).Select(o => o?.Id)).ToHashSet();
+            return oldMarked.Any(c => !current.Contains(c));
+        }
+
         public string? ConditionError(JsonElement? when)
         {
             if (when is not { } w || w.ValueKind == JsonValueKind.Null) return null;
             return ConditionParser.Parse(w, module, registry, ConditionUsage.Rule, allUserIds).Error;
         }
 
-        public string? SourceError(ApproverSource a, ApproverSource? old)
+        /// <summary>newCode：這一關在上一版找不到同代碼（新增或改了代碼），略過標記的檢查改看「上一版有標記、這一版已不存在的關卡」（票 #9）。</summary>
+        public string? SourceError(ApproverSource a, ApproverSource? old, bool newCode = false)
         {
             switch (a.Source)
             {
@@ -160,7 +172,9 @@ public sealed partial class ApprovalDefinitionValidator(
                     if (a.Min is not { } min || a.Max is not { } max || min < 1 || min > max || (max > limits.MaxApprovers && max > oldMax))
                         return ApprovalMessages.PickRange(limits.MaxApprovers, previous is not null);
                     // 原本候選群組被開啟套件略過（空候選 + 標記）：只清標記會變成「任何人都可被選」，要先選候選群組。沒被略過過的來源，空候選仍是「不限」（§6.1）
-                    if (old is { Source: ApprovalSources.InitiatorPick, CandidatesUnmatched: true } && !a.CandidatesUnmatched && (a.CandidateGroupIds ?? []).Count == 0)
+                    // 改關卡代碼時上一版同代碼比對不到：上一版有標記的自選關卡若已不在這一版，保守當成它改名而來（防誤操作，寧可擋；先選候選群組或保留標記即可）
+                    var wasUnmatched = old is { Source: ApprovalSources.InitiatorPick, CandidatesUnmatched: true } || (newCode && RenamedUnmatchedPick());
+                    if (wasUnmatched && !a.CandidatesUnmatched && (a.CandidateGroupIds ?? []).Count == 0)
                         return ApprovalMessages.PickCandidatesUnmatchedRemoved;
                     return (a.CandidateGroupIds ?? []).All(groupIds.Contains) ? null : ApprovalMessages.CandidateGroupsInvalid;
                 default:
