@@ -143,15 +143,20 @@ function summaryOf(n: ApprovalNodeDef, def: GraphDefinition, t: Translate): stri
   }
 }
 
-/** 線上的文字：有標籤用標籤；條件出線沒標籤時用條件摘要（沒設條件是灰色提示），預設線寫「其他」（§10.3）。 */
+/**
+ * 線上的文字：有標籤用標籤；條件出線沒標籤時用條件摘要，預設線寫「其他」（§10.3）。
+ * 條件出線還沒設條件時是灰色提示「未設定條件」，有標籤的（插入時帶的「條件 n」）接在標籤後面（U49：驗證前不標紅）。
+ */
 export function edgeText(e: ApprovalEdgeDef, def: GraphDefinition, ctx: Pick<GraphContext, 'locale' | 't' | 'fields'>): { text: string; hint: boolean } {
   const label = resolveI18n(e.label ?? undefined, ctx.locale);
-  if (label) return { text: label, hint: false };
   const from = def.nodes.find((n) => n.id === e.from);
+  const unset = from?.kind === 'condition' && !e.default
+    && (!e.when || (typeof e.when === 'object' && ('all' in e.when ? e.when.all.length === 0 : 'any' in e.when ? e.when.any.length === 0 : false)));
+  const none = ctx.t('approval.designer.graph.edgeNoCondition');
+  if (label) return unset ? { text: `${label} · ${none}`, hint: true } : { text: label, hint: false };
   if (from?.kind !== 'condition') return { text: '', hint: false };
   if (e.default) return { text: ctx.t('approval.designer.graph.edgeDefault'), hint: false };
-  const empty = !e.when || (typeof e.when === 'object' && ('all' in e.when ? e.when.all.length === 0 : 'any' in e.when ? e.when.any.length === 0 : false));
-  return empty ? { text: ctx.t('approval.designer.graph.edgeNoCondition'), hint: true } : { text: conditionSummary(e.when, ctx.fields, ctx.t, ctx.locale), hint: false };
+  return unset ? { text: none, hint: true } : { text: conditionSummary(e.when, ctx.fields, ctx.t, ctx.locale), hint: false };
 }
 
 export function toVueFlow(state: GraphState, ctx: GraphContext, opts: { draggable: boolean }): { nodes: Node<DesignerNodeData>[]; edges: Edge<DesignerEdgeData>[] } {

@@ -91,6 +91,18 @@ describe('designer-graph', () => {
     expect(e3.class).not.toContain('de-edge-error');
   });
 
+  it('a labelled condition edge with no condition yet (inserted "條件 1") is still a grey hint after its label (U49)', () => {
+    const d = def();
+    d.edges = d.edges.map((e) => (e.id === 'e3' ? { ...e, label: { 'zh-TW': '條件 1' } } : e.id === 'e2' ? { ...e, label: { 'zh-TW': '其餘' } } : e));
+    const { edges } = toVueFlow(initialState(d, null), ctx(), { draggable: true });
+    const e3 = edges.find((e) => e.id === 'e3')!;
+    expect(e3.data!.fullLabel).toBe('條件 1 · 未設定條件');
+    expect(e3.data!.hint).toBe(true);
+    expect(edges.find((e) => e.id === 'e2')!.data).toMatchObject({ fullLabel: '其餘', hint: false });
+    d.edges = d.edges.map((e) => (e.id === 'e3' ? { ...e, when: { all: [{ field: 1, op: 'gte', value: 1 }] } } : e));
+    expect(toVueFlow(initialState(d, null), ctx(), { draggable: true }).edges.find((e) => e.id === 'e3')!.data).toMatchObject({ fullLabel: '條件 1', hint: false });
+  });
+
   it('designer edges bend where edgeBendX says', () => {
     const s = initialState(def(), null);
     const { edges } = toVueFlow(s, ctx(), { draggable: true });
