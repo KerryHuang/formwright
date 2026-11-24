@@ -8,6 +8,7 @@ import type { DynamicRecord, FilterOperator, ModuleDetail, SchemaField } from 's
 import { toSchemaFields } from 'src/presentation/dynamic/designer/schema-fields';
 import { fieldTypeRegistry } from 'src/presentation/dynamic/field-type-registry';
 import type { ApiError } from 'src/services/api/http';
+import SelectNoOption from 'src/components/framework/SelectNoOption.vue';
 
 // 試算的輸入：發起人、參考記錄、欄位值。舊的流程對話框（FlowTrialPanel）與流程圖設計頁（DesignerTrialPanel）共用；
 // 狀態留在這裡，外層用 ref 讀 `initiator`、`recordId`、`sentValues`，任何一項改動發 `change`（外層據此清掉過期的結果）。
@@ -110,7 +111,7 @@ defineExpose({ initiator, recordId, sentValues });
       v-model="initiator" :options="userOptions" :label="t('approval.designer.trial.initiator')" emit-value map-options dense outlined
       use-input input-debounce="0" data-testid="trial-initiator" @filter="filterUsers"
     >
-      <template #no-option><q-item><q-item-section class="text-muted">{{ t('approval.designer.trial.recordNoMatch') }}</q-item-section></q-item></template>
+      <template #no-option><SelectNoOption /></template>
     </q-select>
     <div>
       <q-select
