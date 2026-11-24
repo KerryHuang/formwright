@@ -652,6 +652,16 @@ describe('UsersPage Email（帳號安全設計 §12）', () => {
     expect(notify).toHaveBeenCalledWith(expect.objectContaining({ type: 'positive', message: zhTW.users.resetLinkSent }));
   });
 
+  it('reset dialog: when the system cannot send mail, the 409 message is shown in the dialog (au1b review S4)', async () => {
+    const message = '系統目前寄不出信（寄信設定或站台網址還沒設好），不能寄重設連結，請改設暫時密碼';
+    api.sendResetLink.mockRejectedValue({ status: 409, code: 'resetLinkMailUnavailable', message });
+    await mountPage([user('admin', { isSystemAdmin: true }), user('ok01', { email: 'ok@example.com', emailVerified: true })]);
+    await click('user-reset-ok01');
+    await click('user-reset-submit');
+    expect(q('user-reset-error')!.textContent).toContain(message);
+    expect(q('user-reset-submit')).not.toBeNull();
+  });
+
   it('reset dialog: no verified email, or own row, offers only a temporary password; the minimum comes from auth/options', async () => {
     api.getAuthOptions.mockResolvedValue({ passwordMinLength: 10 } as never);
     api.resetUserPassword.mockResolvedValue(undefined as never);
