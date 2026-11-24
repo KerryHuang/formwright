@@ -241,7 +241,7 @@ public sealed class AppUpgradePreviewer(
 
     /// <summary>
     /// 依賴不能套用的項目：勾了會連帶勾那一項、套用必定失敗，自己也標不能勾，原因指出是哪一項（審查 S7，可遞移）。
-    /// 預設勾選要能直接套用：依賴預設不勾的項目（另列的排除欄位、主檔裡預設不勾的）的，連同依賴它們的，預設也不勾，由管理員決定。
+    /// 預設勾選要能直接套用：依賴預設不勾的項目（本份所有預設不勾的項目、另列的排除欄位、主檔裡預設不勾的，#101）的，連同依賴它們的，預設也不勾，由管理員決定。
     /// </summary>
     private static List<UpgradeItemResponse> Propagate(List<UpgradeItemResponse> source, IEnumerable<string> offSeeds, IEnumerable<string> blockedSeeds)
     {
@@ -261,7 +261,7 @@ public sealed class AppUpgradePreviewer(
                     changed = true;
                 }
         }
-        var off = new HashSet<string>(offSeeds.Concat(blocked), StringComparer.Ordinal);
+        var off = new HashSet<string>(offSeeds.Concat(blocked).Concat(items.Where(i => !i.DefaultSelected).Select(i => i.Id)), StringComparer.Ordinal);
         for (var changed = off.Count > 0; changed;)
         {
             changed = false;

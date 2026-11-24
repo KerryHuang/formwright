@@ -709,6 +709,69 @@ public class AppUpgradeMasterTests
         customer.GetProperty("defaultSelected").GetBoolean().Should().BeFalse("依賴預設不勾的主檔項目");
     }
 
+    /// <summary>同一應用程式內的相依（#101）：備忘的「組織」參照帶值用到同一份套件的組織「傳真」。</summary>
+    private const string Ui = """
+        { "format": "formwright-app", "formatVersion": 6,
+          "manifest": { "id": "ui", "version": "1.1.0", "name": { "zh-TW": "內部相依測試" } },
+          "groups": [ { "code": "sales", "name": { "zh-TW": "業務" } } ],
+          "modules": [
+            { "code": "org", "key": "ui-org", "name": { "zh-TW": "組織" }, "kind": "standalone", "titleField": "name",
+              "blocks": [ { "code": "main", "label": { "zh-TW": "基本資料" }, "fields": [
+                { "code": "name", "type": "text", "label": { "zh-TW": "名稱" }, "config": {} },
+                { "code": "fax", "type": "text", "label": { "zh-TW": "傳真" }, "config": {} } ] } ],
+              "permissions": [ { "group": "sales", "scope": "all", "privileges": { "read": true, "add": true, "edit": true, "delete": false, "printExport": false, "pricing": false, "approve": false } } ] },
+            { "code": "memo", "key": "ui-memo", "name": { "zh-TW": "備忘" }, "kind": "standalone", "titleField": "title",
+              "blocks": [ { "code": "main", "label": { "zh-TW": "基本資料" }, "fields": [
+                { "code": "title", "type": "text", "label": { "zh-TW": "標題" }, "config": {} },
+                { "code": "org", "type": "reference", "label": { "zh-TW": "組織" },
+                  "config": { "onDelete": "restrict", "refTarget": { "kind": "module", "key": "org" },
+                    "fill": { "mode": "default", "map": [ { "from": "org.fax", "to": "fax" } ] } } },
+                { "code": "fax", "type": "text", "label": { "zh-TW": "傳真" }, "config": {} } ] } ],
+              "permissions": [ { "group": "sales", "scope": "all", "privileges": { "read": true, "add": true, "edit": true, "delete": false, "printExport": false, "pricing": false, "approve": false } } ] } ] }
+        """;
+
+    /// <summary>
+    /// #101：同一應用程式內，客戶刪了「傳真」（customerDeleted，預設不勾），新版備忘的組織參照帶值用到它。
+    /// 備忘那一項依賴預設不勾的項目，預設也不勾；照預設直接套用要成功（不是 400）。
+    /// </summary>
+    [Fact]
+    public async Task AppItemNeedsADefaultOffItemOfTheSameApp_IsDefaultOffToo_Issue101()
+    {
+        using var rig = new SharedMasterRig();
+        await rig.ImportAsync(Ui);
+        await rig.OpenOkAsync("ui", new { groupMap = new Dictionary<string, object> { ["sales"] = new { mode = "map", groupId = rig.GroupId("sales-manager") } } });
+        rig.Db(db =>
+        {
+            var ui = db.Set<App>().Single(a => a.Key == "ui");
+            var fax = db.Set<AppField>().Single(f => f.AppId == ui.Id && f.Name == "org.fax");
+            var orgRef = db.Set<AppField>().Single(f => f.AppId == ui.Id && f.Name == "memo.org").FieldId;
+            var field = db.Set<Field>().Single(f => f.Id == orgRef);
+            field.Config = field.Config with { Fill = field.Config.Fill! with { Map = field.Config.Fill.Map.Where(m => m.From != fax.FieldId).ToList() } };
+            db.Set<AppField>().Remove(fax);
+            db.Set<Field>().Remove(db.Set<Field>().Single(f => f.Id == fax.FieldId));
+            ui.PackageVersion = Older;
+            var baseline = db.Set<AppBaseline>().Single(b => b.AppId == ui.Id);
+            var node = JsonNode.Parse(baseline.PackageJson)!;
+            node["manifest"]!["version"] = Older;
+            var map = node["modules"]!.AsArray().Single(m => (string?)m!["code"] == "memo")!["blocks"]!.AsArray()
+                .SelectMany(b => b!["fields"]!.AsArray()).Single(f => (string?)f!["code"] == "org")!["config"]!["fill"]!["map"]!.AsArray();
+            map.Remove(map.Single(x => (string?)x!["from"] == "org.fax"));
+            baseline.PackageJson = node.ToJsonString();
+        });
+
+        var preview = await PreviewAsync(rig, "ui");
+        var items = preview.GetProperty("items").EnumerateArray().ToList();
+        var fax2 = items.Single(i => i.GetProperty("id").GetString() == "field:org.fax");
+        fax2.GetProperty("category").GetString().Should().Be("customerDeleted");
+        fax2.GetProperty("defaultSelected").GetBoolean().Should().BeFalse();
+        var memo = items.Single(i => i.GetProperty("id").GetString() == "field:memo.org");
+        memo.GetProperty("dependsOn").EnumerateArray().Select(d => d.GetString()).Should().Contain("field:org.fax");
+        memo.GetProperty("defaultSelected").GetBoolean().Should().BeFalse("依賴預設不勾的項目");
+        var defaults = items.Where(i => i.GetProperty("defaultSelected").GetBoolean()).Select(i => i.GetProperty("id").GetString()!).ToArray();
+        var res = await rig.Admin.PostAsJsonAsync($"{SharedMasterRig.Apps}/ui/upgrade", new { token = preview.GetProperty("token").GetString(), items = defaults });
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+    }
+
     /// <summary>甲'（mx）：組織有基本資料與「延伸」兩個區塊，延伸區塊放「傳真」。</summary>
     private const string Mx = """
         { "format": "formwright-app", "formatVersion": 6,
