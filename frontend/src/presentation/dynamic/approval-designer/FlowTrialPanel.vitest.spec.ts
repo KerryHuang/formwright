@@ -39,7 +39,7 @@ function draftOf(extra: Partial<FlowDraft> = {}): FlowDraft {
 const preview = (extra: Partial<ApprovalPreview>): ApprovalPreview => ({ outcome: 'flow', flowName: { 'zh-TW': '我的' }, flowKey: 'mine', stages: [], picks: [], ...extra });
 
 async function mountPanel(draft: FlowDraft = draftOf(), flows: ApprovalFlow[] = []) {
-  api.getUsers.mockResolvedValue([{ userId: 'u1', displayName: '王小明' }] as never);
+  api.getUsers.mockResolvedValue([{ userId: 'u1', displayName: '王小明' }, { userId: 'amy', displayName: '陳美麗' }] as never);
   const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
   const w = mount(FlowTrialPanel, {
     attachTo: document.body, props: { module: mod, draft, flows },
@@ -57,6 +57,22 @@ async function chooseInitiator(w: W) { select(w, '發起人').vm.$emit('update:m
 async function run() { el('trial-run')!.click(); await flushPromises(); }
 
 describe('FlowTrialPanel', () => {
+  it('initiator select filters users by name or account as the user types', async () => {
+    const w = await mountPanel();
+    const sel = select(w, '發起人');
+    const opts = () => (sel.props('options') as { value: string }[]).map((o) => o.value);
+    expect(sel.props('useInput')).toBe(true);
+    expect(opts()).toEqual(['u1', 'amy']);
+    sel.vm.$emit('filter', '美', (fn: () => void) => fn());
+    await flushPromises();
+    expect(opts()).toEqual(['amy']);
+    sel.vm.$emit('filter', 'U1', (fn: () => void) => fn());
+    await flushPromises();
+    expect(opts()).toEqual(['u1']);
+    sel.vm.$emit('filter', '', (fn: () => void) => fn());
+    await flushPromises();
+    expect(opts()).toEqual(['u1', 'amy']);
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     document.body.innerHTML = '';

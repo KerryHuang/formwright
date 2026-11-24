@@ -17,7 +17,15 @@ const { t, locale } = useI18n();
 
 // ---- initiator ----
 const users = useUsers();
-const userOptions = computed(() => (users.data.value ?? []).map((u) => ({ value: u.userId, label: u.displayName })));
+const userFilter = ref('');
+// 本地篩選（名稱或帳號的子字串，同記錄下拉的 use-input 寫法）。
+const userOptions = computed(() => {
+  const q = userFilter.value.trim().toLowerCase();
+  return (users.data.value ?? [])
+    .filter((u) => !q || u.displayName.toLowerCase().includes(q) || u.userId.toLowerCase().includes(q))
+    .map((u) => ({ value: u.userId, label: u.displayName }));
+});
+function filterUsers(val: string, update: (fn: () => void) => void) { update(() => { userFilter.value = val; }); }
 const initiator = ref<string | null>(null);
 
 // ---- record (optional) ----
@@ -100,8 +108,10 @@ defineExpose({ initiator, recordId, sentValues });
   <div class="column no-wrap q-gutter-y-md" data-testid="trial-inputs">
     <q-select
       v-model="initiator" :options="userOptions" :label="t('approval.designer.trial.initiator')" emit-value map-options dense outlined
-      data-testid="trial-initiator"
-    />
+      use-input input-debounce="0" data-testid="trial-initiator" @filter="filterUsers"
+    >
+      <template #no-option><q-item><q-item-section class="text-muted">{{ t('approval.designer.trial.recordNoMatch') }}</q-item-section></q-item></template>
+    </q-select>
     <div>
       <q-select
         :model-value="recordId" :options="recordOptions" :label="t('approval.designer.trial.record')" emit-value map-options dense outlined clearable
