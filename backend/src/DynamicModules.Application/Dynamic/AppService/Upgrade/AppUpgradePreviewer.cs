@@ -643,12 +643,26 @@ public sealed class AppUpgradePreviewer(
             if (item.Section != "integrations" || !item.Applicable) continue;
             var code = item.Id["integration:".Length..];
             string? reason = null, detail = null;
+            var next = n.Integrations.FirstOrDefault(d => d.Code == code);
             if (current.Integrations.FirstOrDefault(d => d.Code == code) is { } decl && rows.FirstOrDefault(r => r.Code == code) is { } row
                 && await integrations.ConflictAsync(app, row, decl, appList, ct) is { } conflict)
                 (reason, detail) = (UpgradeClassifier.ReasonIntegrationConflict, conflict);
-            else if (n.Integrations.FirstOrDefault(d => d.Code == code) is { } next && await integrations.UnboundPartnerAsync(app, next, appList, ct) is { } partner)
+            else if (next is not null && await integrations.UnboundPartnerAsync(app, next, appList, ct) is { } partner)
                 (reason, detail) = (UpgradeClassifier.ReasonIntegrationUnbound, partner);
+            // 已安裝的：用新宣告對安裝項目試走套用的同一份判斷（型別或參照改了、事件換來源模組、夥伴不存在），套用必定 400 的先標不能勾（審查 S5）
+            else if (next is not null && rows.FirstOrDefault(r => r.Code == code) is { Installed: true } installed
+                     && await integrations.UpgradeInstalledAsync(app, installed, next, appList, ct, dryRun: true) is { } failure)
+                (reason, detail) = (UpgradeClassifier.ReasonIntegrationConflict, failure);
             if (reason is not null) items[k] = item with { Applicable = false, DefaultSelected = false, Reason = reason, Detail = detail };
+            // 新宣告拿掉、原本登記的事件與檢查：套用時停用（審查 S7）
+            if (next is not null && rows.FirstOrDefault(r => r.Code == code) is { Installed: true } row2
+                && Integrations.IntegrationReconciler.RetiredItems(Integrations.IntegrationItems.Parse(row2.ItemsJson), next) is { } retired
+                && retired.Events.Count + retired.Checks.Count > 0)
+                items[k] = items[k] with
+                {
+                    Impacts = [.. items[k].Impacts ?? [], new UpgradeImpact(UpgradeClassifier.ImpactIntegrationItemsRetired, null,
+                        string.Join("、", retired.Events.Concat(retired.Checks)))]
+                };
         }
         return items;
     }

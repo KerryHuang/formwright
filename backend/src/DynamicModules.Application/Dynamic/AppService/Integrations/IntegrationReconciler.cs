@@ -445,8 +445,10 @@ public class IntegrationReconciler(
     /// 不改整合的開關：整合目前沒在跑（停用）時，新事件與新檢查建成停用並記進 suspendedActive，恢復時照常打開；
     /// 夥伴不在（暫停）時新事件、新檢查先不建，恢復時由調和照新宣告補建並登記。
     /// 回 null 代表成功，否則是失敗原因（呼叫端回 400、整批回滾）。不調和（T52）。
+    /// 宣告拿掉、原本登記的事件與檢查取消登記時一併停用（不刪），新舊事件才不會一起觸發（審查 S7，主控裁決待使用者確認）。
+    /// dryRun：升級預覽用同一份判斷先走一遍，不建、不改、不寫（審查 S5）。
     /// </summary>
-    public async Task<string?> UpgradeInstalledAsync(App owner, AppIntegration row, AppIntegrationDecl decl, List<App> appList, CancellationToken ct)
+    public async Task<string?> UpgradeInstalledAsync(App owner, AppIntegration row, AppIntegrationDecl decl, List<App> appList, CancellationToken ct, bool dryRun = false)
     {
         var (world, problem) = await IntegrationWorld.LoadAsync(owner, decl, appList, apps, modules, ct);
         if (world is null) return $"unbound: {problem}";
@@ -461,12 +463,13 @@ public class IntegrationReconciler(
         {
             var name = $"{f.Module}.{f.Code}";
             var config = ConfigOf(f, world);
-            if (config is null) return $"unbound: 欄位 {name}";
+            // 試走只判斷套用必定會擋的（已安裝項目的衝突、夥伴不存在）；解析不到的交給 UnboundPartnerAsync，這次才建的模組與區塊不算
+            if (config is null) { if (dryRun) continue; return $"unbound: 欄位 {name}"; }
             if (old.Fields.FirstOrDefault(x => x.Module == f.Module && x.Code == f.Code) is { } item && world.Fields.TryGetValue(item.FieldId, out var field))
             {
                 if (FieldConflicts(field, f, config)) return $"itemConflict: 欄位 {name}";
                 // EnsureAsync 只比型別與參照對象：標籤等其他屬性換成新宣告
-                if (JsonSerializer.Serialize(field.LabelI18n) != JsonSerializer.Serialize(f.Label) || Serialize(field.Config) != Serialize(config))
+                if (!dryRun && (JsonSerializer.Serialize(field.LabelI18n) != JsonSerializer.Serialize(f.Label) || Serialize(field.Config) != Serialize(config)))
                 {
                     var updated = await sender.Send(new FieldService.Commands.UpdateField.UpdateFieldRequest(field.Id, f.Type, f.Label, config, field.BlockId), ct);
                     if (!updated.IsSuccess) return $"欄位 {name}：{Describe(updated)}";
@@ -476,10 +479,14 @@ public class IntegrationReconciler(
                 world.FieldTypes[name] = f.Type;
                 continue;
             }
-            if (!world.OwnerBlocks.TryGetValue($"{f.Module}.{f.Block}", out var blockId)) return $"unbound: 區塊 {f.Module}.{f.Block} 解析不到";
-            var added = await sender.Send(new AddFieldRequest(world.ModuleKeys[f.Module], blockId, f.Type, f.Label, config), ct);
-            if (!added.IsSuccess) return $"欄位 {name}：{Describe(added)}";
-            var id = ((FieldResponse)added.Data!).Id;
+            long id = -1;   // 試走時還沒有 id，解析時當成有
+            if (!dryRun)
+            {
+                if (!world.OwnerBlocks.TryGetValue($"{f.Module}.{f.Block}", out var blockId)) return $"unbound: 區塊 {f.Module}.{f.Block} 解析不到";
+                var added = await sender.Send(new AddFieldRequest(world.ModuleKeys[f.Module], blockId, f.Type, f.Label, config), ct);
+                if (!added.IsSuccess) return $"欄位 {name}：{Describe(added)}";
+                id = ((FieldResponse)added.Data!).Id;
+            }
             next.Fields.Add(new IntegrationFieldItem(f.Module, f.Code, id));
             world.FieldIds[name] = id;
             world.FieldTypes[name] = f.Type;
@@ -488,17 +495,17 @@ public class IntegrationReconciler(
         foreach (var e in AppFlowInstaller.InDependencyOrder(decl.Events))
         {
             var (input, errors) = AppEffectsCodec.ToInput(e, world.Lookups([]));
-            if (input is null) return $"unbound: 事件 {e.Code}：{string.Join("；", errors)}";
+            if (input is null) { if (dryRun) continue; return $"unbound: 事件 {e.Code}：{string.Join("；", errors)}"; }
             var existing = await events.GetByKeyAsync(e.Code, ct);
             ServiceResult r;
             if (existing is not null && old.Events.Contains(e.Code))
             {
-                if (existing.SourceModuleId != world.OwnerModules[e.Source].Id) return $"itemConflict: 事件 {e.Code} 的來源模組不同";
-                if (!EventConflicts(existing, input, existing.SourceModuleId) && Serialize(existing.NameI18n) == Serialize(input.Name)) { next.Events.Add(e.Code); continue; }
+                if (!world.OwnerModules.TryGetValue(e.Source, out var source) || existing.SourceModuleId != source.Id) return $"itemConflict: 事件 {e.Code} 的來源模組不同";
+                if (dryRun || (!EventConflicts(existing, input, existing.SourceModuleId) && Serialize(existing.NameI18n) == Serialize(input.Name))) { next.Events.Add(e.Code); continue; }
                 r = await sender.Send(new UpdateEventRequest(e.Code, input with { Active = existing.Active }), ct);
             }
             else if (existing is not null) return $"codeConflict: 事件代碼 {e.Code} 已被其他來源使用";
-            else if (!present) continue;
+            else if (!present || dryRun) continue;
             else
             {
                 r = await sender.Send(new CreateEventRequest(input with { Active = running && input.Active }), ct);
@@ -511,16 +518,16 @@ public class IntegrationReconciler(
         foreach (var c in decl.Checks)
         {
             var (input, errors) = AppEffectsCodec.ToInput(c, world.Lookups([]));
-            if (input is null) return $"unbound: 檢查 {c.Code}：{string.Join("；", errors)}";
+            if (input is null) { if (dryRun) continue; return $"unbound: 檢查 {c.Code}：{string.Join("；", errors)}"; }
             var existing = await checks.GetByKeyAsync(c.Code, ct);
             ServiceResult r;
             if (existing is not null && old.Checks.Contains(c.Code))
             {
-                if (!CheckConflicts(existing, input) && Serialize(existing.NameI18n) == Serialize(input.Name)) { next.Checks.Add(c.Code); continue; }
+                if (dryRun || (!CheckConflicts(existing, input) && Serialize(existing.NameI18n) == Serialize(input.Name))) { next.Checks.Add(c.Code); continue; }
                 r = await sender.Send(new UpdateCheckRequest(c.Code, input with { Active = existing.Active }), ct);
             }
             else if (existing is not null) return $"codeConflict: 檢查代碼 {c.Code} 已被其他來源使用";
-            else if (!present) continue;
+            else if (!present || dryRun) continue;
             else
             {
                 r = await sender.Send(new CreateCheckRequest(input with { Active = running && input.Active }), ct);
@@ -530,13 +537,21 @@ public class IntegrationReconciler(
             next.Checks.Add(c.Code);
         }
 
-        // 宣告拿掉的項目只取消登記、不刪（Q4）；暫停紀錄只留仍登記的
+        if (dryRun) return null;
+        // 宣告拿掉的項目只取消登記、不刪（Q4）；事件與檢查一併停用，新舊不會一起觸發（審查 S7）。暫停紀錄只留仍登記的
+        var retired = RetiredItems(old, decl);
+        if (retired.Events.Count + retired.Checks.Count > 0) await SetActiveAsync(retired, decl, false, ct);
         suspended = new IntegrationSuspendedItems(suspended.Events.Where(next.Events.Contains).Distinct().ToList(),
             suspended.Checks.Where(next.Checks.Contains).Distinct().ToList());
         row.ItemsJson = (next with { SuspendedActive = old.SuspendedActive is null && suspended.Events.Count + suspended.Checks.Count == 0 ? null : suspended }).ToJson();
         await uow.CommitAsync(ct);
         return null;
     }
+
+    /// <summary>原本登記、新宣告拿掉的事件與檢查（升級時停用，預覽列在影響說明，審查 S7）。</summary>
+    public static IntegrationItems RetiredItems(IntegrationItems old, AppIntegrationDecl decl) => new([],
+        old.Events.Where(code => decl.Events.All(e => e.Code != code)).ToList(),
+        old.Checks.Where(code => decl.Checks.All(c => c.Code != code)).ToList());
 
     private static string? ConfigString(AppIntegrationField f, string name) =>
         f.Config.ValueKind == JsonValueKind.Object && f.Config.TryGetProperty("refTarget", out var t) && t.ValueKind == JsonValueKind.Object

@@ -311,7 +311,7 @@ pkg1 做一個**升級預覽與逐項套用**的入口：
 
 以下是 pkg1b 定下、pkg1c 要依賴的契約細節（pkg1b 審查 M3 回填）：
 
-- **`blockers`** 每筆 `{ code, detail }`，`code` 由前端翻譯（`apps.upgrade.blocker.<code>`），`detail` 是補充（應用程式 id、驗證訊息；主檔的前面加主檔 id）。代碼：`closed`（應用程式已關閉，Q6）、`exportFailed`（現況匯出失敗）、`invalidPackage`（新版沒通過驗證或政策上限）、`requiresUpdate`（需要的模組要等別的應用程式先更新，`detail` 是那個應用程式 id）、`requiresApp`（需要的應用程式、主檔或實體沒開啟）、`secondBatch`（第二批項目有差異，pkg1d 之前整個擋下，§15）、`masterPending`（用到的共用主檔有新版，`detail` 是主檔 id，pkg1d 之前整個擋下）、`hostTaken`（新模組要擴充的宿主已被其他模組佔用，`detail` 是新模組代號，§8.2 第 3 點）。`secondBatch`、`masterPending` 在 pkg1d2 合併時刪除（§9.6.3）。
+- **`blockers`** 每筆 `{ code, detail }`，`code` 由前端翻譯（`apps.upgrade.blocker.<code>`），`detail` 是補充（應用程式 id、驗證訊息；主檔的前面加主檔 id）。代碼：`closed`（應用程式已關閉，Q6）、`exportFailed`（現況匯出失敗）、`invalidPackage`（新版沒通過驗證或政策上限）、`requiresUpdate`（需要的模組要等別的應用程式先更新，`detail` 是那個應用程式 id）、`requiresApp`（需要的應用程式、主檔或實體沒開啟）、`secondBatch`（第二批項目有差異，pkg1d 之前整個擋下，§15）、`masterPending`（用到的共用主檔有新版，`detail` 是主檔 id，pkg1d 之前整個擋下）、`hostTaken`（新模組要擴充的宿主已被其他模組佔用，`detail` 是新模組代號，§8.2 第 3 點）。`secondBatch`、`masterPending` 在 pkg1d2 合併時刪除（§9.6.3）——**pkg1d2 已刪**。
 - **`groups[].reason`**：`new`（新版多的代號）、`stale`（對到的群組已刪除）、`skipped`（開啟時略過）。`choice` 是 `{ mode, groupId }`，`mode` 為 `map`、`create`、`skip`。
 - **409 有四種**，都回訊息文字：版號相同「已是最新」、目錄裡找不到這個應用程式的候選「沒有可用的新版」、候選版號較小「新版的版號比目前的小，不支援降版」、直接對共用主檔的 key 預覽回 `MasterManaged`（與開啟、關閉主檔同一句；主檔的新版從使用它的應用程式更新頁看，Q10，pkg1b 審查 S8）。應用程式本身不是新版、但用到的共用主檔有新版時照常回預覽（只含 `masters`）。降版目前排在主檔候選之前判斷（pkg1b 審查 S7，延到 pkg1c 決定）。
 
@@ -364,7 +364,7 @@ pkg1c 實作補記（2026-11-22）：
 }
 ```
 
-- `reason`：不能勾或要說明時的**原因代碼**，由前端翻譯（`apps.upgrade.reason.<code>`），能照一般規則勾時是 null。代碼：`customerOnly`（只有客戶改）、`removedInNew`（新版移除）、`typeChanged`（欄位型別不同）、`kindChanged`（模組種類或擴充宿主不同）、`referenceChanged`（參照對象或關聯方式不同）、`existingPermission`（既有物件的權限修改，Q5）、`notYetSupported`（第二批項目，pkg1d 之前不能套用，§15）、`affectsData`（既有欄位這次會改成必填、有記錄沒填值，§6.4）、`unmatched`（現況有對照列、比對模式卻表達不了，§6.1）。pkg1d 新增的代碼與資訊型的 `impacts` 見 §9.6.4。§6.4 寫的原因文字是畫面上翻譯後的樣子，不在 API 裡。
+- `reason`：不能勾或要說明時的**原因代碼**，由前端翻譯（`apps.upgrade.reason.<code>`），能照一般規則勾時是 null。代碼：`customerOnly`（只有客戶改）、`removedInNew`（新版移除）、`typeChanged`（欄位型別不同）、`kindChanged`（模組種類或擴充宿主不同）、`referenceChanged`（參照對象或關聯方式不同）、`existingPermission`（既有物件的權限修改，Q5）、`notYetSupported`（第二批項目，pkg1d 之前不能套用，§15；**pkg1d2 已刪**）、`affectsData`（既有欄位這次會改成必填、有記錄沒填值，§6.4）、`unmatched`（現況有對照列、比對模式卻表達不了，§6.1）。pkg1d 新增的代碼與資訊型的 `impacts` 見 §9.6.4。§6.4 寫的原因文字是畫面上翻譯後的樣子，不在 API 裡。
 - `affectedRecords`：只在 `reason` 是 `affectsData` 時有值，是沒填值的記錄數；只有「必填」這次真的會寫入（不是客戶改成非必填而保留）時才判斷（審查 M4）。
 - `dependsOn`：引用到的「現況還沒有、這次列出」的項目。引用的對象是新區塊、新模組底下的項目時（它們不另列），指向列出的那個區塊或模組；模組項目看標題欄位與標題樣板，規則看 target 的 `field:`／`block:` 與條件值的 `opt_` 去掉前綴後的代號（審查 M2）。開啟時排除、被新版移進新區塊的欄位，套用新區塊時預設不建（審查 S3），所以另列成 `excludedAtOpen` 項目、預設不勾，`dependsOn` 帶它所在的新區塊；引用它的項目依賴它本身，依賴它的項目（連同再依賴這些的）也預設不勾，預設勾選才能直接套用。新區塊、新模組底下不另列的項目引用別的新項目時，算在列出的上層頭上（例如同一個新區塊裡的公式引用這類欄位，新區塊就依賴它）（複核 N1）。
 - `attachedPermissions`：新模組、新欄位、新選項、新貢獻附帶的權限（Q12），以及新轉移可推進的群組（pkg1d，T57），每條 `{ groupId, groupName, effect, grants, scope }`（`scope` 只有模組權限有，是資料範圍）；選了「建立新群組」的代號，`groupId` 是**負數暫代 id**（這次預覽裡將新建的群組，同一次預覽內每個代號固定一個），`groupName` 是套件裡的群組名稱。負數 id 只給畫面顯示，套用時不得送回、也不能拿去查群組；`effect` 是動作或限制（`hidden`、`readOnly`、`visible`、`read`、`edit`…，含資料範圍），`grants` 為 true 表示給權類。和 `defaultSelected` 一樣只在後端算，畫面的「給權」標示照它顯示。
@@ -593,12 +593,12 @@ pkg1c 實作補記（2026-11-22）：
 - **基準與合併副本**（T38，主控已定，可推翻）：主檔基準整列換新（`GroupMapJson` 補這次的主檔群組對應）。以內建新版升級、而客戶有再匯入的合併副本時，`Dynamic_AppPackage` 那份副本改寫成「內建新版合併舊副本」（§7.1；pkg1b、pkg1c 只在預覽算這份，還沒寫回；舊副本裡沒有對照列的代號照 T53 不併入），基準存同一份序列化文字，兩邊相同才不會下次比出假差異（同 §5.2 v1 範本檔的例外理由）。這裡存的是定義層的合併，不是再匯入時 `MergeAsync` 那種資料庫匯出（`fromDb`）（審查 S16）：資料庫匯出帶著客戶在設計器的修改，存成基準會讓客戶的修改變成「原廠給的」（B＝C），下次新版改到同一處時被分類成「只有新版改」、預設勾，蓋掉客戶的修改；副本用來在刪除後重新自動開啟，客戶的設計器修改那時本來就不在了，定義層合併就夠。
 - **只有主檔有新版**（T55，主控已定，可推翻；審查 S10、S13、S14）：應用程式自己的 `items` 為空，套用只動主檔；應用程式的版號、基準、略過紀錄不變。現在的程式做不到：`BuildAsync` 對主檔 key 回 `MasterManaged`，而 `ApplyAsync` 在 `mine.Context` 為 null（應用程式自己沒有新版）時直接擋下（`AppUpgrader.cs:65`）。所以 `ApplyAsync` 拆成以比對結果（Comparison）為參數的核心，應用程式與每份主檔各呼叫一次，應用程式沒有新版就跳過應用程式那一次。預覽的 `canApply` 只看主檔段與共同的 blockers；套用回 200 與 `AppResponse`（A70）。
 - **`masterPending` 拿掉的條件**：pkg1d 處理主檔的那一段（§9.6.7 的 pkg1d2）合併時刪掉 `masterPending` 與它的翻譯鍵；同時 `SecondBatch` 集合清空，`secondBatch` blocker 與 `notYetSupported` 原因代碼一起刪（T39，主控已定，可推翻）。
-- **稽核**：主檔一份一筆 `app.upgrade`（目標是主檔，手動 `auditLog.Add`），和應用程式那筆同一個 `RequestId`。只有主檔有新版時，外層那筆 `app.upgrade`（目標是應用程式）照寫：摘要的 from 等於 to、套用項目數只算主檔的，逐項明細為空、指向主檔那幾筆（T55）。
+- **稽核**：主檔一份一筆 `app.upgrade`（目標是主檔，手動 `auditLog.Add`），和應用程式那筆同一個 `RequestId`。只有主檔有新版時，外層那筆 `app.upgrade`（目標是應用程式）照寫：摘要的 from 等於 to、套用項目數只算主檔的，逐項明細為空、指向主檔那幾筆（T55）。外層那筆的套用數與略過數**口徑一致、都含主檔**：套用數＝應用程式勾的＋各主檔勾的，略過數＝應用程式可勾沒勾的＋各主檔可勾沒勾的；主檔自己那筆只算主檔的（pkg1d2 審查次要項）。T56 的主檔段沒勾任何項目時不套、不寫那份主檔的稽核。
 
 #### 9.6.4 預覽回應的增補
 
 - **新的原因代碼**（`reason`，不能勾）：`statusFieldChanged`、`unlocksRecords`（附 `affectedRecords`）、`transitionGroups`、`approvalInFlight`（附 `affectedRecords` 為簽核中張數）、`flowInUse`、`priorityTaken`、`approverGroups`（Q27）、`workflowInvalid`（附 `detail`，T47）、`conversionInUse`（附筆數）、`firedEffect`、`backfillLimit`、`ledgerLocked`、`ledgerFreeze`（附筆數）、`integrationConflict`、`integrationUnbound`（附 `detail`，T51）、`dependsOnBlocked`（依賴的項目不能套用，`detail` 是那幾項的 id，§9.6.8 審查修正）。`affectedRecords` 從「只在 `affectsData`」放寬成「這幾個代碼也帶」；項目加選填的 `detail`（字串或物件，給原因文字代入）。
-- **新的 `impacts`**（不擋、只說明，T34，主控已定，可推翻）：`[{ code, count?, detail? }]`，畫面在項目下方一行字。代碼：`recordsInState`（新版移除、改成唯讀、或加上需簽核而變成鎖定的狀態上有 N 筆記錄）、`inFlightApprovals`（套用會產生新版本，N 張簽核中的單照原版本走完）、`futureOnly`（事件、檢查、轉換、任務規則只影響之後）、`enablesTasks`（會自動啟用模組的任務）、`autoFilterable`（檢查會自動開欄位的可篩選）、`stateReferenceMoved`（這一項改看新狀態，`detail` 附舊、新狀態，Q26）、`retiredStateReachable`（新版移除的狀態仍可進入，Q26）。
+- **新的 `impacts`**（不擋、只說明，T34，主控已定，可推翻）：`[{ code, count?, detail? }]`，畫面在項目下方一行字。代碼：`recordsInState`（新版移除、改成唯讀、或加上需簽核而變成鎖定的狀態上有 N 筆記錄）、`inFlightApprovals`（套用會產生新版本，N 張簽核中的單照原版本走完）、`futureOnly`（事件、檢查、轉換、任務規則只影響之後）、`enablesTasks`（會自動啟用模組的任務）、`autoFilterable`（檢查會自動開欄位的可篩選）、`stateReferenceMoved`（這一項改看新狀態，`detail` 附舊、新狀態，Q26）、`retiredStateReachable`（新版移除的狀態仍可進入，Q26）、`integrationItemsRetired`（新宣告拿掉的事件與檢查，套用時停用，`detail` 是代碼，pkg1d2 審查 S7）。
 - §8.1 的 `blockers` 在 pkg1d2 合併後只剩 `closed`、`exportFailed`、`invalidPackage`、`requiresUpdate`、`requiresApp`、`hostTaken`。
 
 #### 9.6.5 Demo 種子（§11.2 增補）
@@ -736,13 +736,24 @@ Demo 推導的舊版 CRM 另外推導幾處（§11.1 的做法，JSON 文字層�
 
 #### 9.6.10 pkg1d2 實作補記（2026-11-24，進行中）
 
+- **審查修正（2026-11-24）**：
+  - **M1**：新版第一次用到已開啟的主檔（新貢獻、新的主檔符號）時，套用換版號那一步補記 `AppMasterUse`（同開啟）；主檔的開關、匯出、刪除豁免與更新提示都靠它。
+  - **M2**：貢獻欄位「可看見」的群組，開啟、預覽、套用共用 `MasterGrants.ContributionVisibleTo` 一條規則：貢獻權限對應得到客戶群組的全部可看見，不另看讀取權（開啟已上線，預覽改跟它）。
+  - **S1、S2**：跨份相依補上後重跑「依賴不能套用」與「預設不勾」的遞移（主檔項目以 `master:` 前綴當起點，含主檔裡預設不勾的）；主檔與應用程式兩邊都展開隨上層一起建的隱藏子項目，相依指向列出的上層；T56 列出的是被依賴項目的相依閉包。前端連勾不加入清單外的 id。
+  - **S3**：T56 的主檔段不列群組，比對只認「對應到既有群組」的代號，其他當略過，不默默建群組；T56 的主檔一樣跑 `masterGroupMap` 的驗證。
+  - **S4**：每次調和包一層 savepoint，失敗回滾到它再記警告；PostgreSQL 交易裡的資料庫錯誤不會讓前面的套用一起還原。
+  - **S5**：已安裝的整合，預覽用新宣告對安裝項目試走套用的同一份判斷（`UpgradeInstalledAsync` 的 dryRun：欄位型別或參照改了、事件換來源模組、代碼被別的來源用、夥伴不存在），套用必定失敗的標 `integrationConflict`（`detail` 是原因）、不能勾。這次才建的模組與區塊、解析不到的夥伴符號不在試走判斷（後者照 `integrationUnbound`）。
+  - **S6 已知限制**：整合安裝項目的**非衝突修改會被新宣告覆蓋**：欄位的設定（必填、說明等）只要和新宣告不同就整份換成宣告，事件與檢查名稱不同就整份更新，客戶改的名稱也被蓋掉；預覽看不到這些差異。照 T40 的設計，不改行為，手冊註明。
+  - **S7（主控裁決待使用者確認）**：新版從宣告拿掉、原本登記的事件與檢查，取消登記時一併**停用**（不刪），避免新舊事件一起觸發、重複扣庫存；預覽在整合那一項的 `impacts` 加 `integrationItemsRetired`（`detail` 是代碼）。選錯的代價：客戶若想讓舊事件繼續跑，套用後要自己到事件設定打開。
+  - **次要**：跨份相依比對時主檔的報表、檢視也帶主檔前綴（`report:<主檔>/<代號>`、`view:<主檔>/<模組>:<名稱>`），不和應用程式裡同名的字串比成假相依；主檔套用時的警告加主檔 id 前綴（同預覽）。
+
 - **T53／A68 偏離（技術類）**：失敗測試沒紅。設計器加的主檔欄位有對照列與持久代號（`u`＋8 碼），不是 `f_<id>`，再匯入的合併副本與候選新版都認得它，預覽不會把它列成新增，所以沒改 `MasterCandidateAsync`；`AppUpgradeMasterTests.MergedCopy_CustomerFieldIsNotInTheCandidate_A68` 留作防回歸。
 - **整合在夥伴暫停時（技術類）**：已安裝、但夥伴不在（Suspended）的整合，新事件與新檢查的目標可能是停用的夥伴模組，建不起來；套用時先不建、不登記，恢復時由調和照新宣告補建並登記（調和本來就會建登記裡沒有的新代號）。既有項目照改。
 - **整合沒在跑時的新項目（技術類）**：Disabled 時新事件、新檢查建成停用，記進 `suspendedActive`，恢復時照常打開；不改整合的開關。
 - **A67 造法**：`IntegrationReconciler.ReconcileAsync` 改 `virtual`，測試注入套用時丟例外的替身；套用端把調和的例外接成 warning。
 - **A3b 偏離（行為類代做待確認）**：甲在進銷存頁套完主檔後，乙用 CRM 頁的舊 token 套用，CRM 自己沒有新版時回 409 `upgradeUnavailable`（「已是最新」，同 M5 的既有行為：畫面依代碼重新預覽、收起舊清單），不是 `upgradeStale`；CRM 自己也有新版時 token 不同才回 `upgradeStale`。兩者畫面都會重新預覽。選錯的代價：訊息文字是「已是最新」而非「內容已變更」。
 - **T56 的預設勾選（行為類代做待確認）**：被依賴、上次略過的主檔項目預設不勾；依賴它的應用程式項目預設也改成不勾（否則照預設直接套用會 400）。選錯的代價：管理員要多勾一次。
-- **貢獻的預覽給權（U28）**：既有貢獻上的新欄位，貢獻有讀取權的群組列「可看見」（給權）；套用後新欄位標限定可見、補本應用程式名下的 `FieldGrant`。
+- **貢獻的預覽給權（U28）**：新貢獻與既有貢獻上的新欄位，貢獻權限對應到的群組都列「可看見」（給權，規則同開啟與套用，審查 M2）；套用後新欄位標限定可見、補本應用程式名下的 `FieldGrant`。
 - **已知限制**：已安裝的整合、夥伴暫停時，既有事件改到夥伴模組的部分若更新指令被擋（目標模組停用），套用回 400、整批還原，要等夥伴恢復再更新。
 - **更新頁主檔段（技術類）**：主檔項目以 `master:<主檔 id>/<項目識別>` 併進應用程式的同一份勾選清單（和跨份相依同一個寫法），主檔項目自己的 `dependsOn` 補上同一個前綴，連勾與連帶取消照用 §6.5 的做法；送出時拆回 `items` 與 `masters`，這次列出的每份主檔都帶（沒勾的是空陣列）。主檔的群組代號和應用程式一樣是下拉，改了帶 `masterGroupMap.<主檔 id>` 重新預覽。400 的 `masters.<主檔 id>.items.<項目識別>` 與訊息裡主檔自己的項目識別都換成名稱；`integrationUnbound` 的 `detail`（應用程式 id）換成應用程式名稱。只列上次略過項目的主檔段（T56，版號不變）標題改用 `apps.upgrade.masterSkipped`「共用主檔「○○」1.1.0：上次略過、這次要用到的項目」，不寫「1.1.0 → 1.1.0」。
 - **Demo（§9.6.5 pkg1d2）**：`DemoOldCrm.DerivePartner` 推導往來對象舊版（版號減一、「地址」`partner.address` 的泰文標籤換舊）；CRM 推導另把貢獻欄位「產業」的泰文標籤換舊。`AppOpener.OpenTextAsync` 加 `asMaster`，Demo 在開任何應用程式之前先開往來對象，之後的應用程式直接綁定（不改自動開啟的路徑）。`DemoStructureTests`：CRM 預覽 10 項（9 加貢獻），主檔段只有地址一項；進銷存自己的 `items` 為空、`masters` 有往來對象；往來對象的基準是推導文字。

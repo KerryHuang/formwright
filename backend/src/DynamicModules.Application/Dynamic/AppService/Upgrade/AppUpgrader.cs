@@ -50,7 +50,7 @@ public sealed class AppUpgrader(
     RequestLocale requestLocale, AuditContext audit, IAuditLog auditLog, IMessageCatalog messages,
     IReportRepository reports, ReportDefinitionValidator reportValidator, ICurrentUser user, AppFlowUpgrader flowUpgrader,
     MasterLifecycle lifecycle, MasterGrants masterGrants, IAppPackageRepository packageRows, ISharedMasterRepository shared,
-    Integrations.IntegrationReconciler integrations)
+    Integrations.IntegrationReconciler integrations, IWorkSavepoints savepoints)
 {
     private static readonly IReadOnlyDictionary<string, long> None = new Dictionary<string, long>();
 
@@ -122,10 +122,24 @@ public sealed class AppUpgrader(
         }
         // 主檔的權限來源有變（新模組、新貢獻），重算有效值（§9.1 第 7 步）
         if (built.Masters.Count > 0 || selected.Any(i => i.Contains('/'))) await lifecycle.RecomputeAsync(ct);
-        // 11. 調和（T52）：主檔與應用程式都套完、最後一次 CommitAsync 之後，只調和這次動到的整合；失敗只進 warnings，不讓套用失敗
+        // 11. 調和（T52）：主檔與應用程式都套完、最後一次 CommitAsync 之後，只調和這次動到的整合；失敗只進 warnings，不讓套用失敗。
+        // 每次包一層 savepoint，失敗回滾到它再記警告：PostgreSQL 交易裡的資料庫錯誤會讓整個交易失效，不回滾就連前面的套用一起丟（審查 S4）
         foreach (var code in touched)
-            try { warnings.AddRange(await integrations.ReconcileAsync(ct, (app.Key, code))); }
-            catch (Exception ex) when (ex is not OperationCanceledException) { warnings.Add($"integration {code}: {ex.Message}"); }
+        {
+            var savepoint = await savepoints.CreateAsync(ct);
+            try
+            {
+                warnings.AddRange(await integrations.ReconcileAsync(ct, (app.Key, code)));
+                await savepoint.ReleaseAsync(ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                await savepoint.RollbackAsync(ct);
+                warnings.Add($"integration {code}: {ex.Message}");
+            }
+        }
+        // 回滾會清掉 change tracker，回應用重新讀的應用程式
+        if (touched.Count > 0) app = (await apps.GetByKeyAsync(app.Key, ct))!;
         return ServiceResult.Success(await builder.BuildAsync(app, withDependents: false, warnings, ct));
     }
 

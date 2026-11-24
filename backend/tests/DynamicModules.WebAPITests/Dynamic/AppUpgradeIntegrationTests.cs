@@ -13,6 +13,7 @@ using DynamicModules.Domain.ValueObjects;
 using DynamicModules.TestSupport;
 using FluentAssertions;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using static DynamicModules.WebAPITests.Dynamic.ApiTestKit;
 
@@ -228,6 +229,91 @@ public class AppUpgradeIntegrationTests : IDisposable
         Db(db => db.Set<ModuleEvent>().Single(e => e.Key == Cancel).Active).Should().BeTrue();
     }
 
+    /// <summary>
+    /// 審查 S5：舊版宣告的「出貨品項」參照的是倉庫（安裝出來的欄位也是），新版改回參照品項。客戶沒改過，但新版改了參照對象，
+    /// 套用必定 itemConflict；預覽要先用新宣告試走同一份判斷，標 integrationConflict、不能勾。
+    /// </summary>
+    [Fact]
+    public async Task NewDeclarationChangesAnInstalledFieldsTarget_IsIntegrationConflictInThePreview_S5()
+    {
+        await OpenInventoryAsync();
+        await OpenMesAsync();
+        OldMes();
+        Db(db =>
+        {
+            var mes = db.Set<App>().Single(a => a.Key == "mes");
+            void Swap(JsonNode decl)
+            {
+                var fields = decl["fields"]!.AsArray();
+                fields.Single(f => (string?)f!["code"] == "stockItem")!["config"]!["refTarget"] =
+                    fields.Single(f => (string?)f!["code"] == "stockWarehouse")!["config"]!["refTarget"]!.DeepClone();
+            }
+            var list = JsonNode.Parse(mes.IntegrationsJson!)!.AsArray();
+            Swap(list.Single(d => (string?)d!["code"] == "stockOut")!);
+            mes.IntegrationsJson = list.ToJsonString();
+            var baseline = db.Set<AppBaseline>().Single(b => b.AppId == mes.Id);
+            var node = JsonNode.Parse(baseline.PackageJson)!;
+            Swap(node["integrations"]!.AsArray().Single(d => (string?)d!["code"] == "stockOut")!);
+            baseline.PackageJson = node.ToJsonString();
+            var items = IntegrationItems.Parse(db.Set<AppIntegration>().Single(x => x.AppId == mes.Id && x.Code == "stockOut").ItemsJson);
+            var (itemId, warehouseId) = (items.Fields.Single(f => f.Code == "stockItem").FieldId, items.Fields.Single(f => f.Code == "stockWarehouse").FieldId);
+            var item = db.Set<Field>().Single(f => f.Id == itemId);
+            item.Config = item.Config with { RefTarget = db.Set<Field>().Single(f => f.Id == warehouseId).Config.RefTarget };
+            return 0;
+        });
+
+        var preview = await PreviewAsync();
+        var row = Item(preview, "integration:stockOut");
+        row.GetProperty("applicable").GetBoolean().Should().BeFalse(row.ToString());
+        row.GetProperty("reason").GetString().Should().Be("integrationConflict");
+    }
+
+    /// <summary>
+    /// 審查 S7（主控裁決待使用者確認）：舊版多登記一個事件「舊出貨」（已安裝、啟用），新版宣告拿掉它。預覽的影響說明列出它；
+    /// 套用後它取消登記並停用（不刪），不會和新事件一起觸發。
+    /// </summary>
+    [Fact]
+    public async Task EventDroppedByTheNewDeclaration_IsDeactivated_S7()
+    {
+        const string Legacy = "mes-stock-out-legacy";
+        await OpenInventoryAsync();
+        await OpenMesAsync();
+        OldMes();
+        Db(db =>
+        {
+            var mes = db.Set<App>().Single(a => a.Key == "mes");
+            void AddLegacy(JsonNode decl)
+            {
+                var events = decl["events"]!.AsArray();
+                var copy = events.Single(e => (string?)e!["code"] == Cancel)!.DeepClone();
+                copy["code"] = Legacy;
+                events.Add(copy);
+            }
+            var list = JsonNode.Parse(mes.IntegrationsJson!)!.AsArray();
+            AddLegacy(list.Single(d => (string?)d!["code"] == "stockOut")!);
+            mes.IntegrationsJson = list.ToJsonString();
+            var baseline = db.Set<AppBaseline>().Single(b => b.AppId == mes.Id);
+            var node = JsonNode.Parse(baseline.PackageJson)!;
+            AddLegacy(node["integrations"]!.AsArray().Single(d => (string?)d!["code"] == "stockOut")!);
+            baseline.PackageJson = node.ToJsonString();
+            var source = db.Set<ModuleEvent>().AsNoTracking().Single(e => e.Key == Cancel);
+            source.Id = 0;
+            source.Key = Legacy;
+            source.Active = true;
+            db.Set<ModuleEvent>().Add(source);
+            var row = db.Set<AppIntegration>().Single(x => x.AppId == mes.Id && x.Code == "stockOut");
+            var items = IntegrationItems.Parse(row.ItemsJson);
+            row.ItemsJson = (items with { Events = [.. items.Events, Legacy] }).ToJson();
+            return 0;
+        });
+
+        var impacts = Item(await PreviewAsync(), "integration:stockOut").GetProperty("impacts").EnumerateArray().ToList();
+        impacts.Should().Contain(i => i.GetProperty("code").GetString() == "integrationItemsRetired" && i.GetProperty("detail").GetString()!.Contains(Legacy));
+        await ApplyIntegrationAsync();
+        IntegrationItems.Parse(Row().ItemsJson).Events.Should().NotContain(Legacy);
+        Db(db => db.Set<ModuleEvent>().Single(e => e.Key == Legacy).Active).Should().BeFalse("宣告拿掉的事件停用、不刪");
+    }
+
     /// <summary>A66 第三格（T51）：進銷存已開，新版宣告引用進銷存還沒有的模組 → integrationUnbound、detail 是 inventory、不能勾。</summary>
     [Fact]
     public async Task PartnerLacksAModuleOfTheNewDeclaration_IsIntegrationUnbound_A66()
@@ -252,6 +338,7 @@ public class AppUpgradeIntegrationTests : IDisposable
     /// <summary>
     /// A67（T52）：套用時調和失敗 → 200、warnings 帶失敗，版號、基準、略過紀錄已換成新版。
     /// 造法（設計 A67 表後二選一）：ReconcileAsync 改成 virtual，注入只在套用時丟例外的替身。
+    /// 審查 S4：替身丟例外前先寫一筆（整合列的原因），每次調和包在 savepoint 裡，這筆半套的寫入要回滾掉。
     /// </summary>
     [Fact]
     public async Task ReconcileFails_ApplyStillSucceeds_WithAWarning_A67()
@@ -272,6 +359,7 @@ public class AppUpgradeIntegrationTests : IDisposable
         var builtIn = test.Db(db => db.Set<App>().Single(a => a.Key == "mes").PackageVersion);
         builtIn.Should().NotBe("1.0.0", "調和在最後一次 CommitAsync 之後，版號已換新");
         test.Db(db => db.Set<AppBaseline>().Single(b => b.AppId == db.Set<App>().Single(a => a.Key == "mes").Id).PackageJson).Should().NotContain(OldMessage);
+        test.Db(db => db.Set<AppIntegration>().Any(r => r.Reason == FailingReconciler.HalfDone)).Should().BeFalse("調和失敗回滾到 savepoint（審查 S4）");
     }
 
     private sealed class FailingReconciler(
@@ -280,8 +368,16 @@ public class AppUpgradeIntegrationTests : IDisposable
         : IntegrationReconciler(apps, modules, events, checks, sender, uow, savepoints, user, time, requestLocale)
     {
         public static volatile bool Armed;
+        public const string HalfDone = "half-done";
+        private readonly IAppRepository _apps = apps;
+        private readonly IUnitOfWork _uow = uow;
 
-        public override Task<List<string>> ReconcileAsync(CancellationToken ct, (string AppKey, string Code)? only = null, bool retry = false) =>
-            Armed ? throw new InvalidOperationException("reconcile failed") : base.ReconcileAsync(ct, only, retry);
+        public override async Task<List<string>> ReconcileAsync(CancellationToken ct, (string AppKey, string Code)? only = null, bool retry = false)
+        {
+            if (!Armed) return await base.ReconcileAsync(ct, only, retry);
+            (await _apps.ListIntegrationsAsync(ct)).First().Reason = HalfDone;
+            await _uow.CommitAsync(ct);
+            throw new InvalidOperationException("reconcile failed");
+        }
     }
 }

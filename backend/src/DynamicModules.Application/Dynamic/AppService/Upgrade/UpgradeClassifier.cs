@@ -32,7 +32,8 @@ public static class UpgradeClassifier
     public const string ImpactRecordsInState = "recordsInState", ImpactInFlightApprovals = "inFlightApprovals",
         // pkg1d1b：只影響之後、會自動啟用任務、會自動開可篩選；Q26 的狀態引用移動與被移除的狀態仍可進入
         ImpactFutureOnly = "futureOnly", ImpactEnablesTasks = "enablesTasks", ImpactAutoFilterable = "autoFilterable",
-        ImpactStateReferenceMoved = "stateReferenceMoved", ImpactRetiredStateReachable = "retiredStateReachable";
+        ImpactStateReferenceMoved = "stateReferenceMoved", ImpactRetiredStateReachable = "retiredStateReachable",
+        ImpactIntegrationItemsRetired = "integrationItemsRetired";
 
     public sealed record Result(string Category, bool DefaultSelected, bool Applicable, string? Reason, List<UpgradeProperty> Properties);
 
