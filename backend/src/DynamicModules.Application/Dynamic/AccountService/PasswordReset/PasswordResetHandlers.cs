@@ -152,13 +152,15 @@ public sealed class ResetLinkGate(TimeProvider time)
 
 /// <summary>
 /// 任何路徑改了密碼之後（§7.1 第 7 點；本人改、管理員設暫時密碼、用連結重設、啟動救援）：同交易作廢未用的重設權杖、取消還沒寄的重設信，
-/// Email 已驗證時寫「密碼已變更」通知（au1-4、Q5）。驗證 Email 的連結不受影響（密碼和 Email 無關）。
+/// Email 已驗證時寫「密碼已變更」通知（au1-4、Q5）；刪掉記住的裝置（§8.5，清理用）。驗證 Email 的連結不受影響（密碼和 Email 無關）。
 /// </summary>
-public sealed class PasswordChangeEffects(AccountMailWriter writer)
+public sealed class PasswordChangeEffects(AccountMailWriter writer, ITwoFactorRepository twoFactor)
 {
     public async Task ApplyAsync(AppUser user, string locale, CancellationToken ct)
     {
         await writer.CancelLinksAsync(user.UserId, AccountToken.PasswordChanged, AccountToken.PasswordReset, ct);
+        // 記住的裝置隨換 stamp 失效（§8.5）；這裡刪列只是清理，不靠它判斷
+        await twoFactor.DeleteTrustedDevicesAsync(user.UserId, ct);
         if (user.Email is { } email && user.EmailVerifiedUtc is not null) writer.Enqueue(MailKinds.PasswordChanged, user.UserId, email, locale);
     }
 }

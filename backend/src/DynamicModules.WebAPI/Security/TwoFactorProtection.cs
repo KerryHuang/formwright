@@ -71,3 +71,23 @@ public static class SecondStepCookie
         HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = ctx.Request.IsHttps, Path = Path, Expires = expires, IsEssential = true,
     };
 }
+
+/// <summary>
+/// 記住這台裝置的 cookie（帳號安全設計 §8.5）：明文隨機值、HttpOnly、SameSite=Strict、Secure 比照 session cookie（同一個請求是 https 才加）、
+/// Path 限 <c>/api/v3/dynamic/auth</c>（只有登入端點收得到）、到期＝建立時間＋政策天數。資料庫只存雜湊。
+/// </summary>
+public static class DeviceCookie
+{
+    public const string Name = "fw.device";
+    public const string Path = "/api/v3/dynamic/auth";
+
+    public static void Issue(HttpContext ctx, string value, DateTime expiresUtc) =>
+        ctx.Response.Cookies.Append(Name, value, Options(ctx, new DateTimeOffset(DateTime.SpecifyKind(expiresUtc, DateTimeKind.Utc))));
+
+    public static string? Read(HttpContext ctx) => ctx.Request.Cookies.TryGetValue(Name, out var v) ? v : null;
+
+    private static CookieOptions Options(HttpContext ctx, DateTimeOffset? expires) => new()
+    {
+        HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = ctx.Request.IsHttps, Path = Path, Expires = expires, IsEssential = true,
+    };
+}

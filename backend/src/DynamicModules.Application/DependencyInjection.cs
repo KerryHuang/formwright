@@ -230,12 +230,15 @@ public static class DependencyInjection
         services.AddScoped<Dynamic.AccountService.PasswordReset.PasswordChangeEffects>();
         services.AddScoped<Dynamic.AccountService.PasswordReset.PasswordResetAvailability>();
         services.AddScoped<Common.Security.IReauthVerifier, Common.Security.ReauthVerifier>();
-        // 雙因素（帳號安全設計 §8）：第二步憑證次數在記憶體（單一實例）；強制政策 au1c2 換掉 ITwoFactorRequirement
+        // 雙因素（帳號安全設計 §8）：第二步憑證次數在記憶體（單一實例）；強制政策與記住的裝置（au1c2，§8.5、§8.7）
         services.AddScoped<Common.Security.SecondFactorVerifier>();
         services.AddSingleton<Common.Security.SecondStepTickets>();
         services.AddScoped<Dynamic.AccountService.TwoFactor.TwoFactorState>();
         services.AddScoped<Dynamic.AccountService.TwoFactor.DemoTwoFactorHints>();
-        services.AddScoped<Dynamic.AccountService.TwoFactor.ITwoFactorRequirement, Dynamic.AccountService.TwoFactor.OptionalTwoFactorRequirement>();
+        services.AddScoped<Dynamic.AccountService.TwoFactor.TwoFactorEnforcement>();
+        services.AddScoped<Dynamic.AccountService.TwoFactor.ITwoFactorRequirement, Dynamic.AccountService.TwoFactor.PolicyTwoFactorRequirement>();
+        services.AddScoped<Dynamic.AccountService.TwoFactor.TrustedDevices>();
+        services.AddScoped<Dynamic.PolicyService.IPolicyChangeHook, Dynamic.AccountService.TwoFactor.TwoFactorPolicyChangeHook>();
         services.AddScoped<Dynamic.NotificationService.INotificationReminderSource, Dynamic.ApprovalService.ApprovalReminderSource>();
         services.AddScoped<Dynamic.TaskRuleService.TaskRuleValidator>();
         services.AddScoped<Dynamic.TaskRuleService.TaskRuleEditor>();

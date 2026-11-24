@@ -17,10 +17,11 @@ namespace DynamicModules.Application.Dynamic.AccountService.Commands.DemoLogin;
 /// </summary>
 public class DemoLoginHandler(
     AuthSettings settings, IAccountRepository accounts, IUnitOfWork uow, LoginThrottle throttle, IAuditLog audit, TwoFactor.DemoTwoFactorHints hints,
-    TimeProvider time, ILogger<DemoLoginHandler> logger)
+    TwoFactor.TrustedDevices devices, ISender sender, TimeProvider time, ILogger<DemoLoginHandler> logger)
     : IRequestHandler<DemoLoginRequest, ServiceResult>
 {
     private static readonly string? Method = new AuditSummary().Add("method", "demo").ToJson();
+    private static readonly string? DeviceMethod = new AuditSummary().Add("method", "demo+device").ToJson();
 
     public async Task<ServiceResult> Handle(DemoLoginRequest request, CancellationToken ct)
     {
@@ -38,7 +39,7 @@ public class DemoLoginHandler(
         ServiceResult result;
         try
         {
-            result = await AttemptAsync(userId, ct);
+            result = await AttemptAsync(userId, request.DeviceToken, ct);
         }
         catch
         {
@@ -51,7 +52,7 @@ public class DemoLoginHandler(
         return result;
     }
 
-    private async Task<ServiceResult> AttemptAsync(string userId, CancellationToken ct)
+    private async Task<ServiceResult> AttemptAsync(string userId, string? deviceToken, CancellationToken ct)
     {
         var user = await accounts.GetTrackedAsync(userId, ct);
         if (user is null || !user.IsActive || !(user.IsDemoAccount || user.UserId == "admin"))
@@ -68,6 +69,21 @@ public class DemoLoginHandler(
         // 已啟用雙因素的示範帳號（mfa01）同樣走第二步（§8.3 第 8 點），提示目前的驗證碼與一組復原碼（§13.4）
         if (user.TotpEnabledUtc is not null)
         {
+            // 記住這台裝置（§8.5、§13.5 示範路徑）：有效就不問驗證碼
+            if (await devices.ValidAsync(user, deviceToken, ct) is { } device)
+            {
+                try
+                {
+                    await sender.Send(new TwoFactor.TouchTrustedDeviceRequest(device.Id), ct);
+                }
+                catch (Exception e) when (e is not OperationCanceledException)
+                {
+                    logger.LogWarning(e, "記住的裝置 {DeviceId} 的最近使用時間寫入失敗", device.Id);
+                }
+                logger.LogInformation("帳號 {UserId} 以記住的裝置一鍵登入成功", user.UserId);
+                await audit.TryWriteNowAsync(SignInAudit.Succeeded(user.UserId, user.DisplayName, DeviceMethod), ct);
+                return ServiceResult.Success(new AuthUserResponse(user.UserId, user.DisplayName, false, user.SecurityStamp));
+            }
             logger.LogInformation("帳號 {UserId} 一鍵登入進入雙因素第二步", user.UserId);
             var ticket = new SecondStepTicket(user.UserId, user.SecurityStamp, time.GetUtcNow().UtcDateTime, SecondStepTickets.NewNonce());
             return ServiceResult.Success(new TwoFactor.TwoFactorChallenge(ticket, await hints.ForAsync(user.UserId, ct)));

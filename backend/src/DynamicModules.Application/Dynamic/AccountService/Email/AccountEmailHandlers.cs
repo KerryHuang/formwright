@@ -18,9 +18,13 @@ namespace DynamicModules.Application.Dynamic.AccountService.Email;
 /// <summary>Email 的狀態；<paramref name="MailAvailable"/> 為否時畫面顯示「未驗證（系統目前寄不出驗證信）」。</summary>
 public sealed record AccountEmailResponse(string? Email, bool EmailVerified, bool MailAvailable);
 
-/// <summary>「帳號安全」頁（§12）：Email、密碼、雙因素三張卡（記住的裝置 au1c2）；<paramref name="CanChangeEmail"/>＝帳號有密碼（改 Email 要重新輸入密碼）。</summary>
+/// <summary>
+/// 「帳號安全」頁（§12）：Email、密碼、雙因素、記住的裝置四張卡；<paramref name="CanChangeEmail"/>＝帳號有密碼（改 Email 要重新輸入密碼）；
+/// <paramref name="TrustedDevices"/> 是目前有效的記住的裝置，<paramref name="TrustedDevicesBlocked"/> 為 <c>demoSite</c> 時不能「全部取消記住」。
+/// </summary>
 public sealed record AccountSecurityResponse(string UserId, string? Email, bool EmailVerified, bool MailAvailable, bool CanChangeEmail,
-    TwoFactor.TwoFactorStatusResponse? TwoFactor = null);
+    TwoFactor.TwoFactorStatusResponse? TwoFactor = null, IReadOnlyList<TwoFactor.TrustedDeviceResponse>? TrustedDevices = null,
+    string? TrustedDevicesBlocked = null);
 
 /// <summary>帳號信寄得出去：Demo 站（收件匣）、或寄信設定已設好且密碼解得開、站台網址有設（§6.4、§7.4）。</summary>
 public sealed class AccountMailAvailability(IMailSettingsRepository mailSettings, IAlertSecretProtector protector, AlertMailOptions site, AuthSettings auth)
@@ -198,7 +202,8 @@ public sealed class ListMailOutboxHandler(IMailOutboxRepository outbox, AccountM
 public sealed record GetMySecurityRequest : IRequest<ServiceResult>;
 
 public sealed class GetMySecurityHandler(
-    ICurrentUser current, IAccountRepository accounts, AccountMailAvailability availability, TwoFactor.TwoFactorState twoFactor)
+    ICurrentUser current, IAccountRepository accounts, AccountMailAvailability availability, TwoFactor.TwoFactorState twoFactor,
+    TwoFactor.TrustedDevices devices, AuthSettings auth)
     : IRequestHandler<GetMySecurityRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(GetMySecurityRequest r, CancellationToken ct)
@@ -206,7 +211,9 @@ public sealed class GetMySecurityHandler(
         var user = await accounts.GetTrackedAsync(current.UserId, ct);
         if (user is null) return ServiceResult.NotFound(MessageRef.Of(MessageText.UserNotFound));
         return ServiceResult.Success(new AccountSecurityResponse(user.UserId, user.Email, user.EmailVerifiedUtc is not null,
-            await availability.IsAvailableAsync(ct), user.PasswordHash is not null, await twoFactor.ForAsync(user, ct)));
+            await availability.IsAvailableAsync(ct), user.PasswordHash is not null, await twoFactor.ForAsync(user, ct),
+            (await devices.ListValidAsync(user, ct)).Select(d => new TwoFactor.TrustedDeviceResponse(d.Label, d.CreatedUtc, d.LastUsedUtc)).ToList(),
+            auth.DemoLoginEnabled ? TwoFactor.TwoFactorErrors.DemoSiteCode : null));
     }
 }
 

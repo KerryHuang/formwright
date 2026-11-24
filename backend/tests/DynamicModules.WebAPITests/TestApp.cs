@@ -7,6 +7,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using DynamicModules.Application.Common.Acting;
 using DynamicModules.Application.Common.Time;
+using DynamicModules.Application.Dynamic.PolicyService;
+using DynamicModules.Domain.Policies;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
@@ -139,6 +141,12 @@ public class TestApp : WebApplicationFactory<Program>
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
+    /// <summary>
+    /// 強制雙因素用程式出廠值（選用模式但系統管理員強制，帳號安全設計 §8.7）。預設 false：測試主機把 <c>auth.twoFactorRequireAdmins</c> 的部署出廠值設成否，
+    /// 既有測試的 admin 不必先綁定雙因素；測強制政策的類別設 true。要在第一次用到 host 之前設定。
+    /// </summary>
+    internal bool TwoFactorFactoryPolicy { get; set; }
+
     /// <summary>在 <c>ConfigureServices</c> 末尾執行的服務替換（要在第一次用到 host 之前設定；例如把簽核擋門換成開啟版）。預設 null，既有測試不受影響。</summary>
     internal Action<IServiceCollection>? ExtraServices { get; set; }
 
@@ -187,6 +195,8 @@ public class TestApp : WebApplicationFactory<Program>
             foreach (var d in s.Where(d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(DynamicModules.WebAPI.Ops.IncidentInboxFlusher)).ToList())
                 s.Remove(d);
             s.AddTestEntities();
+            if (!TwoFactorFactoryPolicy && s.LastOrDefault(d => d.ServiceType == typeof(PolicyEnvironmentDefaults))?.ImplementationInstance is PolicyEnvironmentDefaults defaults)
+                s.AddSingleton(defaults.WithForTests(PolicyCatalog.AuthTwoFactorRequireAdmins.Code, "false"));
             s.RemoveAll<TimeProvider>();
             s.AddSingleton<TimeProvider>(Time);
             if (!_realAuth)

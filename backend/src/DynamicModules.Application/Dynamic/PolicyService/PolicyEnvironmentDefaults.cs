@@ -38,6 +38,10 @@ public sealed class PolicyEnvironmentDefaults(IReadOnlyDictionary<string, string
 
     private readonly ConcurrentDictionary<string, string> _resolved = new(StringComparer.Ordinal);
 
+    /// <summary>只給測試：多一項（或蓋掉一項）部署出廠值，其餘照舊。</summary>
+    public PolicyEnvironmentDefaults WithForTests(string code, string value) =>
+        new(new Dictionary<string, string>(values, StringComparer.Ordinal) { [code] = value }, logger);
+
     /// <summary>部署值經 <see cref="PolicyDefinition.Normalize"/>；不合法（非數字、超出技術上下限等）退回程式出廠值並記一次 Warning。</summary>
     public string FactoryOf(PolicyDefinition def) => _resolved.GetOrAdd(def.Code, _ =>
     {

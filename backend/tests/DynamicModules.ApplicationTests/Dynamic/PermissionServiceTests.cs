@@ -59,6 +59,8 @@ public class PermissionServiceTests : IAsyncLifetime
         services.AddSingleton<ICurrentUser>(_user);
         services.AddSingleton<IBusinessTime, FakeTime>();
         services.AddSingleton(new AuthSettings(false));
+        // GET /me 讀強制雙因素的判定（帳號安全設計 §8.7）
+        services.AddSingleton(new DynamicModules.Application.Common.Security.KeyPersistenceStatus(true, false));
         _sp = services.BuildServiceProvider();
     }
 

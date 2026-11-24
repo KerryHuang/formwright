@@ -445,6 +445,25 @@ public class TwoFactorAccountTests
         (await Me(c)).Should().Be(HttpStatusCode.OK);
     }
 
+    /// <summary>Demo 走查「成功：記住這台裝置」（§13.4，au1c2）：mfa01 第二步勾記住 → 登出 → 再點 mfa01 → 不再問驗證碼，稽核 demo+device。</summary>
+    [Fact]
+    public async Task Demo_Mfa01_RememberDevice_NextDemoLoginSkipsSecondStep()
+    {
+        using var build = DemoApp();
+        await SeedMfa(build);
+        using var site = DemoApp(build.ConnectionString);
+        var c = Client(site);
+        var hint = (await Json(await DemoLogin(c, DemoAccounts.MfaUser))).GetProperty("demoHint");
+        var second = await c.PostAsJsonAsync($"{Auth}/two-factor", new { code = hint.GetProperty("code").GetString(), rememberDevice = true, deviceLabel = "Firefox 133／Linux" });
+        second.StatusCode.Should().Be(HttpStatusCode.OK);
+        await c.PostAsync($"{Auth}/logout", null);
+        var again = await Json(await DemoLogin(c, DemoAccounts.MfaUser));
+        again.TryGetProperty("twoFactorRequired", out _).Should().BeFalse();
+        again.GetProperty("userId").GetString().Should().Be(DemoAccounts.MfaUser);
+        (await Audits(site, "login.succeeded")).Select(a => JsonDocument.Parse(a.SummaryJson!).RootElement.GetProperty("method").GetString())
+            .Should().Contain("demo+device");
+    }
+
     /// <summary>F27：Demo 的 mfa01 不檢查重放，三位訪客同一個 30 秒內輸入各自看到的提示碼都成功。F35：連錯 12 次不出現帳號層暫停。</summary>
     [Fact]
     public async Task F27_F35_Demo_ThreeVisitorsSameStepAllSucceed_TwelveWrongNoAccountLock()

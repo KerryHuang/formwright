@@ -12,7 +12,7 @@ public record DemoAccountResponse(string UserId, string DisplayName);
 /// </summary>
 public record AuthOptionsResponse(
     bool DemoLoginEnabled, bool DemoGenerating, List<DemoAccountResponse> DemoAccounts, string DefaultLocale, IReadOnlyList<string> EnabledLocales,
-    IReadOnlyList<Common.LocaleInfoResponse> Locales, string PasswordReset, int PasswordMinLength);
+    IReadOnlyList<Common.LocaleInfoResponse> Locales, string PasswordReset, int PasswordMinLength, int RememberDeviceDays = 0);
 
 /// <summary>系統管理 → 使用者的一列；不含密碼雜湊與 SecurityStamp。</summary>
 public record AdminUserResponse(

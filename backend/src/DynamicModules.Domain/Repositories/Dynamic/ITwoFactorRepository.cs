@@ -1,3 +1,4 @@
+using DynamicModules.Domain.Accounts;
 using DynamicModules.Domain.Entities.Dynamic;
 
 namespace DynamicModules.Domain.Repositories.Dynamic;
@@ -43,9 +44,43 @@ public interface ITwoFactorRepository
     /// <summary>刪掉這個帳號全部記住的裝置（清理用，失效靠換 SecurityStamp，§8.5）。</summary>
     Task DeleteTrustedDevicesAsync(string userId, CancellationToken ct);
 
+    // ── 記住這台裝置（§8.5）──
+
+    /// <summary>依裝置 cookie 的雜湊找記住的裝置（不追蹤）；有效與否由呼叫端判斷（stamp、到期、目前政策天數）。</summary>
+    Task<TrustedDevice?> FindTrustedDeviceAsync(string tokenHash, CancellationToken ct);
+
+    /// <summary>記最近使用時間（呼叫端交易內的 <c>ExecuteUpdate</c>）。</summary>
+    Task TouchTrustedDeviceAsync(long id, DateTime nowUtc, CancellationToken ct);
+
+    /// <summary>新增一台（呼叫端提交）；這個帳號已有 <paramref name="maxPerUser"/> 台以上時先刪最舊的，加上這台剛好是上限（T30）。</summary>
+    Task AddTrustedDeviceAsync(TrustedDevice device, int maxPerUser, CancellationToken ct);
+
+    /// <summary>這個帳號記住的裝置（不追蹤，最近使用的在前）；呼叫端再依 stamp 與政策天數過濾。</summary>
+    Task<List<TrustedDevice>> ListTrustedDevicesAsync(string userId, CancellationToken ct);
+
+    // ── 強制政策（§8.7）──
+
+    /// <summary>
+    /// Session 檢查的一次查詢（§8.7：同一次依主鍵的查詢，<c>groups</c> 模式多一個群組成員的 EXISTS 子查詢）；帳號不存在回 null。
+    /// </summary>
+    Task<SessionUserState?> SessionStateAsync(string userId, TwoFactorScope scope, CancellationToken ct);
+
+    /// <summary>寬限起點：沒啟用、還沒記過才寫（條件式 <c>ExecuteUpdate</c>，呼叫端交易內）。</summary>
+    Task StartGraceAsync(string userId, DateTime nowUtc, CancellationToken ct);
+
+    /// <summary>清掉寬限起點（離開強制範圍；呼叫端交易內）。</summary>
+    Task ClearGraceAsync(string userId, CancellationToken ct);
+
+    /// <summary>存強制政策時（F40）：還沒啟用、有寬限起點、不在新範圍內的帳號一次清掉起點（和 <see cref="SessionStateAsync"/> 同一個範圍條件；呼叫端交易內）。</summary>
+    Task<int> ClearGraceOutsideAsync(TwoFactorScope scope, CancellationToken ct);
+
     /// <summary>有已啟用金鑰的帳號（keysMayBeLost 偵測用，§8.7）。</summary>
     Task<bool> AnyProtectedSecretAsync(CancellationToken ct);
 
     /// <summary>使用者管理清單的雙因素欄：已啟用帳號的金鑰密文（不追蹤）。</summary>
     Task<Dictionary<string, string?>> EnabledSecretsAsync(CancellationToken ct);
 }
+
+/// <summary>Session 檢查需要的帳號欄位與強制範圍判定（§8.7）。</summary>
+public sealed record SessionUserState(
+    bool IsActive, string SecurityStamp, bool MustChangePassword, bool TwoFactorEnabled, DateTime? GraceStartUtc, bool InScope);

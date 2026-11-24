@@ -464,5 +464,14 @@ public class TwoFactorLoginTests
         public Task DeleteTrustedDevicesAsync(string userId, CancellationToken ct) => inner.DeleteTrustedDevicesAsync(userId, ct);
         public Task<bool> AnyProtectedSecretAsync(CancellationToken ct) => inner.AnyProtectedSecretAsync(ct);
         public Task<Dictionary<string, string?>> EnabledSecretsAsync(CancellationToken ct) => inner.EnabledSecretsAsync(ct);
+        public Task<TrustedDevice?> FindTrustedDeviceAsync(string tokenHash, CancellationToken ct) => inner.FindTrustedDeviceAsync(tokenHash, ct);
+        public Task TouchTrustedDeviceAsync(long id, DateTime nowUtc, CancellationToken ct) => inner.TouchTrustedDeviceAsync(id, nowUtc, ct);
+        public Task AddTrustedDeviceAsync(TrustedDevice device, int maxPerUser, CancellationToken ct) => inner.AddTrustedDeviceAsync(device, maxPerUser, ct);
+        public Task<List<TrustedDevice>> ListTrustedDevicesAsync(string userId, CancellationToken ct) => inner.ListTrustedDevicesAsync(userId, ct);
+        public Task<SessionUserState?> SessionStateAsync(string userId, DynamicModules.Domain.Accounts.TwoFactorScope scope, CancellationToken ct) =>
+            inner.SessionStateAsync(userId, scope, ct);
+        public Task StartGraceAsync(string userId, DateTime nowUtc, CancellationToken ct) => inner.StartGraceAsync(userId, nowUtc, ct);
+        public Task ClearGraceAsync(string userId, CancellationToken ct) => inner.ClearGraceAsync(userId, ct);
+        public Task<int> ClearGraceOutsideAsync(DynamicModules.Domain.Accounts.TwoFactorScope scope, CancellationToken ct) => inner.ClearGraceOutsideAsync(scope, ct);
     }
 }

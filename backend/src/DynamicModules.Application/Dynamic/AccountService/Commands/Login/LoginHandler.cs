@@ -11,11 +11,11 @@ namespace DynamicModules.Application.Dynamic.AccountService.Commands.Login;
 
 public class LoginHandler(
     IAccountRepository accounts, IPasswordService passwords, IUnitOfWork uow, TimeProvider time, LoginThrottle throttle, IAuditLog audit,
-    TwoFactor.DemoTwoFactorHints hints, ILogger<LoginHandler> logger)
+    TwoFactor.DemoTwoFactorHints hints, TwoFactor.TrustedDevices devices, ISender sender, ILogger<LoginHandler> logger)
     : IRequestHandler<LoginRequest, ServiceResult>
 {
     /// <summary>一次登入嘗試的結果與稽核內容；<see cref="Throttled"/> 的不逐筆寫稽核（O2-T3）。</summary>
-    private sealed record Outcome(ServiceResult Result, string? UserId, string? Reason, bool Throttled = false)
+    private sealed record Outcome(ServiceResult Result, string? UserId, string? Reason, bool Throttled = false, string? MethodJson = null)
     {
         /// <summary>密碼正確、帳號已啟用雙因素：不算成功也不算失敗（複審 N1），歸還名額、不寫稽核，等第二步結算（帳號安全設計 §8.3）。</summary>
         public bool SecondStep => Result.Data is TwoFactor.TwoFactorChallenge;
@@ -40,12 +40,13 @@ public class LoginHandler(
         // 寫不進稽核不擋登入（§5.6）：TryWriteNowAsync 只記 Error log。
         // 行為者明確傳入剛驗證的帳號（失敗為 null），不從請求帶的舊 cookie 取（維運設計 §17.2.1）
         await audit.TryWriteNowAsync(outcome.Result.Data is AuthUserResponse ok
-            ? SignInAudit.Succeeded(ok.UserId, ok.DisplayName, Method)
+            ? SignInAudit.Succeeded(ok.UserId, ok.DisplayName, outcome.MethodJson ?? Method)
             : SignInAudit.Failed(outcome.UserId, outcome.Reason, Method), ct);
         return outcome.Result;
     }
 
     private static readonly string? Method = new AuditSummary().Add("method", "password").ToJson();
+    private static readonly string? DeviceMethod = new AuditSummary().Add("method", "password+device").ToJson();
 
     private async Task<Outcome> AttemptAsync(LoginRequest request, CancellationToken ct)
     {
@@ -62,7 +63,7 @@ public class LoginHandler(
             Outcome result;
             try
             {
-                result = await LoginAsync(userId, request.Password ?? "", ct);
+                result = await LoginAsync(userId, request.Password ?? "", request.DeviceToken, ct);
             }
             catch
             {
@@ -80,7 +81,7 @@ public class LoginHandler(
         }
     }
 
-    private async Task<Outcome> LoginAsync(string userId, string password, CancellationToken ct)
+    private async Task<Outcome> LoginAsync(string userId, string password, string? deviceToken, CancellationToken ct)
     {
         var user = await accounts.GetTrackedAsync(userId, ct);
         if (user is null) return Fail(null, "帳號不存在", "unknownAccount", password);
@@ -114,12 +115,33 @@ public class LoginHandler(
         // 「密碼正確即成功」在有雙因素時改成「第二步通過才成功」（§16 第 12 點）：發第二步憑證，不發 session
         if (user.TotpEnabledUtc is not null)
         {
+            // 記住的裝置有效就不問驗證碼（§8.5）：不看帳號層暫停（複審建議 3，刻意的取捨）；密碼那一次照常 Complete(true)
+            if (await devices.ValidAsync(user, deviceToken, ct) is { } device)
+            {
+                await TouchAsync(device.Id, ct);
+                logger.LogInformation("帳號 {UserId} 以記住的裝置登入成功", user.UserId);
+                return new Outcome(ServiceResult.Success(new AuthUserResponse(user.UserId, user.DisplayName, user.MustChangePassword, user.SecurityStamp)),
+                    user.UserId, null, MethodJson: DeviceMethod);
+            }
             logger.LogInformation("帳號 {UserId} 密碼正確，進入雙因素第二步", user.UserId);
             var ticket = new SecondStepTicket(user.UserId, user.SecurityStamp, now.UtcDateTime, SecondStepTickets.NewNonce());
             return new Outcome(ServiceResult.Success(new TwoFactor.TwoFactorChallenge(ticket, await hints.ForAsync(user.UserId, ct))), user.UserId, null);
         }
         logger.LogInformation("帳號 {UserId} 登入成功", user.UserId);
         return new Outcome(ServiceResult.Success(new AuthUserResponse(user.UserId, user.DisplayName, user.MustChangePassword, user.SecurityStamp)), user.UserId, null);
+    }
+
+    /// <summary>最近使用時間只是顯示用：寫不進去（資料庫忙碌等）記 Warning，不擋登入。</summary>
+    private async Task TouchAsync(long deviceId, CancellationToken ct)
+    {
+        try
+        {
+            await sender.Send(new TwoFactor.TouchTrustedDeviceRequest(deviceId), ct);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            logger.LogWarning(e, "記住的裝置 {DeviceId} 的最近使用時間寫入失敗", deviceId);
+        }
     }
 
     private static int StripeOf(string userId)
