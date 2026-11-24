@@ -559,6 +559,46 @@ public class AccountMailTests
     }
 
     [Fact]
+    public async Task Review_S4_Deactivate_SkipsUnsentLinkMail_RevokesTokens()
+    {
+        using var app = App(new FakeMailSender());
+        await ConfigureMail(app);
+        (await SetEmail(app, "sales01", "a@example.com")).EnsureSuccessStatusCode();
+        var token = await PlantToken(app, "sales01", "a@example.com");
+
+        (await app.AsUser().PostAsync($"{Users}/sales01/deactivate", null)).EnsureSuccessStatusCode();
+
+        var row = (await Rows(app)).Single();
+        row.Status.Should().Be(MailOutboxStatus.Skipped);
+        row.LastError.Should().Be(AccountToken.Deactivated);
+        (await Tokens(app)).Should().OnlyContain(t => t.UsedUtc != null && t.RevokedReason == AccountToken.Deactivated);
+        (await app.AsUser().PostAsync($"{Users}/sales01/activate", null)).EnsureSuccessStatusCode();
+        (await VerifyLink(app, token)).StatusCode.Should().Be(HttpStatusCode.BadRequest, "重新啟用不恢復作廢的連結");
+    }
+
+    [Fact]
+    public async Task Review_S4_VerifyRejects_InactiveAccount_WithUnrevokedToken()
+    {
+        using var app = App(new FakeMailSender());
+        await SetUserRow(app, "sales01", u => { u.Email = "a@example.com"; u.IsActive = false; });
+        var token = await PlantToken(app, "sales01", "a@example.com");
+        (await VerifyLink(app, token)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await User(app, "sales01")).EmailVerifiedUtc.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Review_S4_VerifyRejects_TokenEmailDifferentFromCurrentEmail_EvenIfNotRevoked()
+    {
+        using var app = App(new FakeMailSender());
+        await SetUserRow(app, "sales01", u => u.Email = "b@example.com");
+        var token = await PlantToken(app, "sales01", "a@example.com");
+        (await VerifyLink(app, token)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await User(app, "sales01")).EmailVerifiedUtc.Should().BeNull();
+        var sameIgnoringCase = await PlantToken(app, "sales01", "B@Example.com");
+        (await VerifyLink(app, sameIgnoringCase)).StatusCode.Should().Be(HttpStatusCode.OK, "不分大小寫");
+    }
+
+    [Fact]
     public async Task Review_S5_ResendGate_NotArmedWhenCommitFails()
     {
         var spy = new TxSpy();
