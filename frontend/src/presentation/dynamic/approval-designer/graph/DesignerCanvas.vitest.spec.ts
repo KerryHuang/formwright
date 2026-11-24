@@ -85,10 +85,12 @@ describe('DesignerCanvas', () => {
     expect(w.get('[data-testid="de-zoom-in"]').attributes('aria-label')).toBe('放大');
   });
 
-  it('isValidConnection asks canConnect (J68); a connection is reported, not drawn by the canvas', () => {
+  it('the handles ask canConnect (J68), not the global isValidConnection (that one also re-checks existing edges); strict mode; a connection is reported, not drawn by the canvas', () => {
     const canConnect = vi.fn((from: string, to: string) => from === 'a' && to === 'b');
     const w = mountCanvas(true, undefined, { canConnect });
-    const valid = lastAttrs['is-valid-connection'] as (c: { source: string; target: string }) => boolean;
+    expect(lastAttrs['is-valid-connection']).toBeUndefined();
+    expect(lastAttrs['connection-mode']).toBe('strict');
+    const valid = (w.vm as unknown as { $: { setupState: { validConnection(c: { source: string; target: string }): boolean } } }).$.setupState.validConnection;
     expect(valid({ source: 'a', target: 'b' })).toBe(true);
     expect(valid({ source: 'b', target: 'a' })).toBe(false);
     (lastAttrs.onConnect as (c: { source: string; target: string }) => void)({ source: 'a', target: 'b' });

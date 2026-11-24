@@ -1,17 +1,18 @@
 <script setup lang="ts">
-import { Handle, Position } from '@vue-flow/core';
+import { Handle, Position, type ValidConnectionFunc } from '@vue-flow/core';
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { joinList } from 'src/i18n/translate';
 import type { DesignerNodeData } from './designer-graph';
 
 // 設計頁的節點（J76）。尺寸由外層 Vue Flow 節點的 style 決定（排版檔的常數）；顏色只用語意 token，型別另有圖示與文字（§10.3）。
-const props = defineProps<{ data: DesignerNodeData }>();
+const props = defineProps<{ data: DesignerNodeData; validConnection?: ValidConnectionFunc }>();
 const emit = defineEmits<{ open: [] }>();
 const { t, locale } = useI18n();
 
 // 連線把手（fg3e，J75）：平板以上、有編輯權才顯示；開始沒有入線把手、結束沒有出線把手（§6.2）。
-// 拖曳把手或點把手再點另一個節點的把手（connectOnClick，觸控用）；能不能連由畫布的 isValidConnection（canConnect）判斷。
+// 拖曳把手或點把手再點另一個節點的把手（connectOnClick，觸控用）；能不能連由畫布傳進來的 `validConnection`（canConnect）判斷。
+// 判斷只掛在把手上、不掛 VueFlow 的全域 isValidConnection：全域那個在 Vue Flow 重設 edges 時也會拿來驗既有的線，既有的線會被當成重複連線全部丟掉。
 // 點把手不往上傳成「點節點」：否則平板點出發點時屬性抽屜會蓋住畫布。
 const inHandle = computed(() => props.data.editable && props.data.kind !== 'start');
 const outHandle = computed(() => props.data.editable && props.data.kind !== 'end');
@@ -34,7 +35,7 @@ const summary = computed(() => {
     role="button" tabindex="0" :aria-label="data.ariaLabel" :aria-pressed="data.selected" data-testid="de-node"
     @keydown.enter.prevent="emit('open')" @keydown.space.prevent="emit('open')"
   >
-    <Handle type="target" :position="Position.Left" :connectable="inHandle" class="de-handle" :class="{ 'de-handle-on': inHandle }" data-testid="de-handle-in" @click.stop />
+    <Handle type="target" :position="Position.Left" :connectable="inHandle" :is-valid-connection="validConnection" class="de-handle" :class="{ 'de-handle-on': inHandle }" data-testid="de-handle-in" @click.stop />
     <div class="de-head">
       <q-icon :name="data.icon" size="16px" class="de-kind text-muted" />
       <div class="de-name" data-testid="de-name">{{ data.label }}</div>
@@ -53,7 +54,7 @@ const summary = computed(() => {
       <q-badge v-if="data.errors" color="negative" :label="data.errors" :aria-label="t('approval.designer.graph.errorCount', { n: data.errors })" data-testid="de-errors" />
       <q-badge v-if="data.warnings" color="warning" text-color="dark" :label="data.warnings" :aria-label="t('approval.designer.graph.warningCount', { n: data.warnings })" data-testid="de-warnings" />
     </div>
-    <Handle type="source" :position="Position.Right" :connectable="outHandle" class="de-handle" :class="{ 'de-handle-on': outHandle }" data-testid="de-handle-out" @click.stop />
+    <Handle type="source" :position="Position.Right" :connectable="outHandle" :is-valid-connection="validConnection" class="de-handle" :class="{ 'de-handle-on': outHandle }" data-testid="de-handle-out" @click.stop />
   </div>
 </template>
 

@@ -15,6 +15,8 @@ import { dropPosition, edgeAt, freeSpot, type AddKind, type DesignerEdgeData, ty
 // 平移到某節點、fitView 一律由這裡以 defineExpose 提供（use-graph-designer 不碰 Vue Flow）。
 // 結構編輯（fg3e，J75）：`draggable`（平板以上、有編輯權）同時開拖曳、連線（拖把手或 connectOnClick）與線上「＋」；
 // 能不能連由呼叫端的 `canConnect`（J68）決定，連好、插入都只回報事件，畫布不自己改圖。
+// `canConnect` 只交給節點的把手（DesignerNode），不給 VueFlow 的 is-valid-connection：那個也用來驗 props 傳進來的既有線，會把既有線判成重複而丟掉。
+// 連線用 strict：只能從出線把手拉到入線把手，方向和手冊寫的一致。
 const props = defineProps<{
   canvasId: string; nodes: Node<DesignerNodeData>[]; edges: Edge<DesignerEdgeData>[]; draggable: boolean; initialNodes?: string[];
   canConnect?: (from: string, to: string) => boolean; insertKinds?: { kind: AddKind; disabled: boolean; limit?: boolean }[];
@@ -82,14 +84,14 @@ const editable = computed(() => props.draggable);
   <div ref="root" class="de-canvas" role="group" :aria-label="t('approval.designer.graph.canvasLabel')" data-testid="de-canvas">
     <VueFlow
       :id="canvasId" :nodes="nodes" :edges="edges" :min-zoom="0.2" :max-zoom="1.5" :fit-view-on-init="!initialNodes?.length" :snap-to-grid="true" :snap-grid="[GRID, GRID]"
-      :nodes-draggable="editable" :nodes-connectable="editable" :connect-on-click="editable" :is-valid-connection="validConnection" :elements-selectable="true" :nodes-focusable="false" :edges-focusable="false" :disable-keyboard-a11y="true"
+      :nodes-draggable="editable" :nodes-connectable="editable" :connect-on-click="editable" connection-mode="strict" :elements-selectable="true" :nodes-focusable="false" :edges-focusable="false" :disable-keyboard-a11y="true"
       :zoom-on-scroll="true" :pan-on-scroll="false" :zoom-on-pinch="true" :pan-on-drag="true" :zoom-on-double-click="false" :delete-key-code="null"
       :selection-key-code="null" :multi-selection-key-code="null"
       @node-click="(e) => emit('node-open', e.node.id)" @edge-click="(e) => emit('edge-open', e.edge.id)" @pane-click="emit('pane-click')" @nodes-initialized="fitInitial"
       @node-drag-stop="(e) => emit('node-move', e.node.id, { x: e.node.position.x, y: e.node.position.y })"
       @connect="(c: Connection) => emit('connect', c.source, c.target)" @edge-mouse-enter="(e) => hover(e.edge.id, true)" @edge-mouse-leave="(e) => hover(e.edge.id, false)"
     >
-      <template #node-designer="p"><DesignerNode :data="p.data" @open="emit('node-open', p.id)" /></template>
+      <template #node-designer="p"><DesignerNode :data="p.data" :valid-connection="validConnection" @open="emit('node-open', p.id)" /></template>
       <template #edge-designer="p">
         <DesignerEdge
           v-bind="p" :plus="showPlus(p.id, p.data?.selected)" :insert-kinds="insertKinds" @insert="(k: AddKind) => emit('edge-insert', p.id, k)"
