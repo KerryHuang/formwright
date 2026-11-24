@@ -91,6 +91,11 @@ public class AuthorizationWriteInventoryTests
         new($"{Repo}AlertRepositories.cs", "ReleaseDirectAsync"),     // 告警直送釋放
         new($"{Repo}AlertRepositories.cs", "SkipPendingAsync"),       // 告警外送佇列略過
         new($"{Repo}AlertRepositories.cs", "PurgeBatchAsync"),        // 告警外送佇列分批清除
+        new($"{Repo}AccountMailRepositories.cs", "TryClaimAsync"),    // 帳號信佇列（MailOutbox）條件式領取，ClaimMailRequest 交易內
+        new($"{Repo}AccountMailRepositories.cs", "TryCompleteAsync"), // 帳號信佇列記結果（ClaimedBy 相符才寫），Claim／CompleteMailRequest 交易內
+        new($"{Repo}AccountMailRepositories.cs", "SkipUnsentAsync"),  // 改 Email、停用時取消還沒寄的帶連結信，呼叫端交易內
+        new($"{Repo}AccountMailRepositories.cs", "PurgeBatchAsync"),  // 帳號信佇列終態（MailOutbox）與過期帳號權杖（AccountToken）分批清除，PurgeOpsBatchRequest 交易＋清理稽核
+        new($"{Repo}AccountMailRepositories.cs", "PurgeExpiredDevicesBatchAsync"), // 過期的記住裝置（TrustedDevice）分批清除，同上
         new($"{Repo}ApprovalRepositories.cs", "TryReplaceDraftAsync"), // 簽核流程（ApprovalFlow）草稿樂觀鎖
         new($"{Repo}ApprovalRepositories.cs", "RemoveAsync"),         // 刪簽核流程的版本（ApprovalFlowVersion）
         new($"{Repo}ApprovalRepositories.cs", "TryBumpRowVersionAsync"), // 簽核實例（ApprovalInstance）列版本
