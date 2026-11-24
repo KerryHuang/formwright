@@ -31,7 +31,13 @@ public class CheckIndexer(
         return ids;
     }
 
-    public async Task<(ServiceResult? Failure, List<string> Notices)> PrepareAsync(Module module, CheckDefinition def, CancellationToken ct)
+    /// <summary>
+    /// 純判斷（套件更新設計 T46 第 3 點）：哪些欄位要開可篩選、哪些要回填索引、會不會超過政策 check.maxBackfillRecords。
+    /// 不改欄位、不寫資料，升級預覽與 <see cref="PrepareAsync"/> 共用；Failure 是型別不支援（400）或回填超過上限（409）。
+    /// </summary>
+    public sealed record IndexPlan(ServiceResult? Failure, List<Field> Enable, List<Field> Backfill, List<string> Notices);
+
+    public async Task<IndexPlan> PlanAsync(Module module, CheckDefinition def, CancellationToken ct)
     {
         var notices = new List<string>();
         var fields = module.Blocks.SelectMany(b => b.Fields).Where(f => f.Status == FieldStatus.Active).ToDictionary(f => f.Id);
@@ -43,13 +49,12 @@ public class CheckIndexer(
         foreach (var field in used)
         {
             if (!FieldTypeCapabilities.SupportsFilter(field.Type))
-                return (ServiceResult.Invalid(new Dictionary<string, string[]>
-                    { ["definition"] = [$"欄位「{field.LabelI18n.Resolve(requestLocale.Current)}」的型別不支援建立索引，不能用在檢查"] }), notices);
+                return new IndexPlan(ServiceResult.Invalid(new Dictionary<string, string[]>
+                    { ["definition"] = [$"欄位「{field.LabelI18n.Resolve(requestLocale.Current)}」的型別不支援建立索引，不能用在檢查"] }), enabled, toBackfill, notices);
             var needsIndex = !RecordIndexer.ShouldIndex(field);
             // where 走列表篩選的條件規則，欄位一定要可篩選；只可排序的欄位雖然有索引，不開可篩選的話條件之後永遠解析失敗
             if (!field.Config.IsFilterable && (needsIndex || whereIds.Contains(field.Id)))
             {
-                field.Config = field.Config with { IsFilterable = true };
                 notices.Add($"已自動啟用欄位「{field.LabelI18n.Resolve(requestLocale.Current)}」的可篩選");
                 enabled.Add(field);
                 if (needsIndex) toBackfill.Add(field);
@@ -65,12 +70,20 @@ public class CheckIndexer(
         {
             var count = await records.CountByModuleAsync(module.Id, ct);
             var max = await policies.IntAsync(PolicyCatalog.CheckMaxBackfillRecords, null, ct);
-            if (count > max) return (ServiceResult.Conflict(CheckMessages.TooManyToBackfill(count, max)), notices);
-
-            foreach (var field in toBackfill)
-                if (await BackfillAsync(module, field, def.FieldId == field.Id, ct) is { } failure)
-                    return (failure, notices);
+            if (count > max) return new IndexPlan(ServiceResult.Conflict(CheckMessages.TooManyToBackfill(count, max)), enabled, toBackfill, notices);
         }
+        return new IndexPlan(null, enabled, toBackfill, notices);
+    }
+
+    /// <summary>寫入：照 <see cref="PlanAsync"/> 的結果打開可篩選、回填索引，再以列表篩選的規則驗 where。</summary>
+    public async Task<(ServiceResult? Failure, List<string> Notices)> PrepareAsync(Module module, CheckDefinition def, CancellationToken ct)
+    {
+        var (failure, enabled, toBackfill, notices) = await PlanAsync(module, def, ct);
+        if (failure is not null) return (failure, notices);
+        foreach (var field in enabled) field.Config = field.Config with { IsFilterable = true };
+        foreach (var field in toBackfill)
+            if (await BackfillAsync(module, field, def.FieldId == field.Id, ct) is { } backfillFailure)
+                return (backfillFailure, notices);
         foreach (var field in toBackfill.Union(enabled)) field.StampModified(user.UserId, time.Now);
         if (toBackfill.Count + enabled.Count > 0) module.TouchVersion(user.UserId, time.Now);
 
