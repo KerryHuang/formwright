@@ -396,7 +396,7 @@ public sealed class AppUpgrader(
 
         // 報表
         if (Picked("reports", out var reportItems))
-            if ((failed = await SaveReportsAsync(app, reportItems, n, ctx, state, groupIds, warnings, ct)) is not null) return Stop(failed);
+            if ((failed = await SaveReportsAsync(app, reportItems, n, ctx, state, masterSeeds, groupIds, warnings, ct)) is not null) return Stop(failed);
         if ((failed = await flowUpgrader.ApplyTaskRulesAsync(chosen, ctx, idMap, app.Id, warnings, ct)) is not null) return Stop(failed);
 
         // 9. 整合：已安裝的改安裝項目並登記 ItemsJson、換宣告、補列；這一步不調和（T40、T52）
@@ -466,8 +466,7 @@ public sealed class AppUpgrader(
         foreach (var (symbol, (moduleId, _)) in masterSeeds.Modules)
         {
             var prefix = symbol + ".";
-            if (!bindings.Fields.Keys.Concat(bindings.Blocks.Keys).Concat(bindings.Options.Keys).Any(k => k.StartsWith(prefix, StringComparison.Ordinal))
-                || await modules.GetByIdAsync(moduleId, includeChildren: true, ct) is not { } host) continue;
+            if (await modules.GetByIdAsync(moduleId, includeChildren: true, ct) is not { } host) continue;
             s.Loaded[symbol] = host;
             var blocks = host.Blocks.ToDictionary(b => b.Id);
             var fields = host.Blocks.SelectMany(b => b.Fields).ToDictionary(f => f.Id);
@@ -827,14 +826,18 @@ public sealed class AppUpgrader(
     }
 
     private async Task<ServiceResult?> SaveReportsAsync(
-        App app, List<UpgradeItemResponse> items, AppPackageData n, AppUpgradePreviewer.CompareContext ctx, State s,
+        App app, List<UpgradeItemResponse> items, AppPackageData n, AppUpgradePreviewer.CompareContext ctx, State s, InstantiationSeeds masterSeeds,
         IReadOnlyDictionary<string, long> groupIds, List<string> warnings, CancellationToken ct)
     {
+        // 主檔模組上的報表（T60、A74）：模組、欄位、選項連主檔符號一起找（同開啟），型別找不到套件的就看資料庫的欄位
+        var seeds = Seeds(s, masterSeeds);
+        var typeById = s.Loaded.Values.SelectMany(m => m.Blocks).SelectMany(b => b.Fields).GroupBy(f => f.Id).ToDictionary(g => g.Key, g => g.First().Type);
+        var packageTypes = AppReportCodec.TypesOf(n.Modules);
         var lookups = new AppReportCodec.Lookups(
-            code => s.Modules.TryGetValue(code, out var m) ? m.Key : null,
-            name => s.Fields.TryGetValue(name, out var id) ? id : null,
-            name => s.Options.TryGetValue(name, out var id) ? id : null,
-            AppReportCodec.TypesOf(n.Modules));
+            code => seeds.Modules.TryGetValue(code, out var m) ? m.Key : null,
+            name => seeds.Fields.TryGetValue(name, out var id) ? id : null,
+            name => seeds.Options.TryGetValue(name, out var id) ? id : null,
+            name => packageTypes(name) ?? (seeds.Fields.TryGetValue(name, out var id) && typeById.TryGetValue(id, out var t) ? t : null));
         ServiceResult? failed;
         foreach (var item in items)
         {

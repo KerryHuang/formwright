@@ -647,6 +647,66 @@ public class AppUpgradeCodedTests : IDisposable
         _rig.Db(db => db.Set<TaskRuleTask>().Single(t => t.RuleId == db.Set<TaskRule>().Single(r => r.Key == "uc-bp-call").Id).TitleI18n.Resolve("zh-TW")).Should().Be("電話問候");
     }
 
+    // ---- A74、A62 轉換格：主檔符號的報表與轉換（pkg1d2，T60、T43 第 5 點）----
+
+    private static JsonNode BpReport(string code, string name, string measure) => JsonNode.Parse($$"""
+        { "code": "{{code}}", "name": "{{name}}", "shareWith": [],
+          "definition": { "version": 1, "mainModule": "bp/partner", "child": null, "columns": [],
+            "groups": [ { "field": { "source": "main", "field": "bp/partner.role", "via": null }, "bucket": null } ],
+            "measures": [ {{measure}} ], "filters": [], "primaryDateField": null, "dateRange": null, "sort": [], "viz": "bar" } }
+        """)!;
+
+    /// <summary>
+    /// A74：新增一份 mainModule 是主檔符號的報表、改既有一份同類報表；A62 轉換格：目標寫主檔符號的轉換（同 CRM 的 crm-lead-to-customer）改名。
+    /// 兩項報表可套，新報表的主模組是主檔模組、有對照列，既有報表的定義換新；轉換以主檔符號找到 id、可套。
+    /// </summary>
+    [Fact]
+    public async Task A74_A62_MasterSymbolReportsAndConversion_Apply()
+    {
+        await _rig.ImportAsync(SharedMasterPackages.Bp);
+        void Master(JsonObject p)
+        {
+            p["manifest"]!["requires"] = JsonNode.Parse("""{ "masters": [ { "id": "bp", "modules": ["partner"] } ] }""");
+            if (p["reports"] is not JsonArray) p["reports"] = new JsonArray();
+            p["reports"]!.AsArray().Add(BpReport("ucBpRoles", "往來對象角色", """{ "id": "n", "kind": "countMain", "field": null, "condition": null }"""));
+            p["contributions"] = JsonNode.Parse("""
+                [ { "master": "bp", "module": "partner", "block": { "code": "uc", "name": { "zh-TW": "升級測試" } },
+                    "fields": [ { "code": "fromOrd", "type": "reference", "label": { "zh-TW": "來源訂單" }, "config": { "readOnly": true, "refTarget": { "kind": "module", "key": "ord" }, "onDelete": "setNull" } } ],
+                    "permissions": [], "fieldAccess": [] } ]
+                """);
+            p["conversions"]!.AsArray().Add(JsonNode.Parse("""
+                { "code": "uc-ord-to-bp", "name": { "zh-TW": "訂單轉往來對象" }, "active": true, "source": "ord", "target": "bp/partner", "sourceStates": ["sent"],
+                  "header": { "sourceField": "bp/partner.fromOrd", "copy": [ { "from": "ord.no", "to": "bp/partner.name" } ] } }
+                """));
+        }
+        await OpenAsync(Master, new
+        {
+            groupMap = GroupMap(),
+            masters = new Dictionary<string, object> { ["bp"] = new Dictionary<string, object> { ["steward"] = new { mode = "create" } } }
+        });
+        await NewVersionAsync(p =>
+        {
+            Named(p, "reports", "ucBpRoles")["definition"]!["measures"] = JsonNode.Parse("""[ { "id": "s", "kind": "sum", "field": { "source": "main", "field": "bp/partner.headcount", "via": null }, "condition": null } ]""");
+            p["reports"]!.AsArray().Add(BpReport("ucBpHeads", "往來對象人數",
+                """{ "id": "s", "kind": "sum", "field": { "source": "main", "field": "bp/partner.headcount", "via": null }, "condition": null }"""));
+            Named(p, "conversions", "uc-ord-to-bp")["name"] = new JsonObject { ["zh-TW"] = "訂單建立往來對象" };
+        }, customize: Master);
+
+        var preview = await PreviewAsync();
+        Blockers(preview).Should().NotContain("secondBatch");
+        string[] ids = ["report:ucBpRoles", "report:ucBpHeads", "conversion:uc-ord-to-bp"];
+        foreach (var id in ids) Item(preview, id).GetProperty("applicable").GetBoolean().Should().BeTrue(id);
+        await ApplyOkAsync(preview, ids);
+
+        var partnerKey = _rig.Db(db => db.Set<Module>().Single(m => m.Id == db.Set<AppModule>()
+            .Single(x => x.AppId == db.Set<App>().Single(a => a.Key == "bp").Id && x.Code == "partner").ModuleId).Key);
+        var heads = _rig.Db(db => db.Set<AppReport>().Single(r => r.Code == "ucBpHeads").ReportId);
+        _rig.Db(db => db.Set<Report>().Single(r => r.Id == heads).DefinitionJson).Should().Contain($"\"{partnerKey}\"", "主模組是往來對象的模組");
+        var roles = _rig.Db(db => db.Set<AppReport>().Single(r => r.Code == "ucBpRoles").ReportId);
+        _rig.Db(db => db.Set<Report>().Single(r => r.Id == roles).DefinitionJson).Should().Contain("sum", "既有報表的定義換新");
+        _rig.Db(db => db.Set<Conversion>().Single(c => c.Key == "uc-ord-to-bp").NameI18n.Resolve("zh-TW")).Should().Be("訂單建立往來對象");
+    }
+
     // ---- A63：狀態改名（Q26） ----
 
     private static void RenameVoid(JsonObject p)

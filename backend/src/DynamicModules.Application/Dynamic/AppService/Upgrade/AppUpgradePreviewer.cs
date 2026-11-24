@@ -36,7 +36,7 @@ public sealed class AppUpgradePreviewer(
         { "conversions", "events", "checks", "printTemplates", "taskRules", "approvalFlows" };
 
     public static bool IsSecondBatch(UpgradeItem item) =>
-        SecondBatch.Contains(item.Section) || (item.Module?.Contains('/') == true && item.Section == "reports");
+        SecondBatch.Contains(item.Section);
 
     /// <summary>套用要用到的比對中間結果：三份比對項目、兩份套件、群組對應（套件代號 → 客戶群組；負數是這次將新建的）。</summary>
     public sealed record CompareContext(
