@@ -10,7 +10,7 @@ import { dynamicApi } from 'src/services/api/dynamic-api';
 import { useIdentityStore } from 'src/stores/use-identity-store';
 import ChangePasswordPage from './ChangePasswordPage.vue';
 
-vi.mock('src/services/api/dynamic-api', () => ({ dynamicApi: { changePassword: vi.fn(), logout: vi.fn() } }));
+vi.mock('src/services/api/dynamic-api', () => ({ dynamicApi: { changePassword: vi.fn(), logout: vi.fn(), getAuthOptions: vi.fn() } }));
 const api = vi.mocked(dynamicApi);
 
 let mounted: ReturnType<typeof mount> | undefined;
@@ -56,7 +56,10 @@ const cacheText = () => JSON.stringify([
 ]);
 
 describe('ChangePasswordPage', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.getAuthOptions.mockResolvedValue({ passwordMinLength: 8 } as never);
+  });
   afterEach(() => mounted?.unmount());
 
   it('does not submit when the two new passwords differ', async () => {
@@ -66,11 +69,13 @@ describe('ChangePasswordPage', () => {
     expect(document.body.textContent).toContain(zhTW.auth.passwordMismatch);
   });
 
-  it('does not submit a password shorter than 8 characters', async () => {
+  it('does not submit a password shorter than the policy minimum read from auth/options (au1b §7.6)', async () => {
+    api.getAuthOptions.mockResolvedValue({ passwordMinLength: 12 } as never);
     await mountPage();
-    await submit('old-password', 'short', 'short');
+    expect(document.body.textContent).toContain(zhTW.auth.newPassword.replace('{min}', '12'));
+    await submit('old-password', 'eleven-char', 'eleven-char');
     expect(api.changePassword).not.toHaveBeenCalled();
-    expect(document.body.textContent).toContain(zhTW.auth.passwordTooShort);
+    expect(document.body.textContent).toContain(zhTW.auth.passwordTooShort.replace('{min}', '12'));
   });
 
   it('success clears the forced flag and goes home', async () => {
