@@ -597,7 +597,7 @@ pkg1c 實作補記（2026-11-22）：
 
 #### 9.6.4 預覽回應的增補
 
-- **新的原因代碼**（`reason`，不能勾）：`statusFieldChanged`、`unlocksRecords`（附 `affectedRecords`）、`transitionGroups`、`approvalInFlight`（附 `affectedRecords` 為簽核中張數）、`flowInUse`、`priorityTaken`、`approverGroups`（Q27）、`workflowInvalid`（附 `detail`，T47）、`conversionInUse`（附筆數）、`firedEffect`、`backfillLimit`、`ledgerLocked`、`ledgerFreeze`（附筆數）、`integrationConflict`、`integrationUnbound`（附 `detail`，T51）。`affectedRecords` 從「只在 `affectsData`」放寬成「這幾個代碼也帶」；項目加選填的 `detail`（字串或物件，給原因文字代入）。
+- **新的原因代碼**（`reason`，不能勾）：`statusFieldChanged`、`unlocksRecords`（附 `affectedRecords`）、`transitionGroups`、`approvalInFlight`（附 `affectedRecords` 為簽核中張數）、`flowInUse`、`priorityTaken`、`approverGroups`（Q27）、`workflowInvalid`（附 `detail`，T47）、`conversionInUse`（附筆數）、`firedEffect`、`backfillLimit`、`ledgerLocked`、`ledgerFreeze`（附筆數）、`integrationConflict`、`integrationUnbound`（附 `detail`，T51）、`dependsOnBlocked`（依賴的項目不能套用，`detail` 是那幾項的 id，§9.6.8 審查修正）。`affectedRecords` 從「只在 `affectsData`」放寬成「這幾個代碼也帶」；項目加選填的 `detail`（字串或物件，給原因文字代入）。
 - **新的 `impacts`**（不擋、只說明，T34，主控已定，可推翻）：`[{ code, count?, detail? }]`，畫面在項目下方一行字。代碼：`recordsInState`（新版移除、改成唯讀、或加上需簽核而變成鎖定的狀態上有 N 筆記錄）、`inFlightApprovals`（套用會產生新版本，N 張簽核中的單照原版本走完）、`futureOnly`（事件、檢查、轉換、任務規則只影響之後）、`enablesTasks`（會自動啟用模組的任務）、`autoFilterable`（檢查會自動開欄位的可篩選）、`stateReferenceMoved`（這一項改看新狀態，`detail` 附舊、新狀態，Q26）、`retiredStateReachable`（新版移除的狀態仍可進入，Q26）。
 - §8.1 的 `blockers` 在 pkg1d2 合併後只剩 `closed`、`exportFailed`、`invalidPackage`、`requiresUpdate`、`requiresApp`、`hostTaken`。
 
@@ -695,6 +695,12 @@ Demo 推導的舊版 CRM 另外推導幾處（§11.1 的做法，JSON 文字層�
 - **預覽的 `detail` 未依語系（已知限制）**：`workflowInvalid` 的 `detail` 是 `WorkflowSaveValidator` 驗證訊息的串接，目前固定是繁中（`ApprovalConstraints` 沒帶請求語系），其他語系的更新頁會在翻好的原因後面接一段繁中。要改成結構化（原因代碼＋狀態、轉移）或帶語系，另開票。
 - **新流程群組被頂替的提示**：套用新增流程時，略過的群組由備援頂替，回應的 warnings 每筆一行繁中（「簽核流程「…」的群組「…」沒有對應，已由備援簽核人頂替」）；預覽的群組段已列出略過的群組。結構化未做，見交付說明。
 - **測試小節**：A16a、A29、A30、A32、A51、A57、A61、A64（五格）、A72（換狀態欄位）、T42 都在 `AppUpgradeFlowTests`（雙跑集）。A72 換狀態欄位以新版加一個新的下拉欄位、狀態機整份改用它、拿掉兩個流程構成，套件驗證通過，不必直接寫資料庫。
+- **審查修正（2026-11-24）**：
+  - 狀態機一趟失敗回 400 時，錯誤鍵是「這一趟第一個項目的 id.原鍵」（更新頁據此對應到項目），整趟的項目清單放進訊息前綴，與 409 相同（審查 M1；A57 補 400 替身格，並同時勾一個第一批的新選項驗整批回滾，審查 S2）。
+  - T58 候選的流程清單：閉包裡的既有流程比照套用（`UpdateFlowAsync`），只換要寫入的屬性，其餘（目標、啟用、優先序、退回、關卡、簽核人）保留現況，不再整份換成新版（審查 S5）。
+  - 依賴不能套用的項目時，自己也標不能勾，新原因代碼 `dependsOnBlocked`，`detail` 是那幾項的 id（「、」分隔，更新頁換成名稱），可遞移（審查 S7，補進 §9.6.4 的代碼清單）。
+  - 更新頁可讀性（走查 W1–W3）：狀態機、狀態、轉移項目帶顯示名稱（「模組」「模組：狀態」「模組：甲 → 乙」）；屬性名補四語標籤，群組 id 顯示群組名稱，簽核關卡與簽核人顯示摘要；「已是最新」「沒有可用的新版」「降版」三句進四語訊息表。
+  - Demo 推導的舊版把設計案簽核第一關的舊名從「業務主管」改成「業務主管審核」，避免和簽核人姓名「業務主管」撞名（手冊 §22 照套用前的畫面寫）。
 
 ## 10. 畫面
 

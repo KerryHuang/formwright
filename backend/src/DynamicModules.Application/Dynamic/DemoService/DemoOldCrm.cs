@@ -21,7 +21,7 @@ public static class DemoOldCrm
 {
     public const string OldCompanyThai = "ชื่อบริษัท", OldSubject = "主題", CustomerSubject = "互動主旨", RemovedOption = "campaign.online";
     public const string NarrowedTransition = "transition:design-case:requirement>designing", RemovedGroup = "manager";
-    public const string RenamedFlow = "crm-design-case-review", OldStageName = "業務主管";
+    public const string RenamedFlow = "crm-design-case-review", OldStageName = "業務主管審核";
 
     public static string Derive(string catalogText)
     {
