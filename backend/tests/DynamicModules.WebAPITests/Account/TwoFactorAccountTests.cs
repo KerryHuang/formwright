@@ -108,6 +108,32 @@ public class TwoFactorAccountTests
         (audits.Count(a => a.ReasonCode == "twoFactorWrong"), audits.Count(a => a.ReasonCode == "throttled")).Should().Be((5, 1));
     }
 
+    /// <summary>
+    /// 審查 S4：第二因素階段被帳號＋IP 層擋下時，重新驗證路徑回和密碼階段同一個代碼 <c>reauthThrottled</c>（建 AI 權杖再轉成
+    /// <c>mcpPasswordThrottled</c>）；登入第二步仍是 <c>tooManyAttempts</c>。這個分支在 HTTP 上只有並行時走得到，直接呼叫驗證服務。
+    /// </summary>
+    [Fact]
+    public async Task SecondFactorThrottled_ReauthPathUsesReauthThrottled_LoginKeepsTooManyAttempts()
+    {
+        using var app = NewApp();
+        await AddUser(app, "tf01");
+        var (secret, _) = await Enroll(app, "tf01");
+        const string ip = "203.0.113.50";
+        var throttle = app.Services.GetRequiredService<LoginThrottle>();
+        for (var i = 0; i < 5; i++)
+        {
+            throttle.TryBegin("tf01", ip).Should().BeTrue();
+            throttle.Complete("tf01", ip, false);
+        }
+        var user = await User(app, "tf01");
+        using var scope = app.Services.CreateScope();
+        var verifier = scope.ServiceProvider.GetRequiredService<SecondFactorVerifier>();
+        var (_, reauth) = await verifier.CheckAsync(user, Code(app, secret), null, ip, "account.reauthFailed", default);
+        reauth!.Code.Should().Be("reauthThrottled");
+        var (_, login) = await verifier.CheckAsync(user, Code(app, secret), null, ip, SecondFactorVerifier.LoginFailedAction, default);
+        login!.Code.Should().Be("tooManyAttempts");
+    }
+
     [Fact]
     public async Task F10_ResetByMail_LoginStillNeedsSecondStep()
     {

@@ -22,6 +22,7 @@ public static class TwoFactorErrors
     public static ServiceResult Locked() =>
         ServiceResult.TooManyRequests(MessageRef.Of(MessageText.TwoFactorLocked, (int)TwoFactorLimits.LockDuration.TotalMinutes), LockedCode);
 
+    /// <summary>登入第二步被帳號＋IP 層限流（429）；重新驗證路徑改用 <c>ReauthVerifier.Throttled</c>。</summary>
     public static ServiceResult Throttled() => ServiceResult.TooManyRequests(MessageRef.Of(MessageText.ReauthThrottled), ThrottledCode);
 
     public static ServiceResult CodeRequired(bool allowRecovery = true) => ServiceResult.Invalid(CodeField,

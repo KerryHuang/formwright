@@ -95,7 +95,8 @@ public sealed class SecondFactorVerifier(
         if (!throttle.TryBegin(key, ip))
         {
             if (!login) await FailAsync(failureAction, user.UserId, "throttled", ct);
-            return (null, TwoFactorErrors.Throttled());
+            // 重新驗證路徑和密碼階段同一個代碼（reauthThrottled，建 AI 權杖再轉成 mcpPasswordThrottled），一個端點只有一種「被限流」（審查 S4）
+            return (null, login ? TwoFactorErrors.Throttled() : ReauthVerifier.Throttled());
         }
         var useRecovery = recoveryCode is not null;
         try

@@ -49,6 +49,9 @@ public sealed class ReauthVerifier(
 {
     public const string PasswordField = "password", FailedCode = "reauthFailed", ThrottledCode = "reauthThrottled", AuditCode = "account.reauthFailed";
 
+    /// <summary>重新驗證被限流（429 <c>reauthThrottled</c>）：密碼階段、第二因素階段與完成綁定共用同一個代碼（審查 S4）。</summary>
+    public static ServiceResult Throttled() => ServiceResult.TooManyRequests(MessageRef.Of(MessageText.ReauthThrottled), ThrottledCode);
+
     public Task<(ReauthResult? Ok, ServiceResult? Error)> VerifyPasswordAsync(string userId, string? password, string? clientIp, CancellationToken ct) =>
         VerifyCoreAsync(userId, password, clientIp, null, ct);
 
@@ -78,7 +81,7 @@ public sealed class ReauthVerifier(
         if (!throttle.TryBegin(key, ip))
         {
             await WriteFailureAsync(user.UserId, "throttled", ct);
-            return (null, ServiceResult.TooManyRequests(MessageRef.Of(MessageText.ReauthThrottled), ThrottledCode));
+            return (null, Throttled());
         }
         bool ok;
         try

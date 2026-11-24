@@ -168,7 +168,7 @@ public sealed class EnableTwoFactorHandler(
         if (!throttle.TryBegin(key, ip))
         {
             await FailAsync(user.UserId, "throttled", ct);
-            return ServiceResult.TooManyRequests(MessageRef.Of(MessageText.ReauthThrottled), ReauthVerifier.ThrottledCode);
+            return ReauthVerifier.Throttled();
         }
         if (Totp.Match(secret, r.Code, now, null) is not { } step)
         {
