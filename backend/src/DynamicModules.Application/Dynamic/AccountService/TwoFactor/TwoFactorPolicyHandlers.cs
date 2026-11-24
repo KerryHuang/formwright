@@ -97,22 +97,48 @@ public sealed class TwoFactorPolicyChangeHook(IPolicyReader reader, ITwoFactorRe
 /// 雜湊對得到、屬於這個帳號、沒過期、stamp 等於帳號目前的 stamp、建立時間＋<b>目前</b>政策天數還沒到（政策調短或設 0 立即生效，T23）。
 /// 每帳號最多 20 台（技術限制，T30）。
 /// </summary>
-public sealed class TrustedDevices(ITwoFactorRepository twoFactor, TwoFactorEnforcement enforcement, TimeProvider time)
+public sealed class TrustedDevices(ITwoFactorRepository twoFactor, TwoFactorEnforcement enforcement, TimeProvider time, ISender sender, ILogger<TrustedDevices> logger)
 {
     public const int MaxPerUser = 20, LabelMax = 100, TokenMax = 100;
+
+    /// <summary>最近使用時間只是顯示用：距離上次不到這段時間就不寫（技術限制，§22），憑裝置登入時才不必每次經寫入閘門。</summary>
+    public static readonly TimeSpan TouchInterval = TimeSpan.FromHours(1);
 
     public static bool IsValid(TrustedDevice d, AppUser user, int rememberDays, DateTime nowUtc) =>
         rememberDays > 0 && d.UserId == user.UserId && d.SecurityStamp == user.SecurityStamp && d.ExpiresUtc > nowUtc
         && d.CreatedUtc.AddDays(rememberDays) > nowUtc;
 
-    /// <summary>帶來的裝置 cookie 對這個帳號有效就回那一列，否則 null（fail closed）。</summary>
-    public async Task<TrustedDevice?> ValidAsync(AppUser user, string? token, CancellationToken ct)
+    /// <summary>
+    /// 登入與 Demo 一鍵登入共用（密碼正確、帳號已啟用雙因素之後）：帶來的裝置 cookie 對這個帳號有效就回 <see cref="DeviceSignIn.Valid"/>
+    /// 並記最近使用時間，否則一律要第二步（fail closed）。cookie 確定再也不會有效（查無此列、屬於這個帳號但 stamp 已換或已過期、長度超過）時回
+    /// <see cref="DeviceSignIn.Revoked"/>，controller 順手刪掉；屬於別的帳號（同一瀏覽器多人登入）或政策天數暫時調短、設 0 的不刪，調回來仍可用。
+    /// </summary>
+    public async Task<DeviceSignIn> SignInAsync(AppUser user, string? token, CancellationToken ct)
     {
-        if (string.IsNullOrEmpty(token) || token.Length > TokenMax) return null;
+        if (string.IsNullOrEmpty(token)) return DeviceSignIn.None;
+        if (token.Length > TokenMax) return DeviceSignIn.Revoked;
         var days = enforcement.RememberDays;
-        if (days <= 0) return null;
+        if (days <= 0) return DeviceSignIn.None;
         var device = await twoFactor.FindTrustedDeviceAsync(McpSecrets.Hash(token), ct);
-        return device is not null && IsValid(device, user, days, time.GetUtcNow().UtcDateTime) ? device : null;
+        var now = time.GetUtcNow().UtcDateTime;
+        if (device is null) return DeviceSignIn.Revoked;
+        if (!IsValid(device, user, days, now))
+            return device.UserId == user.UserId && (device.SecurityStamp != user.SecurityStamp || device.ExpiresUtc <= now) ? DeviceSignIn.Revoked : DeviceSignIn.None;
+        if (device.LastUsedUtc is not { } last || now - last >= TouchInterval) await TouchAsync(device.Id, ct);
+        return DeviceSignIn.Valid;
+    }
+
+    /// <summary>寫不進去（資料庫忙碌等）記 Warning，不擋登入。</summary>
+    private async Task TouchAsync(long deviceId, CancellationToken ct)
+    {
+        try
+        {
+            await sender.Send(new TouchTrustedDeviceRequest(deviceId), ct);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            logger.LogWarning(e, "記住的裝置 {DeviceId} 的最近使用時間寫入失敗", deviceId);
+        }
     }
 
     /// <summary>這個帳號目前有效的裝置（帳號安全頁、<c>GET /me</c>）。</summary>
@@ -149,6 +175,9 @@ public sealed class TrustedDevices(ITwoFactorRepository twoFactor, TwoFactorEnfo
         return clean.Length == 0 ? "Other" : clean;
     }
 }
+
+/// <summary>憑裝置 cookie 登入的結果：沒帶或暫時無效（<see cref="None"/>）、有效（<see cref="Valid"/>）、確定失效要刪 cookie（<see cref="Revoked"/>）。</summary>
+public enum DeviceSignIn { None, Valid, Revoked }
 
 /// <summary>剛記住的裝置：cookie 明文（只在這一次的回應裡）與到期時間。</summary>
 public sealed record IssuedDevice(string Token, DateTime ExpiresUtc);

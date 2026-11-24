@@ -409,8 +409,11 @@ public sealed class RecordTwoFactorLockoutHandler(
 
 // ── 登入第二步 ─────────────────────────────────────────────
 
-/// <summary>密碼正確、帳號已啟用雙因素：controller 發第二步憑證 cookie，不發 session（§8.3 第 1 點）。<paramref name="DemoHint"/> 只在 Demo 站的 <c>mfa01</c>（§13.4）。</summary>
-public sealed record TwoFactorChallenge(SecondStepTicket Ticket, DemoTwoFactorHint? DemoHint);
+/// <summary>
+/// 密碼正確、帳號已啟用雙因素：controller 發第二步憑證 cookie，不發 session（§8.3 第 1 點）。<paramref name="DemoHint"/> 只在 Demo 站的 <c>mfa01</c>（§13.4）。
+/// <paramref name="ForgetDevice"/>：帶來的裝置 cookie 確定失效（<see cref="DeviceSignIn.Revoked"/>），controller 順手刪掉。
+/// </summary>
+public sealed record TwoFactorChallenge(SecondStepTicket Ticket, DemoTwoFactorHint? DemoHint, bool ForgetDevice = false);
 
 /// <summary>Demo 站示範用：目前時間步的驗證碼與一組還沒用過的復原碼（§13.4，Q13）。</summary>
 public sealed record DemoTwoFactorHint(string Code, string? RecoveryCode);

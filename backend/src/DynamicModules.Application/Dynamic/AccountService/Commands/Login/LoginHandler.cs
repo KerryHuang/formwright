@@ -11,7 +11,7 @@ namespace DynamicModules.Application.Dynamic.AccountService.Commands.Login;
 
 public class LoginHandler(
     IAccountRepository accounts, IPasswordService passwords, IUnitOfWork uow, TimeProvider time, LoginThrottle throttle, IAuditLog audit,
-    TwoFactor.DemoTwoFactorHints hints, TwoFactor.TrustedDevices devices, ISender sender, ILogger<LoginHandler> logger)
+    TwoFactor.DemoTwoFactorHints hints, TwoFactor.TrustedDevices devices, ILogger<LoginHandler> logger)
     : IRequestHandler<LoginRequest, ServiceResult>
 {
     /// <summary>一次登入嘗試的結果與稽核內容；<see cref="Throttled"/> 的不逐筆寫稽核（O2-T3）。</summary>
@@ -116,32 +116,20 @@ public class LoginHandler(
         if (user.TotpEnabledUtc is not null)
         {
             // 記住的裝置有效就不問驗證碼（§8.5）：不看帳號層暫停（複審建議 3，刻意的取捨）；密碼那一次照常 Complete(true)
-            if (await devices.ValidAsync(user, deviceToken, ct) is { } device)
+            var device = await devices.SignInAsync(user, deviceToken, ct);
+            if (device == TwoFactor.DeviceSignIn.Valid)
             {
-                await TouchAsync(device.Id, ct);
                 logger.LogInformation("帳號 {UserId} 以記住的裝置登入成功", user.UserId);
                 return new Outcome(ServiceResult.Success(new AuthUserResponse(user.UserId, user.DisplayName, user.MustChangePassword, user.SecurityStamp)),
                     user.UserId, null, MethodJson: DeviceMethod);
             }
             logger.LogInformation("帳號 {UserId} 密碼正確，進入雙因素第二步", user.UserId);
             var ticket = new SecondStepTicket(user.UserId, user.SecurityStamp, now.UtcDateTime, SecondStepTickets.NewNonce());
-            return new Outcome(ServiceResult.Success(new TwoFactor.TwoFactorChallenge(ticket, await hints.ForAsync(user.UserId, ct))), user.UserId, null);
+            return new Outcome(ServiceResult.Success(new TwoFactor.TwoFactorChallenge(ticket, await hints.ForAsync(user.UserId, ct), device == TwoFactor.DeviceSignIn.Revoked)),
+                user.UserId, null);
         }
         logger.LogInformation("帳號 {UserId} 登入成功", user.UserId);
         return new Outcome(ServiceResult.Success(new AuthUserResponse(user.UserId, user.DisplayName, user.MustChangePassword, user.SecurityStamp)), user.UserId, null);
-    }
-
-    /// <summary>最近使用時間只是顯示用：寫不進去（資料庫忙碌等）記 Warning，不擋登入。</summary>
-    private async Task TouchAsync(long deviceId, CancellationToken ct)
-    {
-        try
-        {
-            await sender.Send(new TwoFactor.TouchTrustedDeviceRequest(deviceId), ct);
-        }
-        catch (Exception e) when (e is not OperationCanceledException)
-        {
-            logger.LogWarning(e, "記住的裝置 {DeviceId} 的最近使用時間寫入失敗", deviceId);
-        }
     }
 
     private static int StripeOf(string userId)

@@ -96,12 +96,13 @@ public class AuthController(IMediator mediator, ClientIpResolver clientIp, Appli
     public async Task<IActionResult> ChangePassword(ChangePasswordBody body) =>
         await SignInOnSuccess(await mediator.Send(new ChangePasswordRequest(body.OldPassword ?? "", body.NewPassword ?? "", clientIp.Resolve(HttpContext))));
 
-    /// <summary>成功就（重）發 cookie，回應不含 SecurityStamp。已啟用雙因素時改發第二步憑證 cookie、不發 session（§8.3 第 1 點）。</summary>
+    /// <summary>成功就（重）發 cookie，回應不含 SecurityStamp。已啟用雙因素時改發第二步憑證 cookie、不發 session（§8.3 第 1 點）；帶來的裝置 cookie 確定失效就刪掉。</summary>
     private async Task<IActionResult> SignInOnSuccess(Application.Common.ServiceResult result)
     {
         if (result.Data is Application.Dynamic.AccountService.TwoFactor.TwoFactorChallenge challenge)
         {
             SecondStepCookie.Issue(HttpContext, tickets.Protect(challenge.Ticket));
+            if (challenge.ForgetDevice) DeviceCookie.Clear(HttpContext);
             return Ok(new { twoFactorRequired = true, demoHint = challenge.DemoHint });
         }
         if (result.Data is not AuthUserResponse user) return result.ToActionResult(this);

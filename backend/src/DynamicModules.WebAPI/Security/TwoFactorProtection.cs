@@ -84,6 +84,9 @@ public static class DeviceCookie
     public static void Issue(HttpContext ctx, string value, DateTime expiresUtc) =>
         ctx.Response.Cookies.Append(Name, value, Options(ctx, new DateTimeOffset(DateTime.SpecifyKind(expiresUtc, DateTimeKind.Utc))));
 
+    /// <summary>裝置確定失效時刪掉（Path 要和發行時相同，瀏覽器才會刪），之後登入不再多查一次資料庫。</summary>
+    public static void Clear(HttpContext ctx) => ctx.Response.Cookies.Delete(Name, Options(ctx, null));
+
     public static string? Read(HttpContext ctx) => ctx.Request.Cookies.TryGetValue(Name, out var v) ? v : null;
 
     private static CookieOptions Options(HttpContext ctx, DateTimeOffset? expires) => new()

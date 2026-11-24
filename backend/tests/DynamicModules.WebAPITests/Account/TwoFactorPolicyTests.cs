@@ -132,6 +132,54 @@ public class TwoFactorPolicyTests
     }
 
     [Fact]
+    public async Task RememberedLogin_LastUsedWrittenAtMostHourly()
+    {
+        using var app = NewApp();
+        await AddUser(app, "tf01");
+        var (secret, _) = await Enroll(app, "tf01");
+        var (c, _) = await SignInRemember(app, "tf01", secret, remember: true);
+        Task<DateTime?> LastUsed() => Read(app, db => db.Set<TrustedDevice>().AsNoTracking().Select(d => d.LastUsedUtc).SingleAsync());
+
+        (await NeedsSecondStepAgain(c, "tf01")).Should().BeFalse();
+        var first = await LastUsed();
+        first.Should().NotBeNull("第一次憑裝置登入時還沒有最近使用時間，要寫");
+
+        app.Time.Advance(TimeSpan.FromMinutes(59));
+        (await NeedsSecondStepAgain(c, "tf01")).Should().BeFalse();
+        (await LastUsed()).Should().Be(first, "距離上次不到 1 小時不寫資料庫");
+
+        app.Time.Advance(TimeSpan.FromMinutes(2));
+        (await NeedsSecondStepAgain(c, "tf01")).Should().BeFalse();
+        (await LastUsed()).Should().BeAfter(first!.Value, "超過 1 小時才更新");
+    }
+
+    [Fact]
+    public async Task RevokedDeviceCookie_ClearedOnLogin_DeviceOfAnotherAccountKept()
+    {
+        using var app = NewApp();
+        await AddUser(app, "tf01");
+        await AddUser(app, "tf02");
+        var (secret, _) = await Enroll(app, "tf01");
+        await Enroll(app, "tf02");
+        var (c, _) = await SignInRemember(app, "tf01", secret, remember: true);
+
+        // 裝置屬於 tf01：tf02 在同一個瀏覽器登入時不清，tf01 下次仍可用
+        await c.PostAsync($"{Auth}/logout", null);
+        var other = await Password(c, "tf02");
+        other.Headers.TryGetValues("Set-Cookie", out var otherCookies);
+        (otherCookies ?? []).Should().NotContain(h => h.StartsWith("fw.device="));
+
+        // 改密碼後裝置失效：下次登入在第二步回應裡刪掉 cookie（Path 同發行時）
+        (await NeedsSecondStepAgain(c, "tf01")).Should().BeFalse();
+        (await c.PostAsJsonAsync($"{Auth}/change-password", new { oldPassword = Pw, newPassword = "new-pass-123" })).StatusCode.Should().Be(HttpStatusCode.OK);
+        await c.PostAsync($"{Auth}/logout", null);
+        var res = await Password(c, "tf01", "new-pass-123");
+        (await Json(res)).GetProperty("twoFactorRequired").GetBoolean().Should().BeTrue();
+        var cleared = res.Headers.GetValues("Set-Cookie").Should().ContainSingle(h => h.StartsWith("fw.device=")).Which;
+        cleared.Should().StartWith("fw.device=;").And.Contain("expires=Thu, 01 Jan 1970").And.Contain("path=/api/v3/dynamic/auth");
+    }
+
+    [Fact]
     public async Task NotRemembered_NoCookie_StillAsks_AndDeviceOfAnotherAccountDoesNotCount()
     {
         using var app = NewApp();

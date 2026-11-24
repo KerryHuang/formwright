@@ -17,7 +17,7 @@ namespace DynamicModules.Application.Dynamic.AccountService.Commands.DemoLogin;
 /// </summary>
 public class DemoLoginHandler(
     AuthSettings settings, IAccountRepository accounts, IUnitOfWork uow, LoginThrottle throttle, IAuditLog audit, TwoFactor.DemoTwoFactorHints hints,
-    TwoFactor.TrustedDevices devices, ISender sender, TimeProvider time, ILogger<DemoLoginHandler> logger)
+    TwoFactor.TrustedDevices devices, TimeProvider time, ILogger<DemoLoginHandler> logger)
     : IRequestHandler<DemoLoginRequest, ServiceResult>
 {
     private static readonly string? Method = new AuditSummary().Add("method", "demo").ToJson();
@@ -70,23 +70,16 @@ public class DemoLoginHandler(
         if (user.TotpEnabledUtc is not null)
         {
             // 記住這台裝置（§8.5、§13.5 示範路徑）：有效就不問驗證碼
-            if (await devices.ValidAsync(user, deviceToken, ct) is { } device)
+            var device = await devices.SignInAsync(user, deviceToken, ct);
+            if (device == TwoFactor.DeviceSignIn.Valid)
             {
-                try
-                {
-                    await sender.Send(new TwoFactor.TouchTrustedDeviceRequest(device.Id), ct);
-                }
-                catch (Exception e) when (e is not OperationCanceledException)
-                {
-                    logger.LogWarning(e, "記住的裝置 {DeviceId} 的最近使用時間寫入失敗", device.Id);
-                }
                 logger.LogInformation("帳號 {UserId} 以記住的裝置一鍵登入成功", user.UserId);
                 await audit.TryWriteNowAsync(SignInAudit.Succeeded(user.UserId, user.DisplayName, DeviceMethod), ct);
                 return ServiceResult.Success(new AuthUserResponse(user.UserId, user.DisplayName, false, user.SecurityStamp));
             }
             logger.LogInformation("帳號 {UserId} 一鍵登入進入雙因素第二步", user.UserId);
             var ticket = new SecondStepTicket(user.UserId, user.SecurityStamp, time.GetUtcNow().UtcDateTime, SecondStepTickets.NewNonce());
-            return ServiceResult.Success(new TwoFactor.TwoFactorChallenge(ticket, await hints.ForAsync(user.UserId, ct)));
+            return ServiceResult.Success(new TwoFactor.TwoFactorChallenge(ticket, await hints.ForAsync(user.UserId, ct), device == TwoFactor.DeviceSignIn.Revoked));
         }
 
         if (user.MustChangePassword)
