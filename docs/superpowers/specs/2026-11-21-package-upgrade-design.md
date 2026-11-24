@@ -744,7 +744,10 @@ Demo 推導的舊版 CRM 另外推導幾處（§11.1 的做法，JSON 文字層�
 - **T56 的預設勾選（行為類代做待確認）**：被依賴、上次略過的主檔項目預設不勾；依賴它的應用程式項目預設也改成不勾（否則照預設直接套用會 400）。選錯的代價：管理員要多勾一次。
 - **貢獻的預覽給權（U28）**：既有貢獻上的新欄位，貢獻有讀取權的群組列「可看見」（給權）；套用後新欄位標限定可見、補本應用程式名下的 `FieldGrant`。
 - **已知限制**：已安裝的整合、夥伴暫停時，既有事件改到夥伴模組的部分若更新指令被擋（目標模組停用），套用回 400、整批還原，要等夥伴恢復再更新。
-- **測試小節**：A42 在 `AppUpgradeApplyTests`；A43–A45、A66（三格）、A67 在 `AppUpgradeIntegrationTests`（雙跑集）；A74 與 A62 轉換格在 `AppUpgradeCodedTests`；A3b、A48 前半、A71 在 `AppUpgradeMasterTests`。A16 隨第二批擋法刪除。
+- **更新頁主檔段（技術類）**：主檔項目以 `master:<主檔 id>/<項目識別>` 併進應用程式的同一份勾選清單（和跨份相依同一個寫法），主檔項目自己的 `dependsOn` 補上同一個前綴，連勾與連帶取消照用 §6.5 的做法；送出時拆回 `items` 與 `masters`，這次列出的每份主檔都帶（沒勾的是空陣列）。主檔的群組代號和應用程式一樣是下拉，改了帶 `masterGroupMap.<主檔 id>` 重新預覽。400 的 `masters.<主檔 id>.items.<項目識別>` 與訊息裡主檔自己的項目識別都換成名稱；`integrationUnbound` 的 `detail`（應用程式 id）換成應用程式名稱。只列上次略過項目的主檔段（T56，版號不變）標題改用 `apps.upgrade.masterSkipped`「共用主檔「○○」1.1.0：上次略過、這次要用到的項目」，不寫「1.1.0 → 1.1.0」。
+- **Demo（§9.6.5 pkg1d2）**：`DemoOldCrm.DerivePartner` 推導往來對象舊版（版號減一、「地址」`partner.address` 的泰文標籤換舊）；CRM 推導另把貢獻欄位「產業」的泰文標籤換舊。`AppOpener.OpenTextAsync` 加 `asMaster`，Demo 在開任何應用程式之前先開往來對象，之後的應用程式直接綁定（不改自動開啟的路徑）。`DemoStructureTests`：CRM 預覽 10 項（9 加貢獻），主檔段只有地址一項；進銷存自己的 `items` 為空、`masters` 有往來對象；往來對象的基準是推導文字。
+- **A47 偏離（技術類）**：內建 CRM 的報表都不引用主檔欄位，A47 改用報價單「客戶」欄位的帶值引用往來對象新版的「地址」示範同一條跨份相依（`References` 換算相同）；報表引用主檔符號的相依由 A74 涵蓋。
+- **測試小節**：A42 在 `AppUpgradeApplyTests`；A43–A45、A66（三格）、A67 在 `AppUpgradeIntegrationTests`（雙跑集）；A74 與 A62 轉換格在 `AppUpgradeCodedTests`；A3b、A47、A48 前後半、A49 與 A68 後半（同一個測試：套用後副本與基準同文、主檔沒有重複欄位、刪掉 CRM 與主檔後重新開啟欄位還在）、A50、A69（三格，第三格用虛構主檔 `mq`／`nq`）、A71 在 `AppUpgradeMasterTests`。A16 隨第二批擋法刪除。前端主檔勾選、拆 body、400 鍵在 `upgrade-view.vitest.spec.ts`。
 
 ## 10. 畫面
 
