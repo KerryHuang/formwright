@@ -339,6 +339,10 @@ export interface AuthOptions {
   enabledLocales: string[];
   /** 啟用語系的自稱、Quasar 語言包與上層語系（順序同已安裝語系） */
   locales: LocaleInfo[];
+  /** 登入頁「忘記密碼」可不可用（帳號安全設計 §7.4）：只透露系統有沒有設寄信，不透露帳號狀態 */
+  passwordReset: 'available' | 'contactAdmin';
+  /** 政策 auth.passwordMinLength 的生效值；前端提示與「送出一定會被擋」的檢查都讀它，不另存常數（§7.6） */
+  passwordMinLength: number;
 }
 
 export interface AdminUser {

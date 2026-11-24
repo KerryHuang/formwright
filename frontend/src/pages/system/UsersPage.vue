@@ -5,7 +5,8 @@ import { useI18n } from 'vue-i18n';
 import {
   useAdminUsers, useCreateUser, useResetPassword, useSetUserActive, useSetUserSystemPrivileges, useUpdateUser,
 } from 'src/application/dynamic/queries/admin-queries';
-import { useResendUserEmail, useSetUserEmail } from 'src/application/dynamic/queries/account-security-queries';
+import { useResendUserEmail, useSendResetLink, useSetUserEmail } from 'src/application/dynamic/queries/account-security-queries';
+import { useAuthOptions } from 'src/application/dynamic/queries/auth-queries';
 import { useDepartments, useSetUserDepartment } from 'src/application/dynamic/queries/organization-queries';
 import { useGroups } from 'src/application/dynamic/queries/permissions-queries';
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
@@ -20,8 +21,11 @@ import { isForbidden, type ApiError } from 'src/services/api/http';
 import { useIdentityStore } from 'src/stores/use-identity-store';
 import { joinList } from 'src/i18n/translate';
 
-const MIN_PASSWORD = 8;
 const { t, locale } = useI18n();
+// 密碼最短長度讀 auth/options（政策 auth.passwordMinLength，帳號安全設計 §7.6）；讀回之前不顯示數字、交給後端判斷
+const authOptions = useAuthOptions();
+const minPassword = computed(() => authOptions.data.value?.passwordMinLength);
+const passwordLabel = computed(() => (minPassword.value === undefined ? t('auth.password') : t('users.password', { min: minPassword.value })));
 const $q = useQuasar();
 const identity = useIdentityStore();
 const users = useAdminUsers();
@@ -144,20 +148,36 @@ function save() {
   update.mutate({ id: editingId.value, body: main }, { onSuccess: () => { savedMain.value = main; handlers.onSuccess(); }, onError: showError });
 }
 
+// 重設密碼對話框（帳號安全設計 §7.5）：對方 Email 已驗證時預設「寄重設連結」，否則只有暫時密碼；自己那列只有暫時密碼（後端對自己回 409）
 const resetTarget = ref<string | null>(null);
+const resetEmail = ref<string | null>(null);
+const resetMode = ref<'link' | 'temp'>('temp');
 const resetPassword = ref('');
 const resetError = ref('');
 const reset = useResetPassword();
+const sendLink = useSendResetLink();
 function openReset(u: AdminUser) {
   resetTarget.value = u.userId;
+  resetEmail.value = u.emailVerified && u.userId !== identity.userId ? (u.email ?? null) : null;
+  resetMode.value = resetEmail.value ? 'link' : 'temp';
   resetPassword.value = '';
   resetError.value = '';
 }
 function submitReset() {
-  if (resetPassword.value.length < MIN_PASSWORD) { resetError.value = t('users.passwordTooShort'); return; }
+  resetError.value = '';
+  const fail = (e: unknown) => { resetError.value = joinList(leftoverMessages(e as unknown as ApiError, [])) || t('users.saveFailed'); };
+  if (resetMode.value === 'link') {
+    sendLink.mutate(resetTarget.value!, {
+      onSuccess: () => { resetTarget.value = null; $q.notify({ type: 'positive', message: t('users.resetLinkSent') }); },
+      onError: fail,
+    });
+    return;
+  }
+  const min = minPassword.value;
+  if (min !== undefined && resetPassword.value.length < min) { resetError.value = t('users.passwordTooShort', { min }); return; }
   reset.send({ id: resetTarget.value! }, resetPassword.value, {
     onSuccess: () => { resetTarget.value = null; $q.notify({ type: 'positive', message: t('users.passwordReset') }); },
-    onError: (e) => { resetError.value = joinList(leftoverMessages(e as unknown as ApiError, [])) || t('users.saveFailed'); },
+    onError: fail,
   });
 }
 
@@ -298,7 +318,7 @@ function runSetActive(u: AdminUser, active: boolean) {
               <q-input v-model="form.displayName" :label="t('users.displayName')" dense outlined data-testid="user-name" />
             </div>
             <div v-if="!editingId" class="col-12 col-sm-6">
-              <q-input v-model="form.password" :label="t('users.password')" type="password" autocomplete="new-password" dense outlined data-testid="user-password" />
+              <q-input v-model="form.password" :label="passwordLabel" type="password" autocomplete="new-password" dense outlined data-testid="user-password" />
             </div>
             <div class="col-12 col-sm-6">
               <q-select
@@ -329,15 +349,29 @@ function runSetActive(u: AdminUser, active: boolean) {
       <q-dialog :model-value="resetTarget !== null" @update:model-value="resetTarget = null" @hide="resetPassword = ''">
         <q-card style="width: 400px; max-width: 95vw">
           <q-card-section class="text-h6">{{ t('users.resetPassword') }}：{{ resetTarget }}</q-card-section>
-          <q-card-section>
+          <q-card-section class="q-gutter-sm">
+            <template v-if="resetEmail">
+              <q-radio
+                v-model="resetMode" val="link" :label="t('users.resetModeLink', { email: resetEmail })" class="full-width" style="overflow-wrap: anywhere"
+                data-testid="user-reset-mode-link"
+              />
+              <q-radio v-model="resetMode" val="temp" :label="t('users.resetModeTemp')" data-testid="user-reset-mode-temp" />
+            </template>
+            <div v-else class="text-caption" data-testid="user-reset-no-email">{{ t('users.resetNoEmail') }}</div>
+            <div v-if="resetMode === 'link'" class="text-caption text-muted" data-testid="user-reset-link-hint">{{ t('users.resetLinkHint') }}</div>
             <q-input
-              v-model="resetPassword" :label="t('users.password')" type="password" autocomplete="new-password" dense outlined
+              v-if="resetMode === 'temp'"
+              v-model="resetPassword" :label="passwordLabel" type="password" autocomplete="new-password" dense outlined
               :error="!!resetError" :error-message="resetError" data-testid="user-reset-password"
             />
+            <div v-else-if="resetError" class="text-negative" data-testid="user-reset-error">{{ resetError }}</div>
           </q-card-section>
           <q-card-actions align="right">
             <q-btn flat :label="t('users.cancel')" data-testid="user-reset-cancel" @click="resetTarget = null" />
-            <q-btn color="primary" :label="t('users.save')" :loading="reset.isPending.value" data-testid="user-reset-submit" @click="submitReset" />
+            <q-btn
+              color="primary" :label="resetMode === 'link' ? t('users.send') : t('users.save')" :loading="reset.isPending.value || sendLink.isPending.value"
+              data-testid="user-reset-submit" @click="submitReset"
+            />
           </q-card-actions>
         </q-card>
       </q-dialog>

@@ -6,6 +6,9 @@ export const routes: RouteRecordRaw[] = [
   { path: '/change-password', component: () => import('src/pages/auth/ChangePasswordPage.vue') },
   // 驗證 Email 的連結（帳號安全設計 §12）：登入與否都能開，所以 anyone 讓守衛不把已登入的人導回首頁
   { path: '/verify-email', component: () => import('src/pages/auth/VerifyEmailPage.vue'), meta: { public: true, anyone: true } },
+  // 寄信重設密碼（帳號安全設計 §12）：申請頁只給未登入的人；重設連結登入與否都能開（同 /verify-email）
+  { path: '/forgot-password', component: () => import('src/pages/auth/ForgotPasswordPage.vue'), meta: { public: true } },
+  { path: '/reset-password', component: () => import('src/pages/auth/ResetPasswordPage.vue'), meta: { public: true, anyone: true } },
   {
     path: '/',
     component: () => import('src/layouts/MainLayout.vue'),
