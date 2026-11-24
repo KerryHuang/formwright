@@ -303,17 +303,17 @@ public class AppFormat6Tests
             .Should().Contain("contributions[0].fields[nameLength]: 公式引用了 stockValue，貢獻的公式只能引用主檔的基本欄位與本貢獻的欄位");
     }
 
-    /// <summary>停用的貢獻欄位被啟用中的公式引用：開啟時停用會被設計器的規則擋下，所以匯入時就擋，訊息照設計器。</summary>
-    /// <summary>#93：公式欄位的結果型別要在設計器的白名單內，貢獻欄位與模組欄位都在套件驗證擋下。</summary>
+    /// <summary>#93：公式欄位的結果型別要在設計器的白名單內，貢獻欄位在套件驗證擋下（模組欄位見 SharedMasterImportTests）。</summary>
     [Theory]
     [InlineData("decimal")]
     [InlineData("text")]
     public void Formula_WithUnsupportedResultType_IsRejected(string resultType)
     {
         Errors(Crm("\"formula\": \"{credit} * 2\", \"resultType\": \"number\"", $"\"formula\": \"{{credit}} * 2\", \"resultType\": \"{resultType}\""))
-            .Should().Contain(e => e.Contains("nameLength") && e.Contains("結果型別必須是 number、currency 或 date"));
+            .Should().Contain("contributions[0].fields[nameLength].config.resultType: 結果型別必須是 number、currency 或 date");
     }
 
+    /// <summary>停用的貢獻欄位被啟用中的公式引用：開啟時停用會被設計器的規則擋下，所以匯入時就擋，訊息照設計器。</summary>
     [Fact]
     public void Contribution_AnInactiveFieldUsedByAnActiveFormula_IsRejected()
     {
