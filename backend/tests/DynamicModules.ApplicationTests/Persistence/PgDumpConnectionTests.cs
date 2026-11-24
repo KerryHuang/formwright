@@ -241,6 +241,13 @@ public sealed class PgDumpConnectionTests
     public void MaskSummary_RemovesHomeAndTempDirectories(string home, string temp, string input, string expected) =>
         PostgresDatabaseBackup.MaskSummary(input, Base, new PgDumpSettings(null), null, null, [home], temp).Should().Be(expected);
 
+    /// <summary>#94 第 1 項：環境變數未設（null）或只有空白時不遮，不會把空字串整段替換掉。</summary>
+    [Fact]
+    public void MaskSummary_UnsetOrBlankHomeAndTemp_LeavesTextUnchanged() =>
+        PostgresDatabaseBackup.MaskSummary("WARNING: password file \"/srv/app/.pgpass\" has group or world access", Base,
+                new PgDumpSettings(null), null, null, [null, "", " ", "  "], null)
+            .Should().Be("WARNING: password file \"/srv/app/.pgpass\" has group or world access");
+
     /// <summary>#94 第 1 項：實例版本從這台機器的家目錄與 <see cref="Path.GetTempPath"/> 取值。</summary>
     [Fact]
     public void MaskSummary_InstanceUsesMachineHomeAndTemp()
