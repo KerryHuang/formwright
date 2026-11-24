@@ -296,9 +296,18 @@ public partial class PasswordResetTests
         using var app = App(new FakeMailSender());
         await ConfigureMail(app);
         await Eligible(app, "sales01");
-        for (var i = 0; i < 10; i++) (await Forgot(app, $"ghost{i:00}")).StatusCode.Should().Be(HttpStatusCode.Accepted);
+        var bodies = new List<string>();
+        for (var i = 0; i < 10; i++)
+        {
+            var res = await Forgot(app, $"ghost{i:00}");
+            res.StatusCode.Should().Be(HttpStatusCode.Accepted);
+            bodies.Add(await Body(res));
+        }
 
-        (await Forgot(app, "sales01")).StatusCode.Should().Be(HttpStatusCode.Accepted);
+        var eleventh = await Forgot(app, "sales01");
+        eleventh.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        (await Body(eleventh)).Should().Be(bodies[0], "被節流的回應和前 10 次一字不差");
+        bodies.Distinct().Should().ContainSingle();
         (await Rows(app)).Should().BeEmpty();
         (await Audits(app, "account.passwordResetRequested")).Should().HaveCount(10, "被節流的不逐筆寫稽核");
         app.Services.GetRequiredService<AnonymousAccountThrottle>().ThrottledCount.Should().Be(1);
@@ -442,6 +451,34 @@ public partial class PasswordResetTests
         incident.Category.Should().Be(IncidentCategory.Security);
         incident.TitleKey.Should().Be(IncidentTitles.AdminPasswordReset);
         incident.OccurrenceCount.Should().Be(1);
+        var admins = await AdminIds(app);
+        admins.Should().Contain("admin2").And.HaveCountGreaterThan(1);
+        (await Notifications(app)).Select(n => n.UserId).Should().BeEquivalentTo(admins,
+            "全部啟用中的系統管理員各收到一則站內通知");
+    }
+
+    private static async Task<List<string>> AdminIds(TestApp app)
+    {
+        await using var scope = app.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<DynamicDbContext>().Set<AppUser>().AsNoTracking()
+            .Where(u => u.IsActive && u.IsSystemAdmin).Select(u => u.UserId).ToListAsync();
+    }
+
+    [Fact]
+    public async Task R04b_SameLinkTwoConcurrentResets_OnlyOneSucceeds()
+    {
+        var mail = new FakeMailSender();
+        using var app = App(mail);
+        await ConfigureMail(app);
+        await Eligible(app, "sales01");
+        await Forgot(app, "sales01");
+        await Dispatch(app);
+        var token = ResetToken(mail);
+
+        var results = await Task.WhenAll(Reset(app, token, "brand-new-pass-a"), Reset(app, token, "brand-new-pass-b"));
+        results.Select(r => r.StatusCode).Should().BeEquivalentTo([HttpStatusCode.OK, HttpStatusCode.BadRequest], "同一把權杖只能用一次");
+        (await Audits(app, "account.passwordResetByMail")).Where(a => a.Result == AuditResult.Success).Should().ContainSingle();
+        (await Rows(app)).Where(r => r.Kind == MailKinds.PasswordChanged).Should().ContainSingle();
     }
 
     [Fact]
