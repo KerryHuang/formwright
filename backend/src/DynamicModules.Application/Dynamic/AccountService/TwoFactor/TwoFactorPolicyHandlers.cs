@@ -167,10 +167,12 @@ public sealed class TrustedDevices(ITwoFactorRepository twoFactor, TwoFactorEnfo
         return new IssuedDevice(token, device.ExpiresUtc);
     }
 
-    /// <summary>瀏覽器家族與主版本＋作業系統（前端算好送來，同前端錯誤回報的取法）；去控制字元、截 100 字，空的記「Other」。</summary>
+    /// <summary>
+    /// 瀏覽器家族與主版本＋作業系統（前端算好送來，同前端錯誤回報的取法）；去控制字元與格式字元（例 U+202E 從右到左覆寫）、截 100 字，空的記「Other」。
+    /// </summary>
     public static string LabelOf(string? label)
     {
-        var clean = new string((label ?? "").Where(c => !char.IsControl(c)).ToArray()).Trim();
+        var clean = new string((label ?? "").Where(c => !char.IsControl(c) && char.GetUnicodeCategory(c) != UnicodeCategory.Format).ToArray()).Trim();
         if (clean.Length > LabelMax) clean = clean[..LabelMax];
         return clean.Length == 0 ? "Other" : clean;
     }

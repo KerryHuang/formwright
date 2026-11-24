@@ -153,6 +153,13 @@ public class TwoFactorPolicyTests
         (await LastUsed()).Should().BeAfter(first!.Value, "超過 1 小時才更新");
     }
 
+    [Theory]
+    [InlineData("Chrome 131‮／macOS", "Chrome 131／macOS")]
+    [InlineData("Safari​ 18⁦\u0007", "Safari 18")]
+    [InlineData("‮‏", "Other")]
+    public void DeviceLabel_StripsControlAndFormatCharacters(string input, string expected) =>
+        DynamicModules.Application.Dynamic.AccountService.TwoFactor.TrustedDevices.LabelOf(input).Should().Be(expected);
+
     [Fact]
     public async Task RevokedDeviceCookie_ClearedOnLogin_DeviceOfAnotherAccountKept()
     {
