@@ -108,9 +108,9 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 | `Sqlite__MmapSizeMb` | SQLite 每條連線的記憶體對映大小，單位 MB，預設 `0`（關閉）；也可寫在 `appsettings.json` 的 `Sqlite:MmapSizeMb` |
 | `Database__Provider` | 資料庫種類：`Sqlite`（預設）或 `Postgres`，其他值拒絕啟動。`Postgres` 時 `ConnectionStrings__Dynamic` 是 Npgsql 連線字串，目標資料庫要先建好（不存在就拒絕啟動，系統不代建）。報表在兩種資料庫行為相同（能在資料庫端聚合就走 SQL 路徑） |
 | `Database__LockTimeoutSeconds` | 只在 `Postgres` 生效：寫入排隊與全庫寫入鎖各自的等待上限（秒），預設 `30`，逾時回 503；`0` 是不設上限 |
-| `DataProtection__KeysDirectory` | 登入 cookie 加密金鑰的存放目錄（相對路徑以站台目錄解析）；沒設就放在資料庫檔案旁的 `keys`，記憶體資料庫與 PostgreSQL 則不落地（重啟後要重新登入，PostgreSQL 會記 Warning） |
+| `DataProtection__KeysDirectory` | 加密金鑰的存放目錄（相對路徑以站台目錄解析）：登入 cookie、寄信設定的 SMTP 密碼、雙因素驗證的金鑰都靠它。沒設時，SQLite 檔案資料庫放在資料庫檔案旁的 `keys`；其他情況（PostgreSQL、記憶體資料庫、`file:` 開頭的連線字串）在 Development 以外的環境**拒絕啟動**。Development 環境允許不落地，但雙因素驗證不能啟用，並開「伺服器沒有保存加密金鑰」事件。金鑰目錄要和資料庫一起備份；換成空目錄啟動且資料庫裡已有雙因素或 SMTP 密碼的密文時，開「金鑰可能遺失」事件 |
 
-`Auth__InitialAdminPassword` 只在資料庫還沒有可用的管理員時有效，之後改它不會覆寫既有密碼。`Auth__ResetAdminPassword` 至少 8 碼，會重設 `admin` 的密碼、啟用、解鎖、要求改密碼並讓所有 session 失效；救回後要把它移除，否則每次重啟都會再重設。`Demo__LoginEnabled` 絕不能在正式站開啟，它不驗密碼。Swagger 只在 Development 環境開放。
+`Auth__InitialAdminPassword` 只在資料庫還沒有可用的管理員時有效，之後改它不會覆寫既有密碼。`Auth__ResetAdminPassword` 至少 8 碼，會重設 `admin` 的密碼、啟用、解鎖、要求改密碼並讓所有 session 失效；它也會清掉 `admin` 的雙因素驗證（金鑰、復原碼），救回後要把它移除，否則每次重啟都會再重設，維運監控也會一直開「緊急救援設定還沒移除」事件。`Demo__LoginEnabled` 絕不能在正式站開啟，它不驗密碼。Swagger 只在 Development 環境開放。
 
 `Sqlite__MmapSizeMb` 是大型部署的效能設定，用在資料庫檔案達數 GB、查詢以索引篩選為主的站台：負載測試中索引型查詢單人快 30% 至 45%（[儲存層負載報告](superpowers/specs/2026-11-06-storage-load-report.md) §5）。對映大小要接近資料庫檔案的大小才有效果（只開 256 MB 對 3 GB 的資料庫看不出差別），數值大於檔案時只會用到檔案那麼多；代價是占用位址空間，頁面快取由作業系統管理，實體記憶體不足的主機請維持關閉。設定逐連線生效，改值後要重啟站台；0、負數與非數字都視為關閉。只有 SQLite 會套用。
 

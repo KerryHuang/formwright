@@ -687,7 +687,7 @@ SSO、AD／LDAP 列第二版候選（使用者 2026-11-17 裁決），au1 不做
 |---|---|---|---|---|
 | au1a 核心寄信佇列、帳號 Email、站台設定 | 全部表與欄（§5，含 au1b、au1c 要用的）；`IMailSender` 改名；`MailDeliveryService`；寄送前重查資格與取消（§6.3）；`AccountMailText` 四語；Email 設定與驗證、`/verify-email`；`emailChanged` 通知；安全事件 `security.adminEmailChanged`（含安全事件代碼的登記）；「帳號安全」頁（Email、密碼兩張卡）與頁首入口；寄送紀錄；站台名稱（外觀設定）；`App:PublicUrl`；`mail.outboxRetentionDays`、`auth.emailVerifyLinkHours`；清理接 `ops.upkeep`；Demo 收件匣、示範帳號 Email、站台名稱種子；手冊 | **有**（`AccountSecurity`，SQLite＋PostgreSQL 各一） | `AppUser.cs`、`AppUserConfiguration.cs`、新設定類、`DynamicDbContext`、兩份 model snapshot、`Application/DependencyInjection.cs`、`Program.cs`、`SessionMiddleware.cs`、`PolicyCatalog.cs`、`shared/policy-catalog.json`、`AuditActions.cs`、`MessageText.cs`、`ui.json`×4、`routes.ts`、`MainLayout.vue`、`UsersPage.vue`、`MailSettingsPage.vue`、`AppearancePage.vue`、`UpdateSiteThemeHandler.cs`、`AlertDelivery.cs`、`AlertContracts.cs`、`McpTokenRequests.cs`（站台網址改鍵）、Demo 產生器、`docs/deploy.md` | 無 |
 | au1b 寄信重設密碼 | 申請、檢查、重設 API；節流與 `auth.passwordResetMaxPerHour`；統一回應與稽核；所有改密碼路徑作廢連結與通知（§7.1 第 7 點）；管理員寄重設連結（§7.5）；安全事件 `security.adminPasswordReset`；匿名權杖端點節流；登入頁連結、兩個新頁；`auth/options`；`auth.passwordResetEnabled`、`auth.passwordResetLinkMinutes`、`auth.passwordMinLength` 與收斂（§7.6）；改密碼限流；Demo 路徑；手冊 | 無 | `SessionMiddleware.cs`、`AuthController.cs`、`AdminUsersController.cs`、`GetAuthOptionsHandler.cs`、`AccountResponses.cs`、`ChangePasswordHandler.cs`、`ChangePasswordValidator.cs`、`CreateUserValidator.cs`、`ResetPasswordHandler.cs`、`ResetPasswordValidator.cs`、`SetUserActiveHandler.cs`、`AdminBootstrap.cs`、`LoginPage.vue`、`ChangePasswordPage.vue`、`UsersPage.vue`、`ui.json`×4、`routes.ts`、`PolicyCatalog.cs`、`AuditActions.cs` | au1a |
-| au1c 雙因素登入 | Domain TOTP；綁定、重新綁定、關閉、復原碼；第二步與三層猜碼上限；記住這台裝置；強制政策四項與寬限、middleware 封鎖、強制綁定頁、寬限提示；管理員重設；其餘三種安全事件（`adminTwoFactorReset`、`twoFactorFailures`、`rescueConfigLeft`）；救援清除；建 AI 權杖要驗證碼；`KeyPersistenceStatus`、非 Development 環境拒絕啟動、`keysNotPersisted`、`keysMayBeLost`；重新驗證端點拆兩段（§8.9）；QR 碼；`mfa01` 種子、啟動時重新加密、Demo 驗證碼提示、`auth` 政策 Demo 唯讀；手冊與 `docs/demo.md` | 無 | `SessionMiddleware.cs`、`AuthController.cs`、`LoginHandler.cs`、`LoginThrottle.cs`、`DemoLoginHandler.cs`、`AuthCookies.cs`、`AdminBootstrap.cs`、`GetMeHandler.cs`、`McpTokenHandlers.cs`、`McpTokenRequests.cs`、`PolicyHandlers.cs`、`LoginPage.vue`、`AiTokensPage.vue`、`MainLayout.vue`、`auth-guard.ts`、`ui.json`×4、`routes.ts`、`UsersPage.vue`、`PolicyCatalog.cs`、`AuditActions.cs`、`frontend/package.json`、Demo 產生器、`Program.cs`、`docs/deploy.md`、`AuthApiTests.cs`、`RequestContextTests.cs`（補金鑰目錄） | au1a |
+| au1c 雙因素登入 | Domain TOTP；綁定、重新綁定、關閉、復原碼；第二步與三層猜碼上限；記住這台裝置；強制政策四項與寬限、middleware 封鎖、強制綁定頁、寬限提示；管理員重設；其餘三種安全事件（`adminTwoFactorReset`、`twoFactorFailures`、`rescueConfigLeft`）；救援清除；建 AI 權杖要驗證碼；`KeyPersistenceStatus`、非 Development 環境拒絕啟動、`keysNotPersisted`、`keysMayBeLost`；重新驗證端點拆兩段（§8.9）；QR 碼；`mfa01` 種子、啟動時重新加密、Demo 驗證碼提示、`auth` 政策 Demo 唯讀；手冊與 `docs/demo.md`（2026-11-25 拆成 au1c1、au1c2：au1c1 是核心，含 Domain TOTP、綁定／重新綁定／關閉、復原碼、QR 碼、第二步與三層上限、重新驗證拆兩段、管理員重設、三種安全事件、救援清除、AI 權杖要驗證碼、金鑰守衛與兩種金鑰事件、`mfa01`；au1c2 是 §8.5 記住這台裝置與 §8.7 強制政策四項、寬限、middleware 封鎖、強制綁定頁、寬限提示，見 §26） | 無 | `SessionMiddleware.cs`、`AuthController.cs`、`LoginHandler.cs`、`LoginThrottle.cs`、`DemoLoginHandler.cs`、`AuthCookies.cs`、`AdminBootstrap.cs`、`GetMeHandler.cs`、`McpTokenHandlers.cs`、`McpTokenRequests.cs`、`PolicyHandlers.cs`、`LoginPage.vue`、`AiTokensPage.vue`、`MainLayout.vue`、`auth-guard.ts`、`ui.json`×4、`routes.ts`、`UsersPage.vue`、`PolicyCatalog.cs`、`AuditActions.cs`、`frontend/package.json`、Demo 產生器、`Program.cs`、`docs/deploy.md`、`AuthApiTests.cs`、`RequestContextTests.cs`（補金鑰目錄） | au1a |
 
 - au1a 是本段唯一的 migration，不和其他會加 migration 的段平行。
 - 三段都有畫面，各自在本機四種寬度走查。
@@ -1196,3 +1196,42 @@ SSO、AD／LDAP 列第二版候選（使用者 2026-11-17 裁決），au1 不做
 4. 重設對話框的標題改用語系鍵 `users.resetPasswordFor`，en、th、vi 用半形冒號（走查 G4）。
 
 **測試補強（S6）**：R9 比對第 11 次（被節流）的回應和前 10 次一字不差；R15 驗證全部啟用中的系統管理員各收到一則站內通知；新增 R04b，同一把權杖並行重設兩次只有一次成功；R12 的救援改成以 `Auth:ResetAdminPassword` 重啟 TestApp，驗 `Program.cs` 的實際接線，再重啟一次驗不重複排信；R01 的時效比對改用 1 ms 容差（PostgreSQL 的 timestamp 只存到微秒）。
+
+## 26. au1c1 實作決定（2026-11-25）
+
+範圍：§8.1–§8.4、§8.6（只到 `GET /me` 的 `twoFactor` 基本欄位）、§8.8、§8.9、§8.11，§8.7 只做金鑰守衛（`KeyPersistenceStatus`、非 Development 拒絕啟動、`infra.keysNotPersisted`、`infra.keysMayBeLost`），§13.3 Demo，§18.3 F1–F10、F19–F28、F30、F31（到先改密碼）、F33–F39、F41–F44、F46–F48。留給 au1c2：§8.5 記住這台裝置（`fw.device`、`auth.twoFactorRememberDays`、`trusted-devices` 端點、F11、F12）與 §8.7 強制政策四項、寬限、middleware 封鎖、強制綁定頁、寬限提示（F13–F18、F29、F31 的「再被導去綁定」、F32 的強制暫停、F40、F45）；`GET /me` 的 `rememberedDevices`、`twoFactorEnrollmentRequired` 也留給 au1c2，`required` 固定 `false`、`graceUntil` 固定 `null`。技術類為實作者決定；標「使用者行為」的是代做的行為決定，附選錯代價，審查或使用者可推翻。
+
+**技術類**
+
+1. 猜碼判斷集中在 `SecondFactorVerifier`（登入第二步、重新驗證共用）：`LoginThrottle.TryBegin`（帳號＋IP 層）→ 解 TOTP 金鑰（解不開時 `Release`、記 `twoFactorUnreadable`，不佔帳號層，F42）→ 交易外以條件式 `ExecuteUpdate` 佔帳號層名額（`TwoFactorFailedCount < 10` 才加一，加到 10 同時寫 `TwoFactorLockedUntilUtc`；0 列＝已暫停）→ 比對。佔了名額就不退（F41：佔名額後、比對前丟例外，暫停照樣生效）。比對成功後的消耗（`TotpLastStep` 條件式推進、復原碼條件式標已用、清帳號層計數）在內層交易裡，提交後才 `Complete(true)`；內層失敗時名額照算。
+2. 第二步憑證：`fw.2fa` cookie 內容是 Data Protection（purpose `login-second-step`）加密的 `{userId, nonce, stamp, issuedUtc}`，Path 限 `/api/v3/dynamic/auth/two-factor`、SameSite=Strict、HttpOnly、5 分鐘。每張憑證的 5 次上限與「已用過」記在 singleton `SecondStepTickets`（記憶體，依 nonce）。**已知限制**：站台重啟歸零；多台部署各自計數，用過的憑證在 5 分鐘內換到另一台還能再試（仍要正確的、沒用過的驗證碼），和 `LoginThrottle` 同一類限制。
+3. TOTP 金鑰以 Data Protection（purpose `account-totp`）加密存 `TotpSecretProtected`；解不開回 null（fail closed）。綁定中的金鑰同樣加密暫存在 `TotpPendingProtected`（開始時間 `TotpPendingUtc`），10 分鐘內要完成；已啟用的金鑰在完成綁定時才被取代。
+4. 重放保護：`TotpLastStep` 以條件式更新推進（`LastStep IS NULL OR LastStep < step`），同一步或更早的碼一律拒絕；兩個請求同時送同一個碼只有一個成功（F5）。復原碼同理（`UsedUtc IS NULL` 才標，F47）。
+5. 重新驗證：`IReauthVerifier.VerifyWithSecondFactorAsync`；帳號啟用雙因素時「驗證碼與復原碼擇一」在進限流之前檢查，兩個都給或都不給回 400 `twoFactorCodeRequired`，不算一次嘗試（F46）。密碼正確後先 `Release` 帳號＋IP 層，再走第 1 點。失敗的 `account.reauthFailed` 以 `IAuditLog.TryWriteNowAsync` 在交易外寫入，不被回滾（F34）。在交易內呼叫一律丟例外（F48）。
+6. 建 AI 權杖拆成外層 `CreateMcpTokenRequest`（非交易型）與內層 `ApplyCreateMcpTokenRequest`（交易、稽核 `mcp.token.create`）。外層把可預期的檢查（帳號、Demo、政策、名稱與範圍、到期日、每人上限）排在驗證之前，已達上限時不推進 `TotpLastStep`、不佔帳號層（F44）；內層重比 stamp 與上限。
+7. 第二步暫停的稽核、事件與通知走交易型 `RecordTwoFactorLockoutRequest`：同一帳號 24 小時內只排一封 `twoFactorFailures` 信（查寄送紀錄，`IMailOutboxRepository.AnySinceAsync`），事件照常累加次數但不再發通知（`IncidentSignal.Quiet`，F39）。沒有已驗證 Email 時寄送紀錄記 `skipped`、原因 `noVerifiedEmail`。
+8. 金鑰目錄：非 Development 環境沒有金鑰目錄（沒設 `DataProtection:KeysDirectory`，也推不出 SQLite 檔案旁的 `keys`）就在 Build 之前、連資料庫之前丟例外拒絕啟動，取代原本 PostgreSQL 只記 Warning 的做法（F36、F36b）。Development 允許不落地：記 Warning、開 `infra.keysNotPersisted`、綁定回 409 `keysNotPersisted`（F24、F32 的綁定部分）。啟動時金鑰目錄沒有任何 `key-*.xml`、而資料庫已有 TOTP 金鑰或 SMTP 密碼的密文時開 `infra.keysMayBeLost`（Critical）；開 `Demo:LoginEnabled` 時不開（Demo 映像建置後刪金鑰，每次冷啟動都重生，F43）。
+9. 啟動時的檢查（`StartupSecurityCheckRequest`：救援設定沒移除開 `security.rescueConfigLeft`，每次啟動都開；金鑰兩種事件）與 Demo 的 `EnsureDemoMfaSecretRequest` 用 `new Mediator(scope.ServiceProvider)` 送出（照樣走管線與交易），不經可被替換的 `IMediator` 註冊：測試替身以呼叫次數決定丟例外，不該算到啟動步驟。
+10. 緊急救援清除雙因素：`AdminBootstrap` 收一個 callback，由 `Program.cs` 傳入 `TwoFactorClear.ApplyAsync`（清金鑰、綁定中的金鑰、`TotpLastStep`、計數與暫停、復原碼、記住的裝置，換 stamp）。批次刪除在 Persistence 的 `TwoFactorRepository`，WebAPI 不放批次方法（PAX23）；新的 `ExecuteUpdate`／`ExecuteDelete` 方法都登記在 `AuthorizationWriteInventoryTests`。
+11. Demo 的 `mfa01`：種子（`DemoPeople.EnsureAccountSecurityAsync`）寫 `TotpEnabledUtc` 與 10 組固定復原碼的雜湊，不寫金鑰密文；一般啟動（不是建置映像）時與產生 Demo 資料之後，用目前的金鑰把固定金鑰 `DemoAccounts.MfaTotpSecret` 加密寫回（F26）。第二步提示目前的驗證碼與第一組還沒用過的復原碼。Demo 站的 `mfa01` 不檢查重放、不佔帳號層（F27、F35），帳號＋IP 層與每張憑證 5 次照常。
+12. Demo 守衛：本人雙因素端點（setup、enable、disable、recovery-codes）、`reset-two-factor`、`auth` 分類的政策修改都回 403 `demoSite`（F28）；帳號安全頁的 `twoFactor.blocked` 是 `demoSite`。
+13. 強制政策的介面點：`ITwoFactorRequirement` 只有 `OptionalTwoFactorRequirement`（恆為否），本人關閉雙因素的 409 `twoFactorRequired` 路徑先接好，au1c2 換成依政策判斷。
+14. 綁定的發行者名稱（驗證器 App 上顯示的名稱）：站台名稱 → `App:PublicUrl` 的主機名 → `Formwright`。
+15. QR 碼用 `uqr`（0.1.3，零依賴、純 JS）在前端產生 SVG，以 `data:` URI 放在 `<img>`，不用 `v-html`；固定白底黑點（SVG 自帶背景），不跟主題變色。
+16. 新增後端訊息放 `ServerTextBaseline/two-factor.json`；五種事件標題放 `alert.json`。測試主機 `TestApp` 預設設金鑰目錄（每個主機一個空目錄），要測不落地時把設定設成空字串（複審建議 A）。
+
+**使用者行為（代做）**
+
+1. 金鑰解不開（帳號安全頁顯示「無法讀取」）時，「重新綁定」預設改用復原碼，「重新產生復原碼」不顯示（它只接受驗證碼，金鑰解不開時一定失敗）。選錯代價：使用者要自己切回驗證碼（雖然不會成功）。
+2. 復原碼畫面按 Esc 或點背景不關，要按「我已保存」。選錯代價：想直接關掉的人多按一下。
+3. 第二步回 `twoFactorExpired`（逾時、錯 5 次、帳號被停用）時自動回到輸入密碼的畫面並顯示原因。選錯代價：想看清楚錯誤再回去的人少了一步。
+4. 用復原碼登入後右下角以警告色提示「已用一組復原碼登入，還剩 N 組」。選錯代價：提示稍嫌醒目。
+5. 使用者管理的「雙因素」欄只標「已啟用」「無法讀取」，未啟用留白（手機卡片不列空值）；「重設雙因素」只在這兩種狀態、而且不是自己那列時出現，要先確認。選錯代價：想確認誰沒啟用的管理員要看空白欄。
+6. 建 AI 權杖的對話框只在 `GET /me` 的 `twoFactor.enabled` 為是時多一個「驗證碼」欄，不提供改用復原碼（後端仍接受復原碼）。選錯代價：手機不在身邊時要先到帳號安全頁處理，或等手機回來。
+7. 帳號安全頁的雙因素卡在 Demo 站、金鑰沒保存、帳號沒有密碼時各寫一句原因，不顯示「啟用」按鈕。選錯代價：無。
+
+**偏離與留待**
+
+- F31、F37 的「被要求綁定」屬強制政策，留給 au1c2；au1c1 只驗到「先改密碼、計數沒累加」與「金鑰放在資料庫目錄的 keys、可以綁定、沒有 `infra.keysNotPersisted`」。
+- `TwoFactorLimits`（帳號層 10 次、每張憑證 5 次、暫停 15 分鐘、綁定 10 分鐘、憑證 5 分鐘、通知去重 24 小時）與復原碼 10 組、剩 2 組提醒是程式常數，照 §8 的數字；若要改成政策，另開段處理。
+
