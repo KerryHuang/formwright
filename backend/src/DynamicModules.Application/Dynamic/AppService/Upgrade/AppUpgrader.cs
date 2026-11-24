@@ -48,7 +48,8 @@ public sealed class AppUpgrader(
     IListViewRepository views, IRecordRepository records, TemplateInstantiator instantiator, MasterSymbols symbols,
     AppDependencyChecker dependencies, ISender sender, IUnitOfWork uow, IBusinessTime time, AppResponseBuilder builder,
     RequestLocale requestLocale, AuditContext audit, IAuditLog auditLog, IMessageCatalog messages,
-    IReportRepository reports, ReportDefinitionValidator reportValidator, ICurrentUser user, AppFlowUpgrader flowUpgrader)
+    IReportRepository reports, ReportDefinitionValidator reportValidator, ICurrentUser user, AppFlowUpgrader flowUpgrader,
+    MasterLifecycle lifecycle, MasterGrants masterGrants, IAppPackageRepository packageRows)
 {
     private static readonly IReadOnlyDictionary<string, long> None = new Dictionary<string, long>();
 
@@ -57,31 +58,77 @@ public sealed class AppUpgrader(
         // 套件內容只要求繁中，不跟政策 locale.requiredText（判斷 12）
         using var packageText = PackageTextScope.Begin();
         // 0. 重算 token（交易內、任何寫入之前；PostgreSQL 交易的第一個陳述式已取全庫寫入鎖，§8.3）
-        var built = await previewer.BuildAsync(key, new UpgradeBody(body.GroupMap, body.ModuleKeys), ct);
+        var built = await previewer.BuildAsync(key, new UpgradeBody(body.GroupMap, body.ModuleKeys, body.MasterGroupMap), ct);
         if (built.Failure is { } failure) return failure;
         var (app, preview, mine) = (built.App!, built.Preview!, built.Mine);
         // 409 帶代碼讓畫面分辨（§8.3）：token 不符才重新預覽；擋下的附預覽重畫；其他 409（設計器指令）只顯示訊息
         if (body.Token != preview.Token) return ServiceResult.Conflict(AppMessages.UpgradeStale, AppMessages.UpgradeStaleCode);
-        if (!preview.CanApply || mine?.Context is null || built.Candidate is null)
+        if (!preview.CanApply || (mine?.Context is null && built.Masters.Count == 0) || (mine is not null && built.Candidate is null))
             return ServiceResult.ConflictWith(AppMessages.UpgradeBlocked, preview, AppMessages.UpgradeBlockedCode);
 
-        // 勾選的驗證（§8.3、§6.5）：不在清單、不能套用、相依沒勾 → 400
-        var listed = mine.Items.ToDictionary(i => i.Id);
+        // 勾選的驗證（§8.3、§6.5、T35）：不在清單、不能套用、相依沒勾 → 400；主檔的鍵前面加 masters.<主檔 id>
         var selected = body.Items.ToHashSet(StringComparer.Ordinal);
+        var masterSelected = built.Masters.ToDictionary(m => m.Master.Key,
+            m => (body.Masters.GetValueOrDefault(m.Master.Key) ?? []).ToHashSet(StringComparer.Ordinal));
+        bool Has(string dep, HashSet<string> own) => dep.StartsWith("master:", StringComparison.Ordinal)
+            ? dep.IndexOf('/') is var slash and > 0 && masterSelected.TryGetValue(dep["master:".Length..slash], out var set) && set.Contains(dep[(slash + 1)..])
+            : own.Contains(dep);
         var errors = new Dictionary<string, string[]>();
-        foreach (var id in selected)
+        void Check(string prefix, IReadOnlyList<UpgradeItemResponse> items, HashSet<string> chosenIds)
         {
-            if (!listed.TryGetValue(id, out var item)) errors[$"items.{id}"] = [AppMessages.UpgradeItemUnknown];
-            else if (!item.Applicable) errors[$"items.{id}"] = [AppMessages.UpgradeItemNotApplicable];
-            else if (item.DependsOn.Where(d => !selected.Contains(d)).ToList() is { Count: > 0 } missing)
-                errors[$"items.{id}"] = [AppMessages.UpgradeItemMissingDependency(string.Join("、", missing))];
+            var listed = items.ToDictionary(i => i.Id);
+            foreach (var id in chosenIds)
+            {
+                if (!listed.TryGetValue(id, out var item)) errors[$"{prefix}items.{id}"] = [AppMessages.UpgradeItemUnknown];
+                else if (!item.Applicable) errors[$"{prefix}items.{id}"] = [AppMessages.UpgradeItemNotApplicable];
+                else if (item.DependsOn.Where(d => !Has(d, chosenIds)).ToList() is { Count: > 0 } missing)
+                    errors[$"{prefix}items.{id}"] = [AppMessages.UpgradeItemMissingDependency(string.Join("、", missing))];
+            }
         }
+        foreach (var id in body.Masters.Keys.Where(k => !masterSelected.ContainsKey(k))) errors[$"masters.{id}"] = [AppMessages.UpgradeItemUnknown];
+        foreach (var m in built.Masters) Check($"masters.{m.Master.Key}.", m.Comparison.Items, masterSelected[m.Master.Key]);
+        Check("", mine?.Items ?? [], selected);
         if (errors.Count > 0) return ServiceResult.Invalid(errors);
 
-        var ctx = mine.Context;
+        // 1–2. 共用主檔先套（被依賴的在前），之後才是應用程式（§9.1）；只有主檔有新版時應用程式的版號、基準不變（T55）
+        var warnings = new List<string>();
+        var masterApplied = 0;
+        foreach (var m in built.Masters)
+        {
+            var done = await ApplyOneAsync(m.Master, m.Comparison, m.Source, masterSelected[m.Master.Key], new Dictionary<string, string>(), warnings, ct);
+            if (done.Failure is { } f) return f;
+            masterApplied += done.Applied;
+        }
+        if (mine?.Context is not null)
+        {
+            var done = await ApplyOneAsync(app, mine, built.Candidate!, selected, body.ModuleKeys, warnings, ct, masterApplied);
+            if (done.Failure is { } f) return f;
+        }
+        else
+        {
+            app.TouchRowVersion();
+            WriteAudit(app, app.PackageVersion, [], 0, [], masterApplied);
+            await uow.CommitAsync(ct);
+        }
+        // 主檔的權限來源有變（新模組、新貢獻），重算有效值（§9.1 第 7 步）
+        if (built.Masters.Count > 0) await lifecycle.RecomputeAsync(ct);
+        return ServiceResult.Success(await builder.BuildAsync(app, withDependents: false, warnings, ct));
+    }
+
+    private sealed record Outcome(ServiceResult? Failure, int Applied);
+
+    /// <summary>
+    /// 套一份（應用程式或一份共用主檔）的比對結果（T55：以 Comparison 為參數，應用程式與每份主檔各呼叫一次）。
+    /// 主檔：稽核另寫一筆 app.upgrade（目標是主檔、同一個請求），用內建新版升級時改寫合併副本（T38）。
+    /// </summary>
+    private async Task<Outcome> ApplyOneAsync(
+        App app, AppUpgradePreviewer.Comparison mine, SourcedPackage candidate, HashSet<string> selected, IReadOnlyDictionary<string, string> moduleKeys,
+        List<string> warnings, CancellationToken ct, int masterApplied = 0)
+    {
+        static Outcome Stop(ServiceResult r) => new(r, 0);
+        var ctx = mine.Context!;
         var n = ctx.New;
         var lc = requestLocale.Current;
-        var warnings = new List<string>();
         var grants = new List<JsonObject>();
         var chosen = mine.Items.Where(i => selected.Contains(i.Id)).ToList();
         bool Picked(string section, out List<UpgradeItemResponse> list) => (list = chosen.Where(i => i.Section == section).ToList()).Count > 0;
@@ -97,7 +144,7 @@ public sealed class AppUpgrader(
             if (value > 0) { groupIds[code] = value; continue; }
             var name = n.Groups.First(g => g.Code == code).Name.Resolve(lc);
             var r = await sender.Send(new CreateGroupRequest(name, lc.Locale), ct);
-            if (!r.IsSuccess) return r;
+            if (!r.IsSuccess) return Stop(r);
             groupIds[code] = created[value] = ((AdminGroupResponse)r.Data!).Id;
         }
 
@@ -119,12 +166,12 @@ public sealed class AppUpgrader(
             var (moduleCode, blockCode) = Split(item.Id["block:".Length..]);
             var block = n.Modules.First(m => m.Code == moduleCode).Blocks.First(b => b.Code == blockCode);
             var added = await sender.Send(new AddBlockRequest(state.Modules[moduleCode].Key, block.Label), ct);
-            if (!added.IsSuccess) return added;
+            if (!added.IsSuccess) return Stop(added);
             var response = (BlockResponse)added.Data!;
             if (block.Collapsed || block.Columns is not null)
             {
                 var updated = await sender.Send(new UpdateBlockRequest(response.Id, block.Label, block.Collapsed, block.Columns ?? response.Columns), ct);
-                if (!updated.IsSuccess) return updated;
+                if (!updated.IsSuccess) return Stop(updated);
             }
             newBlocks[$"{moduleCode}.{blockCode}"] = response.Id;
             apps.AddBindings([], [], [new AppBlock { AppId = app.Id, Name = $"{moduleCode}.{blockCode}", BlockId = response.Id }]);
@@ -163,18 +210,23 @@ public sealed class AppUpgrader(
                 Integrations = [], Contributions = [], TaskRules = [], ApprovalFlows = []
             };
             var overrides = sub.Modules.ToDictionary(m => m.Code,
-                m => new InstantiateModuleInput(m.Code, body.ModuleKeys.GetValueOrDefault(m.Code) ?? m.Key, null));
+                m => new InstantiateModuleInput(m.Code, moduleKeys.GetValueOrDefault(m.Code) ?? m.Key, null));
             var instantiated = await instantiator.InstantiateAsync(AppPackageAdapter.ToTemplate(sub), overrides, new HashSet<string>(), ct,
                 new AppInstantiation(groupIds, external, n.FieldAccess, n.OptionScopes, Seeds(state, masterSeeds), contributions));
-            if (!instantiated.IsSuccess) return instantiated;
+            if (!instantiated.IsSuccess) return Stop(instantiated);
             var result = (InstantiateTemplateResponse)instantiated.Data!;
             warnings.AddRange(result.Warnings);
             foreach (var code in Commands.AppOpener.ActivationOrder(sub))
             {
                 var activated = await sender.Send(new ActivateModuleRequest(result.Modules.First(m => m.Code == code).Key), ct);
-                if (!activated.IsSuccess) return activated;
+                if (!activated.IsSuccess) return Stop(activated);
             }
             foreach (var m in result.Modules) app.Modules.Add(new AppModule { AppId = app.Id, Code = m.Code, ModuleId = m.Id });
+            // 主檔的新模組：權限寫成主檔名下的來源記錄，最後重算（§9.6.3，同開啟的 RecordGrantsAsync）
+            if (app.Kind == AppKind.Master)
+                foreach (var m in sub.Modules)
+                    await masterGrants.GrantAsync(GrantSource.Master, app.Id, result.Modules.First(x => x.Code == m.Code).Id,
+                        m.Permissions.Where(p => groupIds.ContainsKey(p.Group)).Select(p => (groupIds[p.Group], p.Privileges, p.Scope ?? DataScope.All)), ct);
             // 新模組附帶的權限也進稽核明細（審查 S2）
             foreach (var m in sub.Modules)
             {
@@ -204,14 +256,14 @@ public sealed class AppUpgrader(
             var option = n.Modules.First(m => m.Code == item.Module).Blocks.SelectMany(b => b.Fields).SelectMany(f => f.Options)
                 .First(o => $"{item.Module}.{o.Code}" == name);
             var added = await sender.Send(new AddOptionRequest(state.Fields[parent], option.Label, option.Color), ct);
-            if (!added.IsSuccess) return added;
+            if (!added.IsSuccess) return Stop(added);
             apps.AddBindings([], [new AppOption { AppId = app.Id, Name = name, OptionId = ((OptionResponse)added.Data!).Id }], []);
         }
         await uow.CommitAsync(ct);
 
         // 之後的步驟（既有物件的修改、規則、檢視、報表）引用得到剛建好的東西
         state = await LoadStateAsync(app, ct);
-        if ((failed = await PlaceAddedFieldsAsync(addedFields, n, state, ct)) is not null) return failed;
+        if ((failed = await PlaceAddedFieldsAsync(addedFields, n, state, ct)) is not null) return Stop(failed);
         var map = TemplateInstantiator.MapFor(AppPackageAdapter.ToTemplate(n), external, Seeds(state, masterSeeds), state.Blocks);
 
         // 5. 既有的模組、區塊、欄位、選項：只寫「只有新版改」與勾選後的衝突屬性，客戶改的屬性保留（§6.3、§9.4）
@@ -232,16 +284,16 @@ public sealed class AppUpgrader(
                     long? titleField = merged.TitleField is { } tf && map.Fields.TryGetValue(TemplateGraph.Qualify(merged.Code, tf), out var tid) ? tid : null;
                     // 找不到標題欄位或樣板裡的欄位：回 400，不送 null 清掉客戶現有的標題設定（審查 M2）
                     if (merged.TitleField is not null && titleField is null)
-                        return ServiceResult.Invalid(new Dictionary<string, string[]> { [$"{item.Id}.titleField"] = [AppMessages.UpgradeTitleFieldMissing(merged.TitleField)] });
+                        return Stop(ServiceResult.Invalid(new Dictionary<string, string[]> { [$"{item.Id}.titleField"] = [AppMessages.UpgradeTitleFieldMissing(merged.TitleField)] }));
                     if (merged.TitleTemplate is not null && titleTemplate is null)
                     {
                         // 訊息只帶對不上的那個代號（複核 S-b）；樣板解析不了才帶整串
                         var absent = Domain.Modules.TitleTemplate.Tokens(merged.TitleTemplate)
                             .FirstOrDefault(code => !map.Fields.ContainsKey(TemplateGraph.Qualify(merged.Code, code))) ?? merged.TitleTemplate;
-                        return ServiceResult.Invalid(new Dictionary<string, string[]> { [$"{item.Id}.titleTemplate"] = [AppMessages.UpgradeTitleFieldMissing(absent)] });
+                        return Stop(ServiceResult.Invalid(new Dictionary<string, string[]> { [$"{item.Id}.titleTemplate"] = [AppMessages.UpgradeTitleFieldMissing(absent)] }));
                     }
                     if ((failed = Fail(await sender.Send(new UpdateModuleRequest(state.Modules[merged.Code].Key, merged.Name, merged.Icon, merged.Section,
-                            titleField, titleTemplate, merged.TasksEnabled), ct), item.Id)) is not null) return failed;
+                            titleField, titleTemplate, merged.TasksEnabled), ct), item.Id)) is not null) return Stop(failed);
                     break;
                 }
                 case "blocks":
@@ -251,7 +303,7 @@ public sealed class AppUpgrader(
                     var merged = Merge(BlockOf(ctx.Current, cm, cb), BlockOf(n, cm, cb), props);
                     var blockId = state.Blocks[name];
                     if ((failed = Fail(await sender.Send(new UpdateBlockRequest(blockId, merged.Label, merged.Collapsed,
-                            merged.Columns ?? state.BlockColumns[blockId]), ct), item.Id)) is not null) return failed;
+                            merged.Columns ?? state.BlockColumns[blockId]), ct), item.Id)) is not null) return Stop(failed);
                     break;
                 }
                 case "fields":
@@ -263,10 +315,10 @@ public sealed class AppUpgrader(
                     var fieldId = state.Fields[name];
                     if (props.Any(p => p != "active"))
                         if ((failed = Fail(await sender.Send(new UpdateFieldRequest(fieldId, merged.Type, merged.Label,
-                                map.Config(fm, merged, withDefaults: true), state.FieldBlock[fieldId]), ct), item.Id)) is not null) return failed;
+                                map.Config(fm, merged, withDefaults: true), state.FieldBlock[fieldId]), ct), item.Id)) is not null) return Stop(failed);
                     if (props.Contains("active"))
                         if ((failed = Fail(await sender.Send(new SetFieldStatusRequest(fieldId,
-                                merged.Active == false ? FieldStatus.Inactive : FieldStatus.Active), ct), item.Id)) is not null) return failed;
+                                merged.Active == false ? FieldStatus.Inactive : FieldStatus.Active), ct), item.Id)) is not null) return Stop(failed);
                     break;
                 }
                 case "options":
@@ -276,7 +328,7 @@ public sealed class AppUpgrader(
                     var merged = Merge(OptionOf(ctx.Current, om, oc)!, OptionOf(n, om, oc)!, props);
                     var optionId = state.Options[name];
                     if ((failed = Fail(await sender.Send(new UpdateOptionRequest(optionId, merged.Label, merged.Color, state.OptionActive[optionId]), ct),
-                            item.Id)) is not null) return failed;
+                            item.Id)) is not null) return Stop(failed);
                     break;
                 }
             }
@@ -288,23 +340,23 @@ public sealed class AppUpgrader(
             {
                 var m = n.Modules.First(x => x.Code == item.Module);
                 if ((failed = Fail(await sender.Send(new SaveRulesRequest(state.Modules[m.Code].Key, m.Rules.Select(r => map.Rule(m.Code, r)).ToList()), ct),
-                        item.Id)) is not null) return failed;
+                        item.Id)) is not null) return Stop(failed);
             }
         if (Picked("views", out var viewItems))
             foreach (var item in viewItems.Where(i => !newModules.Contains(i.Module!)))
-                if ((failed = await SaveViewAsync(item, n, ctx, state, map, ct)) is not null) return failed;
+                if ((failed = await SaveViewAsync(item, n, ctx, state, map, ct)) is not null) return Stop(failed);
 
         // 7. 既有模組上新欄位、新選項附帶的欄位例外與選項範圍（Q12）：從現有權限列出發加上去，既有列一筆都不改
-        if ((failed = await AttachPermissionsAsync(n, state, contributions, chosen.Where(IsNew).ToList(), groupIds, grants, ct)) is not null) return failed;
+        if ((failed = await AttachPermissionsAsync(n, state, contributions, chosen.Where(IsNew).ToList(), groupIds, grants, ct)) is not null) return Stop(failed);
 
         // 8. T31：狀態機第一趟 → 分錄 → 事件 → 檢查 → 簽核流程 → 狀態機第二趟 → 轉換 → 列印範本 → 報表 → 任務規則
         var idMap = new TemplateIdMap(map.Fields, map.FieldKeys, map.Options, map.Blocks, map.Modules.ToDictionary(x => x.Key, x => x.Value.Key));
-        if ((failed = await flowUpgrader.ApplyAsync(chosen, ctx, idMap, groupIds, newModules, lc, warnings, ct)) is not null) return failed;
+        if ((failed = await flowUpgrader.ApplyAsync(chosen, ctx, idMap, groupIds, newModules, lc, warnings, ct)) is not null) return Stop(failed);
 
         // 報表
         if (Picked("reports", out var reportItems))
-            if ((failed = await SaveReportsAsync(app, reportItems, n, ctx, state, groupIds, warnings, ct)) is not null) return failed;
-        if ((failed = await flowUpgrader.ApplyTaskRulesAsync(chosen, ctx, idMap, app.Id, warnings, ct)) is not null) return failed;
+            if ((failed = await SaveReportsAsync(app, reportItems, n, ctx, state, groupIds, warnings, ct)) is not null) return Stop(failed);
+        if ((failed = await flowUpgrader.ApplyTaskRulesAsync(chosen, ctx, idMap, app.Id, warnings, ct)) is not null) return Stop(failed);
 
         // 10. 版號、基準（§9.2）、稽核（§9.3）
         var from = app.PackageVersion;
@@ -312,10 +364,16 @@ public sealed class AppUpgrader(
         app.FormatVersion = n.FormatVersion;
         app.Requires = AppOpenPlanner.RequiresOf(n);
         app.TouchRowVersion();
-        WriteBaseline(app, built.Candidate, ctx, mine, selected, groupIds);
-        WriteAudit(app, from, chosen, mine.Items.Count(i => i.Applicable && !selected.Contains(i.Id)), grants);
+        WriteBaseline(app, candidate, ctx, mine, selected, groupIds);
+        var skippedCount = mine.Items.Count(i => i.Applicable && !selected.Contains(i.Id));
+        if (app.Kind == AppKind.Master)
+        {
+            WriteMasterAudit(app, from, chosen, skippedCount, grants);
+            await RewriteMergedCopyAsync(app, candidate, ct);
+        }
+        else WriteAudit(app, from, chosen, skippedCount, grants, masterApplied);
         await uow.CommitAsync(ct);
-        return ServiceResult.Success(await builder.BuildAsync(app, withDependents: false, warnings, ct));
+        return new Outcome(null, chosen.Count);
     }
 
     // ---- 現況 ----
@@ -696,20 +754,61 @@ public sealed class AppUpgrader(
     }
 
     /// <summary>稽核（§9.3）：摘要帶版號與數量，逐項記舊值 → 新值；放不下時拆成多筆 app.upgrade.items（同一個請求），不截斷（T25）。</summary>
-    private void WriteAudit(App app, string from, List<UpgradeItemResponse> chosen, int skippedCount, List<JsonObject> grants)
+    /// <param name="masterApplied">一起套用的主檔項目數：只有主檔有新版時，這一筆的套用數只算主檔的，逐項明細在主檔那幾筆（T55）。</param>
+    private void WriteAudit(App app, string from, List<UpgradeItemResponse> chosen, int skippedCount, List<JsonObject> grants, int masterApplied = 0)
     {
-        const int budget = AuditLogEntry.SummaryMax - 2000;
-        var summary = messages.Get(requestLocale.SystemDefault, MessageText.AppUpgradeSummary, from, app.PackageVersion, chosen.Count, skippedCount);
-        var entries = chosen.SelectMany(i => i.Properties.Where(p => p.Result != UpgradeClassifier.CustomerOnly)
-            .Select(p => new JsonObject { ["item"] = i.Id, ["property"] = p.Name, ["locale"] = p.Locale, ["old"] = p.Current?.DeepClone(), ["new"] = p.New?.DeepClone() }))
-            .Concat(grants).Select(e => Fit(e, budget)).ToList();
+        var applied = chosen.Count + masterApplied;
+        var summary = messages.Get(requestLocale.SystemDefault, MessageText.AppUpgradeSummary, from, app.PackageVersion, applied, skippedCount);
+        var entries = Entries(chosen, grants);
         audit.Target(app.Key, app.NameI18n.Resolve(requestLocale.SystemDefault));
         audit.Detail("summary", summary);
         audit.Detail("from", from);
         audit.Detail("to", app.PackageVersion);
-        audit.Detail("applied", chosen.Count);
+        audit.Detail("applied", applied);
         audit.Detail("skipped", skippedCount);
-        if (JsonSerializer.Serialize(entries).Length <= budget) { audit.Detail("items", entries); return; }
+        if (JsonSerializer.Serialize(entries).Length <= AuditBudget) { audit.Detail("items", entries); return; }
+        audit.Detail("itemParts", WriteParts(app, entries));
+    }
+
+    private const int AuditBudget = AuditLogEntry.SummaryMax - 2000;
+
+    private static List<JsonObject> Entries(List<UpgradeItemResponse> chosen, List<JsonObject> grants) =>
+        chosen.SelectMany(i => i.Properties.Where(p => p.Result != UpgradeClassifier.CustomerOnly)
+            .Select(p => new JsonObject { ["item"] = i.Id, ["property"] = p.Name, ["locale"] = p.Locale, ["old"] = p.Current?.DeepClone(), ["new"] = p.New?.DeepClone() }))
+            .Concat(grants).Select(e => Fit(e, AuditBudget)).ToList();
+
+    /// <summary>
+    /// 一起更新的主檔另記一筆 app.upgrade（目標是主檔，和應用程式那筆同一個請求，§9.6.3 稽核）；明細放不下時同樣拆成 app.upgrade.items。
+    /// </summary>
+    private void WriteMasterAudit(App master, string from, List<UpgradeItemResponse> chosen, int skippedCount, List<JsonObject> grants)
+    {
+        var entries = Entries(chosen, grants);
+        var detail = new JsonObject
+        {
+            ["summary"] = messages.Get(requestLocale.SystemDefault, MessageText.AppUpgradeSummary, from, master.PackageVersion, chosen.Count, skippedCount),
+            ["from"] = from, ["to"] = master.PackageVersion, ["applied"] = chosen.Count, ["skipped"] = skippedCount
+        };
+        if (JsonSerializer.Serialize(entries).Length <= AuditBudget) detail["items"] = new JsonArray([.. entries]);
+        else detail["itemParts"] = WriteParts(master, entries);
+        auditLog.Add(new AuditEntry("app.upgrade", AuditResult.Success, AuditTargets.App, master.Key, master.NameI18n.Resolve(requestLocale.SystemDefault),
+            Summary: detail.ToJsonString()));
+    }
+
+    /// <summary>
+    /// 主檔用內建新版升級、而客戶有再匯入的合併副本時，副本改寫成「內建新版合併舊副本」（T38、§7.1）：和基準存同一份文字，
+    /// 主檔日後被刪除、再自動開啟時開到的是新版加上客戶補的欄位。
+    /// </summary>
+    private async Task RewriteMergedCopyAsync(App master, SourcedPackage candidate, CancellationToken ct)
+    {
+        if (candidate.Source != AppPackageSource.BuiltIn || await packageRows.GetByKeyAsync(master.Key, ct) is not { } row) return;
+        row.Json = candidate.Original ?? JsonSerializer.Serialize(candidate.Package, TemplateJson.Options);
+        row.Version = candidate.Package.Manifest.Version;
+        packageRows.Update(row);
+    }
+
+    private int WriteParts(App app, List<JsonObject> entries)
+    {
+        const int budget = AuditBudget;
         var chunks = new List<List<JsonObject>> { new() };
         var size = 0;
         foreach (var e in entries)
@@ -719,10 +818,10 @@ public sealed class AppUpgrader(
             chunks[^1].Add(e);
             size += length;
         }
-        audit.Detail("itemParts", chunks.Count);
         for (var k = 0; k < chunks.Count; k++)
             auditLog.Add(new AuditEntry("app.upgrade.items", AuditResult.Success, AuditTargets.App, app.Key, null,
                 Summary: JsonSerializer.Serialize(new { part = k + 1, parts = chunks.Count, items = chunks[k] })));
+        return chunks.Count;
     }
 
     /// <summary>

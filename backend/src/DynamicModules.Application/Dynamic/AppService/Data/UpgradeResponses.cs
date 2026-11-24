@@ -4,10 +4,14 @@ using DynamicModules.Domain.ValueObjects;
 namespace DynamicModules.Application.Dynamic.AppService.Data;
 
 /// <summary>升級預覽（與之後的套用）的 body（套件更新設計 §8.1）：形狀同 <see cref="OpenAppBody"/> 的這兩項，第一次預覽可以不帶。</summary>
-public record UpgradeBody(Dictionary<string, GroupMapEntry>? GroupMap, Dictionary<string, string>? ModuleKeys)
+public record UpgradeBody(
+    Dictionary<string, GroupMapEntry>? GroupMap, Dictionary<string, string>? ModuleKeys,
+    Dictionary<string, Dictionary<string, GroupMapEntry>>? MasterGroupMap = null)
 {
     public Dictionary<string, GroupMapEntry> GroupMap { get; init; } = GroupMap ?? [];
     public Dictionary<string, string> ModuleKeys { get; init; } = ModuleKeys ?? [];
+    /// <summary>一起更新的共用主檔各自的群組對應（主檔 id → 代號 → 選擇），規則同 GroupMap（§9.6.3、T26）。</summary>
+    public Dictionary<string, Dictionary<string, GroupMapEntry>> MasterGroupMap { get; init; } = MasterGroupMap ?? [];
 }
 
 /// <summary>一個屬性的三個值（§8.4）。值原樣回，由前端格式化；Result：newOnly、customerOnly、both、added、noBaseline…</summary>
@@ -49,9 +53,10 @@ public record UpgradeImpact(string Code, int? Count = null, string? Detail = nul
 /// </summary>
 public record UpgradeApplyBody(
     string? Token, List<string>? Items, Dictionary<string, GroupMapEntry>? GroupMap, Dictionary<string, string>? ModuleKeys,
-    Dictionary<string, List<string>>? Masters = null)
+    Dictionary<string, List<string>>? Masters = null, Dictionary<string, Dictionary<string, GroupMapEntry>>? MasterGroupMap = null)
 {
     public List<string> Items { get; init; } = Items ?? [];
+    public Dictionary<string, Dictionary<string, GroupMapEntry>> MasterGroupMap { get; init; } = MasterGroupMap ?? [];
     public Dictionary<string, GroupMapEntry> GroupMap { get; init; } = GroupMap ?? [];
     public Dictionary<string, string> ModuleKeys { get; init; } = ModuleKeys ?? [];
     public Dictionary<string, List<string>> Masters { get; init; } = Masters ?? [];

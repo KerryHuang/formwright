@@ -56,8 +56,14 @@ public sealed class AppUpgradePreviewer(
         public CompareContext? Context { get; init; }
     }
 
-    /// <summary>預覽的完整結果；Failure 不為 null 時是 404／409／400。</summary>
-    public sealed record Built(ServiceResult? Failure, App? App, UpgradePreview? Preview, Comparison? Mine, SourcedPackage? Candidate);
+    /// <summary>一起更新的一份共用主檔：主檔本身、候選新版、比對結果（§9.6.3）。</summary>
+    public sealed record MasterPart(App Master, SourcedPackage Source, Comparison Comparison);
+
+    /// <summary>預覽的完整結果；Failure 不為 null 時是 404／409／400。Masters 依相依排序，被依賴的在前（§9.6.3 主檔之間）。</summary>
+    public sealed record Built(ServiceResult? Failure, App? App, UpgradePreview? Preview, Comparison? Mine, SourcedPackage? Candidate)
+    {
+        public IReadOnlyList<MasterPart> Masters { get; init; } = [];
+    }
 
     public async Task<ServiceResult> PreviewAsync(string key, UpgradeBody body, CancellationToken ct)
     {
@@ -79,7 +85,10 @@ public sealed class AppUpgradePreviewer(
         var own = candidate is not null && PackageVersion.IsNewer(candidate.Package.Manifest.Version, app.PackageVersion);
         if (!own && masters.Count == 0)
             return Fail(ServiceResult.Conflict(candidate is null ? AppMessages.UpgradeNoCandidate : AppMessages.UpgradeUpToDate, AppMessages.UpgradeUnavailableCode));
-        if (await GroupMapErrorsAsync(app, body, ct) is { } groupErrors) return Fail(groupErrors);
+        if (await GroupMapErrorsAsync(app, body.GroupMap, "groupMap", ct) is { } groupErrors) return Fail(groupErrors);
+        foreach (var (master, _) in masters)
+            if (await GroupMapErrorsAsync(master, body.MasterGroupMap.GetValueOrDefault(master.Key) ?? [], $"masterGroupMap.{master.Key}", ct) is { } masterErrors)
+                return Fail(masterErrors);
 
         var blockers = new List<UpgradeBlocker>();
         if (app.Status != AppStatus.Open) blockers.Add(new("closed"));
@@ -107,42 +116,110 @@ public sealed class AppUpgradePreviewer(
         }
 
         var masterPreviews = new List<UpgradeMasterPreview>();
+        var parts = new List<MasterPart>();
         var tokenParts = new List<string> { mine?.TokenPart ?? "" };
-        foreach (var (master, source) in masters)
+        // 主檔之間依 requires.masters 排序，被依賴的先套（§9.6.3）；主檔一律隨這次套用前進（Q25）
+        foreach (var (master, source) in MasterOrder(masters))
         {
-            var c = await CompareAsync(master, source, new UpgradeBody(null, null), ct);
+            var c = await CompareAsync(master, source, new UpgradeBody(body.MasterGroupMap.GetValueOrDefault(master.Key), null), ct);
             blockers.AddRange(c.Errors.Select(e => new UpgradeBlocker("exportFailed", $"{master.Key}: {e}")));
             blockers.AddRange((await PrecheckAsync(source.Package, ct)).Select(b => b with { Detail = $"{master.Key}: {b.Detail}" }));
+            if (c.SecondBatchPending) blockers.Add(new UpgradeBlocker("secondBatch", master.Key));
             warnings.AddRange(c.Warnings.Select(w => $"{master.Key}: {w}"));
-            // 共用主檔一起更新在 pkg1d 才開放（§15）：主檔有新版時整個套用先擋下，不讓應用程式的基準跳過主檔的差異
-            blockers.Add(new UpgradeBlocker("masterPending", master.Key));
-            masterPreviews.Add(new UpgradeMasterPreview(master.Key, master.NameI18n, master.PackageVersion, source.Package.Manifest.Version,
-                c.HasBaseline, c.Groups, c.Items, c.Counts));
+            parts.Add(new MasterPart(master, source, c));
             tokenParts.Add(c.TokenPart);
         }
+        // 主檔之間的相依（聯絡人的新欄位引用往來對象的新欄位）與應用程式對主檔的相依（T37、T43 第 5 點）
+        for (var k = 0; k < parts.Count; k++)
+        {
+            var linked = CrossDependencies(parts[k].Comparison, parts.Take(k).ToList());
+            parts[k] = parts[k] with { Comparison = linked };
+            masterPreviews.Add(new UpgradeMasterPreview(parts[k].Master.Key, parts[k].Master.NameI18n, parts[k].Master.PackageVersion,
+                parts[k].Source.Package.Manifest.Version, linked.HasBaseline, linked.Groups, linked.Items, linked.Counts));
+        }
+        if (mine is not null) mine = CrossDependencies(mine, parts);
 
         var token = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n", tokenParts)
-            + "\n" + JsonSerializer.Serialize(body.GroupMap.OrderBy(x => x.Key, StringComparer.Ordinal)))));
+            + "\n" + JsonSerializer.Serialize(body.GroupMap.OrderBy(x => x.Key, StringComparer.Ordinal))
+            + "\n" + JsonSerializer.Serialize(body.MasterGroupMap.OrderBy(x => x.Key, StringComparer.Ordinal)
+                .Select(x => new { x.Key, Map = x.Value.OrderBy(y => y.Key, StringComparer.Ordinal) })))));
         return new Built(null, app, new UpgradePreview(
             app.Key, app.NameI18n, app.PackageVersion, own ? n!.Manifest.Version : app.PackageVersion, mine?.HasBaseline ?? true, token,
             blockers.Count == 0 && keyConflicts.Count == 0, blockers, mine?.Groups ?? [], keyConflicts, mine?.Items ?? [],
-            mine?.Counts ?? new Dictionary<string, int>(), masterPreviews, warnings, n?.Manifest.Vendor), mine, own ? candidate : null);
+            mine?.Counts ?? new Dictionary<string, int>(), masterPreviews, warnings, n?.Manifest.Vendor), mine, own ? candidate : null)
+        { Masters = parts };
+    }
+
+    /// <summary>被依賴的主檔排前面（聯絡人依賴往來對象）；沒有相依的照代號排序。</summary>
+    private static List<(App Master, SourcedPackage Source)> MasterOrder(List<(App Master, SourcedPackage Source)> masters)
+    {
+        var order = new List<(App, SourcedPackage)>();
+        void Visit((App Master, SourcedPackage Source) m, HashSet<string> seen)
+        {
+            if (order.Any(x => x.Item1.Key == m.Master.Key) || !seen.Add(m.Master.Key)) return;
+            foreach (var r in m.Source.Package.Manifest.Requires.Masters)
+                if (masters.FirstOrDefault(x => x.Master.Key == r.Id) is { Master: not null } dep) Visit(dep, seen);
+            order.Add(m);
+        }
+        foreach (var m in masters) Visit(m, []);
+        return order;
+    }
+
+    /// <summary>
+    /// 跨份相依（T37、T43 第 5 點）：項目引用主檔的欄位時寫主檔符號（partner/partner.fax），主檔項目的識別是 field:partner.fax；
+    /// 主檔這次列出、現況還沒有的項目，被引用時 dependsOn 寫 master:&lt;主檔 id&gt;/&lt;項目識別&gt;。被依賴的主檔項目不能套用時，
+    /// 這一項也標不能勾（dependsOnBlocked）。
+    /// </summary>
+    private static Comparison CrossDependencies(Comparison target, IReadOnlyList<MasterPart> masters)
+    {
+        if (masters.Count == 0 || target.Context is not { } ctx) return target;
+        var pending = masters.SelectMany(m => m.Comparison.Items
+                .Where(i => m.Comparison.Context?.C.ContainsKey(i.Id) == false && m.Comparison.Context.N.TryGetValue(i.Id, out _))
+                .Select(i => (Master: m.Master.Key, Item: i, Source: m.Comparison.Context!.N[i.Id])))
+            .ToList();
+        if (pending.Count == 0) return target;
+        var items = target.Items.Select(item =>
+        {
+            if (!ctx.N.TryGetValue(item.Id, out var nv)) return item;
+            var deps = pending.Where(p => UpgradeItems.References(nv, Symbolized(p.Source, p.Master))).ToList();
+            if (deps.Count == 0) return item;
+            var ids = deps.Select(d => $"master:{d.Master}/{d.Item.Id}").Where(id => !item.DependsOn.Contains(id)).ToList();
+            var linked = item with { DependsOn = [.. item.DependsOn, .. ids] };
+            var blocked = deps.Where(d => !d.Item.Applicable).Select(d => $"master:{d.Master}/{d.Item.Id}").ToList();
+            return blocked.Count > 0 && linked.Applicable
+                ? linked with { Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonDependsOnBlocked, Detail = string.Join("、", blocked) }
+                : linked;
+        }).ToList();
+        return target with { Items = items };
+    }
+
+    /// <summary>主檔項目換成使用端的寫法：模組代號前面加主檔 id（partner → partner/partner），References 才比得上主檔符號。</summary>
+    private static UpgradeItem Symbolized(UpgradeItem item, string master)
+    {
+        if (item.Module is null) return item;
+        var symbol = $"{master}/{item.Module}";
+        var colon = item.Id.IndexOf(':');
+        var name = item.Id[(colon + 1)..];
+        var id = item.Section is "fields" or "options" or "blocks" && name.StartsWith(item.Module + ".", StringComparison.Ordinal)
+            ? $"{item.Id[..(colon + 1)]}{symbol}{name[item.Module.Length..]}"
+            : item.Section == "modules" ? $"module:{symbol}" : item.Id;
+        return item with { Id = id, Module = symbol };
     }
 
     /// <summary>
     /// 預覽與套用 body 的群組對應（T26、A24）：已經對應好、群組還在的代號不能改；map 要指向存在的群組。違反回 400。
     /// </summary>
-    private async Task<ServiceResult?> GroupMapErrorsAsync(App app, UpgradeBody body, CancellationToken ct)
+    private async Task<ServiceResult?> GroupMapErrorsAsync(App app, Dictionary<string, GroupMapEntry> groupMap, string prefix, CancellationToken ct)
     {
-        if (body.GroupMap.Count == 0) return null;
+        if (groupMap.Count == 0) return null;
         var baseline = await apps.GetBaselineAsync(app.Id, ct);
         var baseMap = baseline is null ? new Dictionary<string, long?>() : JsonSerializer.Deserialize<Dictionary<string, long?>>(baseline.GroupMapJson) ?? [];
         var groupIds = (await permissions.ListGroupsAsync(ct)).Select(g => g.Id).ToHashSet();
         var errors = new Dictionary<string, string[]>();
-        foreach (var (code, entry) in body.GroupMap)
+        foreach (var (code, entry) in groupMap)
         {
-            if (baseMap.TryGetValue(code, out var mapped) && mapped is { } id && groupIds.Contains(id)) errors[$"groupMap.{code}"] = [AppMessages.UpgradeGroupMapped];
-            else if (entry.Mode == "map" && (entry.GroupId is not { } target || !groupIds.Contains(target))) errors[$"groupMap.{code}"] = [AppMessages.UpgradeGroupMissing];
+            if (baseMap.TryGetValue(code, out var mapped) && mapped is { } id && groupIds.Contains(id)) errors[$"{prefix}.{code}"] = [AppMessages.UpgradeGroupMapped];
+            else if (entry.Mode == "map" && (entry.GroupId is not { } target || !groupIds.Contains(target))) errors[$"{prefix}.{code}"] = [AppMessages.UpgradeGroupMissing];
         }
         return errors.Count == 0 ? null : ServiceResult.Invalid(errors);
     }
