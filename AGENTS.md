@@ -50,6 +50,8 @@ ERP 是產品目標，也是核心的壓力測試：做不出來的地方，就�
   - 票隨工作改階段（升進「近期可開工」→ todo、開做 → in-progress）；合併後關票並留言 commit SHA。
   - 用 tickets 遇到問題（卡住、做法不對、文件與行為不符），在 `KerryHuang/plugharbor` 開 issue，label `from:formwright`、`plugin:tickets`，內文寫重現步驟、tickets 版本、預期與實際（照外洩規則）；擋住產線的加 `blocker`，並用 ListAgents 找 plugharbor 的 tickets 回饋 worker，SendMessage 告訴它「有 blocker #N」。開完繼續做別的。
   - 段開工前跑 `claude plugin marketplace update plugharbor && claude plugin update tickets@plugharbor --scope project`，再 `/reload-plugins`；失敗就照舊版跑，記進回來報告。
+  - 在 pi 跑時的對照：pi 直接讀 plugharbor 的工作目錄，更新是 `git -C <plugharbor 目錄> pull --ff-only` 再 `/reload`；ListAgents／SendMessage 換成 `subagents_list`／`subagent_send`（在 claude-bridge 下先用 tool_search 載入，或從 codemode 呼叫）。
+  - pi 的專案設定（`.pi/settings.json`、`.pi/mcp.json`）只放本機、不進 git；Claude 端專案 hooks 與 `.claude/rules` 由 `.claude/scripts/pi-hooks.ts` 接到 pi。
 
 ## 文件落點
 
