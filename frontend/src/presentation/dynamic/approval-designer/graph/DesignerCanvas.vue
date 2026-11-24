@@ -17,7 +17,7 @@ import { dropPosition, edgeAt, freeSpot, type AddKind, type DesignerEdgeData, ty
 // 能不能連由呼叫端的 `canConnect`（J68）決定，連好、插入都只回報事件，畫布不自己改圖。
 const props = defineProps<{
   canvasId: string; nodes: Node<DesignerNodeData>[]; edges: Edge<DesignerEdgeData>[]; draggable: boolean; initialNodes?: string[];
-  canConnect?: (from: string, to: string) => boolean; insertKinds?: { kind: AddKind; disabled: boolean }[];
+  canConnect?: (from: string, to: string) => boolean; insertKinds?: { kind: AddKind; disabled: boolean; limit?: boolean }[];
 }>();
 const emit = defineEmits<{
   'node-open': [id: string]; 'edge-open': [id: string]; 'pane-click': []; 'node-move': [id: string, to: { x: number; y: number }];

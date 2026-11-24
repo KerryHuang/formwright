@@ -8,7 +8,7 @@ import { kindIcon, type AddKind, type DesignerEdgeData } from './designer-graph'
 // 標籤被截斷時，完整文字放進 SVG <title>（滑鼠移上去可看）。
 // 線上「＋」（fg3e，§10.3）：滑鼠移到線上或選取線（觸控）時出現，放在轉折欄到終點那一段的中點（兄弟線共用起點那段，終點那段每條線各自一段）；
 // 點了選型別插入。顯示與否由畫布決定（`plus`），選單開著時回報 `menu`，畫布才不會在滑鼠離開線時把它收掉。
-const props = defineProps<EdgeProps<DesignerEdgeData> & { plus?: boolean; insertKinds?: { kind: AddKind; disabled: boolean }[] }>();
+const props = defineProps<EdgeProps<DesignerEdgeData> & { plus?: boolean; insertKinds?: { kind: AddKind; disabled: boolean; limit?: boolean }[] }>();
 const emit = defineEmits<{ insert: [kind: AddKind]; menu: [open: boolean]; hover: [on: boolean] }>();
 const { t } = useI18n();
 const geometry = computed(() => getSmoothStepPath({
@@ -43,7 +43,7 @@ const plusAt = computed(() => {
               <q-item-section avatar style="min-width: 28px"><q-icon :name="kindIcon(k.kind)" size="18px" /></q-item-section>
               <q-item-section>
                 <q-item-label>{{ t(`approval.graph.kind.${k.kind}`) }}</q-item-label>
-                <q-item-label v-if="k.disabled" caption>{{ t('approval.designer.graph.paletteLimit') }}</q-item-label>
+                <q-item-label v-if="k.limit" caption>{{ t('approval.designer.graph.paletteLimit') }}</q-item-label>
               </q-item-section>
             </q-item>
           </q-list>

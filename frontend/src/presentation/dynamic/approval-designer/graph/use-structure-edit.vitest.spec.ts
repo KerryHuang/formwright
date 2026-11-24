@@ -53,12 +53,12 @@ describe('useStructureEdit', () => {
   it('policy limits disable the kinds (J81); before the values are back only end is allowed', () => {
     const { s, g } = setup({ limits: { ready: true, maxStages: 2 } });
     expect(s.paletteItems.value).toEqual([
-      { kind: 'approval', disabled: false }, { kind: 'condition', disabled: false }, { kind: 'fork', disabled: true }, { kind: 'end', disabled: false },
+      { kind: 'approval', disabled: false, limit: false }, { kind: 'condition', disabled: false, limit: false }, { kind: 'fork', disabled: true, limit: true }, { kind: 'end', disabled: false, limit: false },
     ]);
     s.insert('e2', 'fork');
     expect(g().nodes).toHaveLength(3);
     const early = setup({ limits: { ready: false } });
-    expect(early.s.insertItems.value.every((i) => i.disabled)).toBe(true);
+    expect(early.s.insertItems.value.every((i) => i.disabled && !i.limit)).toBe(true); // 停用但不說已達上限
     expect(early.s.paletteItems.value.find((i) => i.kind === 'end')!.disabled).toBe(false);
   });
 
