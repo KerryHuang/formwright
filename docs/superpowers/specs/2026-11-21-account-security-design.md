@@ -1251,12 +1251,14 @@ SSO、AD／LDAP 列第二版候選（使用者 2026-11-17 裁決），au1 不做
 - **S2（修）**：`LoginThrottle.TryRecordIpFailure` 只記 IP 層；失效憑證重送每次記一次，同一 IP 15 分鐘滿 20 次後不再寫 `login.failed`、照樣回 `twoFactorExpired`。不碰帳號＋IP 與帳號層（重送的人不一定是本人）。**使用者行為**：同一 IP 重送失效憑證 20 次後，這個 IP 的密碼登入也被 IP 層擋 15 分鐘。選錯代價：同一出口 IP 的辦公室，有人程式壞掉一直重送時會擋到同事。
 - **S3（修）**：`TwoFactorCard` 的 `clearSecrets` 一併 `reset()` 開始綁定、完成綁定、重新產生復原碼三個 mutation；`gcTime: 0` 在下一輪事件迴圈把它們從 `MutationCache` 移除。
 - **S4（修，只動本段新回應）**：重新驗證路徑（setup、disable、recovery-codes、建 AI 權杖）第二因素階段被限流改回 `reauthThrottled`（`ReauthVerifier.Throttled()`，完成綁定也用它），建 AI 權杖再由既有對應轉成 `mcpPasswordThrottled`，每個端點只剩一種限流代碼。登入第二步維持 `tooManyAttempts`（它的家族是 `auth/login`，那裡被限流回 401 通用訊息，第二步是新端點、已知道密碼，保留 429）。au1b 既有的改 Email 寄信限流（`tooManyAttempts`）不在本段範圍，不改。前端只顯示後端訊息、沒有依代碼分支，不用改。
-- **S5（修，擇小）**：不改成「交易成功後才發」，改為觸發暫停那次的 `RecordTwoFactorLockoutRequest` 丟例外時記 Error log、照常比對，不回 500。**已知限制**：這一輪的稽核、事件與通知就此遺失（之後的嘗試判為「已暫停」，不會補開），只留在 log；`SaveChanges` 失敗時新增的稽核實體仍在同一個 DbContext 的追蹤裡，可能被同一請求之後的寫入帶出去。
+- **S5（修，擇小）**：不改成「交易成功後才發」，改為觸發暫停那次的 `RecordTwoFactorLockoutRequest` 丟例外時記 Error log、照常比對，不回 500。**已知限制**：這一輪的稽核、事件與通知就此遺失（之後的嘗試判為「已暫停」，不會補開），只留在 log。原本另一個限制「`SaveChanges` 失敗時新增的稽核實體仍在同一個 DbContext 的追蹤裡，被同一請求之後的寫入帶出去」已修（#107）：`SecondFactorVerifier` 接住例外時以 `IUnitOfWork.Discard()` 丟掉追蹤狀態（同 `ApprovalAlertBehavior` 的寫法；呼叫端都在交易外、讀帳號不追蹤，沒有別的待存修改），測試 `LockoutRecordFailsMidWrite_TrackedRowNotCarriedIntoLaterCommit`（第 10 次剛好是正確碼，修前那筆 `twoFactorLocked` 稽核會隨登入成功的提交寫進去）。
 - **S6（補文件）交易外的寫入**（不經 PostgreSQL 全庫寫入鎖，`.claude/rules/backend.md`）：
   - `TwoFactorRepository.TryClaimAttemptAsync`：帳號層佔名額，條件式 `ExecuteUpdate`，交易外立即提交（刻意，佔了名額不退）。
   - `TwoFactorClear.ApplyAsync` 經 `AdminBootstrap` 救援時：`DeleteRecoveryCodesAsync`、`DeleteTrustedDevicesAsync` 兩個 `ExecuteDelete` 在啟動階段、交易外立即執行，不跟著 `SaveChanges`（啟動時沒有並行寫入）。
   - 其餘新增的 `ExecuteUpdate`／`ExecuteDelete`（重放的條件式更新、清計數、復原碼標已用、管理員重設與本人關閉時的刪除）都在交易型請求內。
 - **次要 2（不修，已知限制）**：同一張憑證並行送兩組都有效的碼（相鄰時間步，或兩組不同的復原碼）可以換到兩個 session。只有同時知道密碼與兩組有效碼的人做得到；加「進行中」旗標會讓連點兩下的本人被送回輸入密碼，取捨後不做。
+- **完成綁定的內層重比（#107，補測試）**：`ApplyEnableTwoFactorHandler` 重比 stamp 與 `TotpPendingUtc` 原本沒有測試。補 `Enable_StampChangedAfterOuterCheck_InnerRejects401_NotEnabled`（外層比對後換 stamp → 401、沒轉正、不算猜錯）與 `Enable_SetupRestartedAfterOuterCheck_InnerRejects409_NotEnabled`（外層比對後重新開始綁定 → 409 `twoFactorSetupExpired`、沒轉正）（`TwoFactorAccountTests`）。實作本來就擋得住，拿掉任一個重比時對應的測試會失敗。
+- **並行兩次完成綁定（#107，不改，說明）**：同一個正確碼並行送兩次 `enable`，先提交的轉正並換 stamp，後一個的內層重比 stamp 不符回 401（`signInRequired`），而這個 session 的 cookie 已由第一個回應換新、仍然有效。前端全域 401 攔截可能因此把人導去登入頁。不改回應碼：401 是「本人身分已失效」的公開契約，內層重比 stamp 的各端點（setup、disable、recovery-codes、建 AI 權杖）都回 401，只為這一條改成 409 會讓同一種失效有兩種代碼；帳號安全頁的「完成」鈕送出中是載入狀態（`TwoFactorCard` 的 `busy`），要在第一個請求還沒回來時重送（例如按 Enter 送出表單，未逐一驗證）才碰得到；碰到時重新登入即可，綁定已經完成。
 - **次要 3（修）**：`AdminBootstrap` 的 `clearTwoFactor` 參數註解改為「欄位跟著下一次 SaveChanges，復原碼與記住的裝置以 ExecuteDelete 立即刪除」。
 - **次要 4（不修，說明）**：復原碼以 SHA-256 雜湊在資料庫做等值查詢，不是固定時間比較；輸入是 80 bits 隨機值的雜湊，查詢時間不洩漏可用的資訊，和 §11 的「固定時間比較」字面不同但沒有時間側通道。
 - **次要 5（不修）**：`SecondStepTickets._lastPrune` 沒有同步，最壞只是並行時多掃一次過期項目，無害。
