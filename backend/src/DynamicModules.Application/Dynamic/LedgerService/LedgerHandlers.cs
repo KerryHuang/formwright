@@ -21,18 +21,16 @@ public class SaveLedgerHandler(
         var count = await records.CountByModuleAsync(module.Id, ct);
         var definition = new LedgerDefinition(input.ReversalFieldId, input.Negate ?? [], input.Swap ?? []);
         var existing = await ledgers.GetByModuleAsync(module.Id, ct);
+        var blocked = Blocker(existing, definition, count, input.ConfirmFreeze);
+        if (blocked == Locked) return ServiceResult.Conflict("分錄已有記錄，沖銷設定不能再修改");
+        if (blocked == Freeze) return ServiceResult.Conflict(MessageRef.Of(MessageText.LedgerFreezeConfirm, count), "ledgerFreezeConfirm", new { count });
         if (existing is not null)
         {
-            // 已有記錄時，沖銷的規則已經被使用，改設定會讓新舊沖銷不一致
-            if (count > 0 && !SameDefinition(existing.Definition, definition))
-                return ServiceResult.Conflict("分錄已有記錄，沖銷設定不能再修改");
             existing.Definition = definition;
             existing.StampModified(user.UserId, time.Now);
         }
         else
         {
-            if (count > 0 && !input.ConfirmFreeze)
-                return ServiceResult.Conflict(MessageRef.Of(MessageText.LedgerFreezeConfirm, count), "ledgerFreezeConfirm", new { count });
             existing = new ModuleLedger { ModuleId = module.Id, Definition = definition };
             existing.StampCreated(user.UserId, time.Now);
             ledgers.Add(existing);
@@ -41,6 +39,17 @@ public class SaveLedgerHandler(
         await uow.CommitAsync(ct);
         return ServiceResult.Success(ToResponse(module.Key, existing, count));
     }
+
+    public const string Locked = "ledgerLocked", Freeze = "ledgerFreeze";
+
+    /// <summary>
+    /// 存分錄設定會被擋下的原因（設計器與升級預覽共用，套件更新設計 T32）：已有記錄時沖銷設定不能再改（<see cref="Locked"/>，
+    /// 舊分錄的沖銷要用當時的設定才能精確抵銷）；已有記錄的模組新設成分錄要使用者確認凍結（<see cref="Freeze"/>）。
+    /// </summary>
+    public static string? Blocker(ModuleLedger? existing, LedgerDefinition next, int count, bool confirmFreeze) =>
+        count == 0 ? null
+        : existing is not null ? (SameDefinition(existing.Definition, next) ? null : Locked)
+        : confirmFreeze ? null : Freeze;
 
     private static bool SameDefinition(LedgerDefinition a, LedgerDefinition b) =>
         a.ReversalFieldId == b.ReversalFieldId && a.Negate.Order().SequenceEqual(b.Negate.Order())

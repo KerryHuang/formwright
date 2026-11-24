@@ -24,6 +24,8 @@ public interface IEventFactRepository
     Task<List<EventFact>> ListBySourceAsync(long sourceRecordId, CancellationToken ct);
     /// <summary>這筆記錄是否已有事實（事實鎖，每次都查）。</summary>
     Task<bool> AnyBySourceAsync(long sourceRecordId, CancellationToken ct);
+    /// <summary>這個事件的這個效果代號留過事實（不分來源）；升級預覽判斷 firedEffect 用（套件更新設計 T49）。</summary>
+    Task<bool> AnyByEffectAsync(string eventKey, string effectCode, CancellationToken ct);
     /// <summary>
     /// ids 之中，在這個請求之前就已經有事實的記錄 Id（寫入後盾用）。「這個請求」指這個 repository 實例（每請求一個 scope）
     /// 經 <see cref="Add"/> 加入的事實；不用 OperationId 判斷，因為 Idempotency-Key 是客戶端給的，別的請求可以帶同一個值。

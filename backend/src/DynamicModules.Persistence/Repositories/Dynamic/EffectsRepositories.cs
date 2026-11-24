@@ -23,6 +23,9 @@ public class EventFactRepository(DynamicDbContext db) : IEventFactRepository
     public Task<bool> AnyBySourceAsync(long sourceRecordId, CancellationToken ct) =>
         db.Set<EventFact>().AsNoTracking().AnyAsync(f => f.SourceRecordId == sourceRecordId, ct);
 
+    public Task<bool> AnyByEffectAsync(string eventKey, string effectCode, CancellationToken ct) =>
+        db.Set<EventFact>().AsNoTracking().AnyAsync(f => f.EventKey == eventKey && f.EffectCode == effectCode, ct);
+
     public async Task<HashSet<long>> ListFrozenBeforeAsync(IReadOnlyCollection<long> sourceRecordIds, CancellationToken ct)
     {
         var mine = _addedThisRequest.Where(f => f.Id != 0).Select(f => f.Id).ToList();   // 已儲存的才有 Id；沒儲存的也不在資料庫裡
