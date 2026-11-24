@@ -102,6 +102,10 @@ public class RecordRepository(DynamicDbContext db, ISqlDialect dialect, IDatabas
                 && db.Set<RecordIndex>().Any(x => x.RecordId == r.Id && x.FieldId == fieldId && x.RefKey == refKey))
             .OrderBy(r => r.Id).ToListAsync(ct);
 
+    public Task<int> CountByRefFieldAsync(long moduleId, long fieldId, CancellationToken ct) =>
+        db.Set<Record>().CountAsync(r => r.ModuleId == moduleId && !r.DeleteFlag
+            && db.Set<RecordIndex>().Any(x => x.RecordId == r.Id && x.FieldId == fieldId && x.RefKey != null && x.RefKey != ""), ct);
+
     public async Task<IReadOnlyList<long>> ListDetailRowIdsAsync(long detailFieldId, string parentKey, CancellationToken ct) =>
         await db.Set<RecordIndex>().Where(x => x.FieldId == detailFieldId && x.RefKey == parentKey)
             .Select(x => x.RecordId).Distinct().ToListAsync(ct);

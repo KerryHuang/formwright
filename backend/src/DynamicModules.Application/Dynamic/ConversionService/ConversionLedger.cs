@@ -36,18 +36,10 @@ public class ConversionLedger(IRecordRepository records)
 
     /// <summary>
     /// 已轉出的目標表頭數（套件更新設計 T48、§22.2）：目標模組裡表頭追溯欄位有值的未刪除記錄。只判斷有沒有轉出過，
-    /// 手動填了參照的單也算進去（偏保守）。
+    /// 手動填了參照的單也算進去（偏保守）。追溯欄位是參照，一定有索引，在資料庫端計數（審查 S5）。
     /// </summary>
-    public async Task<int> ConvertedHeadersAsync(long targetModuleId, long sourceFieldId, CancellationToken ct)
-    {
-        var key = $"f_{sourceFieldId}";
-        return (await records.ListLiveValuesAsync(targetModuleId, ct)).Count(r =>
-        {
-            var values = RecordValueProcessor.Parse(r.ValuesJson);
-            return values.TryGetValue(key, out var v) && v is { } e && e.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined)
-                && !(e.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(e.GetString()));
-        });
-    }
+    public Task<int> ConvertedHeadersAsync(long targetModuleId, long sourceFieldId, CancellationToken ct) =>
+        records.CountByRefFieldAsync(targetModuleId, sourceFieldId, ct);
 
     public static decimal? NumberOf(IReadOnlyDictionary<string, JsonElement?> values, string key) =>
         values.TryGetValue(key, out var v) && v is { ValueKind: JsonValueKind.Number } n && n.TryGetDecimal(out var d) ? d : null;

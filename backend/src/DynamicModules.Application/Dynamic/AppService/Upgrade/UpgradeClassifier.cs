@@ -25,7 +25,7 @@ public static class UpgradeClassifier
         ReasonDependsOnBlocked = "dependsOnBlocked",
         // 第二批（§9.6.4，pkg1d1b）：轉換、事件、檢查、分錄
         ReasonConversionInUse = "conversionInUse", ReasonFiredEffect = "firedEffect", ReasonBackfillLimit = "backfillLimit",
-        ReasonLedgerLocked = "ledgerLocked", ReasonLedgerFreeze = "ledgerFreeze";
+        ReasonLedgerLocked = "ledgerLocked", ReasonLedgerFreeze = "ledgerFreeze", ReasonCodeAmbiguous = "codeAmbiguous";
 
     /// <summary>不擋、只說明的影響代碼（§9.6.4 impacts，前端 apps.upgrade.impact.*）。</summary>
     public const string ImpactRecordsInState = "recordsInState", ImpactInFlightApprovals = "inFlightApprovals",
