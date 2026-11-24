@@ -268,26 +268,40 @@ public sealed class ResendMyEmailHandler(
 // ── 匿名：驗證連結 ─────────────────────────────────────────────
 
 /// <summary>
-/// 驗證 Email（<c>POST auth/verify-email</c>，匿名）：權杖有效、沒用過、用途對、帳號仍啟用、權杖的 Email 等於帳號目前的 Email（不分大小寫）
-/// → 填驗證時間、權杖標 used。無效一律回同一個 400 <c>verifyLinkInvalid</c>，不分原因。
+/// 驗證 Email（<c>POST auth/verify-email</c>，匿名）外層：不是交易型請求（au1a 審查 M1）——在交易外以 <c>AsNoTracking</c> 依雜湊查權杖，
+/// 查不到、過期、用過、用途不符就直接回 400，不排進全庫寫入佇列；權杖可用才送內層交易請求。
+/// 無效一律回同一個 400 <c>verifyLinkInvalid</c>，不分原因。
 /// </summary>
-public sealed record VerifyEmailRequest(string? Token) : IRequest<ServiceResult>, ITransactionalRequest;
+public sealed record VerifyEmailRequest(string? Token) : IRequest<ServiceResult>;
 
-public sealed class VerifyEmailHandler(IAccountTokenRepository tokens, IAccountRepository accounts, IAuditLog audit, IUnitOfWork uow, TimeProvider time)
-    : IRequestHandler<VerifyEmailRequest, ServiceResult>
+public sealed class VerifyEmailHandler(IAccountTokenRepository tokens, ISender sender, TimeProvider time) : IRequestHandler<VerifyEmailRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(VerifyEmailRequest r, CancellationToken ct)
     {
         var token = (r.Token ?? "").Trim();
-        if (token.Length is 0 or > 100) return Invalid();
+        if (token.Length is 0 or > 100) return EmailVerifyToken.Invalid();
         var hash = McpSecrets.Hash(token);
-        var row = await tokens.FindByHashTrackedAsync(hash, ct);
+        if (!EmailVerifyToken.Usable(await tokens.FindByHashAsync(hash, ct), hash, time.GetUtcNow().UtcDateTime)) return EmailVerifyToken.Invalid();
+        return await sender.Send(new ApplyEmailVerifyRequest(hash), ct);
+    }
+}
+
+/// <summary>
+/// 驗證 Email 的內層（交易）：重查權杖（追蹤）→ 帳號仍啟用、權杖的 Email 等於帳號目前的 Email（不分大小寫）→ 填驗證時間、權杖標 used。
+/// 只收雜湊，不收明文權杖。
+/// </summary>
+public sealed record ApplyEmailVerifyRequest(string TokenHash) : IRequest<ServiceResult>, ITransactionalRequest;
+
+public sealed class ApplyEmailVerifyHandler(IAccountTokenRepository tokens, IAccountRepository accounts, IAuditLog audit, IUnitOfWork uow, TimeProvider time)
+    : IRequestHandler<ApplyEmailVerifyRequest, ServiceResult>
+{
+    public async Task<ServiceResult> Handle(ApplyEmailVerifyRequest r, CancellationToken ct)
+    {
         var now = time.GetUtcNow().UtcDateTime;
-        if (row is null || !McpSecrets.HashEquals(row.TokenHash, hash) || row.Purpose != AccountToken.EmailVerify || row.UsedUtc is not null
-            || row.ExpiresUtc <= now)
-            return Invalid();
-        var user = await accounts.GetTrackedAsync(row.UserId, ct);
-        if (user is not { IsActive: true } || !string.Equals(user.Email, row.Email, StringComparison.OrdinalIgnoreCase)) return Invalid();
+        var row = await tokens.FindByHashTrackedAsync(r.TokenHash, ct);
+        if (!EmailVerifyToken.Usable(row, r.TokenHash, now)) return EmailVerifyToken.Invalid();
+        var user = await accounts.GetTrackedAsync(row!.UserId, ct);
+        if (user is not { IsActive: true } || !string.Equals(user.Email, row.Email, StringComparison.OrdinalIgnoreCase)) return EmailVerifyToken.Invalid();
 
         user.EmailVerifiedUtc = now;
         row.UsedUtc = now;
@@ -297,7 +311,15 @@ public sealed class VerifyEmailHandler(IAccountTokenRepository tokens, IAccountR
         await uow.CommitAsync(ct);
         return ServiceResult.Success();
     }
+}
 
-    private static ServiceResult Invalid() =>
+internal static class EmailVerifyToken
+{
+    /// <summary>權杖本身可用：存在、雜湊相符、用途是驗證 Email、沒用過、沒過期（帳號狀態由內層檢查）。</summary>
+    public static bool Usable(AccountToken? row, string hash, DateTime nowUtc) =>
+        row is not null && McpSecrets.HashEquals(row.TokenHash, hash) && row.Purpose == AccountToken.EmailVerify && row.UsedUtc is null
+        && row.ExpiresUtc > nowUtc;
+
+    public static ServiceResult Invalid() =>
         ServiceResult.Invalid("token", MessageRef.Of(MessageText.EmailVerifyLinkInvalid), AccountEmailErrors.LinkInvalidCode);
 }
