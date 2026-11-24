@@ -19,7 +19,7 @@ public sealed class AppUpgradePreviewer(
     IAppRepository apps, AppPackageSource packages, AppExporter exporter, IPermissionRepository permissions,
     IModuleRepository modules, ISharedMasterRepository shared, AppDependencyChecker dependencies, PackageLimitReader limits,
     RequestLocale requestLocale, FieldService.FieldChangeImpact impact, UpgradeFlowGuards flowGuards, UpgradeCodedGuards codedGuards,
-    Integrations.IntegrationReconciler integrations)
+    Integrations.IntegrationReconciler integrations, IApprovalFlowRepository approvalFlows)
 {
     /// <summary>套用要用到的比對中間結果：三份比對項目、兩份套件、群組對應（套件代號 → 客戶群組；負數是這次將新建的）。</summary>
     public sealed record CompareContext(
@@ -472,7 +472,9 @@ public sealed class AppUpgradePreviewer(
             if (item.IsPermission && item.Owner is not null && !C.ContainsKey(item.Owner)) continue;
             if (UpgradeClassifier.Classify(b, nv, cv, hasBaseline, excluded.Contains(id)) is not { } r) continue;
             // 現況有對照列、比對模式匯出卻表達不了（§6.1）：無法比對，不當成客戶已刪除（勾回會重建一份）
-            if (cv is null && nv is not null && Unmatched(item, bindings, memberIds, reportCodes))
+            // 停用的流程圖格式流程匯出時略過（套件格式還沒有流程圖），資料庫裡仍有同 Key 的流程：也是表達不了，不是客戶刪除
+            if (cv is null && nv is not null && (Unmatched(item, bindings, memberIds, reportCodes)
+                    || (item.Section == "approvalFlows" && await approvalFlows.ModuleKeyOfAsync(id["approvalFlow:".Length..], ct) is not null)))
                 r = new UpgradeClassifier.Result(UpgradeClassifier.Unmatched, false, false, UpgradeClassifier.ReasonUnmatched, r.Properties);
             // 上次略過（Q3、§6.3）：記下的屬性客戶都沒再動過，才算；動過的照一般規則分類
             else if (skipped.TryGetValue(id, out var skip) && r.Category != UpgradeClassifier.RemovedInNew

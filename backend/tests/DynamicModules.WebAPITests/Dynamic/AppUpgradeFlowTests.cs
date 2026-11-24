@@ -1001,4 +1001,19 @@ public class AppUpgradeFlowTests : IDisposable
         applied.GetProperty("warnings").EnumerateArray().Select(w => w.GetString()).Should().Contain(w => w!.Contains("check → returned") && w.Contains("有群組沒有對應"));
         WorkflowOf().Transitions.Single(t => t.From == Option("check") && t.To == Option("returned")).GroupIds.Should().Equal(_rig.GroupId("sales-manager"));
     }
+
+    /// <summary>#98 小項：停用的流程圖格式流程匯出時被略過，新版同 Key 不能當成「客戶已刪除」可勾（套用會撞到既有 Key 回滾），標 unmatched。</summary>
+    [Fact]
+    public async Task InactiveGraphFlow_SameKeyInNew_Unmatched_NotApplicable()
+    {
+        await OpenAsync();
+        EditDefinition("uf-check", d => d with { Shape = ApprovalShapes.Graph });
+        _rig.Db(db => db.Set<ApprovalFlow>().Single(f => f.Key == "uf-check").Active = false);
+        await NewVersionAsync(p => Flow(p, "uf-check")["stages"]![0]!["name"] = new JsonObject { ["zh-TW"] = "主管確認" });
+        var preview = await PreviewAsync();
+        var item = Item(preview, "approvalFlow:uf-check");
+        item.GetProperty("category").GetString().Should().Be("unmatched", item.ToString());
+        item.GetProperty("applicable").GetBoolean().Should().BeFalse();
+        item.GetProperty("defaultSelected").GetBoolean().Should().BeFalse();
+    }
 }

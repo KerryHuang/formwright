@@ -351,6 +351,9 @@ public sealed class AppFlowUpgrader(ISender sender, IModuleRepository modules, I
         static bool Unmatched(ApproverSource a) => a.UnmatchedGroups is { Count: > 0 } || a.CandidatesUnmatched;
         var definition = cd with
         {
+            // 套件格式沒有流程圖：定義以 stages 為準，不留下舊定義的 Nodes／Edges
+            Nodes = null,
+            Edges = null,
             Shape = props.Contains("shape") ? nd.Shape : cd.Shape,
             When = props.Contains("when") ? nd.When : cd.When,
             RejectTo = props.Contains("rejectTo") ? nd.RejectTo : cd.RejectTo,
