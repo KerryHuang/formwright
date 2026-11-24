@@ -325,11 +325,33 @@ describe('FlowDesignerPage', () => {
     w.unmount();
   });
 
-  it('a stage-format (sequence) flow opened by url goes back to the flows tab; its only editor is the old dialog (U57)', async () => {
-    const seq = flow({ definition: { shape: 'sequence', stages: [] } as never, graph: def() });
+  it('a stage-format (sequence) flow opens as the converted straight graph with the conversion notice (§10.7, J14)', async () => {
+    const seq = flow({ definition: { shape: 'sequence', stages: [] } as never, graph: def('轉來的關卡'), pendingCount: 4 });
     const w = await mountAt(url(), { flow: seq });
-    expect(router.currentRoute.value.fullPath).toBe('/system/dynamic-modules/doc?tab=approvalFlows&target=12');
-    expect(w.find('[data-testid="canvas"]').exists()).toBe(false);
+    expect(router.currentRoute.value.name).toBe('flow-designer');
+    expect(w.get('[data-testid="de-sequence-notice"]').text()).toBe('這條流程已轉成流程圖；發布後以流程圖保存，進行中的 4 張單照舊版走完');
+    expect(w.find('[data-testid="n-a"]').text()).toBe('轉來的關卡');
+    w.unmount();
+  });
+
+  it('a graph flow and a new flow show no conversion notice', async () => {
+    const g = await mountAt(url());
+    expect(g.find('[data-testid="de-sequence-notice"]').exists()).toBe(false);
+    g.unmount();
+    const n = await mountAt('/system/dynamic-modules/doc/approval-flows/_new?target=12');
+    expect(n.find('[data-testid="de-sequence-notice"]').exists()).toBe(false);
+    n.unmount();
+  });
+
+  it('a sequence flow converted to a graph can be saved as a draft (the graph is what is sent)', async () => {
+    const seq = flow({ definition: { shape: 'sequence', stages: [] } as never, graph: def('轉來的關卡') });
+    api.saveApprovalFlowDraft.mockResolvedValue(flow({ draft: { definition: def() }, draftRev: 'r2' }) as never);
+    const w = await mountAt(url(), { flow: seq });
+    await w.get('[data-testid="move-a"]').trigger('click');
+    await w.get('[data-testid="tb-save"]').trigger('click');
+    await flushPromises();
+    expect(api.saveApprovalFlowDraft).toHaveBeenCalledTimes(1);
+    expect(api.saveApprovalFlowDraft.mock.calls[0][1].definition.shape).toBe('graph');
     w.unmount();
   });
 

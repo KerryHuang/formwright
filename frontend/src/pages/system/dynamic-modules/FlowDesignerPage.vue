@@ -7,7 +7,6 @@ import { useApprovalFlow, useApprovalFlows } from 'src/application/dynamic/queri
 import { useModuleDetail } from 'src/application/dynamic/queries/modules-queries';
 import { useMe } from 'src/application/dynamic/queries/permissions-queries';
 import { useWorkflowQuery } from 'src/application/dynamic/queries/workflow-queries';
-import { isSequenceFlow } from 'src/domain/dynamic/approval-flow-draft';
 import { topoOrder } from 'src/domain/dynamic/approval-graph-edit';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import { toSchemaFields } from 'src/presentation/dynamic/designer/schema-fields';
@@ -71,17 +70,16 @@ watch([() => flowQuery.data.value, flowKey, () => !!me.data.value && namesReady.
   if (!flow || flow.key !== key) return;
   // 網址的模組和流程實際所屬模組不一致（流程代碼全站唯一）：換到正確網址
   if (flow.moduleKey !== moduleKey.value) { void router.replace({ name: 'flow-designer', params: { moduleKey: flow.moduleKey, flowKey: key }, query: route.query }); return; }
-  // U57：關卡格式的流程只有舊對話框一個編輯入口（卡片同樣的判斷）；網址直接進來的導回流程分頁
-  if (isSequenceFlow(flow)) {
-    $q.notify({ type: 'info', message: t('approval.designer.graph.sequenceRedirect') });
-    void router.replace({ path: `/system/dynamic-modules/${flow.moduleKey}`, query: { tab: 'approvalFlows', target: String(flow.toOptionId) } });
-    return;
-  }
   if (designer.loaded.value && designer.server.value.key === key) return;
   loadFailed.value = !designer.load(flow);
 }, { immediate: true });
 
 const meta = designer.meta;
+/** §10.7：已發布的版本還是關卡格式時，畫面上是後端轉好的圖；發布後才以流程圖保存。 */
+const sequenceNotice = computed(() => {
+  const f = flowQuery.data.value;
+  return f && f.key === flowKey.value && f.definition?.shape === 'sequence' ? f.pendingCount : null;
+});
 
 // ---- 存草稿、驗證、發布、捨棄（Task 10）----
 let suppressRedirect = false;
@@ -245,6 +243,7 @@ onBeforeUnmount(() => { window.removeEventListener('beforeunload', onBeforeUnloa
           @discard="confirmDiscard = true" @delete-flow="confirmDelete = true" @relayout="tidy" @remove="edit.remove()"
         />
       </div>
+      <q-banner v-if="sequenceNotice !== null" dense class="bg-info-soft" data-testid="de-sequence-notice">{{ t('approval.designer.graph.sequenceNotice', { n: sequenceNotice }) }}</q-banner>
       <q-banner v-if="!canEdit" dense class="bg-info-soft" data-testid="de-readonly">{{ t('approval.designer.graph.readonlyBanner') }}</q-banner>
 
       <DesignerNodeList v-if="listOpen" :designer="designer" :selection="selection" @pick="(id: string) => pickIssue({ kind: 'node', id })" @close="listOpen = false" />

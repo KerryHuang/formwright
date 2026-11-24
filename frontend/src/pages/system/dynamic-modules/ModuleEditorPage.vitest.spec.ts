@@ -91,7 +91,8 @@ describe('ModuleEditorPage', () => {
   });
 
   it('workflow open-flows switches to the approval flows tab and passes the target', async () => {
-    api.getApprovalFlows.mockResolvedValue([]);
+    // A target with no flow would send the tab to the designer's new-flow page; these tests are about the tab and the highlight.
+    api.getApprovalFlows.mockResolvedValue([{ key: 'x', name: { 'zh-TW': 'x' }, toOptionId: 12, priority: 1, active: true, moduleKey: 'm', version: 1, used: false, pendingCount: 0 }] as never);
     const w = await mountPage();
     await w.find('[data-testid="tab-workflow"]').trigger('click');
     await flushPromises();
@@ -103,7 +104,8 @@ describe('ModuleEditorPage', () => {
   });
 
   it('a second open-flows for the same state resets the target first so the highlight fires again', async () => {
-    api.getApprovalFlows.mockResolvedValue([]);
+    // A target with no flow would send the tab to the designer's new-flow page; these tests are about the tab and the highlight.
+    api.getApprovalFlows.mockResolvedValue([{ key: 'x', name: { 'zh-TW': 'x' }, toOptionId: 12, priority: 1, active: true, moduleKey: 'm', version: 1, used: false, pendingCount: 0 }] as never);
     const w = await mountPage();
     await w.find('[data-testid="tab-workflow"]').trigger('click');
     await flushPromises();

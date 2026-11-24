@@ -54,8 +54,11 @@ const readonly = computed(() => !me.data.value?.designer.edit);
 const ready = computed(() => draft.value && groups.data.value && me.data.value);
 const exists = computed(() => !!query.data.value);
 
+/** Only published flows count (U61): a draft-only flow takes no part in matching. */
 const flowCount = (toOptionId: number | null): number | undefined =>
-  toOptionId == null || !flows.data.value ? undefined : flows.data.value.filter((f) => f.toOptionId === toOptionId).length;
+  toOptionId == null || !flows.data.value ? undefined : flows.data.value.filter((f) => f.toOptionId === toOptionId && f.version != null).length;
+const draftOnlyCount = (toOptionId: number | null): number =>
+  toOptionId == null ? 0 : (flows.data.value ?? []).filter((f) => f.toOptionId === toOptionId && f.version == null).length;
 const optionLabel = (id: number) => stateOptions.value.find((o) => o.value === id)?.label ?? String(id);
 // Transitions that need approval into a state that has no flow would be rejected by the server; say why before the click.
 const noFlowTargets = computed(() => (draft.value ? draftTargets(draft.value).filter((id) => flowCount(id) === 0) : []));
@@ -347,7 +350,7 @@ function removeWorkflow() {
                 />
                 <div v-if="tr.to != null && flowCount(tr.to) !== undefined" class="col-12 col-sm-auto">
                   <q-btn
-                    flat dense no-caps size="sm" color="primary" :label="t('docflow.workflow.approval.flowCount', { n: flowCount(tr.to) })"
+                    flat dense no-caps size="sm" color="primary" :label="draftOnlyCount(tr.to) ? t('docflow.workflow.approval.flowCountDraft', { n: flowCount(tr.to), m: draftOnlyCount(tr.to) }) : t('docflow.workflow.approval.flowCount', { n: flowCount(tr.to) })"
                     :data-testid="`transition-flows-${i}`" @click="emit('open-flows', tr.to!)"
                   />
                 </div>

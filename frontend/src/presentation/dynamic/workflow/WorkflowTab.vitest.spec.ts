@@ -29,7 +29,9 @@ const saved: Workflow = {
   transitions: [{ from: 11, to: 12, groupIds: [3] }],
 };
 
-const flowOn = (toOptionId: number, key = `f${toOptionId}`) => ({ key, toOptionId }) as never;
+const flowOn = (toOptionId: number, key = `f${toOptionId}`) => ({ key, toOptionId, version: 1 }) as never;
+/** A flow that was never published: the backend writes no `version` for it. */
+const draftOnlyOn = (toOptionId: number, key = `d${toOptionId}`) => ({ key, toOptionId }) as never;
 
 async function mountTab(m: ModuleDetail, existing: Workflow | WorkflowResponse | null, flows: unknown[] | null = []) {
   api.getWorkflow.mockImplementation(async () => {
@@ -191,6 +193,19 @@ describe('WorkflowTab', () => {
       expect(count.element.tagName).toBe('BUTTON');
       await count.trigger('click');
       expect(w.emitted('open-flows')).toEqual([[12]]);
+    });
+
+    it('flow count only counts published flows and says how many more are unpublished (U61)', async () => {
+      const withApproval: Workflow = { ...saved, transitions: [{ from: 11, to: 12, groupIds: [3], approval: { required: true, noMatch: 'block' } }] };
+      const w = await mountTab(mod(), withApproval, [flowOn(12, 'a'), draftOnlyOn(12, 'b'), draftOnlyOn(12, 'c')]);
+      expect(w.find('[data-testid="transition-flows-0"]').text()).toContain('目標狀態已掛 1 個流程（另有 2 個未發布）');
+    });
+
+    it('a target with only draft flows counts 0 published and still has the no-flow reason', async () => {
+      const withApproval: Workflow = { ...saved, transitions: [{ from: 11, to: 12, groupIds: [3], approval: { required: true, noMatch: 'block' } }] };
+      const w = await mountTab(mod(), withApproval, [draftOnlyOn(12)]);
+      expect(w.find('[data-testid="transition-flows-0"]').text()).toContain('目標狀態已掛 0 個流程（另有 1 個未發布）');
+      expect(w.find('[data-testid="workflow-no-flow"]').exists()).toBe(true);
     });
 
     it('the no-flow reason points to the flows tab', async () => {

@@ -169,9 +169,6 @@ export interface ApprovalFlow extends Omit<ApprovalFlowInput, 'definition'> {
   currentVersionUsed?: boolean;
 }
 
-/** A published flow in the sequence shape: the only kind the old dialog can edit. */
-export type SequenceFlow = ApprovalFlow & { version: number; definition: SequenceDefinition };
-
 /** Trial of the flow being edited (not saved): `values` override the record's, keyed `f_{fieldId}`. */
 export interface ApprovalDraftPreviewBody {
   draft: ApprovalFlowInput;

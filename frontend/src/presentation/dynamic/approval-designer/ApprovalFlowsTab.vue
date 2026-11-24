@@ -7,8 +7,7 @@ import { useApprovalFlows, useDeleteApprovalFlow, useReorderApprovalFlows, useSa
 import { useMe } from 'src/application/dynamic/queries/permissions-queries';
 import { useWorkflowQuery } from 'src/application/dynamic/queries/workflow-queries';
 import RowActionMenu from 'src/components/framework/RowActionMenu.vue';
-import { isSequenceFlow } from 'src/domain/dynamic/approval-flow-draft';
-import type { ApprovalFlow, SequenceFlow } from 'src/domain/dynamic/approval-flow-types';
+import type { ApprovalFlow } from 'src/domain/dynamic/approval-flow-types';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import type { ModuleDetail } from 'src/domain/dynamic/types';
 import { joinList } from 'src/i18n/translate';
@@ -16,7 +15,6 @@ import { leftoverMessages } from 'src/presentation/dynamic/designer/api-error';
 import { toSchemaFields } from 'src/presentation/dynamic/designer/schema-fields';
 import { conditionSummary } from 'src/presentation/dynamic/rules/condition-summary';
 import type { ApiError } from 'src/services/api/http';
-import FlowEditorDialog from './FlowEditorDialog.vue';
 import { groupFlows, moveKeys, moveKeyTo } from './flow-groups';
 
 const props = defineProps<{ module: ModuleDetail; focusTarget?: number | null }>();
@@ -45,8 +43,11 @@ const optionLabel = (id: number) => {
 };
 const groups = computed(() => groupFlows(flows.data.value ?? [], workflow.data.value ?? undefined, optionLabel, props.focusTarget));
 const summary = (f: ApprovalFlow) => conditionSummary((f.definition ?? f.draft?.definition)?.when, fields.value, t, locale.value);
-/** Sequence: its stages; graph: its approval nodes; a draft-only flow has no definition, so no count. */
+/** Sequence: its stages (U61 keeps "n 關" for the stored shape); graph: its approval nodes; a draft-only flow has no definition, so no count. */
 const stageCount = (f: ApprovalFlow) => (!f.definition ? null : f.definition.shape === 'graph' ? f.definition.nodes.filter((n) => n.kind === 'approval').length : f.definition.stages.length);
+const isGraph = (f: ApprovalFlow) => f.definition?.shape === 'graph';
+/** U61: a graph with a fork or a condition node gets the "含分支" badge. */
+const hasBranches = (f: ApprovalFlow) => f.definition?.shape === 'graph' && f.definition.nodes.some((n) => n.kind === 'fork' || n.kind === 'condition');
 
 function fail(e: unknown) {
   const err = e as ApiError;
@@ -101,49 +102,15 @@ function confirmDelete() {
   if (f) remove.mutate(f.key, { onSuccess: () => $q.notify({ type: 'positive', message: t('approval.designer.list.deleted') }), onError: fail });
 }
 
-// ---- create / edit dialog ----
-const dialogOpen = ref(false);
-// The dialog unmounts as soon as it closes, so the element that opened it gets its focus back by hand.
-let opener: HTMLElement | null = null;
-// The opener can be gone by then (a menu item that closed, a card that moved to another group or was rebuilt on save): the flow's card, or the add button, takes the focus.
-// After a save the list is refetched first, so the card to focus is the one of the new list (a created flow's card, else the add button).
-let savedKey: string | null | undefined;
-function onSaved(f: ApprovalFlow | undefined) { savedKey = f?.key ?? editing.value?.key ?? null; }
-const focusTestid = (testid: string) => document.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
-watch(dialogOpen, async (open) => {
-  if (open) return;
-  const afterSave = savedKey !== undefined;
-  const key = savedKey;
-  savedKey = undefined;
-  if (afterSave) await flows.refetch({ cancelRefetch: false });
-  await nextTick();
-  const target = afterSave
-    ? (key ? focusTestid(`flow-card-${key}`) : null) ?? focusTestid('flow-add')
-    : opener?.isConnected ? opener : focusTestid(editing.value ? `flow-card-${editing.value.key}` : 'flow-add');
-  target?.focus?.();
-  opener = null;
-});
-const editing = ref<SequenceFlow | undefined>();
-const preset = ref<number | null>(null);
+// ---- create / edit: everything goes to the graph designer page (U57); a read-only designer can open it too (U62) ----
 function openCreate(toOptionId: number | null) {
   if (readonly.value) return;
-  opener = document.activeElement as HTMLElement | null;
-  editing.value = undefined;
-  preset.value = toOptionId;
-  dialogOpen.value = true;
+  void router.push({ name: 'flow-designer-new', params: { moduleKey: key.value }, query: toOptionId != null ? { target: String(toOptionId) } : {} });
 }
-/** 流程圖格式與只有草稿的流程走設計頁（U57），唯讀者也進得去看（U62）；關卡格式照舊走對話框，唯讀時不開。 */
-const opensDesigner = (f: ApprovalFlow) => !isSequenceFlow(f);
-const clickable = (f: ApprovalFlow) => !readonly.value || opensDesigner(f);
 function openEdit(f: ApprovalFlow) {
-  if (opensDesigner(f)) { void router.push({ name: 'flow-designer', params: { moduleKey: key.value, flowKey: f.key } }); return; }
-  if (readonly.value) return;
-  opener = document.activeElement as HTMLElement | null;
-  editing.value = f as SequenceFlow;
-  preset.value = null;
-  dialogOpen.value = true;
+  void router.push({ name: 'flow-designer', params: { moduleKey: key.value, flowKey: f.key } });
 }
-// The state machine tab's "create the flow" link: a target that has no flow yet goes straight to the create dialog (one that already has flows is only highlighted).
+// The state machine tab's "create the flow" link: a target that has no flow yet goes straight to the designer's new-flow page (one that already has flows is only highlighted).
 const wantCreate = ref<number | null>(null);
 watch(() => props.focusTarget, (id) => { wantCreate.value = id ?? null; }, { immediate: true });
 watch([wantCreate, () => flows.data.value, () => me.data.value], ([id, list]) => {
@@ -203,8 +170,8 @@ const actionsOf = (list: ApprovalFlow[], f: ApprovalFlow, i: number) => [
       />
 
       <q-card
-        v-for="(f, i) in g.flows" :key="f.key" flat bordered class="q-mt-sm q-pa-sm" :class="{ 'flow-card--off': !f.active, 'flow-card--open': clickable(f) }" :data-testid="`flow-card-${f.key}`"
-        :tabindex="clickable(f) ? 0 : undefined" :aria-label="clickable(f) ? `${t(readonly ? 'approval.designer.graph.view' : 'approval.designer.list.edit')} ${nameOf(f)}` : undefined" @click="openEdit(f)" @keydown.enter.self.prevent="openEdit(f)" @keydown.space.self.prevent="openEdit(f)"
+        v-for="(f, i) in g.flows" :key="f.key" flat bordered class="q-mt-sm q-pa-sm flow-card--open" :class="{ 'flow-card--off': !f.active }" :data-testid="`flow-card-${f.key}`"
+        tabindex="0" :aria-label="`${t(readonly ? 'approval.designer.graph.view' : 'approval.designer.list.edit')} ${nameOf(f)}`" @click="openEdit(f)" @keydown.enter.self.prevent="openEdit(f)" @keydown.space.self.prevent="openEdit(f)"
         :draggable="!mobile && !readonly && !busy && g.flows.length > 1" @dragstart="dragging = { key: f.key, toOptionId: g.toOptionId }"
         @dragover.prevent @drop.prevent="onDrop(g.toOptionId, g.flows, f)" @dragend="dragging = null"
       >
@@ -214,8 +181,11 @@ const actionsOf = (list: ApprovalFlow[], f: ApprovalFlow, i: number) => [
             <div class="text-caption text-muted">{{ f.key }}</div>
             <div class="text-caption q-mt-xs" style="overflow-wrap: anywhere">{{ t('approval.designer.list.condition') }}：{{ summary(f) }}</div>
             <div class="row q-gutter-xs q-mt-xs">
-              <q-badge v-if="stageCount(f) !== null" outline color="primary" :label="t('approval.designer.list.stages', { n: stageCount(f) })" />
+              <q-badge v-if="stageCount(f) !== null" outline color="primary" :label="t(isGraph(f) ? 'approval.designer.list.nodes' : 'approval.designer.list.stages', { n: stageCount(f) })" :data-testid="`flow-stages-${f.key}`" />
+              <q-badge v-if="hasBranches(f)" outline color="primary" :label="t('approval.designer.list.branches')" :data-testid="`flow-branches-${f.key}`" />
               <q-badge v-if="f.version != null" outline color="primary" :label="t('approval.designer.list.version', { v: f.version })" />
+              <q-badge v-else outline color="warning" :label="t('approval.designer.list.unpublished')" :data-testid="`flow-unpublished-${f.key}`" />
+              <q-badge v-if="f.version != null && f.draft" outline color="warning" :label="t('approval.designer.list.hasDraft')" :data-testid="`flow-has-draft-${f.key}`" />
               <q-badge outline :color="f.pendingCount ? 'warning' : 'primary'" :label="t('approval.designer.list.pending', { n: f.pendingCount })" :data-testid="`flow-pending-${f.key}`" />
               <q-badge v-if="!f.active" outline color="negative" :label="t('approval.designer.list.inactive')" :data-testid="`flow-inactive-${f.key}`" />
             </div>
@@ -240,11 +210,6 @@ const actionsOf = (list: ApprovalFlow[], f: ApprovalFlow, i: number) => [
         </div>
       </q-card>
     </section>
-
-    <FlowEditorDialog
-      v-if="dialogOpen && workflow.data.value" v-model="dialogOpen" :module="module" :workflow="workflow.data.value" :flows="flows.data.value ?? []"
-      :flow="editing" :preset-target="preset" @saved="onSaved"
-    />
 
     <q-dialog :model-value="confirmingOff !== null" @update:model-value="confirmingOff = null">
       <q-card>

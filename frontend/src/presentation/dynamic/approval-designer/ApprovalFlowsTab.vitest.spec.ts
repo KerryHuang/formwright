@@ -10,7 +10,6 @@ import type { DesignerField, ModuleDetail, Workflow } from 'src/domain/dynamic/t
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 import ApprovalFlowsTab from './ApprovalFlowsTab.vue';
-import FlowEditorDialog from './FlowEditorDialog.vue';
 
 vi.mock('src/services/api/dynamic-api', () => ({
   dynamicApi: { getUsers: vi.fn(), getGroups: vi.fn(), getEffectivePolicies: vi.fn(), getModulePolicies: vi.fn(), getWorkflow: vi.fn(), getApprovalFlows: vi.fn(), getMe: vi.fn(), updateApprovalFlow: vi.fn(), deleteApprovalFlow: vi.fn(), reorderApprovalFlows: vi.fn() },
@@ -64,7 +63,7 @@ async function mountTab(flows: ApprovalFlow[], opts: { workflow?: Workflow | nul
   api.reorderApprovalFlows.mockResolvedValue([] as never);
   api.deleteApprovalFlow.mockResolvedValue(undefined as never);
   const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
-  router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i/>' } }, { path: '/d/:moduleKey/:flowKey', name: 'flow-designer', component: { template: '<i/>' } }] });
+  router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i/>' } }, { path: '/d/:moduleKey/_new', name: 'flow-designer-new', component: { template: '<i/>' } }, { path: '/d/:moduleKey/:flowKey', name: 'flow-designer', component: { template: '<i/>' } }] });
   await router.push('/');
   const w = mount(ApprovalFlowsTab, {
     attachTo: document.body,
@@ -138,18 +137,15 @@ describe('ApprovalFlowsTab', () => {
     nodes: [{ id: 'start', kind: 'start' }, { id: 'a', kind: 'approval' }, { id: 'b', kind: 'approval' }, { id: 'end', kind: 'end' }], edges: [],
   };
 
-  it('graph flow card opens the designer route, sequence card still opens the dialog', async () => {
+  it('graph and sequence flow cards both open the designer route', async () => {
     const w = await mountTab([flow('g', 12, 1, { definition: graphDef }), flow('s', 12, 2)], { edit: true });
-    expect(w.find('[data-testid="flow-card-g"]').text()).toContain('2 關');
     await w.find('[data-testid="flow-edit-g"]').trigger('click');
     await flushPromises();
-    expect(w.findComponent(FlowEditorDialog).exists()).toBe(false);
     expect(router.currentRoute.value.fullPath).toBe('/d/doc/g');
     await router.push('/');
     await w.find('[data-testid="flow-card-s"]').trigger('click');
     await flushPromises();
-    expect(w.findComponent(FlowEditorDialog).exists()).toBe(true);
-    expect(router.currentRoute.value.fullPath).toBe('/');
+    expect(router.currentRoute.value.fullPath).toBe('/d/doc/s');
     w.unmount();
   });
 
@@ -161,7 +157,7 @@ describe('ApprovalFlowsTab', () => {
     w.unmount();
   });
 
-  it('read-only user can open a graph flow card (labelled view) but not a sequence one', async () => {
+  it('read-only user can open any flow card (labelled view), sequence included', async () => {
     const w = await mountTab([flow('g', 12, 1, { definition: graphDef }), flow('s', 12, 2)], { edit: false });
     const g = w.find('[data-testid="flow-card-g"]');
     expect(g.attributes('aria-label')).toBe('檢視 流程g');
@@ -169,13 +165,10 @@ describe('ApprovalFlowsTab', () => {
     await g.trigger('click');
     await flushPromises();
     expect(router.currentRoute.value.fullPath).toBe('/d/doc/g');
-    const s = w.find('[data-testid="flow-card-s"]');
-    expect(s.attributes('tabindex')).toBeUndefined();
     await router.push('/');
-    await s.trigger('click');
+    await w.find('[data-testid="flow-card-s"]').trigger('click');
     await flushPromises();
-    expect(w.findComponent(FlowEditorDialog).exists()).toBe(false);
-    expect(router.currentRoute.value.fullPath).toBe('/');
+    expect(router.currentRoute.value.fullPath).toBe('/d/doc/s');
     w.unmount();
   });
 
@@ -366,180 +359,123 @@ describe('ApprovalFlowsTab', () => {
     expect(w.find('[data-testid="flow-group-12"]').classes()).not.toContain('flow-group--focus');
     w.unmount();
   });
-  it('add in a group opens the dialog with that target', async () => {
+  it('add in a group opens the new-flow designer page with that target', async () => {
     const w = await mountTab([flow('a', 12, 1)]);
-    expect(w.findComponent(FlowEditorDialog).exists()).toBe(false);
     await w.find('[data-testid="flow-add-12"]').trigger('click');
     await flushPromises();
-    const d = w.findComponent(FlowEditorDialog);
-    expect(d.props('presetTarget')).toBe(12);
-    expect(d.props('flow')).toBeUndefined();
-    expect(d.props('modelValue')).toBe(true);
+    expect(router.currentRoute.value.fullPath).toBe('/d/doc/_new?target=12');
     w.unmount();
   });
 
-  it('the top add button opens the dialog without a target', async () => {
+  it('the top add button opens the new-flow designer page without a target', async () => {
     const w = await mountTab([flow('a', 12, 1)]);
     await w.find('[data-testid="flow-add"]').trigger('click');
     await flushPromises();
-    expect(w.findComponent(FlowEditorDialog).props('presetTarget')).toBeNull();
+    expect(router.currentRoute.value.fullPath).toBe('/d/doc/_new');
     w.unmount();
   });
 
-  it('card click and Enter or Space open the edit dialog; toggle and buttons inside do not', async () => {
-    const f = flow('a', 12, 1);
-    const w = await mountTab([f, flow('b', 12, 2)]);
+  it('card click and Enter or Space open the designer; toggle and buttons inside do not', async () => {
+    const w = await mountTab([flow('a', 12, 1), flow('b', 12, 2)]);
     const card = w.find('[data-testid="flow-card-a"]');
     expect(card.attributes('tabindex')).toBe('0');
     await card.trigger('click');
     await flushPromises();
-    expect(w.findComponent(FlowEditorDialog).props('flow')?.key).toBe('a');
-    w.findComponent(FlowEditorDialog).vm.$emit('update:modelValue', false);
-    await flushPromises();
-    expect(w.findComponent(FlowEditorDialog).exists()).toBe(false);
+    expect(router.currentRoute.value.fullPath).toBe('/d/doc/a');
+    await router.push('/');
     await w.find('[data-testid="flow-card-b"]').trigger('keydown', { key: 'Enter' });
     await flushPromises();
-    expect(w.findComponent(FlowEditorDialog).props('flow')?.key).toBe('b');
-    w.findComponent(FlowEditorDialog).vm.$emit('update:modelValue', false);
-    await flushPromises();
+    expect(router.currentRoute.value.fullPath).toBe('/d/doc/b');
+    await router.push('/');
     await w.find('[data-testid="flow-card-a"]').trigger('keydown', { key: ' ' });
     await flushPromises();
-    expect(w.findComponent(FlowEditorDialog).props('flow')?.key).toBe('a');
-    w.findComponent(FlowEditorDialog).vm.$emit('update:modelValue', false);
-    await flushPromises();
+    expect(router.currentRoute.value.fullPath).toBe('/d/doc/a');
+    await router.push('/');
     await w.find('[data-testid="flow-down-a"]').trigger('click');
     await flushPromises();
-    expect(w.findComponent(FlowEditorDialog).exists()).toBe(false);
+    expect(router.currentRoute.value.fullPath).toBe('/');
     w.unmount();
   });
 
-  describe('focus after the dialog closes', () => {
-    const active = () => (document.activeElement as HTMLElement | null)?.dataset.testid;
-    async function closeAfterSave(w: Awaited<ReturnType<typeof mountTab>>, saved: ApprovalFlow | undefined, after: ApprovalFlow[]) {
-      api.getApprovalFlows.mockResolvedValue(after);
-      const d = w.findComponent(FlowEditorDialog);
-      d.vm.$emit('saved', saved);
-      d.vm.$emit('update:modelValue', false);
-      await flushPromises();
-    }
-
-    it('saving an edit refetches, then focuses the rebuilt card, not the stale one', async () => {
-      const w = await mountTab([flow('a', 12, 1), flow('b', 12, 2)]);
-      const old = w.find('[data-testid="flow-card-a"]').element as HTMLElement;
-      old.focus();
-      await w.find('[data-testid="flow-edit-a"]').trigger('click');
-      await flushPromises();
-      // the saved flow moves to another group, so its card is a new element
-      await closeAfterSave(w, flow('a', 13, 1), [flow('a', 13, 1), flow('b', 12, 1)]);
-      const now = w.find('[data-testid="flow-card-a"]').element as HTMLElement;
-      expect(now).not.toBe(old);
-      expect(old.isConnected).toBe(false);
-      expect(document.activeElement).toBe(now);
-      w.unmount();
-    });
-
-    it('saving a new flow focuses its card', async () => {
-      const w = await mountTab([flow('a', 12, 1)]);
-      await w.find('[data-testid="flow-add"]').trigger('click');
-      await flushPromises();
-      await closeAfterSave(w, flow('n', 12, 2), [flow('a', 12, 1), flow('n', 12, 2)]);
-      expect(active()).toBe('flow-card-n');
-      w.unmount();
-    });
-
-    it('a saved flow that is not in the list falls back to the add button', async () => {
-      const w = await mountTab([flow('a', 12, 1)]);
-      await w.find('[data-testid="flow-add"]').trigger('click');
-      await flushPromises();
-      await closeAfterSave(w, flow('gone', 12, 2), [flow('a', 12, 1)]);
-      expect(active()).toBe('flow-add');
-      w.unmount();
-    });
-
-    it('cancel still returns to the card that opened the dialog', async () => {
-      const w = await mountTab([flow('a', 12, 1)]);
-      const card = w.find('[data-testid="flow-card-a"]').element as HTMLElement;
-      card.focus();
-      await w.find('[data-testid="flow-edit-a"]').trigger('click');
-      await flushPromises();
-      w.findComponent(FlowEditorDialog).vm.$emit('update:modelValue', false);
-      await flushPromises();
-      expect(document.activeElement).toBe(card);
-      w.unmount();
-    });
-  });
-
-  it('the edit button opens the dialog with that flow', async () => {
+  it('the edit button opens the designer with that flow', async () => {
     const w = await mountTab([flow('a', 12, 1)]);
     await w.find('[data-testid="flow-edit-a"]').trigger('click');
     await flushPromises();
-    expect(w.findComponent(FlowEditorDialog).props('flow')?.key).toBe('a');
+    expect(router.currentRoute.value.fullPath).toBe('/d/doc/a');
     w.unmount();
   });
 
-  it('focusTarget from the workflow tab opens create with the target when it has no flow yet', async () => {
+  it('focusTarget from the workflow tab goes to the new-flow designer page with the target when it has no flow yet', async () => {
     const w = await mountTab([flow('a', 13, 1)], { focusTarget: 12 });
     await flushPromises();
-    const d = w.findComponent(FlowEditorDialog);
-    expect(d.exists()).toBe(true);
-    expect(d.props('presetTarget')).toBe(12);
+    expect(router.currentRoute.value.fullPath).toBe('/d/doc/_new?target=12');
     w.unmount();
   });
 
   it('focusTarget on a target that already has flows only highlights it', async () => {
     const w = await mountTab([flow('a', 12, 1)], { focusTarget: 12 });
     await flushPromises();
-    expect(w.findComponent(FlowEditorDialog).exists()).toBe(false);
+    expect(router.currentRoute.value.fullPath).toBe('/');
     w.unmount();
   });
 
-  it('a read-only designer gets no add, edit or tabindex', async () => {
-    const w = await mountTab([flow('a', 12, 1)], { edit: false });
+  it('a read-only designer gets no add button and cannot create by focusTarget', async () => {
+    const w = await mountTab([flow('a', 12, 1)], { edit: false, focusTarget: 13 });
     expect(w.find('[data-testid="flow-add"]').exists()).toBe(false);
     expect(w.find('[data-testid="flow-add-12"]').exists()).toBe(false);
-    expect(w.find('[data-testid="flow-card-a"]').attributes('tabindex')).toBeUndefined();
-    await w.find('[data-testid="flow-card-a"]').trigger('click');
-    expect(w.findComponent(FlowEditorDialog).exists()).toBe(false);
-    w.unmount();
-  });
-  it('closing the dialog returns focus to the card that opened it', async () => {
-    const w = await mountTab([flow('a', 12, 1)]);
-    const card = w.find('[data-testid="flow-card-a"]');
-    (card.element as HTMLElement).focus();
-    await card.trigger('keydown', { key: 'Enter' });
-    await flushPromises();
-    w.findComponent(FlowEditorDialog).vm.$emit('update:modelValue', false);
-    await flushPromises();
-    expect(document.activeElement).toBe(card.element);
+    expect(w.find('[data-testid="flow-edit-a"]').exists()).toBe(false);
+    expect(router.currentRoute.value.fullPath).toBe('/');
     w.unmount();
   });
 
-  it('focus goes to the flow card when the opener left the DOM (mobile menu item)', async () => {
-    const w = await mountTab([flow('a', 12, 1)]);
-    const gone = document.createElement('button');
-    document.body.appendChild(gone);
-    gone.focus();
-    await w.find('[data-testid="flow-card-a"]').trigger('click');
-    await flushPromises();
-    gone.remove();
-    w.findComponent(FlowEditorDialog).vm.$emit('update:modelValue', false);
-    await flushPromises();
-    expect(document.activeElement).toBe(w.find('[data-testid="flow-card-a"]').element);
-    w.unmount();
-  });
+  describe('badges (U61, §10.8)', () => {
+    const forkDef: ApprovalFlow['definition'] = {
+      shape: 'graph', stages: [],
+      nodes: [{ id: 'start', kind: 'start' }, { id: 'f', kind: 'fork' }, { id: 'a', kind: 'approval' }, { id: 'b', kind: 'approval' }, { id: 'j', kind: 'join' }, { id: 'end', kind: 'end' }], edges: [],
+    };
+    const condDef: ApprovalFlow['definition'] = {
+      shape: 'graph', stages: [], nodes: [{ id: 'start', kind: 'start' }, { id: 'c', kind: 'condition' }, { id: 'a', kind: 'approval' }, { id: 'end', kind: 'end' }], edges: [],
+    };
+    const emptyDraft = { definition: { shape: 'graph' as const, stages: [], nodes: [], edges: [] } };
 
-  it('focus goes to the add button when the create dialog opener left the DOM', async () => {
-    const w = await mountTab([flow('a', 12, 1)]);
-    const gone = document.createElement('button');
-    document.body.appendChild(gone);
-    gone.focus();
-    await w.find('[data-testid="flow-add"]').trigger('click');
-    await flushPromises();
-    gone.remove();
-    w.findComponent(FlowEditorDialog).vm.$emit('update:modelValue', false);
-    await flushPromises();
-    expect(document.activeElement).toBe(w.find('[data-testid="flow-add"]').element);
-    w.unmount();
+    it('a straight graph shows "n 個簽核節點" and no branch badge', async () => {
+      const w = await mountTab([flow('g', 12, 1, { definition: graphDef })]);
+      expect(w.find('[data-testid="flow-stages-g"]').text()).toBe('2 個簽核節點');
+      expect(w.find('[data-testid="flow-branches-g"]').exists()).toBe(false);
+      w.unmount();
+    });
+
+    it('a graph with a fork or a condition node gets the branch badge', async () => {
+      const w = await mountTab([flow('f', 12, 1, { definition: forkDef }), flow('c', 12, 2, { definition: condDef })]);
+      expect(w.find('[data-testid="flow-stages-f"]').text()).toBe('2 個簽核節點');
+      expect(w.find('[data-testid="flow-branches-f"]').text()).toBe('含分支');
+      expect(w.find('[data-testid="flow-branches-c"]').text()).toBe('含分支');
+      w.unmount();
+    });
+
+    it('a sequence flow keeps "n 關" and has no branch badge', async () => {
+      const w = await mountTab([flow('s', 12, 1)]);
+      expect(w.find('[data-testid="flow-stages-s"]').text()).toBe('1 關');
+      expect(w.find('[data-testid="flow-branches-s"]').exists()).toBe(false);
+      w.unmount();
+    });
+
+    it('a draft-only flow shows "尚未發布" instead of a version', async () => {
+      const w = await mountTab([draftOnly('d', 12, 1, { draft: emptyDraft })]);
+      expect(w.find('[data-testid="flow-unpublished-d"]').text()).toBe('尚未發布');
+      expect(w.find('[data-testid="flow-has-draft-d"]').exists()).toBe(false);
+      expect(w.find('[data-testid="flow-card-d"]').text()).not.toContain('第');
+      w.unmount();
+    });
+
+    it('a published flow with a draft shows "有未發布的變更" next to its version', async () => {
+      const w = await mountTab([flow('a', 12, 1, { draft: emptyDraft }), flow('b', 12, 2)]);
+      expect(w.find('[data-testid="flow-has-draft-a"]').text()).toBe('有未發布的變更');
+      expect(w.find('[data-testid="flow-card-a"]').text()).toContain('第 2 版');
+      expect(w.find('[data-testid="flow-unpublished-a"]').exists()).toBe(false);
+      expect(w.find('[data-testid="flow-has-draft-b"]').exists()).toBe(false);
+      w.unmount();
+    });
   });
 
   it('the focusable card has an accessible name that says it edits the flow', async () => {
