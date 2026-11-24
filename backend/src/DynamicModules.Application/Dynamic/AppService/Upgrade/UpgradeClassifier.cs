@@ -20,7 +20,9 @@ public static class UpgradeClassifier
         // 第二批（§9.6.4，pkg1d1a）：狀態機與簽核流程
         ReasonStatusFieldChanged = "statusFieldChanged", ReasonUnlocksRecords = "unlocksRecords", ReasonTransitionGroups = "transitionGroups",
         ReasonApprovalInFlight = "approvalInFlight", ReasonFlowInUse = "flowInUse", ReasonPriorityTaken = "priorityTaken",
-        ReasonApproverGroups = "approverGroups", ReasonWorkflowInvalid = "workflowInvalid";
+        ReasonApproverGroups = "approverGroups", ReasonWorkflowInvalid = "workflowInvalid",
+        // 依賴的項目不能套用（審查 S7）；Detail 是那幾項的 id，以「、」分隔
+        ReasonDependsOnBlocked = "dependsOnBlocked";
 
     /// <summary>不擋、只說明的影響代碼（§9.6.4 impacts，前端 apps.upgrade.impact.*）。</summary>
     public const string ImpactRecordsInState = "recordsInState", ImpactInFlightApprovals = "inFlightApprovals";

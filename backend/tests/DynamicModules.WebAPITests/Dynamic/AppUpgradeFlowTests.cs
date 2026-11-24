@@ -745,6 +745,35 @@ public class AppUpgradeFlowTests : IDisposable
         DefinitionOf("uf-win").Stages[0].Name.Resolve("zh-TW").Should().Be("主管核准");
     }
 
+    // ---- 審查 S7：依賴不能套用的項目，自己也標不能勾 ----
+
+    [Fact]
+    public async Task S7_TransitionDependsOnFlowInUse_AlsoNotApplicable_ReasonNamesDependency()
+    {
+        await OpenAsync();
+        await RecordsAsync("sent", 1);
+        var flow = _rig.Db(db => db.Set<ApprovalFlow>().Single(f => f.Key == "uf-check"));
+        _rig.Db(db => { db.Set<ApprovalInstance>().Add(new ApprovalInstance
+        {
+            RecordId = db.Set<Record>().First().Id, ModuleId = flow.ModuleId, FlowId = flow.Id, FlowVersionId = flow.CurrentVersionId,
+            FromOptionId = Option("sent"), ToOptionId = Option("check"), Status = ApprovalInstanceStatus.Approved, TitleSnapshot = "D",
+            SubmittedTime = DateTime.Now, RowVersion = "x", OperationId = Guid.NewGuid().ToString()
+        }); });
+        await NewVersionAsync(p =>
+        {
+            Flow(p, "uf-check")["to"] = "returned";
+            Transition(p, "draft", "returned")["approval"] = JsonNode.Parse("""{ "required": true, "noMatch": "block" }""");
+        });
+        var preview = await PreviewAsync();
+        Reason(Item(preview, "approvalFlow:uf-check")).Should().Be("flowInUse");
+        var transition = Item(preview, "transition:deal:draft>returned");
+        DependsOn(transition).Should().Contain("approvalFlow:uf-check");
+        transition.GetProperty("applicable").GetBoolean().Should().BeFalse("勾了會連帶勾不能套用的流程，套用必定 400");
+        transition.GetProperty("defaultSelected").GetBoolean().Should().BeFalse();
+        Reason(transition).Should().Be("dependsOnBlocked");
+        transition.GetProperty("detail").GetString().Should().Be("approvalFlow:uf-check");
+    }
+
     // ---- A64 ----
 
     [Fact]

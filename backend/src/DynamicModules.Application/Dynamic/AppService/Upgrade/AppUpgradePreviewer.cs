@@ -420,8 +420,24 @@ public sealed class AppUpgradePreviewer(
         var context = new CompareContext(n, exported.Package, baselineRow, B, N, C, packageGroup, pseudo, bindings) { CurrentGroups = exported.GroupIds };
         // 狀態機與簽核流程的守衛（T32、T46、T47、T58）：用設計器同一份判斷先算，不能套的標原因
         items = await flowGuards.CheckAsync(app, context, items, ct);
+        // 依賴不能套用的項目：勾了會連帶勾那一項、套用必定失敗，自己也標不能勾，原因指出是哪一項（審查 S7，可遞移）
+        var blocked = items.Where(i => !i.Applicable).Select(i => i.Id).ToHashSet(StringComparer.Ordinal);
+        for (var changed = blocked.Count > 0; changed;)
+        {
+            changed = false;
+            for (var k = 0; k < items.Count; k++)
+                if (items[k].Applicable && items[k].DependsOn.Where(blocked.Contains).ToList() is { Count: > 0 } deps)
+                {
+                    items[k] = items[k] with
+                    {
+                        Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonDependsOnBlocked, Detail = string.Join("、", deps)
+                    };
+                    blocked.Add(items[k].Id);
+                    changed = true;
+                }
+        }
         // 預設勾選要能直接套用：依賴另列的排除欄位（預設不勾）的項目，連同依賴它們的，預設也不勾，由管理員決定
-        var off = new HashSet<string>(promoted.Concat(items.Where(i => !i.Applicable).Select(i => i.Id)), StringComparer.Ordinal);
+        var off = new HashSet<string>(promoted.Concat(blocked), StringComparer.Ordinal);
         for (var changed = off.Count > 0; changed;)
         {
             changed = false;

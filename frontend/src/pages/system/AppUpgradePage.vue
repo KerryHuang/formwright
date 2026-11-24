@@ -73,8 +73,12 @@ const dependsLabel = (ids: string[]) => ids.map((id) => {
   return hit ? labelOf(hit) : id;
 }).join('、');
 const effectLabel = (effect: string) => (te(`apps.upgrade.effect.${effect}`) ? t(`apps.upgrade.effect.${effect}`) : effect);
-const reasonLabel = (reason: string, n?: number | null, detail?: string | null) =>
-  te(`apps.upgrade.reason.${reason}`) ? t(`apps.upgrade.reason.${reason}`, { n: n ?? 0, detail: detail ?? '' }) : reason;
+// dependsOnBlocked 的 detail 是不能套用的那幾項 id（以「、」分隔），換成名稱（審查 S7）
+const reasonLabel = (i: UpgradeItem) => {
+  if (!i.reason) return '';
+  const detail = i.reason === 'dependsOnBlocked' && i.detail ? dependsLabel(i.detail.split('、')) : i.detail;
+  return te(`apps.upgrade.reason.${i.reason}`) ? t(`apps.upgrade.reason.${i.reason}`, { n: i.affectedRecords ?? 0, detail: detail ?? '' }) : i.reason;
+};
 
 // 勾選：預覽載入（含改群組對應後重新預覽）時回到後端的預設勾選
 const selected = ref<Set<string>>(new Set());
@@ -229,7 +233,7 @@ const viewing = ref<{ title: string; value: string } | null>(null);
                     <span class="text-caption text-muted">{{ kindOf(i) }}</span>
                     <q-badge outline color="primary" :data-testid="`upgrade-category-${i.category}`">{{ t(`apps.upgrade.category.${i.category}`) }}</q-badge>
                   </div>
-                  <div v-if="i.reason" class="text-caption text-negative">{{ reasonLabel(i.reason, i.affectedRecords, i.detail) }}</div>
+                  <div v-if="i.reason" class="text-caption text-negative">{{ reasonLabel(i) }}</div>
                   <div v-for="(m, k) in i.impacts ?? []" :key="`impact-${k}`" class="text-caption text-muted" data-testid="upgrade-impact">
                     {{ te(`apps.upgrade.impact.${m.code}`) ? t(`apps.upgrade.impact.${m.code}`, { n: m.count ?? 0, detail: m.detail ?? '' }) : m.code }}
                   </div>
