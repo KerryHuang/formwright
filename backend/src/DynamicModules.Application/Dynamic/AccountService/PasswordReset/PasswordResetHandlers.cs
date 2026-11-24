@@ -174,8 +174,7 @@ public static class PasswordLength
         {
             var min = await MinAsync(system, ct);
             if ((value ?? "").Length < min)
-                ctx.AddFailure(new FluentValidation.Results.ValidationFailure(ctx.PropertyPath, MessageText.Get(null, key, min))
-                    { CustomState = MessageRef.Of(key, min) });
+                ctx.AddFailure(Common.Behaviors.MessageRuleExtensions.TextFailure(ctx.PropertyPath, key, min));
         });
 }
 
