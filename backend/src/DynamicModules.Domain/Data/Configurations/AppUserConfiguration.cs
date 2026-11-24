@@ -22,5 +22,15 @@ public class AppUserConfiguration : IEntityTypeConfiguration<AppUser>
         b.Property(x => x.ThemeMode).HasMaxLength(20);
         b.Property(x => x.ThemeStyle).HasMaxLength(20);
         b.Property(x => x.SecurityStamp).HasMaxLength(50).IsRequired().HasDefaultValue("initial");
+        // 帳號安全（帳號安全設計 §5.1）
+        b.Property(x => x.Email).HasMaxLength(AppUser.EmailMax);
+        b.Property(x => x.EmailVerifiedUtc).AsUtc();
+        b.Property(x => x.TotpSecretProtected).HasMaxLength(500);
+        b.Property(x => x.TotpEnabledUtc).AsUtc();
+        b.Property(x => x.TotpPendingProtected).HasMaxLength(500);
+        b.Property(x => x.TotpPendingUtc).AsUtc();
+        b.Property(x => x.TwoFactorFailedCount).HasDefaultValue(0);
+        b.Property(x => x.TwoFactorLockedUntilUtc).AsUtc();
+        b.Property(x => x.TwoFactorGraceStartUtc).AsUtc();
     }
 }
