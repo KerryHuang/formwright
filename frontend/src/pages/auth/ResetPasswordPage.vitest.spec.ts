@@ -64,7 +64,7 @@ describe('ResetPasswordPage', () => {
     expect(router.currentRoute.value.path).toBe('/login');
   });
 
-  it('expired or used link shows the invalid message and a link to request again (R5, R7)', async () => {
+  it('expired or used link shows the invalid message and a link to request again (R4, R6)', async () => {
     api.checkResetLink.mockRejectedValue(linkInvalid());
     await mountAt('#t=used');
     expect(q('reset-invalid')!.textContent).toBe(zhTW.auth.resetInvalid);
@@ -75,7 +75,7 @@ describe('ResetPasswordPage', () => {
     expect(q('reset-invalid')).not.toBeNull();
   });
 
-  it('the minimum length comes from auth/options; mismatch and short passwords are not sent (R10)', async () => {
+  it('the minimum length comes from auth/options; mismatch and short passwords are not sent (R14)', async () => {
     api.checkResetLink.mockResolvedValue(undefined);
     await mountAt('#t=tok', 12);
     expect(document.body.textContent).toContain(zhTW.auth.newPassword.replace('{min}', '12'));

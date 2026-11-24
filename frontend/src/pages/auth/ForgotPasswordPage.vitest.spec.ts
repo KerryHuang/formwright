@@ -48,7 +48,7 @@ describe('ForgotPasswordPage', () => {
     expect(q('forgot-user')).toBeNull();
   });
 
-  it('when mail is not available, only tells the user to contact an administrator (R14)', async () => {
+  it('when mail is not available, only tells the user to contact an administrator (R19)', async () => {
     await mountPage({ passwordReset: 'contactAdmin' });
     expect(q('forgot-contact-admin')!.textContent).toBe(zhTW.auth.forgotContactAdmin);
     expect(q('forgot-user')).toBeNull();
