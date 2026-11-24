@@ -124,6 +124,7 @@ describe('UsersPage', () => {
   it('click a row opens the edit dialog; action buttons do not', async () => {
     await mountPage(USERS, 1366);
     expect(q('user-row-sales01')!.classList.contains('row-clickable')).toBe(true);
+    expect(q('user-reset-sales01')!.closest('td')!.classList.contains('users-actions-col')).toBe(true);   // #106 操作欄固定在右側
     expect(q('user-edit-sales01')).toBeNull();
     await click('user-reset-sales01');
     expect(q('user-id')).toBeNull();
