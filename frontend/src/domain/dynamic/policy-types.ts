@@ -82,9 +82,10 @@ export function policyValueText(meta: PolicyMeta, v: PolicyValue, t: Translate, 
       return list.length ? joinList(list.map((o) => choiceLabel(meta, o, t))) : t('policies.none');
     }
     case 'codeList': return joinList(v as string[]);
-    // 名稱還沒載入（names 為 undefined）時顯示原始項目，不誤報找不到
-    case 'recipients': return joinList((v as string[]).map((i) => (meta.dynamicRecipients?.includes(i) ? t(dynamicRecipientKey(i))
-      : names ? names.get(i) ?? t('policies.recipients.missing') : i)));
+    // 名稱還沒載入（names 為 undefined）時顯示原始項目，不誤報找不到；空清單（例：強制雙因素的群組）顯示「（無）」
+    case 'recipients': return (v as string[]).length === 0 ? t('policies.none')
+      : joinList((v as string[]).map((i) => (meta.dynamicRecipients?.includes(i) ? t(dynamicRecipientKey(i))
+        : names ? names.get(i) ?? t('policies.recipients.missing') : i)));
     default:
       if (meta.unit === 'bytes') return `${v} (${t('policies.bytesHint', { size: formatBytes(Number(v)) })})`;
       // 一天中的整點（備份時段）：2 → 「2（02:00 開始）」
