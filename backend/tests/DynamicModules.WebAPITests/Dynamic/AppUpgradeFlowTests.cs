@@ -431,6 +431,37 @@ public class AppUpgradeFlowTests : IDisposable
         WorkflowOf().RequiresApproval(Option("review"), Option("sent")).Should().BeTrue();
     }
 
+    /// <summary>
+    /// #102 防退化：被依賴的流程客戶已刪、新版仍有（預設不勾），兩個入口（SiblingEntries、ApprovalFlowsFor）依賴它，
+    /// 入口預設也不勾，照預設勾選套用回 200（#101 的「所有預設不勾項目為起點」）。
+    /// </summary>
+    [Fact]
+    public async Task A56_EntriesDependOnDefaultOffFlow_DefaultOffToo_Issue102()
+    {
+        await OpenAsync(SendFlow);
+        _rig.Db(db =>
+        {
+            var flow = db.Set<ApprovalFlow>().Single(f => f.Key == "uf-send");
+            db.Set<ApprovalFlow>().Remove(flow);
+            db.Set<ApprovalFlowVersion>().RemoveRange(db.Set<ApprovalFlowVersion>().Where(v => v.FlowId == flow.Id));
+        });
+        await NewVersionAsync(p =>
+        {
+            Transition(p, "draft", "sent")["approval"] = new JsonObject { ["required"] = true };
+            Transition(p, "review", "sent")["approval"] = new JsonObject { ["required"] = true };
+        }, SendFlow);
+        var preview = await PreviewAsync();
+        var flow = Item(preview, "approvalFlow:uf-send");
+        flow.GetProperty("defaultSelected").GetBoolean().Should().BeFalse(flow.ToString());
+        foreach (var id in new[] { "transition:deal:draft>sent", "transition:deal:review>sent" })
+        {
+            var item = Item(preview, id);
+            DependsOn(item).Should().Contain("approvalFlow:uf-send");
+            item.GetProperty("defaultSelected").GetBoolean().Should().BeFalse(id + " 依賴預設不勾的項目");
+        }
+        await ApplyOkAsync(preview, Defaults(preview));
+    }
+
     /// <summary>相依互相勾：只勾其中一個入口（加流程）時，套用回 400 並指出缺另一個入口。</summary>
     [Fact]
     public async Task A56_OnlyOneOfTwoEntriesTicked_400MissingOtherEntry()

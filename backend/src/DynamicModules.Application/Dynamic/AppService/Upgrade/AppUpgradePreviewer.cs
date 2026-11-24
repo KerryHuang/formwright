@@ -606,7 +606,7 @@ public sealed class AppUpgradePreviewer(
         items = await codedGuards.CheckAsync(app, context, items, ct);
         items = StateMoves(items, B, N, C, hasBaseline, lc);
         items = await IntegrationGuardsAsync(app, n, exported.Package, items, ct);
-        items = Propagate(items, promoted, []);
+        items = Propagate(items, [], []);
 
         var tokenPart = string.Join("\n", baselineRow?.PackageJson ?? "", candidate.Original ?? JsonSerializer.Serialize(n, TemplateJson.Options),
             JsonSerializer.Serialize(C.OrderBy(x => x.Key, StringComparer.Ordinal).Select(x => new { x.Key, x.Value.Props })));
