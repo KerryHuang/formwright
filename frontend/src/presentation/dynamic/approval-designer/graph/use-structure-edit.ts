@@ -15,7 +15,11 @@ export function useStructureEdit(designer: GraphDesigner, opts: { structure: () 
     const d = def();
     return d ? addable(d, opts.limits(), Object.keys(designer.server.value.publishedApprovers).length) : null;
   });
-  const items = (kinds: AddKind[]) => kinds.map((kind) => ({ kind, disabled: !allowed.value?.[kind] }));
+  /** `limit`：停用是因為到了上限（顯示「已達上限」）；政策還沒讀回的停用不顯示原因（前端畫面通則）。 */
+  const items = (kinds: AddKind[]) => kinds.map((kind) => {
+    const disabled = !allowed.value?.[kind];
+    return { kind, disabled, limit: disabled && opts.limits().ready };
+  });
   const paletteItems = computed(() => items(PALETTE_KINDS));
   const insertItems = computed(() => items(INSERT_KINDS));
 

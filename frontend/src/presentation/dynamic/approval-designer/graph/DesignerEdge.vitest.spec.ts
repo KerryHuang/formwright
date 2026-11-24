@@ -45,7 +45,7 @@ describe('DesignerEdge', () => {
   });
 
   it('the plus sits halfway between the bend and the target, and its menu inserts the chosen kind; a kind at the limit is disabled', async () => {
-    const kinds = [{ kind: 'approval', disabled: false }, { kind: 'condition', disabled: false }, { kind: 'fork', disabled: true }];
+    const kinds = [{ kind: 'approval', disabled: false }, { kind: 'condition', disabled: false }, { kind: 'fork', disabled: true, limit: true }];
     const w = draw({ data: { bendX: 300, fullLabel: '' }, plus: true, insertKinds: kinds });
     const plus = w.get('[data-testid="de-edge-plus"]');
     expect(plus.attributes('aria-label')).toBe('在這條線插入節點');

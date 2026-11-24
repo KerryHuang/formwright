@@ -6,7 +6,7 @@ import { kindIcon, type AddKind } from './designer-graph';
 // 節點面板（§10.3、U63、J79）：只列簽核、條件、分支、結束。拖放用 pointer events（滑鼠、觸控、筆同一套），不用 HTML5 drag and drop；
 // 拖超過 6px 才算拖，放開時回報螢幕座標（設計頁再問畫布落在哪、是不是線上）；沒拖動的點一下（含鍵盤 Enter／Space）回報 add，加在畫面中央。
 // 不 import Vue Flow。`compact`（平板）只顯示圖示，名稱放在 aria-label 與滑鼠提示。
-defineProps<{ kinds: { kind: AddKind; disabled: boolean }[]; compact: boolean }>();
+defineProps<{ kinds: { kind: AddKind; disabled: boolean; limit?: boolean }[]; compact: boolean }>();
 const emit = defineEmits<{ drop: [kind: AddKind, clientX: number, clientY: number]; add: [kind: AddKind] }>();
 const { t } = useI18n();
 const DRAG_PX = 6;
@@ -16,7 +16,7 @@ const drag = ref<{ kind: AddKind; pointerId: number; sx: number; sy: number; x: 
 let swallowClick = false;
 
 const label = (k: AddKind) => t(`approval.graph.kind.${k}`);
-const title = (k: { kind: AddKind; disabled: boolean }) => (k.disabled ? t('approval.designer.graph.paletteLimit') : label(k.kind));
+const title = (k: { kind: AddKind; limit?: boolean }) => (k.limit ? t('approval.designer.graph.paletteLimit') : label(k.kind));
 
 function down(e: PointerEvent, k: { kind: AddKind; disabled: boolean }) {
   if (k.disabled || (e.pointerType === 'mouse' && e.button !== 0)) return;

@@ -6,9 +6,9 @@ import zhTW from 'shared/i18n/zh-TW/ui.json';
 import DesignerPalette from './DesignerPalette.vue';
 import { PALETTE_KINDS } from './designer-graph';
 
-const kinds = (off: string[] = []) => PALETTE_KINDS.map((kind) => ({ kind, disabled: off.includes(kind) }));
-const mountPalette = (compact = false, off: string[] = []) => mount(DesignerPalette, {
-  props: { kinds: kinds(off), compact },
+const kinds = (off: string[] = [], limit = true) => PALETTE_KINDS.map((kind) => ({ kind, disabled: off.includes(kind), limit: limit && off.includes(kind) }));
+const mountPalette = (compact = false, off: string[] = [], limit = true) => mount(DesignerPalette, {
+  props: { kinds: kinds(off, limit), compact },
   global: { plugins: [[quasar.Quasar, { components: quasar }], createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } })] },
 });
 const pointer = (type: string, x: number, y: number) => {
@@ -60,5 +60,7 @@ describe('DesignerPalette', () => {
     const b = w.get('[data-testid="de-palette-fork"]');
     expect(b.attributes('disabled')).toBeDefined();
     expect(b.attributes('title')).toBe('已達簽核節點數上限');
+    // 政策還沒讀回：停用但不說已達上限
+    expect(mountPalette(false, ['fork'], false).get('[data-testid="de-palette-fork"]').attributes('title')).toBe('分支');
   });
 });
