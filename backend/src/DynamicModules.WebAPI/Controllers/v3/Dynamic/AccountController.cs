@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace DynamicModules.WebAPI.Controllers.v3.Dynamic;
 
-/// <summary>「帳號安全」頁（帳號安全設計 §10、§12）：本人的 Email 與驗證狀態、雙因素；記住的裝置由 au1c2 加。</summary>
+/// <summary>「帳號安全」頁（帳號安全設計 §10、§12）：本人的 Email 與驗證狀態、雙因素、記住的裝置。</summary>
 [ApiController]
 [Route("api/v3/dynamic/account")]
 public class AccountController(IMediator mediator, ClientIpResolver clientIp) : ControllerBase
@@ -63,6 +63,10 @@ public class AccountController(IMediator mediator, ClientIpResolver clientIp) : 
         var result = await mediator.Send(new RegenerateRecoveryCodesRequest(body.Password, body.Code, clientIp.Resolve(HttpContext)));
         return NoStore(result.Data is TwoFactorCodesResult codes ? Ok(new { codes.RecoveryCodes }) : result.ToActionResult(this));
     }
+
+    /// <summary>全部取消記住（§8.5、Q17）：刪掉自己記住的裝置；目前的 session 照常。Demo 站 403。</summary>
+    [HttpDelete("trusted-devices")]
+    public async Task<IActionResult> ClearTrustedDevices() => (await mediator.Send(new ClearTrustedDevicesRequest())).ToActionResult(this);
 
     /// <summary>回應含金鑰或復原碼：不進任何快取（§10 末）。</summary>
     private IActionResult NoStore(IActionResult result)

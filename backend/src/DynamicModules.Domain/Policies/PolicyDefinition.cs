@@ -21,6 +21,7 @@ public enum PolicyKind { Integer, Boolean, Choice, RoleSet, CodeList, Recipients
 /// <see cref="DynamicRecipients"/> 是 Recipients 另外允許的動態項目（維運設計 §17.2.5、O2-T15；例如 <c>ruleEditor</c>＝該規則的最後修改者），
 /// 沒列的政策收到這些項目一律不合法。
 /// <see cref="Target"/> 是模組覆寫適用的模組種類：模組政策清單只列適用的項目，不適用的不能覆寫。
+/// <see cref="GroupsOnly"/> 的 Recipients 只收 <c>group:&lt;id&gt;</c>（帳號安全設計 T26：強制雙因素的群組），其他項目一律不合法。
 /// </summary>
 public sealed partial record PolicyDefinition(
     string Code,
@@ -34,7 +35,8 @@ public sealed partial record PolicyDefinition(
     string? Unit = null,
     IReadOnlyList<string>? Forbidden = null,
     IReadOnlyList<string>? DynamicRecipients = null,
-    PolicyModuleTarget Target = PolicyModuleTarget.Main)
+    PolicyModuleTarget Target = PolicyModuleTarget.Main,
+    bool GroupsOnly = false)
 {
     /// <summary>收件人政策的動態項目：該規則的最後修改者（沒有就建立者；停用的略過）。</summary>
     public const string RuleEditor = "ruleEditor";
@@ -78,7 +80,7 @@ public sealed partial record PolicyDefinition(
             case PolicyKind.Recipients:
             {
                 var items = Split(raw).Select(i => DynamicRecipients is not null && DynamicRecipients.Contains(i, StringComparer.Ordinal) ? i : RecipientItem(i)).ToList();
-                if (items.Any(i => i is null)) return null;
+                if (items.Any(i => i is null || (GroupsOnly && !i.StartsWith("group:", StringComparison.Ordinal)))) return null;
                 var distinct = items.Select(i => i!).Distinct(StringComparer.Ordinal).ToList();
                 return distinct.Count >= Min && distinct.Count <= Max ? string.Join(",", distinct) : null;
             }

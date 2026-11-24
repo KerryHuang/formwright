@@ -53,6 +53,7 @@ public class AuthorizationWriteInventoryTests
         $"{Repo}DeletionRepository.cs",     // 刪除清理的兩個批次入口
         $"{Seed}DemoPeople.cs",             // Demo 示範帳號與成員（沿用背景 GenerateDemoDataRequest 的許可）
         $"{Seed}PermissionAxesImport.cs",   // 升級帶入（Seed 許可內）
+        $"{Repo}TwoFactorRepository.cs",    // 強制雙因素的群組範圍（UserGroupMapping）只讀：session 判定與存政策時批次清寬限起點（帳號安全設計 §8.7）
     ];
 
     /// <summary>清單測試 5：四個守衛批次入口與它們該 Demand 的入口值。</summary>
@@ -102,6 +103,11 @@ public class AuthorizationWriteInventoryTests
         new($"{Repo}TwoFactorRepository.cs", "TryUseRecoveryCodeAsync"), // 復原碼只能用一次（UserRecoveryCode.UsedUtc IS NULL），同上交易內
         new($"{Repo}TwoFactorRepository.cs", "DeleteRecoveryCodesAsync"), // 綁定、關閉、重新產生、管理員重設、救援時刪復原碼，呼叫端交易內（救援在啟動時）
         new($"{Repo}TwoFactorRepository.cs", "DeleteTrustedDevicesAsync"), // 同上刪記住的裝置（TrustedDevice，清理用；失效靠換 stamp）
+        new($"{Repo}TwoFactorRepository.cs", "TouchTrustedDeviceAsync"), // 憑記住的裝置登入時記最近使用時間（TrustedDevice.LastUsedUtc），TouchTrustedDeviceRequest 交易內
+        new($"{Repo}TwoFactorRepository.cs", "AddTrustedDeviceAsync"), // 記住裝置超過每帳號 20 台時刪最舊（TrustedDevice），CompleteTwoFactorLogin 交易內
+        new($"{Repo}TwoFactorRepository.cs", "StartGraceAsync"),       // 強制雙因素的寬限起點（AppUser.TwoFactorGraceStartUtc）條件式寫入，SyncTwoFactorGraceRequest 交易內
+        new($"{Repo}TwoFactorRepository.cs", "ClearGraceAsync"),       // 離開強制範圍時清寬限起點，同上交易內
+        new($"{Repo}TwoFactorRepository.cs", "ClearGraceOutsideAsync"), // 存強制政策時批次清不在範圍內的寬限起點（F40），UpdateSystemPolicy 交易內的政策 hook
         new($"{Repo}ApprovalRepositories.cs", "TryReplaceDraftAsync"), // 簽核流程（ApprovalFlow）草稿樂觀鎖
         new($"{Repo}ApprovalRepositories.cs", "RemoveAsync"),         // 刪簽核流程的版本（ApprovalFlowVersion）
         new($"{Repo}ApprovalRepositories.cs", "TryBumpRowVersionAsync"), // 簽核實例（ApprovalInstance）列版本
@@ -173,7 +179,6 @@ public class AuthorizationWriteInventoryTests
     private static readonly HashSet<string> WebApiDbFiles =
     [
         "DynamicModules.WebAPI/Program.cs",                    // 組 DI、啟動 migrate 與種子
-        "DynamicModules.WebAPI/Security/SessionMiddleware.cs", // 每個請求讀登入工作階段
         "DynamicModules.WebAPI/Security/AdminBootstrap.cs",    // 首次啟動建立 admin 帳號
     ];
 

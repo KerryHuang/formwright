@@ -11,7 +11,7 @@ namespace DynamicModules.Application.Dynamic.AccountService.Commands.SetUserActi
 
 public class SetUserActiveHandler(
     ICurrentUser current, IAccountRepository accounts, McpTokenRevoker mcpTokens, MailService.AccountMailWriter mail, IUnitOfWork uow, AuditContext audit,
-    ILogger<SetUserActiveHandler> logger)
+    ITwoFactorRepository twoFactor, ILogger<SetUserActiveHandler> logger)
     : IRequestHandler<SetUserActiveRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(SetUserActiveRequest request, CancellationToken ct)
@@ -31,6 +31,8 @@ public class SetUserActiveHandler(
             revokedMcpTokens = await mcpTokens.RevokeAllAsync(user.UserId, McpRevokeReason.UserDeactivated, current.UserId, ct);
             // 同交易取消還沒寄的帶連結帳號信、作廢未用權杖（帳號安全設計 §6.3）
             await mail.CancelLinksAsync(user.UserId, AccountToken.Deactivated, null, ct);
+            // 記住的裝置隨換 stamp 失效；同交易刪列只是清理（帳號安全設計 §8.5）
+            await twoFactor.DeleteTrustedDevicesAsync(user.UserId, ct);
         }
 
         var wasActive = user.IsActive;

@@ -39,6 +39,8 @@ public static class AuditActions
         new("account.twoFactorEnable", Auth, W),
         new("account.twoFactorDisable", Auth, W),
         new("account.recoveryCodesRegenerate", Auth, W),
+        // 記住的裝置（帳號安全設計 §8.5）
+        new("account.trustedDevicesClear", Auth, W),
         // 使用者與群組
         new("user.create", User, H),
         new("user.update", User, H),

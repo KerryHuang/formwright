@@ -58,5 +58,11 @@
     "en-US": "Account security policies cannot be changed on the demo site",
     "th": "ไม่สามารถแก้ไขนโยบายความปลอดภัยของบัญชีในไซต์เดโมได้",
     "vi": "Không thể sửa chính sách bảo mật tài khoản trên trang demo"
+  },
+  "TwoFactorEnrollmentRequired": {
+    "zh-TW": "請先啟用雙因素驗證",
+    "en-US": "Please turn on two-factor authentication first",
+    "th": "โปรดเปิดใช้การยืนยันตัวตนสองขั้นตอนก่อน",
+    "vi": "Vui lòng bật xác thực hai lớp trước"
   }
 }

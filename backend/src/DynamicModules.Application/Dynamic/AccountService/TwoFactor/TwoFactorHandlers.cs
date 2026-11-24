@@ -16,20 +16,12 @@ using Microsoft.Extensions.Logging;
 namespace DynamicModules.Application.Dynamic.AccountService.TwoFactor;
 
 // 雙因素登入 TOTP（帳號安全設計 §8）：au1c1 做綁定、重新綁定、本人關閉、復原碼、第二步、管理員重設；
-// 記住這台裝置與強制政策留給 au1c2（§17）。
+// 記住這台裝置與強制政策在 au1c2（TwoFactorPolicyHandlers.cs）。
 
-/// <summary>
-/// 本人是否在強制使用雙因素的範圍內（§8.6、§8.7）。au1c1 沒有強制政策，所有人都是「選用」（<see cref="OptionalTwoFactorRequirement"/>）；
-/// au1c2 以政策四項實作，關閉時回 409 <c>twoFactorRequired</c> 的判斷就接在這裡。
-/// </summary>
+/// <summary>本人是否在強制使用雙因素的範圍內（§8.6、§8.7）：在範圍內時關閉回 409 <c>twoFactorRequired</c>。實作是 <see cref="PolicyTwoFactorRequirement"/>。</summary>
 public interface ITwoFactorRequirement
 {
     Task<bool> IsRequiredAsync(AppUser user, CancellationToken ct);
-}
-
-public sealed class OptionalTwoFactorRequirement : ITwoFactorRequirement
-{
-    public Task<bool> IsRequiredAsync(AppUser user, CancellationToken ct) => Task.FromResult(false);
 }
 
 /// <summary>驗證器 App 顯示的發行者（T12）：站台名稱，沒設用站台網址的主機名稱，都沒有用 <c>Formwright</c>。</summary>
@@ -43,7 +35,8 @@ public static class TwoFactorIssuer
 }
 
 /// <summary>雙因素的狀態（「帳號安全」頁、使用者管理、<c>GET /me</c> 共用）。</summary>
-public sealed class TwoFactorState(ITwoFactorRepository twoFactor, ITotpSecretProtector protector, KeyPersistenceStatus keys, AuthSettings auth)
+public sealed class TwoFactorState(
+    ITwoFactorRepository twoFactor, ITotpSecretProtector protector, KeyPersistenceStatus keys, AuthSettings auth, ITwoFactorRequirement requirement)
 {
     public const string Off = "off", On = "on", Unreadable = "unreadable";
 
@@ -58,16 +51,17 @@ public sealed class TwoFactorState(ITwoFactorRepository twoFactor, ITotpSecretPr
         var state = Of(user.TotpSecretProtected, user.TotpEnabledUtc);
         var left = state == Off ? 0 : await twoFactor.CountUnusedRecoveryCodesAsync(user.UserId, ct);
         return new TwoFactorStatusResponse(state != Off, user.TotpEnabledUtc, left, state == Unreadable, Blocked, RecoveryCodes.RemindAtOrBelow,
-            user.PasswordHash is not null);
+            user.PasswordHash is not null, await requirement.IsRequiredAsync(user, ct));
     }
 }
 
 /// <summary>
 /// 「帳號安全」頁的雙因素卡（§12）。<paramref name="Blocked"/>：<c>demoSite</c>、<c>keysNotPersisted</c> 或 null（可以啟用）；
-/// <paramref name="RemindAtOrBelow"/>：復原碼剩這個數以下時提醒重新產生（§8.4）；<paramref name="HasPassword"/>：沒有密碼（示範帳號）不能自行設定。
+/// <paramref name="RemindAtOrBelow"/>：復原碼剩這個數以下時提醒重新產生（§8.4）；<paramref name="HasPassword"/>：沒有密碼（示範帳號）不能自行設定；
+/// <paramref name="Required"/>：在強制範圍內（§8.7），不提供關閉、只能重新綁定。
 /// </summary>
 public sealed record TwoFactorStatusResponse(
-    bool Enabled, DateTime? EnabledUtc, int RecoveryCodesLeft, bool Unreadable, string? Blocked, int RemindAtOrBelow, bool HasPassword);
+    bool Enabled, DateTime? EnabledUtc, int RecoveryCodesLeft, bool Unreadable, string? Blocked, int RemindAtOrBelow, bool HasPassword, bool Required = false);
 
 /// <summary>開始綁定的回應（只這一次回金鑰明文給本人；回應加 no-store）。</summary>
 public sealed record TwoFactorSetupResponse(string Secret, string OtpAuthUri, int PendingMinutes);
@@ -421,8 +415,10 @@ public sealed record TwoFactorChallenge(SecondStepTicket Ticket, DemoTwoFactorHi
 /// <summary>Demo 站示範用：目前時間步的驗證碼與一組還沒用過的復原碼（§13.4，Q13）。</summary>
 public sealed record DemoTwoFactorHint(string Code, string? RecoveryCode);
 
-/// <summary>第二步成功：controller 發 session cookie、清憑證 cookie；用復原碼時帶剩餘組數（§8.4）。</summary>
-public sealed record TwoFactorLoginResult(AuthUserResponse User, int? RecoveryCodesLeft);
+/// <summary>
+/// 第二步成功：controller 發 session cookie、清憑證 cookie；用復原碼時帶剩餘組數（§8.4）；勾了記住且政策沒關時帶裝置 cookie 的明文與到期（§8.5）。
+/// </summary>
+public sealed record TwoFactorLoginResult(AuthUserResponse User, int? RecoveryCodesLeft, IssuedDevice? Device = null);
 
 /// <summary>Demo 的 <c>mfa01</c> 提示（§13.4）：伺服器依固定金鑰算目前的碼；Demo 站之外或其他帳號回 null。</summary>
 public sealed class DemoTwoFactorHints(AuthSettings auth, ITwoFactorRepository twoFactor, TimeProvider time)
@@ -441,7 +437,8 @@ public sealed class DemoTwoFactorHints(AuthSettings auth, ITwoFactorRepository t
 /// 順序：<c>code</c>／<c>recoveryCode</c> 恰好一個（否則 400，在 <c>TryBegin</c> 之前）→ 憑證檢查（解得開、未過期、沒用過、5 次內、stamp 沒變、
 /// 帳號啟用）→ <see cref="SecondFactorVerifier.CheckAsync"/> → 碼對送內層交易 → 結算、標憑證已用。
 /// </summary>
-public sealed record TwoFactorLoginRequest(string? Ticket, string? Code, string? RecoveryCode, string? ClientIp) : IRequest<ServiceResult>;
+public sealed record TwoFactorLoginRequest(string? Ticket, string? Code, string? RecoveryCode, string? ClientIp, bool RememberDevice = false, string? DeviceLabel = null)
+    : IRequest<ServiceResult>;
 
 public sealed class TwoFactorLoginHandler(
     ISecondStepTicketCodec codec, SecondStepTickets tickets, IAccountRepository accounts, SecondFactorVerifier verifier, IAuditLog audit, ISender sender,
@@ -475,7 +472,7 @@ public sealed class TwoFactorLoginHandler(
         ServiceResult inner;
         try
         {
-            inner = await sender.Send(new CompleteTwoFactorLoginRequest(match), ct);
+            inner = await sender.Send(new CompleteTwoFactorLoginRequest(match, r.RememberDevice, r.DeviceLabel), ct);
         }
         catch
         {
@@ -491,13 +488,14 @@ public sealed class TwoFactorLoginHandler(
 
 /// <summary>
 /// 第二步成功的內層（交易，複審建議 G）：第一句是重放的條件式更新，影響 0 列整筆回滾、外層照碼錯結算；
-/// 清帳號層計數；稽核 <c>login.succeeded</c>（<c>password+totp</c>／<c>password+recovery</c>）；用復原碼時寄 <c>recoveryCodeUsed</c>（Q5）。
+/// 清帳號層計數；勾了記住就寫裝置列（§8.5）；稽核 <c>login.succeeded</c>（<c>password+totp</c>／<c>password+recovery</c>）；用復原碼時寄 <c>recoveryCodeUsed</c>（Q5）。
 /// </summary>
-public sealed record CompleteTwoFactorLoginRequest(SecondFactorMatch Match) : IRequest<ServiceResult>, ITransactionalRequest;
+public sealed record CompleteTwoFactorLoginRequest(SecondFactorMatch Match, bool RememberDevice = false, string? DeviceLabel = null)
+    : IRequest<ServiceResult>, ITransactionalRequest;
 
 public sealed class CompleteTwoFactorLoginHandler(
     SecondFactorVerifier verifier, IAccountRepository accounts, ITwoFactorRepository twoFactor, IAuditLog audit, AccountMailWriter mail, ICurrentLocale locale,
-    IUnitOfWork uow) : IRequestHandler<CompleteTwoFactorLoginRequest, ServiceResult>
+    TrustedDevices devices, IUnitOfWork uow) : IRequestHandler<CompleteTwoFactorLoginRequest, ServiceResult>
 {
     private static readonly string? Totp = new AuditSummary().Add("method", "password+totp").ToJson();
     private static readonly string? Recovery = new AuditSummary().Add("method", "password+recovery").ToJson();
@@ -515,9 +513,10 @@ public sealed class CompleteTwoFactorLoginHandler(
             left = await twoFactor.CountUnusedRecoveryCodesAsync(user.UserId, ct);
             if (user.Email is { } email && user.EmailVerifiedUtc is not null) mail.Enqueue(MailKinds.RecoveryCodeUsed, user.UserId, email, locale.Locale);
         }
+        var device = r.RememberDevice ? await devices.IssueAsync(user, r.DeviceLabel, ct) : null;
         await uow.CommitAsync(ct);
         return ServiceResult.Success(new TwoFactorLoginResult(
-            new AuthUserResponse(user.UserId, user.DisplayName, user.MustChangePassword, user.SecurityStamp), left));
+            new AuthUserResponse(user.UserId, user.DisplayName, user.MustChangePassword, user.SecurityStamp), left, device));
     }
 }
 

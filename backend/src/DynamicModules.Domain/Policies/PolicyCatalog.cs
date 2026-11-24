@@ -497,6 +497,28 @@ public static class PolicyCatalog
     public static readonly PolicyDefinition AuthPasswordMinLength =
         new("auth.passwordMinLength", "auth", PolicyKind.Integer, PolicyScope.System, "8", 8, 128, Unit: "characters");
 
+    // au1c2：記住這台裝置與強制雙因素（帳號安全設計 §8.5、§8.7、§9）
+
+    /// <summary>勾「記住這台裝置」後幾天內不再問驗證碼（§8.5，au1-9）；0＝關閉。改值立即套用到既有裝置（以建立時間＋目前天數判斷，T23）。</summary>
+    public static readonly PolicyDefinition AuthTwoFactorRememberDays =
+        new("auth.twoFactorRememberDays", "auth", PolicyKind.Integer, PolicyScope.System, "30", 0, 90, Unit: "days");
+
+    /// <summary>雙因素：<c>optional</c> 選用、<c>all</c> 強制全部使用者、<c>groups</c> 強制指定群組（§8.7，au1-6）。強制時系統管理員一律在範圍內。</summary>
+    public static readonly PolicyDefinition AuthTwoFactorMode =
+        new("auth.twoFactorMode", "auth", PolicyKind.Choice, PolicyScope.System, "optional", Options: ["optional", "all", "groups"]);
+
+    /// <summary>強制雙因素的群組（<c>groups</c> 模式才用；只收群組，T26）。</summary>
+    public static readonly PolicyDefinition AuthTwoFactorGroups =
+        new("auth.twoFactorGroups", "auth", PolicyKind.Recipients, PolicyScope.System, "", 0, 50, GroupsOnly: true);
+
+    /// <summary>選用模式下系統管理員是否仍強制（au1-漏1）；強制模式下固定包含系統管理員，這項不看。</summary>
+    public static readonly PolicyDefinition AuthTwoFactorRequireAdmins =
+        new("auth.twoFactorRequireAdmins", "auth", PolicyKind.Boolean, PolicyScope.System, "true");
+
+    /// <summary>被強制而還沒啟用時的寬限天數（au1-7）；0＝第一次判定就要立即綁定。</summary>
+    public static readonly PolicyDefinition AuthTwoFactorGraceDays =
+        new("auth.twoFactorGraceDays", "auth", PolicyKind.Integer, PolicyScope.System, "0", 0, 90, Unit: "days");
+
     /// <summary>帳號信寄送紀錄保留天數；<c>ops.upkeep</c> 只清終態（sent、failed、skipped、expired），同一次也清過期的帳號權杖與記住的裝置（§6.6）。</summary>
     public static readonly PolicyDefinition MailOutboxRetentionDays =
         new("mail.outboxRetentionDays", "ops", PolicyKind.Integer, PolicyScope.System, "30", 1, 365, Unit: "days");
@@ -548,7 +570,8 @@ public static class PolicyCatalog
          McpEnabled, McpAllowedGroups, McpTokenMaxLifetimeDays, McpTokenDefaultLifetimeDays, McpTokenMaxPerUser,
          McpCallsPerMinute, McpCallsPerDay, McpMaxRows, McpConfirmTtlSeconds,
          AuthEmailVerifyLinkHours, MailOutboxRetentionDays,
-         AuthPasswordResetEnabled, AuthPasswordResetLinkMinutes, AuthPasswordResetMaxPerHour, AuthPasswordMinLength];
+         AuthPasswordResetEnabled, AuthPasswordResetLinkMinutes, AuthPasswordResetMaxPerHour, AuthPasswordMinLength,
+         AuthTwoFactorMode, AuthTwoFactorGroups, AuthTwoFactorRequireAdmins, AuthTwoFactorGraceDays, AuthTwoFactorRememberDays];
 
     public static PolicyDefinition? Find(string code) =>
         All.FirstOrDefault(d => string.Equals(d.Code, code, StringComparison.Ordinal));

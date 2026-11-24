@@ -1,22 +1,26 @@
 using System.Security.Claims;
 using DynamicModules.Application.Common;
-using DynamicModules.Domain.Data;
-using DynamicModules.Domain.Entities.Dynamic;
+using DynamicModules.Application.Dynamic.AccountService.TwoFactor;
+using DynamicModules.Domain.Accounts;
+using DynamicModules.Domain.Repositories.Dynamic;
 using DynamicModules.WebAPI.Errors;
-using Microsoft.EntityFrameworkCore;
+using MediatR;
 
 namespace DynamicModules.WebAPI.Security;
 
 /// <summary>
 /// /api/v3/dynamic 底下除匿名白名單外都要登入。每個請求比對資料庫的 IsActive 與 SecurityStamp
 /// （不快取：停用、重設密碼要在下一個請求生效）；必須改密碼時只放行 /auth/* 與 GET /me。
+/// 強制雙因素（帳號安全設計 §8.7）：同一次查詢多讀是否在強制範圍、是否已啟用、寬限起點；第一次被判定時記寬限起點、離開範圍時清掉；
+/// 寬限已過還沒綁定時只放行 /auth/*、GET /me、開始綁定與完成綁定，其餘回 403 <c>twoFactorEnrollmentRequired</c>。改密碼優先於綁定（F17）。
 /// </summary>
-public class SessionMiddleware(RequestDelegate next)
+public class SessionMiddleware(RequestDelegate next, ILogger<SessionMiddleware> logger)
 {
     private const string Prefix = "/api/v3/dynamic";
     private const string AuthPrefix = Prefix + "/auth/";
+    public const string EnrollmentRequiredCode = "twoFactorEnrollmentRequired";
 
-    public async Task InvokeAsync(HttpContext ctx, DynamicDbContext db)
+    public async Task InvokeAsync(HttpContext ctx, ITwoFactorRepository twoFactor, TwoFactorEnforcement enforcement, ISender sender)
     {
         var path = (ctx.Request.Path.Value ?? "").TrimEnd('/');
         if (!path.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase) || IsAnonymous(ctx.Request.Method, path))
@@ -36,9 +40,7 @@ public class SessionMiddleware(RequestDelegate next)
         var userId = ctx.User.FindFirstValue(ClaimTypes.NameIdentifier);
         var stamp = ctx.User.FindFirstValue(AuthCookies.StampClaim);
         var row = ctx.User.Identity?.IsAuthenticated == true && userId is not null
-            ? await db.Set<AppUser>().AsNoTracking().Where(u => u.UserId == userId)
-                .Select(u => new { u.IsActive, u.SecurityStamp, u.MustChangePassword })
-                .FirstOrDefaultAsync(ctx.RequestAborted)
+            ? await twoFactor.SessionStateAsync(userId, enforcement.Scope(), ctx.RequestAborted)
             : null;
         if (row is null || !row.IsActive || row.SecurityStamp != stamp)
         {
@@ -61,7 +63,32 @@ public class SessionMiddleware(RequestDelegate next)
             return;
         }
 
+        if (!optional)
+        {
+            var decision = enforcement.Decide(row);
+            if (decision.Change != TwoFactorGraceChange.None) await SyncGraceAsync(sender, userId!, decision.Change, ctx.RequestAborted);
+            if (decision.EnrollmentRequired && !IsAllowedWhileEnrolling(ctx.Request.Method, path))
+            {
+                ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                await ctx.Response.WriteAsJsonAsync(new { traceId = ctx.TraceIdentifier, message = RequestMessages.Text(ctx, MessageText.TwoFactorEnrollmentRequired), code = EnrollmentRequiredCode });
+                return;
+            }
+        }
+
         await next(ctx);
+    }
+
+    /// <summary>寬限起點寫不進去（資料庫忙碌等）不擋這個請求：這一次照「起點＝現在」判斷，下一個請求再寫。</summary>
+    private async Task SyncGraceAsync(ISender sender, string userId, TwoFactorGraceChange change, CancellationToken ct)
+    {
+        try
+        {
+            await sender.Send(new SyncTwoFactorGraceRequest(userId, change), ct);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            logger.LogWarning(e, "帳號 {UserId} 的雙因素寬限起點寫入失敗（{Change}）", userId, change);
+        }
     }
 
     private static bool IsAnonymous(string method, string path) =>
@@ -85,6 +112,12 @@ public class SessionMiddleware(RequestDelegate next)
     private static bool IsAnonymousOptional(string method, string path) =>
         (HttpMethods.IsPost(method) && path.Equals(Prefix + "/ops/client-errors", StringComparison.OrdinalIgnoreCase))
         || (HttpMethods.IsGet(method) && path.StartsWith(Prefix + "/i18n/ui/", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>強制綁定期間（§8.7 第 3 點）：/auth/*、GET /me、開始綁定、完成綁定。</summary>
+    private static bool IsAllowedWhileEnrolling(string method, string path) =>
+        IsAllowedWhileMustChange(method, path)
+        || (HttpMethods.IsPost(method) && path.Equals(Prefix + "/account/two-factor/setup", StringComparison.OrdinalIgnoreCase))
+        || (HttpMethods.IsPost(method) && path.Equals(Prefix + "/account/two-factor/enable", StringComparison.OrdinalIgnoreCase));
 
     private static bool IsAllowedWhileMustChange(string method, string path) =>
         path.StartsWith(AuthPrefix, StringComparison.OrdinalIgnoreCase)

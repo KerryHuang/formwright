@@ -1,3 +1,4 @@
+using DynamicModules.Domain.Accounts;
 using DynamicModules.Domain.Data;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.Repositories.Dynamic;
@@ -54,6 +55,63 @@ public class TwoFactorRepository(DynamicDbContext db) : ITwoFactorRepository
 
     public Task DeleteTrustedDevicesAsync(string userId, CancellationToken ct) =>
         db.Set<TrustedDevice>().Where(d => d.UserId == userId).ExecuteDeleteAsync(ct);
+
+    private DbSet<TrustedDevice> Devices => db.Set<TrustedDevice>();
+
+    public Task<TrustedDevice?> FindTrustedDeviceAsync(string tokenHash, CancellationToken ct) =>
+        Devices.AsNoTracking().FirstOrDefaultAsync(d => d.TokenHash == tokenHash, ct);
+
+    public Task TouchTrustedDeviceAsync(long id, DateTime nowUtc, CancellationToken ct) =>
+        Devices.Where(d => d.Id == id).ExecuteUpdateAsync(s => s.SetProperty(d => d.LastUsedUtc, nowUtc), ct);
+
+    public async Task AddTrustedDeviceAsync(TrustedDevice device, int maxPerUser, CancellationToken ct)
+    {
+        // 最舊＝建立時間最早；同時間以 Id 決定，不依賴沒有 ORDER BY 的順序
+        var keep = await Devices.AsNoTracking().Where(d => d.UserId == device.UserId)
+            .OrderByDescending(d => d.CreatedUtc).ThenByDescending(d => d.Id).Take(Math.Max(maxPerUser - 1, 0)).Select(d => d.Id).ToListAsync(ct);
+        await Devices.Where(d => d.UserId == device.UserId && !keep.Contains(d.Id)).ExecuteDeleteAsync(ct);
+        Devices.Add(device);
+    }
+
+    public Task<List<TrustedDevice>> ListTrustedDevicesAsync(string userId, CancellationToken ct) =>
+        Devices.AsNoTracking().Where(d => d.UserId == userId)
+            .OrderBy(d => d.LastUsedUtc == null ? 1 : 0).ThenByDescending(d => d.LastUsedUtc).ThenByDescending(d => d.CreatedUtc).ThenByDescending(d => d.Id)
+            .ToListAsync(ct);
+
+    public Task<SessionUserState?> SessionStateAsync(string userId, TwoFactorScope scope, CancellationToken ct)
+    {
+        var row = Users.AsNoTracking().Where(u => u.UserId == userId);
+        var everyone = scope.Everyone;
+        var admins = scope.Admins;
+        if (scope.GroupIds.Count == 0)
+            return row.Select(u => new SessionUserState(u.IsActive, u.SecurityStamp, u.MustChangePassword, u.TotpEnabledUtc != null,
+                u.TwoFactorGraceStartUtc, everyone || (admins && u.IsSystemAdmin))).FirstOrDefaultAsync(ct);
+        var groups = scope.GroupIds.ToList();
+        var maps = db.Set<UserGroupMapping>();
+        return row.Select(u => new SessionUserState(u.IsActive, u.SecurityStamp, u.MustChangePassword, u.TotpEnabledUtc != null,
+            u.TwoFactorGraceStartUtc,
+            everyone || (admins && u.IsSystemAdmin) || maps.Any(m => m.UserId == u.UserId && groups.Contains(m.GroupId)))).FirstOrDefaultAsync(ct);
+    }
+
+    public Task StartGraceAsync(string userId, DateTime nowUtc, CancellationToken ct) =>
+        Users.Where(u => u.UserId == userId && u.TotpEnabledUtc == null && u.TwoFactorGraceStartUtc == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(u => u.TwoFactorGraceStartUtc, nowUtc), ct);
+
+    public Task ClearGraceAsync(string userId, CancellationToken ct) =>
+        Users.Where(u => u.UserId == userId && u.TwoFactorGraceStartUtc != null)
+            .ExecuteUpdateAsync(s => s.SetProperty(u => u.TwoFactorGraceStartUtc, (DateTime?)null), ct);
+
+    public Task<int> ClearGraceOutsideAsync(TwoFactorScope scope, CancellationToken ct)
+    {
+        var everyone = scope.Everyone;
+        var admins = scope.Admins;
+        var groups = scope.GroupIds.ToList();
+        var anyGroup = groups.Count > 0;
+        var maps = db.Set<UserGroupMapping>();
+        return Users.Where(u => u.TotpEnabledUtc == null && u.TwoFactorGraceStartUtc != null
+                && !(everyone || (admins && u.IsSystemAdmin) || (anyGroup && maps.Any(m => m.UserId == u.UserId && groups.Contains(m.GroupId)))))
+            .ExecuteUpdateAsync(s => s.SetProperty(u => u.TwoFactorGraceStartUtc, (DateTime?)null), ct);
+    }
 
     public Task<bool> AnyProtectedSecretAsync(CancellationToken ct) => Users.AnyAsync(u => u.TotpSecretProtected != null, ct);
 

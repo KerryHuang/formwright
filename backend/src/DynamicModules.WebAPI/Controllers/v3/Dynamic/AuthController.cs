@@ -22,14 +22,14 @@ public class AuthController(IMediator mediator, ClientIpResolver clientIp, Appli
 
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginBody body) =>
-        await SignInOnSuccess(await mediator.Send(new LoginRequest(body.UserId ?? "", body.Password ?? "", clientIp.Resolve(HttpContext))));
+        await SignInOnSuccess(await mediator.Send(new LoginRequest(body.UserId ?? "", body.Password ?? "", clientIp.Resolve(HttpContext), DeviceCookie.Read(HttpContext))));
 
     [HttpGet("options")]
     public async Task<IActionResult> Options() => (await mediator.Send(new GetAuthOptionsRequest())).ToActionResult(this);
 
     [HttpPost("demo-login")]
     public async Task<IActionResult> DemoLogin(DemoLoginBody body) =>
-        await SignInOnSuccess(await mediator.Send(new DemoLoginRequest(body.UserId ?? "", clientIp.Resolve(HttpContext))));
+        await SignInOnSuccess(await mediator.Send(new DemoLoginRequest(body.UserId ?? "", clientIp.Resolve(HttpContext), DeviceCookie.Read(HttpContext))));
 
     public record VerifyEmailBody(string? Token);
 
@@ -62,20 +62,22 @@ public class AuthController(IMediator mediator, ClientIpResolver clientIp, Appli
     public async Task<IActionResult> ResetPassword(ResetPasswordBody body) =>
         (await mediator.Send(new ResetPasswordByLinkRequest(body.Token, body.NewPassword, clientIp.Resolve(HttpContext)))).ToActionResult(this);
 
-    public record TwoFactorBody(string? Code, string? RecoveryCode);
+    /// <param name="RememberDevice">勾了「記住這台裝置」（§8.5）；<paramref name="DeviceLabel"/> 是前端算好的瀏覽器＋作業系統標籤。</param>
+    public record TwoFactorBody(string? Code, string? RecoveryCode, bool RememberDevice = false, string? DeviceLabel = null);
 
     /// <summary>
-    /// 登入第二步（帳號安全設計 §8.3 第 3 點）：只收第二步憑證 cookie（Path 限本端點），成功才發 session cookie、清憑證 cookie。
+    /// 登入第二步（帳號安全設計 §8.3 第 3 點）：只收第二步憑證 cookie（Path 限本端點），成功才發 session cookie、清憑證 cookie；勾了記住就另發裝置 cookie（§8.5）。
     /// 憑證失效（<c>twoFactorExpired</c>）時也清掉，前端回到輸入密碼。
     /// </summary>
     [HttpPost("two-factor")]
     public async Task<IActionResult> TwoFactor(TwoFactorBody body)
     {
         var result = await mediator.Send(new Application.Dynamic.AccountService.TwoFactor.TwoFactorLoginRequest(
-            SecondStepCookie.Read(HttpContext), body.Code, body.RecoveryCode, clientIp.Resolve(HttpContext)));
+            SecondStepCookie.Read(HttpContext), body.Code, body.RecoveryCode, clientIp.Resolve(HttpContext), body.RememberDevice, body.DeviceLabel));
         if (result.Data is Application.Dynamic.AccountService.TwoFactor.TwoFactorLoginResult ok)
         {
             SecondStepCookie.Clear(HttpContext);
+            if (ok.Device is { } device) DeviceCookie.Issue(HttpContext, device.Token, device.ExpiresUtc);
             await AuthCookies.SignInAsync(HttpContext, ok.User);
             return Ok(new { ok.User.UserId, ok.User.DisplayName, ok.User.MustChangePassword, ok.RecoveryCodesLeft });
         }

@@ -23,12 +23,14 @@ public class GetAuthOptionsHandler(
         // 忘記密碼可不可用與密碼最短長度（帳號安全設計 §7.4、§7.6）：前端提示的數字從這裡取，不另寫一份
         var reset = await passwordReset.StateAsync(ct);
         var minLength = await PasswordReset.PasswordLength.MinAsync(policies, ct);
+        // 登入第二步「記住這台裝置 N 天」的天數（§8.5）；0＝不顯示勾選框
+        var rememberDays = await policies.IntAsync(Domain.Policies.PolicyCatalog.AuthTwoFactorRememberDays, ct);
         if (!settings.DemoLoginEnabled)
-            return ServiceResult.Success(new AuthOptionsResponse(false, false, [], defaultLocale, enabled, locales, reset, minLength));
+            return ServiceResult.Success(new AuthOptionsResponse(false, false, [], defaultLocale, enabled, locales, reset, minLength, rememberDays));
 
         var list = await accounts.ListDemoLoginAccountsAsync(ct);
         return ServiceResult.Success(new AuthOptionsResponse(
             true, demo.Current.State == DemoRunState.Running,
-            [.. list.Select(a => new DemoAccountResponse(a.UserId, a.DisplayName))], defaultLocale, enabled, locales, reset, minLength));
+            [.. list.Select(a => new DemoAccountResponse(a.UserId, a.DisplayName))], defaultLocale, enabled, locales, reset, minLength, rememberDays));
     }
 }
