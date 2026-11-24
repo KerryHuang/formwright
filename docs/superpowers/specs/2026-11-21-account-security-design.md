@@ -1235,3 +1235,29 @@ SSO、AD／LDAP 列第二版候選（使用者 2026-11-17 裁決），au1 不做
 - F31、F37 的「被要求綁定」屬強制政策，留給 au1c2；au1c1 只驗到「先改密碼、計數沒累加」與「金鑰放在資料庫目錄的 keys、可以綁定、沒有 `infra.keysNotPersisted`」。
 - `TwoFactorLimits`（帳號層 10 次、每張憑證 5 次、暫停 15 分鐘、綁定 10 分鐘、憑證 5 分鐘、通知去重 24 小時）與復原碼 10 組、剩 2 組提醒是程式常數，照 §8 的數字；若要改成政策，另開段處理。
 
+
+### 26.1 審查修正（2026-11-25）
+
+審查報告 M1、S1–S6、次要 1–6，與本機走查 G1–G3。技術類為修正者決定；標「使用者行為」的是代做的行為決定。
+
+- **CI**：`ModuleServiceTests`、`FieldServiceTests` 自建 ServiceCollection、沒走 `DesignerTestBase`，本段起 `UpdateSystemPolicyHandler` 依賴 `AuthSettings`，測試 DI 補註冊 `new AuthSettings(false)`（和 `DesignerTestBase` 同一行）。ApplicationTests 其他送 `UpdateSystemPolicyRequest` 的類別都繼承 `DesignerTestBase`，不受影響。
+- **M1（修）**：`SecondFactorMatch` 帶比對當時的 SecurityStamp，`CompleteTwoFactorLoginHandler` 在消耗之後以 `StillValidFor`（帳號啟用且 stamp 相同，同 `ReauthResult`）重比，不符回 `twoFactorExpired`、整筆回滾、不發 session。
+- **次要 1（修，併 M1）**：`SettleAsync` 收 `expired`：內層回失效時歸還帳號＋IP 層名額、稽核 `twoFactorExpired`、原樣回 `twoFactorExpired`，前端回到輸入密碼；不再算成一次碼錯。帳號層名額已佔、不退（同 §26 技術類 1）。
+- **S1（修，主控裁決升必修）**：選「走 §8.9 重新驗證限流」，不選「錯 5 次作廢綁定」：前者和 disable／recovery-codes 同一套（`LoginThrottle` 帳號＋IP、IP、帳號三層，失敗記 `account.reauthFailed`），後者要在交易外寫綁定狀態，和現有寫法不一致。`enable` 拆成外層（非交易：Demo、格式、綁定逾時或金鑰解不開都排在限流之前；錯碼 `Complete(false)` 並交易外寫稽核；被限流 429 `reauthThrottled`）與內層 `ApplyEnableTwoFactorRequest`（交易，稽核 `account.twoFactorEnable`；重比帳號啟用、stamp 與 `TotpPendingUtc`，比對之後重新開始綁定或改密碼就作廢）。**殘餘風險**：偷到 session 的人換 IP 猜，帳號層 1 小時 50 次後每 10 秒放行一次，10 分鐘綁定期內約 110 次，每次 ±1 步有 3 組碼有效，猜中機率約 0.03%；猜中仍要密碼才能用拿到的復原碼。**使用者行為**：完成綁定連錯 5 次後，同一來源 15 分鐘內密碼登入與其他重新驗證也被擋（三層計數共用）。選錯代價：手滑的人要等 15 分鐘，或換一台裝置。
+- **S2（修）**：`LoginThrottle.TryRecordIpFailure` 只記 IP 層；失效憑證重送每次記一次，同一 IP 15 分鐘滿 20 次後不再寫 `login.failed`、照樣回 `twoFactorExpired`。不碰帳號＋IP 與帳號層（重送的人不一定是本人）。**使用者行為**：同一 IP 重送失效憑證 20 次後，這個 IP 的密碼登入也被 IP 層擋 15 分鐘。選錯代價：同一出口 IP 的辦公室，有人程式壞掉一直重送時會擋到同事。
+- **S3（修）**：`TwoFactorCard` 的 `clearSecrets` 一併 `reset()` 開始綁定、完成綁定、重新產生復原碼三個 mutation；`gcTime: 0` 在下一輪事件迴圈把它們從 `MutationCache` 移除。
+- **S4（修，只動本段新回應）**：重新驗證路徑（setup、disable、recovery-codes、建 AI 權杖）第二因素階段被限流改回 `reauthThrottled`（`ReauthVerifier.Throttled()`，完成綁定也用它），建 AI 權杖再由既有對應轉成 `mcpPasswordThrottled`，每個端點只剩一種限流代碼。登入第二步維持 `tooManyAttempts`（它的家族是 `auth/login`，那裡被限流回 401 通用訊息，第二步是新端點、已知道密碼，保留 429）。au1b 既有的改 Email 寄信限流（`tooManyAttempts`）不在本段範圍，不改。前端只顯示後端訊息、沒有依代碼分支，不用改。
+- **S5（修，擇小）**：不改成「交易成功後才發」，改為觸發暫停那次的 `RecordTwoFactorLockoutRequest` 丟例外時記 Error log、照常比對，不回 500。**已知限制**：這一輪的稽核、事件與通知就此遺失（之後的嘗試判為「已暫停」，不會補開），只留在 log；`SaveChanges` 失敗時新增的稽核實體仍在同一個 DbContext 的追蹤裡，可能被同一請求之後的寫入帶出去。
+- **S6（補文件）交易外的寫入**（不經 PostgreSQL 全庫寫入鎖，`.claude/rules/backend.md`）：
+  - `TwoFactorRepository.TryClaimAttemptAsync`：帳號層佔名額，條件式 `ExecuteUpdate`，交易外立即提交（刻意，佔了名額不退）。
+  - `TwoFactorClear.ApplyAsync` 經 `AdminBootstrap` 救援時：`DeleteRecoveryCodesAsync`、`DeleteTrustedDevicesAsync` 兩個 `ExecuteDelete` 在啟動階段、交易外立即執行，不跟著 `SaveChanges`（啟動時沒有並行寫入）。
+  - 其餘新增的 `ExecuteUpdate`／`ExecuteDelete`（重放的條件式更新、清計數、復原碼標已用、管理員重設與本人關閉時的刪除）都在交易型請求內。
+- **次要 2（不修，已知限制）**：同一張憑證並行送兩組都有效的碼（相鄰時間步，或兩組不同的復原碼）可以換到兩個 session。只有同時知道密碼與兩組有效碼的人做得到；加「進行中」旗標會讓連點兩下的本人被送回輸入密碼，取捨後不做。
+- **次要 3（修）**：`AdminBootstrap` 的 `clearTwoFactor` 參數註解改為「欄位跟著下一次 SaveChanges，復原碼與記住的裝置以 ExecuteDelete 立即刪除」。
+- **次要 4（不修，說明）**：復原碼以 SHA-256 雜湊在資料庫做等值查詢，不是固定時間比較；輸入是 80 bits 隨機值的雜湊，查詢時間不洩漏可用的資訊，和 §11 的「固定時間比較」字面不同但沒有時間側通道。
+- **次要 5（不修）**：`SecondStepTickets._lastPrune` 沒有同步，最壞只是並行時多掃一次過期項目，無害。
+- **次要 6（修）**：補的測試見各項：`StampChangedAfterTicket_CorrectCodeRejected`、`StampChangedBeforeInnerTransaction_NoSession_RolledBack`、`ExpiredTicketReplays_CountTowardIpLayer_AuditCapped`、`LockoutRecordFails_AttemptStillAnswered_LockInEffect`（`TwoFactorLoginTests`）；`Enable_WrongCodesToThrottle_CorrectCodeRejected_AuditsPersisted`、`SecondFactorThrottled_ReauthPathUsesReauthThrottled_LoginKeepsTooManyAttempts`（`TwoFactorAccountTests`）；前端 `AccountSecurityPage` 關閉後 mutation 狀態不含金鑰與復原碼。
+- **G1（修）**：登入第二步錯碼顯示通用「登入失敗」：後端回的代碼正確（`twoFactorWrong`），是前端 `failSecond` 讀 `message`，而 400 的訊息在 `errors.code`、沒有 `message`。改成 400 取第一則欄位錯誤；`LoginPage` spec 改用 `toApiError` 產生實際的 400 形狀（原本 mock 了不存在的 `message`，所以沒抓到）。
+- **G2（修）**：Demo 站（`auth/options` 的 `demoLoginEnabled`，同登入頁與忘記密碼頁的判斷）政策頁「帳號安全」分類唯讀：欄位停用、不顯示儲存與還原鈕、寫「Demo 站不能修改帳號安全政策」（新鍵 `policies.demoAuthReadonly`，四語沿用後端 `PolicyDemoSite` 的文字）；後端 403 保留。
+- **G3（不改）**：`sales01` 帳號安全頁的 Demo 說明沿用現行文字，走查判定可接受。
+- 使用者管理在 1366 寬時要在表格容器內橫捲才看得到操作欄：不在本段修，主控另開票。
