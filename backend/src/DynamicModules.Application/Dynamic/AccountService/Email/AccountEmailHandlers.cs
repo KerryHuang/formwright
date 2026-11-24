@@ -90,11 +90,15 @@ public sealed class AccountEmailChanger(AccountMailWriter writer)
 
 internal static class AccountEmailErrors
 {
-    public const string EmailField = "email", NotPendingCode = "emailNotPending", TooSoonCode = "emailResendTooSoon", LinkInvalidCode = "verifyLinkInvalid";
+    public const string EmailField = "email", NotPendingCode = "emailNotPending", TooSoonCode = "emailResendTooSoon", LinkInvalidCode = "verifyLinkInvalid",
+        UseAccountPageCode = "useAccountPage";
 
     public static ServiceResult Format() => ServiceResult.Invalid(EmailField, MessageRef.Of(MessageText.EmailFormat));
 
     public static ServiceResult NotPending() => ServiceResult.Conflict(MessageRef.Of(MessageText.EmailNotPending), NotPendingCode);
+
+    /// <summary>管理員端點遇到自己（au1a 審查 M2）：本人的 Email 要到「帳號安全」頁重新輸入密碼改（§11、Q3）。</summary>
+    public static ServiceResult UseAccountPage() => ServiceResult.Conflict(MessageRef.Of(MessageText.EmailUseAccountPage), UseAccountPageCode);
 
     public static ServiceResult TooSoon() =>
         ServiceResult.TooManyRequests(MessageRef.Of(MessageText.EmailResendTooSoon, (int)MailDeliveryLimits.ResendGap.TotalSeconds), TooSoonCode);
@@ -104,7 +108,7 @@ internal static class AccountEmailErrors
 
 /// <summary>
 /// 管理員設定或清空使用者的 Email（<c>PUT admin/users/{id}/email</c>，T17）。改或清空另一位系統管理員的 Email 時，
-/// 在送出當下就開 <c>security.adminEmailChanged</c>（Q21，不等驗證）。
+/// 在送出當下就開 <c>security.adminEmailChanged</c>（Q21，不等驗證）。對自己回 409 <c>useAccountPage</c>（au1a 審查 M2）。
 /// </summary>
 public sealed record SetUserEmailRequest(string UserId, string? Email)
     : IRequest<ServiceResult>, ITransactionalRequest, ISystemAdminRequest, IAuditedRequest
@@ -118,6 +122,7 @@ public sealed class SetUserEmailHandler(
 {
     public async Task<ServiceResult> Handle(SetUserEmailRequest r, CancellationToken ct)
     {
+        if (r.UserId == current.UserId) return AccountEmailErrors.UseAccountPage();
         if (!AccountEmailChanger.TryNormalize(r.Email, out var email)) return AccountEmailErrors.Format();
         var user = await accounts.GetTrackedAsync(r.UserId, ct);
         if (user is null) return ServiceResult.NotFound(MessageRef.Of(MessageText.UserNotFound));
@@ -125,7 +130,7 @@ public sealed class SetUserEmailHandler(
         if (await changer.ChangeAsync(user, email, system.DefaultLocale, byAdmin: true, ct))
         {
             await uow.CommitAsync(ct);
-            if (user.IsSystemAdmin && user.UserId != current.UserId) audit.MarkSecurityEvent(SecurityIncidents.AdminEmailChangedCode);
+            if (user.IsSystemAdmin) audit.MarkSecurityEvent(SecurityIncidents.AdminEmailChangedCode);
         }
         audit.Target(label: user.DisplayName);
         audit.Describe(new { Email = before }, new { user.Email });
@@ -133,7 +138,7 @@ public sealed class SetUserEmailHandler(
     }
 }
 
-/// <summary>管理員重寄驗證信（<c>POST admin/users/{id}/email/resend</c>）：系統預設語系；同一帳號 60 秒一次。</summary>
+/// <summary>管理員重寄驗證信（<c>POST admin/users/{id}/email/resend</c>）：系統預設語系；同一帳號 60 秒一次；對自己回 409（同上）。</summary>
 public sealed record ResendUserEmailRequest(string UserId)
     : IRequest<ServiceResult>, ITransactionalRequest, ISystemAdminRequest, IAuditedRequest
 {
@@ -147,6 +152,7 @@ public sealed class ResendUserEmailHandler(
 {
     public async Task<ServiceResult> Handle(ResendUserEmailRequest r, CancellationToken ct)
     {
+        if (r.UserId == current.UserId) return AccountEmailErrors.UseAccountPage();
         var user = await accounts.GetTrackedAsync(r.UserId, ct);
         if (user is null) return ServiceResult.NotFound(MessageRef.Of(MessageText.UserNotFound));
         if (user.Email is null || user.EmailVerifiedUtc is not null) return AccountEmailErrors.NotPending();

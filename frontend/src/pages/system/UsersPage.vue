@@ -161,7 +161,7 @@ function submitReset() {
   });
 }
 
-// 設定 Email（帳號安全設計 §12）：空白＝清除；一律要點驗證信才算驗證
+// 設定 Email（帳號安全設計 §12）：空白＝清除；一律要點驗證信才算驗證。自己那列不顯示：本人要到「帳號安全」頁輸入密碼改（au1a 審查 M2）
 const emailTarget = ref<AdminUser | null>(null);
 const emailInput = ref('');
 const emailError = ref('');
@@ -229,7 +229,10 @@ function runSetActive(u: AdminUser, active: boolean) {
           >
             <template v-for="c in cols" :key="c.name">
               <q-td v-if="c.name === 'actions'" :align="c.align" @click.stop>
-                <q-btn flat dense color="primary" :label="t('users.setEmail')" :data-testid="`user-email-${row.userId}`" @click="openEmail(row)" />
+                <q-btn
+                  v-if="row.userId !== identity.userId" flat dense color="primary" :label="t('users.setEmail')" :data-testid="`user-email-${row.userId}`"
+                  @click="openEmail(row)"
+                />
                 <q-btn flat dense color="primary" :label="t('users.resetPassword')" :data-testid="`user-reset-${row.userId}`" @click="openReset(row)" />
                 <q-btn
                   flat dense :color="row.isActive ? 'negative' : 'primary'" :label="row.isActive ? t('users.deactivate') : t('users.activate')"
@@ -268,7 +271,10 @@ function runSetActive(u: AdminUser, active: boolean) {
                 </q-item>
               </q-list>
               <q-card-actions align="right" @click.stop>
-                <q-btn flat dense color="primary" :label="t('users.setEmail')" :data-testid="`user-email-${row.userId}`" @click="openEmail(row)" />
+                <q-btn
+                  v-if="row.userId !== identity.userId" flat dense color="primary" :label="t('users.setEmail')" :data-testid="`user-email-${row.userId}`"
+                  @click="openEmail(row)"
+                />
                 <q-btn flat dense color="primary" :label="t('users.resetPassword')" :data-testid="`user-reset-${row.userId}`" @click="openReset(row)" />
                 <q-btn
                   flat dense :color="row.isActive ? 'negative' : 'primary'" :label="row.isActive ? t('users.deactivate') : t('users.activate')"

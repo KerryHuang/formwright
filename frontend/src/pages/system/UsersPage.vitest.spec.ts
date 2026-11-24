@@ -645,5 +645,15 @@ describe('UsersPage Email（帳號安全設計 §12）', () => {
     await click('user-email-save');
     expect(api.setUserEmail).toHaveBeenLastCalledWith('ok01', null);
   });
+
+  it('own row has no set-email action (own email changes go through Account security), at desktop and phone widths', async () => {
+    await mountPage([user('admin', { isSystemAdmin: true }), user('sales01')]);
+    expect(q('user-email-admin')).toBeNull();
+    expect(q('user-email-sales01')).not.toBeNull();
+    mounted!.unmount();
+    await mountPage([user('admin', { isSystemAdmin: true }), user('sales01')], 390);
+    expect(q('user-email-admin')).toBeNull();
+    expect(q('user-email-sales01')).not.toBeNull();
+  });
 });
 
