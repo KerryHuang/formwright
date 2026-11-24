@@ -31,6 +31,9 @@ public class LocaleMessageCasesTests
     private static string? Expected(JsonElement c)
         => c.GetProperty("expected").ValueKind == JsonValueKind.Null ? null : c.GetProperty("expected").GetString();
 
+    [Fact]
+    public void SharedMaxTextLength_EqualsBackendLimit() => Doc.GetProperty("maxTextLength").GetInt32().Should().Be(LocalePackLimits.MaxTextLength);
+
     [Theory]
     [MemberData(nameof(UiCases))]
     public void Ui(string name)

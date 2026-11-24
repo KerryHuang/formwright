@@ -111,7 +111,8 @@ function confirmRun() {
 
       <LocalePackImportDialog v-if="admin.data.value" v-model="showImport" :import-enabled="importEnabled" :pack-max-bytes="admin.data.value.packMaxBytes" />
       <LocaleTemplateExportDialog v-if="admin.data.value" v-model="showExport" :target="exportTarget" :locales="admin.data.value.locales"
-        :pack-max-bytes="admin.data.value.packMaxBytes" />
+        :pack-max-bytes="admin.data.value.packMaxBytes" :default-source="admin.data.value.defaultTemplateSource"
+        :default-reference="admin.data.value.defaultTemplateReference" />
 
       <q-dialog :model-value="!!pending" @update:model-value="pending = null">
         <q-card style="width: 420px; max-width: 100%" data-testid="locale-confirm">

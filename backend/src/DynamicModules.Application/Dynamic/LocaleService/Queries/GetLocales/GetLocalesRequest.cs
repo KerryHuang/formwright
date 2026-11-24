@@ -12,7 +12,12 @@ namespace DynamicModules.Application.Dynamic.LocaleService.Queries.GetLocales;
 /// </summary>
 public sealed record GetLocalesRequest : IRequest<ServiceResult>, ISystemAdminRequest;
 
-public sealed record LocaleAdminList(bool ImportEnabled, int PackMaxBytes, int MaxInstalled, IReadOnlyList<LocaleAdminItem> Locales);
+/// <summary>
+/// <see cref="MaxTextLength"/>（<see cref="DynamicModules.Domain.Localization.LocalePackLimits.MaxTextLength"/>）與兩個樣板預設語系（<see cref="LocaleTemplateOptions"/>）是前端的唯一來源，
+/// 前端不再各寫一份（#78；語系包設計 §7.1、§13.2）。
+/// </summary>
+public sealed record LocaleAdminList(bool ImportEnabled, int PackMaxBytes, int MaxInstalled, IReadOnlyList<LocaleAdminItem> Locales,
+    int MaxTextLength, string DefaultTemplateSource, string DefaultTemplateReference);
 
 /// <summary>
 /// <see cref="Origin"/> 是 <c>builtin</c> 或 <c>installed</c>；<see cref="Overrides"/> 是目前版的鍵數；沒有任何版本時 <see cref="Current"/> 是 null（明示輸出）。

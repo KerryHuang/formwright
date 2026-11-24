@@ -1,8 +1,5 @@
 import { baseCompile } from '@intlify/message-compiler';
 
-/** 與後端 LocalePackLimits.MaxTextLength 同值；共用案例檔（shared/i18n-message-cases.json）兩邊都跑，漂移會失敗。 */
-const MAX_TEXT_LENGTH = 2000;
-
 // 雙向控制字元（U+202A–202E、U+2066–2069）與其他控制字元（換行、tab 除外）
 const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f‪-‮⁦-⁩]/;
 
@@ -76,9 +73,9 @@ function checkSyntax(text: string, allowed: ReadonlySet<string>): 'syntax' | 'co
  * 回拒收原因代碼（control、tooLong、syntax、placeholder），通過回 null。只用在測試與共用案例，
  * 驗證本身在後端；執行期的 prepareMessages 不加白名單。
  */
-export function checkUiMessage(text: string, allowedNames: ReadonlySet<string>): string | null {
+export function checkUiMessage(text: string, allowedNames: ReadonlySet<string>, maxTextLength: number): string | null {
   if (CONTROL.test(text.replace(/[\n\t]/g, ''))) return 'control';
-  if (text.length > MAX_TEXT_LENGTH) return 'tooLong';
+  if (text.length > maxTextLength) return 'tooLong';
   const reason = checkSyntax(text, allowedNames);
   if (reason) return reason;
   let compileError = false;

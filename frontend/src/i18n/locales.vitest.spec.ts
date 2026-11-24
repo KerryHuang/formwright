@@ -4,6 +4,7 @@ import enUS from 'shared/i18n/en-US/ui.json';
 import th from 'shared/i18n/th/ui.json';
 import vi from 'shared/i18n/vi/ui.json';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
+import cases from '../../../shared/i18n-message-cases.json';
 import { checkUiMessage } from './message-check';
 
 function leaves(o: unknown, path = ''): Record<string, string> {
@@ -55,7 +56,7 @@ describe('四語系訊息檔', () => {
     const bad: string[] = [];
     all.forEach((m, i) => {
       for (const [k, v] of Object.entries(m)) {
-        const r = checkUiMessage(v, names(k));
+        const r = checkUiMessage(v, names(k), cases.maxTextLength);
         if (r) bad.push(`${i}:${k}:${r}`);
       }
     });

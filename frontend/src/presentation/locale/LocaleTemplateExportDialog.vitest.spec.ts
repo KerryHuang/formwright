@@ -31,7 +31,7 @@ const MB = 1048576;
 let calls: Call[];
 const mounted: { unmount(): void }[] = [];
 
-async function mountDialog(target: LocaleAdminEntry | null, opts: { reply?: (c: Call) => unknown; packMaxBytes?: number } = {}) {
+async function mountDialog(target: LocaleAdminEntry | null, opts: { reply?: (c: Call) => unknown; packMaxBytes?: number; defaultSource?: string; defaultReference?: string } = {}) {
   calls = mockHttp((c) => {
     const custom = opts.reply?.(c);
     if (custom !== undefined) return custom;
@@ -41,7 +41,7 @@ async function mountDialog(target: LocaleAdminEntry | null, opts: { reply?: (c: 
   const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
   const w = mount(LocaleTemplateExportDialog, {
     attachTo: document.body,
-    props: { modelValue: true, target, locales: LOCALES, packMaxBytes: opts.packMaxBytes ?? 5 * MB },
+    props: { modelValue: true, target, locales: LOCALES, packMaxBytes: opts.packMaxBytes ?? 5 * MB, defaultSource: opts.defaultSource ?? 'zh-TW', defaultReference: opts.defaultReference ?? 'en-US' },
     global: { plugins: [[quasar.Quasar, { components: quasar, directives: quasar, plugins: { Notify: quasar.Notify } }], createPinia(), i18n] },
   });
   mounted.push(w);
@@ -73,6 +73,12 @@ describe('LocaleTemplateExportDialog 從卡片開啟', () => {
     expect(templateCalls()).toHaveLength(1);
     expect(templateCalls()[0]!.url).toBe('/i18n/locales/th/template');
     expect(templateCalls()[0]!.params).toEqual({ scopes: ['ui', 'server'], onlyMissing: false, onlyBaseChanged: false, source: 'zh-TW', reference: 'en-US' });
+  });
+
+  it('原文、參考語系預設取 API 給的值（後端常數是唯一來源），不是對話框內的字面值', async () => {
+    await mountDialog(LOCALES[2]!, { defaultSource: 'en-US', defaultReference: 'th' });
+    await download();
+    expect(templateCalls()[0]!.params).toMatchObject({ source: 'en-US', reference: 'th' });
   });
 
   it('勾選跟著變：只匯出介面文字、只匯出缺的句子', async () => {

@@ -68,7 +68,7 @@ async function mountPage(opts: { importEnabled?: boolean; forbidden?: boolean; l
     const custom = opts.reply?.(c);
     if (custom !== undefined) return custom;
     if (c.url === '/i18n/locales' && c.method === 'get') {
-      return opts.forbidden ? new HttpFail(403) : { importEnabled: opts.importEnabled ?? true, packMaxBytes: 5242880, maxInstalled: 10, locales: opts.locales ?? LOCALES };
+      return opts.forbidden ? new HttpFail(403) : { importEnabled: opts.importEnabled ?? true, packMaxBytes: 5242880, maxInstalled: 10, maxTextLength: 2000, defaultTemplateSource: 'zh-TW', defaultTemplateReference: 'en-US', locales: opts.locales ?? LOCALES };
     }
     return {};
   });

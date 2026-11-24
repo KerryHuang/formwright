@@ -1,6 +1,8 @@
 using DynamicModules.Application.Common;
 using DynamicModules.Application.Dynamic.LocaleService.Packs;
 using DynamicModules.Application.Dynamic.PolicyService;
+using DynamicModules.Application.Dynamic.LocaleService.Queries.GetLocaleTemplate;
+using DynamicModules.Domain.Localization;
 using DynamicModules.Domain.Policies;
 using DynamicModules.Domain.Repositories.Dynamic;
 using MediatR;
@@ -27,6 +29,7 @@ public sealed class GetLocalesHandler(LocaleWorldReader worlds, ILocalePackRepos
                 hasPrevious, LocaleCompleteness.Of(info.Code, overlay), LocaleOverlayReview.Of(pack), pack?.BuiltFor));
         }
         return ServiceResult.Success(new LocaleAdminList(settings.ImportEnabled,
-            await policies.IntAsync(PolicyCatalog.LocalePackMaxBytes, null, ct), await policies.IntAsync(PolicyCatalog.LocaleMaxInstalled, null, ct), items));
+            await policies.IntAsync(PolicyCatalog.LocalePackMaxBytes, null, ct), await policies.IntAsync(PolicyCatalog.LocaleMaxInstalled, null, ct), items,
+            LocalePackLimits.MaxTextLength, LocaleTemplateOptions.DefaultSource, LocaleTemplateOptions.DefaultReference));
     }
 }

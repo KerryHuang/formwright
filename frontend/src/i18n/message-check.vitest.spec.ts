@@ -10,7 +10,13 @@ const textOf = (c: UiCase) => (c.repeat ? c.text.repeat(c.repeat) : c.text);
 // 與後端 LocaleMessageCasesTests 同一份案例檔（shared/i18n-message-cases.json 的 ui 段）
 describe('checkUiMessage（共用案例）', () => {
   it.each(ui.map((c) => [c.name, c] as const))('%s', (_name, c) => {
-    expect(checkUiMessage(textOf(c), new Set(c.allowed))).toBe(c.expected);
+    expect(checkUiMessage(textOf(c), new Set(c.allowed), cases.maxTextLength)).toBe(c.expected);
+  });
+
+  it('上限用呼叫端給的值（來自 API），不是檔內常數', () => {
+    expect(checkUiMessage('12345678901', new Set(), 10)).toBe('tooLong');
+    expect(checkUiMessage('1234567890', new Set(), 10)).toBeNull();
+    expect(checkUiMessage('1234567890', new Set(), 5)).toBe('tooLong');
   });
 
   it('通過的案例 vue-i18n 都編譯得過', () => {

@@ -4,6 +4,8 @@ using System.Text;
 using System.Text.Json;
 using DynamicModules.Application.Common;
 using DynamicModules.Application.Dynamic.LocaleService.Packs;
+using DynamicModules.Application.Dynamic.LocaleService.Queries.GetLocaleTemplate;
+using DynamicModules.Domain.Localization;
 using DynamicModules.Domain.Data;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.Repositories.Dynamic;
@@ -85,6 +87,10 @@ public class LocaleManageApiTests : IDisposable
         list.GetProperty("importEnabled").GetBoolean().Should().BeTrue();
         list.GetProperty("packMaxBytes").GetInt64().Should().Be(5242880);
         list.GetProperty("maxInstalled").GetInt32().Should().Be(10);
+        // #78：前端不再各寫一份的上限與樣板預設語系，由這裡的後端常數單一來源給
+        list.GetProperty("maxTextLength").GetInt32().Should().Be(LocalePackLimits.MaxTextLength);
+        list.GetProperty("defaultTemplateSource").GetString().Should().Be(LocaleTemplateOptions.DefaultSource);
+        list.GetProperty("defaultTemplateReference").GetString().Should().Be(LocaleTemplateOptions.DefaultReference);
         var rows = list.GetProperty("locales").EnumerateArray().ToList();
         rows.Select(r => r.GetProperty("code").GetString()).Should().Equal("zh-TW", "en-US", "th", "vi");
         foreach (var r in rows)

@@ -87,4 +87,9 @@ export interface LocaleAdminList {
   packMaxBytes: number;
   maxInstalled: number;
   locales: LocaleAdminEntry[];
+  /** 語系包每句最長字元數（後端 LocalePackLimits.MaxTextLength 是唯一來源）。 */
+  maxTextLength: number;
+  /** 匯出樣板對話框的原文、參考語系預設（後端 LocaleTemplateOptions 常數是唯一來源）。 */
+  defaultTemplateSource: string;
+  defaultTemplateReference: string;
 }

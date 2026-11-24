@@ -9,7 +9,7 @@ import { isForbidden, type ApiError } from 'src/services/api/http';
 
 // 匯出翻譯樣板（語系包設計 §7.1；i4d2）：target 是已安裝語系時固定顯示；null 是「新語系樣板」，要自己填代碼與自稱。
 // 驗證全在後端；這裡只擋一定會被擋的（範圍都不勾、代碼空白）。樣板大於語系包大小上限時照樣下載，只提示（Q8）。
-const props = defineProps<{ modelValue: boolean; target: LocaleAdminEntry | null; locales: LocaleAdminEntry[]; packMaxBytes: number }>();
+const props = defineProps<{ modelValue: boolean; target: LocaleAdminEntry | null; locales: LocaleAdminEntry[]; packMaxBytes: number; defaultSource: string; defaultReference: string }>();
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>();
 const { t } = useI18n();
 const $q = useQuasar();
@@ -18,8 +18,8 @@ const scopeUi = ref(true);
 const scopeServer = ref(true);
 const onlyMissing = ref(false);
 const onlyChanged = ref(false);
-const source = ref('zh-TW');
-const reference = ref('en-US');
+const source = ref(props.defaultSource);
+const reference = ref(props.defaultReference);
 const code = ref('');
 const nativeName = ref('');
 const fallback = ref('');
@@ -34,7 +34,7 @@ let generation = 0;
 function reset() {
   generation++;
   scopeUi.value = true; scopeServer.value = true; onlyMissing.value = false; onlyChanged.value = false;
-  source.value = 'zh-TW'; reference.value = 'en-US';
+  source.value = props.defaultSource; reference.value = props.defaultReference;
   code.value = ''; nativeName.value = ''; fallback.value = ''; quasarLang.value = '';
   busy.value = false; error.value = null; tooLarge.value = null;
 }
