@@ -140,36 +140,89 @@ public sealed class ApplyTwoFactorSetupHandler(IAccountRepository accounts, IUni
 }
 
 /// <summary>
-/// 完成綁定（<c>POST account/two-factor/enable</c>，§8.2 第 3 步）：比對綁定中金鑰的 6 位數，通過才轉正；產生 10 組復原碼（舊的全部取代）；
-/// 換 stamp 並由 controller 重發本 session cookie（其他裝置登出）；寄 <c>twoFactorEnabled</c> 通知（審查必修 11）。
-/// 綁定中超過 10 分鐘作廢（409 <c>twoFactorSetupExpired</c>）。
+/// 完成綁定（<c>POST account/two-factor/enable</c>，§8.2 第 3 步）外層，不是交易型請求（錯碼的限流結算與稽核不能被回滾，同 §8.9 第 4 點）：
+/// Demo 站 403、格式錯 400、綁定中超過 10 分鐘或金鑰解不開 409 <c>twoFactorSetupExpired</c> 都排在限流之前；比對走 §8.9 的
+/// <see cref="LoginThrottle"/>（帳號＋IP、IP、帳號三層），錯碼與被限流記 <c>account.reauthFailed</c>（審查 S1）。碼對才送內層轉正。
 /// </summary>
-public sealed record EnableTwoFactorRequest(string? Code) : IRequest<ServiceResult>, ITransactionalRequest, IAuditedRequest
-{
-    public AuditAction Audit => AuditAction.For("account.twoFactorEnable", AuditTargets.User, null);
-}
+public sealed record EnableTwoFactorRequest(string? Code, string? ClientIp) : IRequest<ServiceResult>;
 
 public sealed class EnableTwoFactorHandler(
-    ICurrentUser current, IAccountRepository accounts, ITwoFactorRepository twoFactor, ITotpSecretProtector protector, AuthSettings auth,
-    AccountMailWriter mail, ICurrentLocale locale, AuditContext audit, IUnitOfWork uow, TimeProvider time, ILogger<EnableTwoFactorHandler> logger)
+    ICurrentUser current, IAccountRepository accounts, ITotpSecretProtector protector, AuthSettings auth, LoginThrottle throttle, IAuditLog audit,
+    ISender sender, TimeProvider time, ILogger<EnableTwoFactorHandler> logger)
     : IRequestHandler<EnableTwoFactorRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(EnableTwoFactorRequest r, CancellationToken ct)
     {
         if (auth.DemoLoginEnabled) return TwoFactorErrors.DemoSite();
         if (Totp.Normalize(r.Code) is null) return TwoFactorErrors.Wrong();
-        var user = await accounts.GetTrackedAsync(current.UserId, ct);
+        // 不追蹤：內層的 GetTrackedAsync 才讀得到現值，重比 stamp 與綁定開始時間才有作用
+        var user = await accounts.GetAsync(current.UserId, ct);
         if (user is not { IsActive: true }) return ServiceResult.Unauthorized(MessageRef.Of(MessageText.SignInRequired));
         var now = time.GetUtcNow();
         if (user.TotpPendingUtc is not { } started || now.UtcDateTime - started > TwoFactorLimits.PendingLifetime
             || protector.TryUnprotect(user.TotpPendingProtected) is not { } secret)
             return TwoFactorErrors.SetupExpired();
-        if (Totp.Match(secret, r.Code, now, null) is not { } step) return TwoFactorErrors.Wrong();
 
+        var key = user.UserId.ToLowerInvariant();
+        var ip = string.IsNullOrEmpty(r.ClientIp) ? "unknown" : r.ClientIp;
+        if (!throttle.TryBegin(key, ip))
+        {
+            await FailAsync(user.UserId, "throttled", ct);
+            return ServiceResult.TooManyRequests(MessageRef.Of(MessageText.ReauthThrottled), ReauthVerifier.ThrottledCode);
+        }
+        if (Totp.Match(secret, r.Code, now, null) is not { } step)
+        {
+            throttle.Complete(key, ip, false);
+            logger.LogWarning("帳號 {UserId} 完成綁定的驗證碼錯誤", user.UserId);
+            await FailAsync(user.UserId, "twoFactorWrong", ct);
+            return TwoFactorErrors.Wrong();
+        }
+        ServiceResult inner;
+        try
+        {
+            inner = await sender.Send(new ApplyEnableTwoFactorRequest(user.UserId, user.SecurityStamp, started, step), ct);
+        }
+        catch
+        {
+            throttle.Release(key, ip);
+            throw;
+        }
+        // 碼是對的：內層因 stamp 或綁定變了而失敗不算猜錯
+        if (inner.IsSuccess) throttle.Complete(key, ip, true);
+        else throttle.Release(key, ip);
+        return inner;
+    }
+
+    private Task<bool> FailAsync(string userId, string reason, CancellationToken ct) =>
+        audit.TryWriteNowAsync(new AuditEntry(ReauthVerifier.AuditCode, AuditResult.Denied, AuditTargets.User, userId, ReasonCode: reason), ct);
+}
+
+/// <summary>
+/// 完成綁定的內層（交易）：重比帳號啟用、stamp 與綁定開始時間（比對之後重新開始綁定或改密碼就作廢）後轉正；產生 10 組復原碼（舊的全部取代）；
+/// 換 stamp 並由 controller 重發本 session cookie（其他裝置登出）；寄 <c>twoFactorEnabled</c> 通知（審查必修 11）。
+/// </summary>
+public sealed record ApplyEnableTwoFactorRequest(string UserId, string SecurityStamp, DateTime PendingUtc, long Step)
+    : IRequest<ServiceResult>, ITransactionalRequest, IAuditedRequest
+{
+    public AuditAction Audit => AuditAction.For("account.twoFactorEnable", AuditTargets.User, null);
+}
+
+public sealed class ApplyEnableTwoFactorHandler(
+    IAccountRepository accounts, ITwoFactorRepository twoFactor, AccountMailWriter mail, ICurrentLocale locale, AuditContext audit, IUnitOfWork uow,
+    TimeProvider time, ILogger<ApplyEnableTwoFactorHandler> logger)
+    : IRequestHandler<ApplyEnableTwoFactorRequest, ServiceResult>
+{
+    public async Task<ServiceResult> Handle(ApplyEnableTwoFactorRequest r, CancellationToken ct)
+    {
+        var user = await accounts.GetTrackedAsync(r.UserId, ct);
+        if (user is not { IsActive: true } || user.SecurityStamp != r.SecurityStamp)
+            return ServiceResult.Unauthorized(MessageRef.Of(MessageText.SignInRequired));
+        if (user.TotpPendingUtc != r.PendingUtc) return TwoFactorErrors.SetupExpired();
+        var now = time.GetUtcNow();
         var rebind = user.TotpEnabledUtc is not null;
         user.TotpSecretProtected = user.TotpPendingProtected;
         user.TotpEnabledUtc = now.UtcDateTime;
-        user.TotpLastStep = step;
+        user.TotpLastStep = r.Step;
         user.TotpPendingProtected = null;
         user.TotpPendingUtc = null;
         user.TwoFactorGraceStartUtc = null;

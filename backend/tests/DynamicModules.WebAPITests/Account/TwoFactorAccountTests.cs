@@ -86,6 +86,28 @@ public class TwoFactorAccountTests
         me.GetProperty("twoFactor").GetProperty("required").GetBoolean().Should().BeFalse();
     }
 
+    /// <summary>
+    /// 審查 S1（主控裁決升必修）：完成綁定的錯碼走 §8.9 重新驗證限流——同一帳號＋IP 錯 5 次後，正確碼也被拒（429 <c>reauthThrottled</c>），
+    /// 每次錯碼與被限流都記 <c>account.reauthFailed</c>（交易外，不被回滾）；沒有轉正。
+    /// </summary>
+    [Fact]
+    public async Task Enable_WrongCodesToThrottle_CorrectCodeRejected_AuditsPersisted()
+    {
+        using var app = NewApp();
+        await AddUser(app, "tf01");
+        var c = await SignInPassword(app, "tf01");
+        var setup = await Setup(c);
+        var secret = Base32.Decode((await Json(setup)).GetProperty("secret").GetString())!;
+        for (var i = 0; i < 5; i++)
+            (await ErrorCode(await Enable(c, WrongCode(app, secret)))).Should().Be("twoFactorWrong");
+        var blocked = await Enable(c, Code(app, secret));
+        blocked.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+        (await ErrorCode(blocked)).Should().Be("reauthThrottled");
+        (await User(app, "tf01")).TotpEnabledUtc.Should().BeNull();
+        var audits = await Audits(app, "account.reauthFailed");
+        (audits.Count(a => a.ReasonCode == "twoFactorWrong"), audits.Count(a => a.ReasonCode == "throttled")).Should().Be((5, 1));
+    }
+
     [Fact]
     public async Task F10_ResetByMail_LoginStillNeedsSecondStep()
     {

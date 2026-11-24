@@ -40,7 +40,7 @@ public class AccountController(IMediator mediator, ClientIpResolver clientIp) : 
     [HttpPost("two-factor/enable")]
     public async Task<IActionResult> Enable(EnableBody body)
     {
-        var result = await mediator.Send(new EnableTwoFactorRequest(body.Code));
+        var result = await mediator.Send(new EnableTwoFactorRequest(body.Code, clientIp.Resolve(HttpContext)));
         if (result.Data is not TwoFactorCodesResult codes) return result.ToActionResult(this);
         await AuthCookies.SignInAsync(HttpContext, codes.User!);
         return NoStore(Ok(new { codes.RecoveryCodes }));
