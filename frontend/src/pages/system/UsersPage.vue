@@ -220,7 +220,7 @@ function runSetActive(u: AdminUser, active: boolean) {
       </div>
       <q-table
         flat bordered row-key="userId" :rows="rows" :columns="columns" :loading="users.isFetching.value"
-        :rows-per-page-options="[0]" hide-pagination :no-data-label="t('dynamic.noData')" :grid="$q.screen.lt.sm"
+        :rows-per-page-options="[0]" hide-pagination :no-data-label="t('dynamic.noData')" :grid="$q.screen.lt.md"
       >
         <template #body="{ row, cols }">
           <q-tr
@@ -249,8 +249,9 @@ function runSetActive(u: AdminUser, active: boolean) {
             </template>
           </q-tr>
         </template>
+        <!-- 1024 以下用卡片（au1a 走查 G1：多了 Email 欄後，平板寬的表格要橫捲才看得到動作）；平板一列兩張 -->
         <template #item="{ row, cols }">
-          <div class="col-12 q-py-xs">
+          <div class="col-12 col-sm-6 q-pa-xs">
             <q-card
               flat bordered class="cursor-pointer card-clickable" tabindex="0" :data-testid="`user-card-${row.userId}`"
               @click="openEdit(row)" @keydown.enter.self.prevent="openEdit(row)" @keydown.space.self.prevent="openEdit(row)"
