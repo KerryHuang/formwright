@@ -23,6 +23,9 @@ public static class FieldRules
     public const string ComputedError = "系統計算欄位不能設定必填、預設值、唯讀或長度";
     public const string AutoNumberFormatError = "自動編號格式不正確";
     public const string ResultTypeError = "結果型別必須是 number、currency 或 date";
+
+    /// <summary>公式欄位可用的結果型別（設計器與套件驗證共用的單一來源）。</summary>
+    public static bool IsFormulaResultType(string? resultType) => resultType is "number" or "currency" or "date";
     public const string ScaleError = "小數位數只適用數值欄位，範圍 0 到 6";
 
     public const string ReferenceFixedError = "參照欄位不能設定預設值、長度、小數位、格式或排序";
@@ -92,7 +95,7 @@ public static class FieldRules
                 ctx.AddFailure("Config.Format", AutoNumberFormatError);
             if (type == FieldType.Formula)
             {
-                if (config.ResultType is not ("number" or "currency" or "date"))
+                if (!IsFormulaResultType(config.ResultType))
                     ctx.AddFailure("Config.ResultType", ResultTypeError);
             }
         }

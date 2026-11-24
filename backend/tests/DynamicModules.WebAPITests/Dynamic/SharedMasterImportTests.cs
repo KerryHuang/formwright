@@ -76,6 +76,18 @@ public class SharedMasterImportTests : IDisposable
         await ImportOk(AppTestPackagesV6.Master);
     }
 
+    /// <summary>#93：模組欄位的公式寫了設計器不支援的結果型別，匯入就回 400 並指出欄位，不拖到開啟或升級才失敗。</summary>
+    [Fact]
+    public async Task Master_AFormulaWithUnsupportedResultType_Is400AtImport()
+    {
+        const string taxId = "{ \"code\": \"taxId\", \"type\": \"text\", \"label\": { \"zh-TW\": \"統一編號\" }, \"config\": {}, \"active\": false }";
+        var json = AppTestPackagesV6.Master.Replace(taxId, taxId.Replace("\"active\": false", "\"active\": true")
+            + ", { \"code\": \"taxLen\", \"type\": \"formula\", \"label\": { \"zh-TW\": \"長度\" }, \"config\": { \"formula\": \"{taxId}\", \"resultType\": \"decimal\" } }");
+        var res = await Import(json);
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, await res.Content.ReadAsStringAsync());
+        (await res.Content.ReadAsStringAsync()).Should().Contain("taxLen").And.Contain("結果型別必須是 number、currency 或 date");
+    }
+
     [Fact]
     public async Task Master_AnInactiveModuleFieldUsedByARule_Is400AtImport()
     {

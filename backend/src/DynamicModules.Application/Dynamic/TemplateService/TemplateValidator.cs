@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using DynamicModules.Application.Dynamic.FieldService.Data;
 using DynamicModules.Application.Dynamic.ModuleService.Data;
 using DynamicModules.Application.Dynamic.TemplateService.Data;
 using DynamicModules.Domain.Entities.Dynamic;
@@ -169,6 +170,9 @@ public static partial class TemplateValidator
         if (FormulaOf(f) is { } formula)
             foreach (var code in FormulaCodes(formula).Where(c => !fields.ContainsKey(c)).Distinct())
                 errors.Add($"{at}: 公式引用了不存在的欄位 {code}");
+
+        if (f.Type == FieldType.Formula && !FieldRules.IsFormulaResultType(ConfigString(config, "resultType")))
+            errors.Add($"{at}: {FieldRules.ResultTypeError}");
 
         if (config.TryGetProperty("defaultValue", out var dv))
             foreach (var code in OptionRefs(f, dv).Where(c => f.Options.All(o => o.Code != c)))

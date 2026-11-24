@@ -1,6 +1,7 @@
 using System.Text.Json;
 using DynamicModules.Application.Dynamic.AppService.Data;
 using DynamicModules.Application.Dynamic.AppService.SharedMasters;
+using DynamicModules.Application.Dynamic.FieldService.Data;
 using DynamicModules.Application.Dynamic.TemplateService.Data;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.ValueObjects;
@@ -177,6 +178,8 @@ public static partial class AppPackageValidator
                 var fat = $"{at}.fields[{f.Code}]";
                 if (!Code().IsMatch(f.Code ?? "")) { errors.Add($"{fat}.code: 格式錯誤"); continue; }
                 if (!codes.TryAdd(f.Code!, f)) errors.Add($"{fat}.code: 欄位代號在這個貢獻裡重複");
+                if (f.Type == FieldType.Formula && !FieldRules.IsFormulaResultType(ConfigString(f.Config, "resultType")))
+                    errors.Add($"{fat}.config.resultType: {FieldRules.ResultTypeError}");
                 if (baseFields.Contains(f.Code!)) errors.Add($"{fat}.code: 與主檔 {c.Master} 的基本欄位代號相同");
                 foreach (var o in f.Options)
                 {
