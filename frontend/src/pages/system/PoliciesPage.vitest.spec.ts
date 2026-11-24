@@ -12,7 +12,7 @@ import { dynamicApi } from 'src/services/api/dynamic-api';
 import PoliciesPage from './PoliciesPage.vue';
 
 vi.mock('src/services/api/dynamic-api', () => ({
-  dynamicApi: { getMe: vi.fn(), getSystemPolicies: vi.fn(), saveSystemPolicy: vi.fn() },
+  dynamicApi: { getMe: vi.fn(), getSystemPolicies: vi.fn(), saveSystemPolicy: vi.fn(), getAuthOptions: vi.fn() },
 }));
 const api = vi.mocked(dynamicApi);
 
@@ -27,7 +27,8 @@ const PACKAGE: SystemPolicy = {
 };
 let mounted: ReturnType<typeof mount> | undefined;
 
-async function mountPage(over: { isSystemAdmin?: boolean; policies?: SystemPolicy[] } = {}) {
+async function mountPage(over: { isSystemAdmin?: boolean; policies?: SystemPolicy[]; demo?: boolean } = {}) {
+  api.getAuthOptions.mockResolvedValue({ demoLoginEnabled: over.demo ?? false } as never);
   api.getMe.mockResolvedValue({
     userId: 'admin', displayName: 'A', mustChangePassword: false, isSystemAdmin: over.isSystemAdmin ?? true, groups: [],
     designer: { read: true, add: true, edit: true, delete: true },
@@ -75,6 +76,18 @@ describe('PoliciesPage', () => {
     expect(row.textContent).toContain('可模組覆寫');
     expect(q('policy-row-task.maxRulesPerPackage')!.textContent).not.toContain('可模組覆寫');
     expect(document.body.textContent).toContain('任務');
+  });
+
+  it('Demo 站的帳號安全分類唯讀：欄位停用、沒有儲存鈕、寫明原因；其他分類照常（走查 G2）', async () => {
+    const MIN: SystemPolicy = {
+      code: 'auth.passwordMinLength', category: 'auth', kind: 'integer', scope: 'system', unit: 'characters', min: 8, max: 128, factory: 8, effective: 8,
+    };
+    await mountPage({ demo: true, policies: [RULES, MIN] });
+    const row = q('policy-row-auth.passwordMinLength')!;
+    expect((row.querySelector('input') as HTMLInputElement).disabled).toBe(true);
+    expect(q('policy-save-auth.passwordMinLength')).toBeNull();
+    expect(row.textContent).toContain(zhTW.policies.demoAuthReadonly);
+    expect((q('policy-row-task.maxRulesPerModule')!.querySelector('input') as HTMLInputElement).disabled).toBe(false);
   });
 
   it('改值後按儲存送出 number', async () => {

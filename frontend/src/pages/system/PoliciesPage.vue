@@ -2,6 +2,7 @@
 import { Dialog, Notify } from 'quasar';
 import { computed, reactive, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useAuthOptions } from 'src/application/dynamic/queries/auth-queries';
 import { useMe } from 'src/application/dynamic/queries/permissions-queries';
 import { useSaveSystemPolicy, useSystemPolicies } from 'src/application/dynamic/queries/policies-queries';
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
@@ -17,6 +18,9 @@ const isAdmin = computed(() => me.data.value?.isSystemAdmin === true);
 const policies = useSystemPolicies({ enabled: isAdmin });
 const save = useSaveSystemPolicy();
 const { options: recipientOptions, names, ready: recipientsReady } = useRecipientNames(isAdmin);
+// Demo 站的帳號安全分類唯讀（帳號安全設計 §13.5）：後端照樣回 403，這裡不讓人改了才被擋（走查 G2）
+const authOptions = useAuthOptions();
+const readonlyRow = (p: SystemPolicy) => authOptions.data.value?.demoLoginEnabled === true && p.category === 'auth';
 
 /** 草稿＝沒設時看到出廠值；存檔失敗時保留，讓使用者改。 */
 const drafts = reactive<Record<string, PolicyValue>>({});
@@ -78,9 +82,10 @@ function send(p: SystemPolicy, value: PolicyValue | null) {
               </div>
             </div>
             <div class="col-12 col-md-6">
-              <PolicyValueEditor v-model="drafts[p.code]" :meta="p" @update:valid="(v: boolean) => (invalid[p.code] = !v)" :label="t(nameKey(p.code))" :recipient-options="recipientOptions" :recipients-ready="recipientsReady" :disable="save.isPending.value" />
+              <PolicyValueEditor v-model="drafts[p.code]" :meta="p" @update:valid="(v: boolean) => (invalid[p.code] = !v)" :label="t(nameKey(p.code))" :recipient-options="recipientOptions" :recipients-ready="recipientsReady" :disable="save.isPending.value || readonlyRow(p)" />
               <div v-if="errors[p.code]" class="text-negative text-caption q-mt-xs" :data-testid="`policy-error-${p.code}`">{{ errors[p.code] }}</div>
-              <div class="row q-gutter-sm q-mt-xs">
+              <div v-if="readonlyRow(p)" class="text-muted text-caption q-mt-xs" :data-testid="`policy-readonly-${p.code}`">{{ t('policies.demoAuthReadonly') }}</div>
+              <div v-else class="row q-gutter-sm q-mt-xs">
                 <q-btn
                   color="primary" unelevated no-caps dense class="q-px-md" :label="t('policies.save')" :disable="!dirty(p) || save.isPending.value"
                   :data-testid="`policy-save-${p.code}`" @click="submit(p, drafts[p.code])"
