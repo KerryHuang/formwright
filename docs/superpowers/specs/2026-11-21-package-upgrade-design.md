@@ -734,6 +734,18 @@ Demo 推導的舊版 CRM 另外推導幾處（§11.1 的做法，JSON 文字層�
   - A16 改用共用主檔貢獻的欄位構造第二批差異（轉換等已不再是第二批）。
 - **測試小節**：A16b、A33–A41、A52、A54、A58–A60、A62、A63、A73 在 `AppUpgradeCodedTests`（雙跑集，自帶一份含狀態機、分錄、事件、檢查、轉換、列印範本、任務規則的小套件 `uc`）；A16 在 `AppUpgradeApplyTests`；Demo 推導的舊版多兩項差異（報價單列印範本少最後一行備註、任務規則「行銷活動派工」舊名「活動派工」），`DemoStructureTests` 的項目數 7 → 9。
 
+#### 9.6.10 pkg1d2 實作補記（2026-11-24，進行中）
+
+- **T53／A68 偏離（技術類）**：失敗測試沒紅。設計器加的主檔欄位有對照列與持久代號（`u`＋8 碼），不是 `f_<id>`，再匯入的合併副本與候選新版都認得它，預覽不會把它列成新增，所以沒改 `MasterCandidateAsync`；`AppUpgradeMasterTests.MergedCopy_CustomerFieldIsNotInTheCandidate_A68` 留作防回歸。
+- **整合在夥伴暫停時（技術類）**：已安裝、但夥伴不在（Suspended）的整合，新事件與新檢查的目標可能是停用的夥伴模組，建不起來；套用時先不建、不登記，恢復時由調和照新宣告補建並登記（調和本來就會建登記裡沒有的新代號）。既有項目照改。
+- **整合沒在跑時的新項目（技術類）**：Disabled 時新事件、新檢查建成停用，記進 `suspendedActive`，恢復時照常打開；不改整合的開關。
+- **A67 造法**：`IntegrationReconciler.ReconcileAsync` 改 `virtual`，測試注入套用時丟例外的替身；套用端把調和的例外接成 warning。
+- **A3b 偏離（行為類代做待確認）**：甲在進銷存頁套完主檔後，乙用 CRM 頁的舊 token 套用，CRM 自己沒有新版時回 409 `upgradeUnavailable`（「已是最新」，同 M5 的既有行為：畫面依代碼重新預覽、收起舊清單），不是 `upgradeStale`；CRM 自己也有新版時 token 不同才回 `upgradeStale`。兩者畫面都會重新預覽。選錯的代價：訊息文字是「已是最新」而非「內容已變更」。
+- **T56 的預設勾選（行為類代做待確認）**：被依賴、上次略過的主檔項目預設不勾；依賴它的應用程式項目預設也改成不勾（否則照預設直接套用會 400）。選錯的代價：管理員要多勾一次。
+- **貢獻的預覽給權（U28）**：既有貢獻上的新欄位，貢獻有讀取權的群組列「可看見」（給權）；套用後新欄位標限定可見、補本應用程式名下的 `FieldGrant`。
+- **已知限制**：已安裝的整合、夥伴暫停時，既有事件改到夥伴模組的部分若更新指令被擋（目標模組停用），套用回 400、整批還原，要等夥伴恢復再更新。
+- **測試小節**：A42 在 `AppUpgradeApplyTests`；A43–A45、A66（三格）、A67 在 `AppUpgradeIntegrationTests`（雙跑集）；A74 與 A62 轉換格在 `AppUpgradeCodedTests`；A3b、A48 前半、A71 在 `AppUpgradeMasterTests`。A16 隨第二批擋法刪除。
+
 ## 10. 畫面
 
 ### 10.1 應用程式頁
@@ -955,7 +967,7 @@ Demo 產生器開啟「CRM 與銷售」時，不開目錄裡那份，改開一�
 | A13 | 新版需要進銷存 1.3.0 才有的模組，客戶進銷存是 1.2.0 | 預覽 | `blockers`「請先更新 進銷存」 |
 | A14 | 版號相同 | 預覽 | 「已是最新」 |
 | A15 | 候選新版版號比目前小 | 預覽 | 409 |
-| A16 | pkg1d1b 已上線、pkg1d2 未上線，新版改了貢獻欄位、整合或 `mainModule` 是主檔符號的報表，或用到的共用主檔有新版 | 預覽 | 那些項目 `notYetSupported`，`blockers` 有 `secondBatch` 或 `masterPending`，`canApply` false；pkg1d2 合併時刪掉這條 |
+| A16 | （pkg1d2 已刪）pkg1d1b 已上線、pkg1d2 未上線，新版改了貢獻欄位、整合或 `mainModule` 是主檔符號的報表，或用到的共用主檔有新版 | 預覽 | 那些項目 `notYetSupported`，`blockers` 有 `secondBatch` 或 `masterPending`，`canApply` false；pkg1d2 合併時刪掉這條 |
 | A16b | pkg1d1b 已上線，新版只改了狀態機、列印範本等 pkg1d1a、pkg1d1b 的種類 | 預覽後套用 | 沒有 `secondBatch`，可以套用 |
 | A17 | 新版欄位 `excludeFromAi: true`（i3c 後），現況 false | 套用 | 變 true；反過來新版 false、現況 true 時不變 |
 | A18 | 新版簽核流程改了關卡，有一張單正在簽 | 套用 | 流程產生新版本，進行中的單照原版本 |
