@@ -16,7 +16,7 @@ using DynamicModules.TestSupport;
 namespace DynamicModules.WebAPITests.Dynamic;
 
 /// <summary>
-/// 套用升級（套件更新設計 §8.3、§9；§17 U6、U11、A3、A5、A8、A12b、A16、A22、A24）。
+/// 套用升級（套件更新設計 §8.3、§9；§17 U6、U11、A3、A5、A8、A12b、A22、A42、A24）。
 /// 做法：開啟目錄版 CRM，再把基準與現況一起改回「舊版」的樣子、版號改小，目錄版就是新版。
 /// </summary>
 [Trait("Category", "Postgres")]
@@ -53,7 +53,7 @@ public class AppUpgradeApplyTests : IDisposable
             package(node);
             baseline.PackageJson = node.ToJsonString();
         }
-        ctx.SaveChanges();
+        ctx.SaveForTests();
     }
 
     private static JsonObject FieldNode(JsonNode package, string module, string code) =>
@@ -192,34 +192,53 @@ public class AppUpgradeApplyTests : IDisposable
         (await res.Content.ReadAsStringAsync()).Should().Contain("groupMap.sales");
     }
 
+    /// <summary>
+    /// A42、U28：CRM 新版在往來對象的既有貢獻區塊加一個欄位（產業）、改既有貢獻欄位（來源潛在客戶）的泰文標籤。
+    /// 新欄位進 CRM 的貢獻區塊、對照列名 partner/partner.industry，標限定可見、業務的可見列記在 CRM 名下（GrantSource.App）。
+    /// </summary>
     [Fact]
-    public async Task SecondBatchDifference_BlocksTheWholeApply_A16()
+    public async Task Contribution_NewFieldAndChangedLabel_AreApplied_A42()
     {
         await OpenCrmAsync();
-        // pkg1d1b 起轉換、事件等已開放，A16 只剩貢獻、整合與主檔模組上的報表：貢獻欄位的標籤舊版不同（只有新版改）
         await SimulateOldAsync(
             (db, b) =>
             {
-                var field = db.Set<Field>().Single(f => f.Id == b.Fields["partner/partner.industry"]);
-                field.LabelI18n = With(field.LabelI18n, "zh-TW", "舊產業");
+                var fromLead = db.Set<Field>().Single(f => f.Id == b.Fields["partner/partner.fromLead"]);
+                fromLead.LabelI18n = With(fromLead.LabelI18n, "th", OldThai);
+                var industryId = b.Fields["partner/partner.industry"];
+                db.Set<FieldGrant>().RemoveRange(db.Set<FieldGrant>().Where(g => g.FieldId == industryId));
+                db.Set<AppOption>().RemoveRange(db.Set<AppOption>().Where(o => o.Name.StartsWith("partner/partner.")));
+                db.Set<AppField>().Remove(db.Set<AppField>().Single(f => f.Name == "partner/partner.industry"));
+                db.Set<Field>().Remove(db.Set<Field>().Single(f => f.Id == industryId));
             },
             p =>
             {
-                var contribution = p["contributions"]!.AsArray().Single(c => (string?)c!["master"] == "partner")!;
-                contribution["fields"]!.AsArray().Single(f => (string?)f!["code"] == "industry")!["label"]!["zh-TW"] = "舊產業";
+                var fields = p["contributions"]!.AsArray().Single(c => (string?)c!["master"] == "partner")!["fields"]!.AsArray();
+                fields.Single(f => (string?)f!["code"] == "fromLead")!["label"]!["th"] = OldThai;
+                fields.Remove(fields.Single(f => (string?)f!["code"] == "industry"));
             });
 
         var preview = await PreviewAsync();
-        var item = Item(preview, "field:partner/partner.industry");
-        item.GetProperty("applicable").GetBoolean().Should().BeFalse();
-        item.GetProperty("reason").GetString().Should().Be("notYetSupported");
-        preview.GetProperty("canApply").GetBoolean().Should().BeFalse();
-        preview.GetProperty("blockers").EnumerateArray().Select(b => b.GetProperty("code").GetString()).Should().Contain("secondBatch");
-        var blocked = await ApplyAsync(preview.GetProperty("token").GetString()!);
-        blocked.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        var body = await JsonOf(blocked);
-        body.GetProperty("code").GetString().Should().Be("upgradeBlocked", "擋下的 409 附預覽，畫面用它重畫（M5）");
-        body.GetProperty("blockers").EnumerateArray().Select(b => b.GetProperty("code").GetString()).Should().Contain("secondBatch");
+        var added = Item(preview, "field:partner/partner.industry");
+        added.GetProperty("category").GetString().Should().Be("added");
+        added.GetProperty("applicable").GetBoolean().Should().BeTrue();
+        added.GetProperty("attachedPermissions").EnumerateArray().Select(a => a.GetProperty("effect").GetString()).Should().Contain("visible", "U28：貢獻有讀取權的群組可看見");
+        Item(preview, "field:partner/partner.fromLead").GetProperty("category").GetString().Should().Be("newOnly");
+        preview.GetProperty("canApply").GetBoolean().Should().BeTrue(preview.ToString());
+
+        var res = await ApplyAsync(preview.GetProperty("token").GetString()!, "field:partner/partner.industry", "field:partner/partner.fromLead");
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+
+        var crmId = Query(db => db.Set<App>().Single(a => a.Key == "crm-sales").Id);
+        var industry = Query(db => db.Set<AppField>().Single(f => f.AppId == crmId && f.Name == "partner/partner.industry").FieldId);
+        var fromLead = Query(db => db.Set<AppField>().Single(f => f.AppId == crmId && f.Name == "partner/partner.fromLead").FieldId);
+        Query(db => db.Set<Field>().Single(f => f.Id == industry).BlockId).Should().Be(Query(db => db.Set<Field>().Single(f => f.Id == fromLead).BlockId), "放進 CRM 的貢獻區塊");
+        Query(db => db.Set<Field>().Single(f => f.Id == industry).VisibilityRestricted).Should().BeTrue();
+        Query(db => db.Set<AppOption>().Count(o => o.AppId == crmId && o.Name.StartsWith("partner/partner."))).Should().Be(4);
+        var sales = Query(db => JsonSerializer.Deserialize<Dictionary<string, long?>>(db.Set<AppBaseline>().Single(b => b.AppId == crmId).GroupMapJson)!["sales"]!.Value);
+        Query(db => db.Set<FieldGrant>().Where(g => g.FieldId == industry && g.GroupId == sales).ToList())
+            .Should().ContainSingle(g => g.AppId == crmId && g.SourceKind == GrantSource.App);
+        Query(db => db.Set<Field>().Single(f => f.Id == fromLead).LabelI18n.Resolve("th")).Should().NotBe(OldThai);
     }
 
     [Fact]

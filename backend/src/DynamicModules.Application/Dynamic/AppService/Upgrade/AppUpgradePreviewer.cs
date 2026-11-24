@@ -25,7 +25,7 @@ public sealed class AppUpgradePreviewer(
     /// 狀態機與簽核流程在 pkg1d1a 開放，轉換、事件、檢查、分錄、列印範本、任務規則在 pkg1d1b 開放；
     /// 貢獻的區塊、欄位、權限與主檔模組上的報表看模組符號含不含 /。
     /// </summary>
-    public static readonly IReadOnlySet<string> SecondBatch = new HashSet<string> { "contributions", "integrations" };
+    public static readonly IReadOnlySet<string> SecondBatch = new HashSet<string> { "integrations" };
 
     /// <summary>
     /// 「/」規則不套的 Coded 類（T54）：它們的 Module 是主檔符號時照一般規則套（任務規則掛在主檔模組上；轉換、事件、檢查的
@@ -35,7 +35,7 @@ public sealed class AppUpgradePreviewer(
         { "conversions", "events", "checks", "printTemplates", "taskRules", "approvalFlows" };
 
     public static bool IsSecondBatch(UpgradeItem item) =>
-        SecondBatch.Contains(item.Section) || (item.Module?.Contains('/') == true && !CodedSections.Contains(item.Section));
+        SecondBatch.Contains(item.Section) || (item.Module?.Contains('/') == true && item.Section == "reports");
 
     /// <summary>套用要用到的比對中間結果：三份比對項目、兩份套件、群組對應（套件代號 → 客戶群組；負數是這次將新建的）。</summary>
     public sealed record CompareContext(
@@ -694,6 +694,11 @@ public sealed class AppUpgradePreviewer(
         if (ownerId.StartsWith("transition:", StringComparison.Ordinal))
             foreach (var g in n[ownerId].Props.GetValueOrDefault("groups") as JsonArray ?? [])
                 if (g?.GetValue<long>() is { } gid) list.Add(new AttachedPermission(gid, Name(gid), "transition", true));
+        // 既有貢獻上的新欄位：貢獻有讀取權的群組，新欄位對他們「可看見」（U28；欄位標限定可見，同開啟）
+        if (ownerId.StartsWith("field:", StringComparison.Ordinal) && n[ownerId].Parent is { } parent && parent.StartsWith("contribution:", StringComparison.Ordinal))
+            foreach (var p in n.Values.Where(p => p.Section == "permissions" && p.Owner == parent).OrderBy(p => p.Id, StringComparer.Ordinal))
+                if ((p.Props.GetValueOrDefault("privileges") as JsonObject)?["read"]?.GetValue<bool>() == true)
+                    list.Add(new AttachedPermission(p.GroupId!.Value, Name(p.GroupId.Value), "visible", true));
         foreach (var p in n.Values.Where(p => p.IsPermission && Under(p.Owner)).OrderBy(p => p.Id, StringComparer.Ordinal))
         {
             switch (p.Section)

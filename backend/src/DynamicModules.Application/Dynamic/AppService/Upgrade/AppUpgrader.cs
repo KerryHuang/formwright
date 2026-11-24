@@ -49,7 +49,7 @@ public sealed class AppUpgrader(
     AppDependencyChecker dependencies, ISender sender, IUnitOfWork uow, IBusinessTime time, AppResponseBuilder builder,
     RequestLocale requestLocale, AuditContext audit, IAuditLog auditLog, IMessageCatalog messages,
     IReportRepository reports, ReportDefinitionValidator reportValidator, ICurrentUser user, AppFlowUpgrader flowUpgrader,
-    MasterLifecycle lifecycle, MasterGrants masterGrants, IAppPackageRepository packageRows)
+    MasterLifecycle lifecycle, MasterGrants masterGrants, IAppPackageRepository packageRows, ISharedMasterRepository shared)
 {
     private static readonly IReadOnlyDictionary<string, long> None = new Dictionary<string, long>();
 
@@ -111,7 +111,7 @@ public sealed class AppUpgrader(
             await uow.CommitAsync(ct);
         }
         // 主檔的權限來源有變（新模組、新貢獻），重算有效值（§9.1 第 7 步）
-        if (built.Masters.Count > 0) await lifecycle.RecomputeAsync(ct);
+        if (built.Masters.Count > 0 || selected.Any(i => i.Contains('/'))) await lifecycle.RecomputeAsync(ct);
         return ServiceResult.Success(await builder.BuildAsync(app, withDependents: false, warnings, ct));
     }
 
@@ -148,13 +148,13 @@ public sealed class AppUpgrader(
             groupIds[code] = created[value] = ((AdminGroupResponse)r.Data!).Id;
         }
 
-        // 現有的模組、欄位、選項、區塊（代號 → id），套件代號的寫法同比對模式匯出
-        var state = await LoadStateAsync(app, ct);
+        // 現有的模組、欄位、選項、區塊（代號 → id），套件代號的寫法同比對模式匯出；貢獻的寫主檔符號（partner/partner.industry）
         var requirement = await dependencies.CheckRequirementsAsync(AppOpenPlanner.RequiresOf(n), ct);
         var masters = new List<App>();
         foreach (var r in n.Manifest.Requires.Masters)
             if (await apps.GetByKeyAsync(r.Id, ct) is { } master) masters.Add(master);
         var masterSeeds = await symbols.SeedsAsync(masters, ct);
+        var state = await LoadStateAsync(app, masterSeeds, ct);
         var external = new Dictionary<string, string>(requirement.ExternalModuleKeys);
         foreach (var (symbol, module) in masterSeeds.Modules) external[symbol] = module.Key;
 
@@ -199,6 +199,28 @@ public sealed class AppUpgrader(
                     fresh.Select(f => hasRecords ? NotRequired(f, warnings, lc) : f).ToList(), blockId, None, None));
                 addedFields.AddRange(fresh.Select(f => (m.Code, b.Code, f)));
             }
+
+        // 貢獻（§9.6.2 貢獻，A42）：新貢獻建新區塊；既有貢獻的新欄位放進它的貢獻區塊。Prefix 是主檔符號、ModuleKey 是主檔模組
+        var contributed = new List<(AppContribution Decl, ContributionInput Input, bool Fresh)>();
+        foreach (var c in n.Contributions)
+        {
+            var symbol = $"{c.Master}/{c.Module}";
+            if (!masterSeeds.Modules.TryGetValue(symbol, out var host)) continue;
+            var fresh = !ctx.C.ContainsKey($"contribution:{symbol}");
+            if (fresh && !selected.Contains($"contribution:{symbol}")) continue;
+            var fields = c.Fields.Where(f => !state.Fields.ContainsKey($"{symbol}.{f.Code}")
+                && (fresh || selected.Contains($"field:{symbol}.{f.Code}"))).ToList();
+            if (!fresh && fields.Count == 0) continue;
+            long? blockId = state.Blocks.TryGetValue($"{symbol}.{c.Block.Code}", out var existingBlock) ? existingBlock
+                : ctx.Current.Contributions.FirstOrDefault(x => $"{x.Master}/{x.Module}" == symbol) is { } cur
+                    && state.Blocks.TryGetValue($"{symbol}.{cur.Block.Code}", out var renamed) ? renamed : null;
+            var hasRecords = fields.Count > 0 && await records.AnyByModuleAsync(host.Id, ct);
+            var input = new ContributionInput(symbol, host.Key, c.Block.Code, c.Block.Name,
+                fields.Select(f => hasRecords ? NotRequired(f, warnings, lc) : f).ToList(), blockId, None, None);
+            contributions.Add(input);
+            contributed.Add((c, input, fresh));
+            if (blockId is not null) addedFields.AddRange(fields.Select(f => (symbol, c.Block.Code, f)));
+        }
 
         var created_ = newModules.Count > 0 || contributions.Count > 0;
         if (created_)
@@ -253,8 +275,7 @@ public sealed class AppUpgrader(
         {
             var name = item.Id["option:".Length..];
             var parent = ctx.N[item.Id].Parent!["field:".Length..];
-            var option = n.Modules.First(m => m.Code == item.Module).Blocks.SelectMany(b => b.Fields).SelectMany(f => f.Options)
-                .First(o => $"{item.Module}.{o.Code}" == name);
+            var option = FieldsOf(n, item.Module!).SelectMany(f => f.Options).First(o => $"{item.Module}.{o.Code}" == name);
             var added = await sender.Send(new AddOptionRequest(state.Fields[parent], option.Label, option.Color), ct);
             if (!added.IsSuccess) return Stop(added);
             apps.AddBindings([], [new AppOption { AppId = app.Id, Name = name, OptionId = ((OptionResponse)added.Data!).Id }], []);
@@ -262,7 +283,7 @@ public sealed class AppUpgrader(
         await uow.CommitAsync(ct);
 
         // 之後的步驟（既有物件的修改、規則、檢視、報表）引用得到剛建好的東西
-        state = await LoadStateAsync(app, ct);
+        state = await LoadStateAsync(app, masterSeeds, ct);
         if ((failed = await PlaceAddedFieldsAsync(addedFields, n, state, ct)) is not null) return Stop(failed);
         var map = TemplateInstantiator.MapFor(AppPackageAdapter.ToTemplate(n), external, Seeds(state, masterSeeds), state.Blocks);
 
@@ -304,6 +325,18 @@ public sealed class AppUpgrader(
                     var blockId = state.Blocks[name];
                     if ((failed = Fail(await sender.Send(new UpdateBlockRequest(blockId, merged.Label, merged.Collapsed,
                             merged.Columns ?? state.BlockColumns[blockId]), ct), item.Id)) is not null) return Stop(failed);
+                    break;
+                }
+                case "contributions":
+                {
+                    // 貢獻本身只比區塊（名稱）；權限的修改只列出（Q12）
+                    var symbol = item.Module!;
+                    var incoming = ContributionOf(n, symbol)!;
+                    var current = ContributionOf(ctx.Current, symbol);
+                    if (!props.Contains("block") || current is null || !state.Blocks.TryGetValue($"{symbol}.{current.Block.Code}", out var blockId)) break;
+                    var block = state.Loaded[symbol].Blocks.First(b => b.Id == blockId);
+                    if ((failed = Fail(await sender.Send(new UpdateBlockRequest(blockId, incoming.Block.Name, block.Collapsed, block.Columns), ct), item.Id)) is not null)
+                        return Stop(failed);
                     break;
                 }
                 case "fields":
@@ -348,6 +381,7 @@ public sealed class AppUpgrader(
 
         // 7. 既有模組上新欄位、新選項附帶的欄位例外與選項範圍（Q12）：從現有權限列出發加上去，既有列一筆都不改
         if ((failed = await AttachPermissionsAsync(n, state, contributions, chosen.Where(IsNew).ToList(), groupIds, grants, ct)) is not null) return Stop(failed);
+        await ContributionGrantsAsync(app, contributed, state, groupIds, grants, ct);
 
         // 8. T31：狀態機第一趟 → 分錄 → 事件 → 檢查 → 簽核流程 → 狀態機第二趟 → 轉換 → 列印範本 → 報表 → 任務規則
         var idMap = new TemplateIdMap(map.Fields, map.FieldKeys, map.Options, map.Blocks, map.Modules.ToDictionary(x => x.Key, x => x.Value.Key));
@@ -384,13 +418,14 @@ public sealed class AppUpgrader(
         Dictionary<long, bool> OptionActive, Dictionary<string, long> FirstBlock, Dictionary<string, Module> Loaded);
 
     /// <summary>應用程式的模組、欄位、選項、區塊，代號照比對模式匯出（有對照列的用開啟時的代號，其他 f_／b_／o_ 加 id）。</summary>
-    private async Task<State> LoadStateAsync(App app, CancellationToken ct)
+    private async Task<State> LoadStateAsync(App app, InstantiationSeeds masterSeeds, CancellationToken ct)
     {
         var members = new List<Module>();
         foreach (var member in app.Modules)
             if (await modules.GetByIdAsync(member.ModuleId, includeChildren: true, ct) is { } m) members.Add(m);
         var codeOf = app.Modules.ToDictionary(m => m.ModuleId, m => m.Code);
-        var codes = AppExporter.ExportCodeBook(members, codeOf, await apps.GetBindingsAsync(app.Id, ct), []);
+        var bindings = await apps.GetBindingsAsync(app.Id, ct);
+        var codes = AppExporter.ExportCodeBook(members, codeOf, bindings, []);
         var s = new State([], [], [], [], [], [], [], [], [], []);
         foreach (var m in members)
         {
@@ -415,6 +450,30 @@ public sealed class AppUpgrader(
                 }
             }
         }
+        // 貢獻（§9.6.2 貢獻）：主檔模組上屬於本應用程式的區塊、欄位、選項，對照列名稱是主檔符號（partner/partner.industry）
+        foreach (var (symbol, (moduleId, _)) in masterSeeds.Modules)
+        {
+            var prefix = symbol + ".";
+            if (!bindings.Fields.Keys.Concat(bindings.Blocks.Keys).Concat(bindings.Options.Keys).Any(k => k.StartsWith(prefix, StringComparison.Ordinal))
+                || await modules.GetByIdAsync(moduleId, includeChildren: true, ct) is not { } host) continue;
+            s.Loaded[symbol] = host;
+            var blocks = host.Blocks.ToDictionary(b => b.Id);
+            var fields = host.Blocks.SelectMany(b => b.Fields).ToDictionary(f => f.Id);
+            foreach (var (name, id) in bindings.Blocks.Where(x => x.Key.StartsWith(prefix, StringComparison.Ordinal) && blocks.ContainsKey(x.Value)))
+            {
+                s.Blocks[name] = id;
+                s.BlockColumns[id] = blocks[id].Columns;
+            }
+            foreach (var (name, id) in bindings.Fields.Where(x => x.Key.StartsWith(prefix, StringComparison.Ordinal) && fields.ContainsKey(x.Value)))
+            {
+                s.Fields[name] = id;
+                s.FieldKeys[name] = fields[id].Key;
+                s.FieldBlock[id] = fields[id].BlockId;
+                foreach (var o in fields[id].Options) s.OptionActive[o.Id] = o.Active;
+            }
+            foreach (var (name, id) in bindings.Options.Where(x => x.Key.StartsWith(prefix, StringComparison.Ordinal) && s.OptionActive.ContainsKey(x.Value)))
+                s.Options[name] = id;
+        }
         return s;
     }
 
@@ -438,16 +497,25 @@ public sealed class AppUpgrader(
     }
 
     private static TemplateBlock BlockOf(AppPackageData p, string module, string code) =>
-        p.Modules.First(m => m.Code == module).Blocks.First(b => b.Code == code);
+        ContributionOf(p, module) is { } c ? new TemplateBlock(c.Block.Code, c.Block.Name, false, c.Fields)
+            : p.Modules.First(m => m.Code == module).Blocks.First(b => b.Code == code);
+
+    /// <summary>模組代號是主檔符號（partner/partner）時找本應用程式對它的貢獻。</summary>
+    private static AppContribution? ContributionOf(AppPackageData p, string module) =>
+        module.Contains('/') ? p.Contributions.FirstOrDefault(c => $"{c.Master}/{c.Module}" == module) : null;
+
+    /// <summary>模組（或貢獻）上的全部欄位。</summary>
+    private static IEnumerable<TemplateField> FieldsOf(AppPackageData p, string module) =>
+        ContributionOf(p, module)?.Fields ?? p.Modules.FirstOrDefault(m => m.Code == module)?.Blocks.SelectMany(b => b.Fields) ?? [];
 
     private static TemplateField? FieldOf(AppPackageData p, string qualified)
     {
         var (module, code) = Split(qualified);
-        return p.Modules.FirstOrDefault(m => m.Code == module)?.Blocks.SelectMany(b => b.Fields).FirstOrDefault(f => f.Code == code);
+        return FieldsOf(p, module).FirstOrDefault(f => f.Code == code);
     }
 
     private static TemplateOption? OptionOf(AppPackageData p, string module, string code) =>
-        p.Modules.FirstOrDefault(m => m.Code == module)?.Blocks.SelectMany(b => b.Fields).SelectMany(f => f.Options).FirstOrDefault(o => o.Code == code);
+        FieldsOf(p, module).SelectMany(f => f.Options).FirstOrDefault(o => o.Code == code);
 
     // ---- 屬性合併 ----
 
@@ -655,6 +723,60 @@ public sealed class AppUpgrader(
         }
         await uow.CommitAsync(ct);
         return null;
+    }
+
+    /// <summary>
+    /// 貢獻的附帶權限（Q12、§9.1 第 7 步，同開啟的 RecordGrantsAsync）：新貢獻的模組權限寫本應用程式名下的來源記錄（GrantSource.App）；
+    /// 新的貢獻欄位標「限定可見」、替貢獻映射到的群組補可見列，貢獻的欄位例外照寫。有效值最後由 MasterLifecycle 重算。
+    /// </summary>
+    private async Task ContributionGrantsAsync(
+        App app, List<(AppContribution Decl, ContributionInput Input, bool Fresh)> contributed, State s, IReadOnlyDictionary<string, long> groupIds,
+        List<JsonObject> grants, CancellationToken ct)
+    {
+        foreach (var (c, input, fresh) in contributed)
+        {
+            var module = (await modules.GetByKeyAsync(input.ModuleKey, includeChildren: true, ct))!;
+            var mapped = c.Permissions.Where(p => groupIds.ContainsKey(p.Group)).ToList();
+            if (fresh)
+            {
+                await masterGrants.GrantAsync(GrantSource.App, app.Id, module.Id, mapped.Select(p => (groupIds[p.Group], p.Privileges, p.Scope ?? DataScope.All)), ct);
+                foreach (var p in mapped)
+                    grants.Add(Grant($"permission:{input.Prefix}:{groupIds[p.Group]}", "privileges",
+                        JsonSerializer.SerializeToNode(new { p.Privileges, p.Scope }, TemplateJson.Options)));
+            }
+            var names = input.Fields.Select(f => $"{input.Prefix}.{f.Code}").ToHashSet(StringComparer.Ordinal);
+            var fieldIds = names.Where(s.Fields.ContainsKey).Select(x => s.Fields[x]).ToHashSet();
+            if (fieldIds.Count == 0) continue;
+            var visibleTo = mapped.Select(p => groupIds[p.Group]).Distinct().ToList();
+            var existing = await shared.ListFieldGrantsAsync(fieldIds, ct);
+            foreach (var field in module.Blocks.SelectMany(b => b.Fields).Where(f => fieldIds.Contains(f.Id)))
+            {
+                field.VisibilityRestricted = true;
+                foreach (var group in visibleTo.Where(g => !existing.Any(x => x.FieldId == field.Id && x.GroupId == g && x.AppId == app.Id)))
+                {
+                    shared.AddFieldGrant(new FieldGrant { SourceKind = GrantSource.App, FieldId = field.Id, GroupId = group, AppId = app.Id });
+                    grants.Add(Grant($"fieldGrant:{s.Fields.First(x => x.Value == field.Id).Key}:{group}", "visible", JsonValue.Create(true)));
+                }
+            }
+            module.TouchVersion(user.UserId, time.Now);
+            var access = c.FieldAccess.Where(a => names.Contains(a.Field) && groupIds.ContainsKey(a.Group))
+                .GroupBy(a => (Field: s.Fields[a.Field], Group: groupIds[a.Group])).ToList();
+            if (access.Count > 0)
+            {
+                var rows = await permissions.LoadModuleRowsAsync(module, ct);
+                var list = rows.FieldPermissions.ToList();
+                foreach (var g in access)
+                {
+                    var fieldAccess = g.Any(a => a.Access == FieldAccess.Hidden) ? FieldAccess.Hidden : FieldAccess.ReadOnly;
+                    list.RemoveAll(x => x.FieldId == g.Key.Field && x.GroupId == g.Key.Group);
+                    list.Add(new FieldPermission { FieldId = g.Key.Field, GroupId = g.Key.Group, Access = fieldAccess });
+                    grants.Add(Grant($"fieldAccess:{g.First().Field}:{g.Key.Group}", "access", JsonValue.Create(fieldAccess.ToString())));
+                }
+                await permissions.ReplaceModuleRowsAsync(module, rows with { FieldPermissions = list }, ct);
+            }
+            if (input.ReattachBlockId is null) await lifecycle.ResequenceBlocksAsync(module.Id, ct);
+        }
+        if (contributed.Count > 0) await uow.CommitAsync(ct);
     }
 
     private async Task<ServiceResult?> SaveReportsAsync(
