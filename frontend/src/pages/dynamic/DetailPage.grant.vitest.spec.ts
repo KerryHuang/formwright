@@ -270,6 +270,18 @@ describe('DetailPage temporary read', () => {
     expect(api.getModuleSchema).toHaveBeenCalledWith('m');
   });
 
+  it('grant user: the plain schema is never requested (no 403 before the record-scoped one)', async () => {
+    const w = await mountPage(() => {
+      api.getModuleSchema.mockImplementation((_k, recordId) => (recordId === undefined ? gone(403) : Promise.resolve(grantSchema())));
+      api.getRecord.mockResolvedValue(record(true));
+      api.getRecordApproval.mockResolvedValue(approvalOf(instance()));
+    });
+    expect(api.getModuleSchema).toHaveBeenCalledTimes(1);
+    expect(api.getModuleSchema).toHaveBeenCalledWith('m', 5);
+    expect(has(w, 'approval-grant-banner')).toBe(true);
+    w.unmount();
+  });
+
   it('a record without read that has no approval stays forbidden when the record request is 403 and nothing was asked of approval', async () => {
     const w = await mountPage(() => {
       api.getModuleSchema.mockImplementation(() => gone(403));
