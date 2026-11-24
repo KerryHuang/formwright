@@ -423,6 +423,10 @@ public sealed class AppUpgrader(
         app.PackageVersion = n.Manifest.Version;
         app.FormatVersion = n.FormatVersion;
         app.Requires = AppOpenPlanner.RequiresOf(n);
+        // 新版第一次用到的主檔（新貢獻、新的主檔符號）補記使用關係，同開啟（審查 M1）：主檔的開關、匯出、刪除與更新提示都靠它
+        var used = (await shared.ListUsesAsync(ct)).Where(u => u.AppId == app.Id).Select(u => u.MasterAppId).ToHashSet();
+        foreach (var master in masters.Where(m => used.Add(m.Id)))
+            shared.AddUse(new AppMasterUse { AppId = app.Id, MasterAppId = master.Id });
         WriteBaseline(app, candidate, ctx, mine, selected, groupIds);
         if (app.Kind == AppKind.Master)
         {
@@ -770,7 +774,7 @@ public sealed class AppUpgrader(
             var names = input.Fields.Select(f => $"{input.Prefix}.{f.Code}").ToHashSet(StringComparer.Ordinal);
             var fieldIds = names.Where(s.Fields.ContainsKey).Select(x => s.Fields[x]).ToHashSet();
             if (fieldIds.Count == 0) continue;
-            var visibleTo = mapped.Select(p => groupIds[p.Group]).Distinct().ToList();
+            var visibleTo = MasterGrants.ContributionVisibleTo(c.Permissions, g => groupIds.TryGetValue(g, out var id) ? id : null);
             var existing = await shared.ListFieldGrantsAsync(fieldIds, ct);
             foreach (var field in module.Blocks.SelectMany(b => b.Fields).Where(f => fieldIds.Contains(f.Id)))
             {

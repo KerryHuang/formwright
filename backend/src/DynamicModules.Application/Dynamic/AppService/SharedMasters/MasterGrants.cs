@@ -20,6 +20,13 @@ public sealed class MasterGrants(
         g.SourceKind == GrantSource.Manual || IsReadAction(g.Action)
         || g.AppId is { } id && appStatus.TryGetValue(id, out var s) && s == AppStatus.Open;
 
+    /// <summary>
+    /// 貢獻欄位「可看見」的群組（開啟、升級預覽、升級套用共用這一條，審查 M2）：貢獻的權限列裡對應得到客戶群組的全部算，不另看讀取權；
+    /// 沒有對應的群組不給（fail closed）。
+    /// </summary>
+    public static List<long> ContributionVisibleTo(IEnumerable<TemplateService.Data.TemplatePermission> permissions, Func<string, long?> groupOf) =>
+        permissions.Select(p => groupOf(p.Group)).OfType<long>().Distinct().ToList();
+
     /// <summary>有效值：（群組, 動作）→ 最寬的範圍。</summary>
     public static Dictionary<(long Group, PermissionAction Action), DataScope> Effective(
         IEnumerable<AppGrant> grants, IReadOnlyDictionary<long, AppStatus> appStatus) =>

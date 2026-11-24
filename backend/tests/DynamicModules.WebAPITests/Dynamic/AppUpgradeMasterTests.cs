@@ -534,6 +534,105 @@ public class AppUpgradeMasterTests
         rig.Db(db => db.Set<Field>().Single(f => f.Id == orgRef).Config.Fill!.Map.Select(m => m.From)).Should().Contain(qty);
     }
 
+    /// <summary>只需要甲（mq）的應用程式：讓甲維持開啟的「另一個使用者」。</summary>
+    private const string Wq = """
+        { "format": "formwright-app", "formatVersion": 6,
+          "manifest": { "id": "wq", "version": "1.0.0", "name": { "zh-TW": "甲的使用者" },
+            "requires": { "masters": [ { "id": "mq", "modules": ["org"] } ] } },
+          "groups": [ { "code": "sales", "name": { "zh-TW": "業務" } } ],
+          "modules": [ { "code": "note", "key": "wq-note", "name": { "zh-TW": "筆記" }, "kind": "standalone", "titleField": "title",
+            "blocks": [ { "code": "main", "label": { "zh-TW": "基本資料" }, "fields": [ { "code": "title", "type": "text", "label": { "zh-TW": "標題" }, "config": {} } ] } ],
+            "permissions": [ { "group": "sales", "scope": "all", "privileges": { "read": true, "add": true, "edit": true, "delete": false, "printExport": false, "pricing": false, "approve": false } } ] } ] }
+        """;
+
+    /// <summary>
+    /// 應用程式 vq：1.0.0 不用任何主檔；1.1.0 第一次用甲、對組織貢獻一個欄位。貢獻的權限給業務讀寫、給助理只新增不讀（審查 M2）。
+    /// </summary>
+    private static string Vq(string version, bool contributes)
+    {
+        var node = JsonNode.Parse("""
+            { "format": "formwright-app", "formatVersion": 6,
+              "manifest": { "id": "vq", "version": "1.0.0", "name": { "zh-TW": "貢獻測試" } },
+              "groups": [ { "code": "sales", "name": { "zh-TW": "業務" } }, { "code": "clerk", "name": { "zh-TW": "助理" } } ],
+              "modules": [ { "code": "memo", "key": "vq-memo", "name": { "zh-TW": "備忘" }, "kind": "standalone", "titleField": "title",
+                "blocks": [ { "code": "main", "label": { "zh-TW": "基本資料" }, "fields": [ { "code": "title", "type": "text", "label": { "zh-TW": "標題" }, "config": {} } ] } ],
+                "permissions": [ { "group": "sales", "scope": "all", "privileges": { "read": true, "add": true, "edit": true, "delete": false, "printExport": false, "pricing": false, "approve": false } } ] } ] }
+            """)!;
+        node["manifest"]!["version"] = version;
+        if (!contributes) return node.ToJsonString();
+        node["manifest"]!["requires"] = JsonNode.Parse("""{ "masters": [ { "id": "mq", "modules": ["org"] } ] }""");
+        node["contributions"] = JsonNode.Parse("""
+            [ { "master": "mq", "module": "org", "block": { "code": "vq", "name": { "zh-TW": "貢獻區" } },
+                "fields": [ { "code": "grade", "type": "text", "label": { "zh-TW": "等級" }, "config": {} } ],
+                "permissions": [
+                  { "group": "sales", "scope": "all", "privileges": { "read": true, "add": true, "edit": true, "delete": false, "printExport": false, "pricing": false, "approve": false } },
+                  { "group": "clerk", "scope": "all", "privileges": { "read": false, "add": true, "edit": false, "delete": false, "printExport": false, "pricing": false, "approve": false } } ] } ]
+            """);
+        return node.ToJsonString();
+    }
+
+    /// <summary>甲由 wq 使用而開著；vq 1.0.0 開啟後匯入 1.1.0（第一次對甲貢獻），回傳 vq 的預覽。</summary>
+    private static async Task<(SharedMasterRig Rig, JsonElement Preview)> FirstContributionAsync()
+    {
+        var rig = new SharedMasterRig();
+        foreach (var json in new[] { Mq, Wq, Vq("1.0.0", false) }) await rig.ImportAsync(json);
+        object Map(string key) => new { mode = "map", groupId = rig.GroupId(key) };
+        await rig.OpenOkAsync("wq", new
+        {
+            groupMap = new Dictionary<string, object> { ["sales"] = Map("sales") },
+            masters = new Dictionary<string, object> { ["mq"] = new Dictionary<string, object> { ["steward"] = Map("ops-manager") } }
+        });
+        await rig.OpenOkAsync("vq", new { groupMap = new Dictionary<string, object> { ["sales"] = Map("sales"), ["clerk"] = Map("ops-manager") } });
+        var imported = await rig.Admin.PostAsync($"{SharedMasterRig.Apps}/packages/import",
+            new StringContent(Vq("1.1.0", true), System.Text.Encoding.UTF8, "application/json"));
+        imported.StatusCode.Should().Be(HttpStatusCode.OK, await imported.Content.ReadAsStringAsync());
+        return (rig, await PreviewAsync(rig, "vq"));
+    }
+
+    /// <summary>
+    /// 審查 M1：新版第一次用到已開啟的主檔甲（新貢獻）。套用後要記 vq → 甲的使用關係：wq 關閉後甲仍開著（vq 還在用），vq 的匯出帶這份貢獻。
+    /// </summary>
+    [Fact]
+    public async Task NewVersionFirstUsesAnOpenMaster_RecordsTheUse_M1()
+    {
+        var (rig, preview) = await FirstContributionAsync();
+        using var _ = rig;
+        preview.GetProperty("canApply").GetBoolean().Should().BeTrue(preview.ToString());
+        var res = await rig.Admin.PostAsJsonAsync($"{SharedMasterRig.Apps}/vq/upgrade",
+            new { token = preview.GetProperty("token").GetString(), items = new[] { "contribution:mq/org" } });
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+
+        rig.Db(db => db.Set<AppMasterUse>().Any(u => u.AppId == db.Set<App>().Single(a => a.Key == "vq").Id
+            && u.MasterAppId == db.Set<App>().Single(a => a.Key == "mq").Id)).Should().BeTrue("套用時補記使用關係（同開啟）");
+        await rig.CloseOkAsync("wq");
+        rig.StatusOf("mq").Should().Be(AppStatus.Open, "vq 還在用甲");
+        var (package, _) = await rig.ExportAsync("vq");
+        package.GetProperty("contributions").EnumerateArray().Select(c => c.GetProperty("master").GetString()).Should().Contain("mq");
+        await rig.AssertIntegrityAsync();
+    }
+
+    /// <summary>
+    /// 審查 M2：貢獻欄位的「可看見」，預覽列出的群組要和套用後 FieldGrant 的群組一樣（對應得到的群組全部可看見，同開啟）；
+    /// 助理只有新增、沒有讀取權，也算在內。
+    /// </summary>
+    [Fact]
+    public async Task ContributionVisibility_PreviewMatchesApply_M2()
+    {
+        var (rig, preview) = await FirstContributionAsync();
+        using var _ = rig;
+        var item = preview.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("id").GetString() == "contribution:mq/org");
+        var shown = item.GetProperty("attachedPermissions").EnumerateArray().Where(a => a.GetProperty("effect").GetString() == "visible")
+            .Select(a => a.GetProperty("groupId").GetInt64()).ToHashSet();
+        var res = await rig.Admin.PostAsJsonAsync($"{SharedMasterRig.Apps}/vq/upgrade",
+            new { token = preview.GetProperty("token").GetString(), items = new[] { "contribution:mq/org" } });
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+
+        var grade = rig.FieldId("vq", "mq/org.grade");
+        var granted = rig.Db(db => db.Set<FieldGrant>().Where(g => g.FieldId == grade).Select(g => g.GroupId).ToHashSet());
+        shown.Should().BeEquivalentTo(granted);
+        granted.Should().Contain(rig.GroupId("ops-manager"), "助理沒有讀取權，對應到的群組仍可看見（同開啟）");
+    }
+
     /// <summary>主檔的版號、匯入副本的版號都改小，內建目錄版就是新版（同 BuiltInMasterRoundTripTests 的做法）。</summary>
     private static void MakeMasterOlder(SharedMasterRig rig) => rig.Db(db =>
     {

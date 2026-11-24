@@ -236,7 +236,7 @@ public class AppOpener(
             await grants.GrantAsync(GrantSource.App, app.Id, module.Id, mapped.Select(p => (groupIds[p.Group], p.Privileges, p.Scope ?? DataScope.All)), ct);
 
             var fieldIds = c.Fields.Select(f => ids.FieldIds[TemplateService.TemplateGraph.Qualify(input.Prefix, f.Code)]).ToHashSet();
-            var visibleTo = mapped.Select(p => groupIds[p.Group]).Distinct().ToList();
+            var visibleTo = MasterGrants.ContributionVisibleTo(c.Permissions, g => groupIds.TryGetValue(g, out var id) ? id : null);
             var existing = await shared.ListFieldGrantsAsync(fieldIds, ct);
             foreach (var field in module.Blocks.SelectMany(b => b.Fields).Where(f => fieldIds.Contains(f.Id)))
             {

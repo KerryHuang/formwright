@@ -460,6 +460,11 @@ public sealed class AppUpgradePreviewer(
         listedIds.UnionWith(promoted);
         counts["customerAdded"] = customerAdded;
 
+        // 貢獻欄位「可看見」的群組：和開啟、套用同一條規則（審查 M2）
+        IReadOnlyList<long> ContributionVisible(string symbol) =>
+            n.Contributions.FirstOrDefault(c => $"{c.Master}/{c.Module}" == symbol) is { } decl
+                ? SharedMasters.MasterGrants.ContributionVisibleTo(decl.Permissions, g => packageGroup.GetValueOrDefault(g)) : [];
+
         // 相依（§6.5）：引用到「現況還不存在、這次列出」的項目。新區塊、新模組底下的項目不另列，
         // 被引用時依賴指向列出的那個上層（審查 M2）；它們引用別的新項目時，也算在那個上層頭上（複核 N1：同區塊的公式）
         var missing = results.Where(x => !C.ContainsKey(x.Item.Id) && N.ContainsKey(x.Item.Id)).Select(x => (Target: x.Item, Listed: x.Item.Id)).ToList();
@@ -517,7 +522,7 @@ public sealed class AppUpgradePreviewer(
             x.Item.Id, x.Item.Section, x.Item.Module, x.Item.Label ?? N.GetValueOrDefault(x.Item.Id)?.Label, x.Result.Category,
             x.Result.DefaultSelected, x.Result.Applicable, x.Result.Reason,
             N.ContainsKey(x.Item.Id) ? DependsOn(N[x.Item.Id]) : [], x.Result.Properties,
-            C.ContainsKey(x.Item.Id) || !N.ContainsKey(x.Item.Id) ? [] : Attached(x.Item.Id, N, groupNames))
+            C.ContainsKey(x.Item.Id) || !N.ContainsKey(x.Item.Id) ? [] : Attached(x.Item.Id, N, groupNames, ContributionVisible))
             { AffectedRecords = affected.TryGetValue(x.Item.Id, out var a) ? a : null }).ToList();
         var context = new CompareContext(n, exported.Package, baselineRow, B, N, C, packageGroup, pseudo, bindings) { CurrentGroups = exported.GroupIds };
         // 狀態機與簽核流程的守衛（T32、T46、T47、T58）：用設計器同一份判斷先算，不能套的標原因
@@ -716,7 +721,8 @@ public sealed class AppUpgradePreviewer(
         !UpgradeItems.Same(a.Props.GetValueOrDefault(prop), b.Props.GetValueOrDefault(prop));
 
     /// <summary>新物件附帶的權限（Q12）：掛在它本身或它底下物件上的權限類項目。</summary>
-    private static List<AttachedPermission> Attached(string ownerId, Dictionary<string, UpgradeItem> n, Dictionary<long, string> groupNames)
+    private static List<AttachedPermission> Attached(
+        string ownerId, Dictionary<string, UpgradeItem> n, Dictionary<long, string> groupNames, Func<string, IReadOnlyList<long>> contributionVisible)
     {
         bool Under(string? id)
         {
@@ -733,11 +739,13 @@ public sealed class AppUpgradePreviewer(
         if (ownerId.StartsWith("transition:", StringComparison.Ordinal))
             foreach (var g in n[ownerId].Props.GetValueOrDefault("groups") as JsonArray ?? [])
                 if (g?.GetValue<long>() is { } gid) list.Add(new AttachedPermission(gid, Name(gid), "transition", true));
-        // 既有貢獻上的新欄位：貢獻有讀取權的群組，新欄位對他們「可看見」（U28；欄位標限定可見，同開啟）
-        if (ownerId.StartsWith("field:", StringComparison.Ordinal) && n[ownerId].Parent is { } parent && parent.StartsWith("contribution:", StringComparison.Ordinal))
-            foreach (var p in n.Values.Where(p => p.Section == "permissions" && p.Owner == parent).OrderBy(p => p.Id, StringComparer.Ordinal))
-                if ((p.Props.GetValueOrDefault("privileges") as JsonObject)?["read"]?.GetValue<bool>() == true)
-                    list.Add(new AttachedPermission(p.GroupId!.Value, Name(p.GroupId.Value), "visible", true));
+        // 貢獻欄位（新貢獻、既有貢獻上的新欄位）對貢獻權限對應到的群組「可看見」（U28；欄位標限定可見，規則同開啟與套用，審查 M2）
+        var contribution = ownerId.StartsWith("contribution:", StringComparison.Ordinal) ? ownerId
+            : ownerId.StartsWith("field:", StringComparison.Ordinal) && n[ownerId].Parent is { } parent && parent.StartsWith("contribution:", StringComparison.Ordinal) ? parent
+            : null;
+        if (contribution is not null)
+            foreach (var gid in contributionVisible(contribution["contribution:".Length..]))
+                list.Add(new AttachedPermission(gid, Name(gid), "visible", true));
         foreach (var p in n.Values.Where(p => p.IsPermission && Under(p.Owner)).OrderBy(p => p.Id, StringComparer.Ordinal))
         {
             switch (p.Section)
@@ -747,9 +755,6 @@ public sealed class AppUpgradePreviewer(
                     var scope = p.Props.GetValueOrDefault("scope")?.ToString();
                     foreach (var (action, on) in privileges ?? [])
                         if (on?.GetValue<bool>() == true) list.Add(new AttachedPermission(p.GroupId!.Value, Name(p.GroupId.Value), action, true, scope));
-                    // 貢獻欄位對有權限的群組標「可看見」（§6.2 主檔與貢獻的權限）
-                    if (p.Module?.Contains('/') == true && privileges?["read"]?.GetValue<bool>() == true)
-                        list.Add(new AttachedPermission(p.GroupId!.Value, Name(p.GroupId.Value), "visible", true));
                     break;
                 case "fieldAccess":
                     var access = p.Props.GetValueOrDefault("access")?.ToString();
