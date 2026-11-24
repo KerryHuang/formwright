@@ -196,7 +196,12 @@ public class TestApp : WebApplicationFactory<Program>
                 s.Remove(d);
             s.AddTestEntities();
             if (!TwoFactorFactoryPolicy && s.LastOrDefault(d => d.ServiceType == typeof(PolicyEnvironmentDefaults))?.ImplementationInstance is PolicyEnvironmentDefaults defaults)
-                s.AddSingleton(defaults.WithForTests(PolicyCatalog.AuthTwoFactorRequireAdmins.Code, "false"));
+            {
+                // 照抄每項目前的出廠值（含部署設定），只把「選用時強制系統管理員」換成否；正式組件不提供這種覆寫
+                var values = PolicyCatalog.All.ToDictionary(d => d.Code, defaults.FactoryOf, StringComparer.Ordinal);
+                values[PolicyCatalog.AuthTwoFactorRequireAdmins.Code] = "false";
+                s.AddSingleton(new PolicyEnvironmentDefaults(values));
+            }
             s.RemoveAll<TimeProvider>();
             s.AddSingleton<TimeProvider>(Time);
             if (!_realAuth)
