@@ -124,7 +124,17 @@ public sealed class SecondFactorVerifier(
                 }
                 // 佔名額已提交；重讀確認這一次觸發了暫停才開事件、寄信（第 10 次剛好是正確碼時也一樣，複審建議 L）
                 if ((await twoFactor.FailureStateAsync(user.UserId, ct))?.LockedUntilUtc == until)
-                    await sender.Send(new RecordTwoFactorLockoutRequest(user.UserId, failureAction), ct);
+                {
+                    // 暫停已提交生效；這一輪的稽核、事件與通知寫不進去時只記 Error log、照常比對，不回 500（之後的嘗試是「已暫停」、不會補開，審查 S5）
+                    try
+                    {
+                        await sender.Send(new RecordTwoFactorLockoutRequest(user.UserId, failureAction), ct);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        logger.LogError(ex, "帳號 {UserId} 第二步暫停的稽核、事件與通知沒有寫成功", user.UserId);
+                    }
+                }
             }
 
             var demoMfa = auth.DemoLoginEnabled && user.UserId == DemoAccounts.MfaUser;

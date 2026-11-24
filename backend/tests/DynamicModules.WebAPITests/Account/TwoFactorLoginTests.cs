@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using DynamicModules.Application.Common.Security;
+using DynamicModules.Application.Dynamic.AccountService.TwoFactor;
 using DynamicModules.Application.Dynamic.MailService;
 using DynamicModules.Application.Dynamic.OpsService.Incidents;
 using DynamicModules.Domain.Entities.Dynamic;
@@ -309,6 +310,42 @@ public class TwoFactorLoginTests
         await SignIn(app, "tf01", secret, "198.51.100.20");
         state = await User(app, "tf01");
         (state.TwoFactorFailedCount, state.TwoFactorLockedUntilUtc).Should().Be((0, (DateTime?)null));
+    }
+
+    /// <summary>
+    /// 審查 S5：觸發暫停的那次，暫停的稽核、事件與通知寫入失敗 → 不回 500，照常比對（碼錯回 <c>twoFactorWrong</c>）；暫停本身已生效。
+    /// </summary>
+    [Fact]
+    public async Task LockoutRecordFails_AttemptStillAnswered_LockInEffect()
+    {
+        var failing = new FailingStateProbe();
+        using var app = NewApp(a => a.ExtraServices = s =>
+            s.AddSingleton<MediatR.IPipelineBehavior<RecordTwoFactorLockoutRequest, Application.Common.ServiceResult>>(new ThrowingLockoutBehavior(failing)));
+        await AddUser(app, "tf01");
+        var (secret, _) = await Enroll(app, "tf01");
+        for (var i = 0; i < 9; i++)
+        {
+            var c = Client(app, "198.51.100." + (i + 1));
+            await Password(c, "tf01");
+            await Second(c, WrongCode(app, secret));
+        }
+        failing.Armed = true;
+        var tenth = Client(app, "198.51.100.10");
+        await Password(tenth, "tf01");
+        (await ErrorCode(await Second(tenth, WrongCode(app, secret)))).Should().Be("twoFactorWrong");
+        failing.Armed = false;
+        (await User(app, "tf01")).TwoFactorLockedUntilUtc.Should().NotBeNull();
+        var next = Client(app, "198.51.100.11");
+        await Password(next, "tf01");
+        (await ErrorCode(await Second(next, Code(app, secret)))).Should().Be("twoFactorLocked");
+    }
+
+    private sealed class ThrowingLockoutBehavior(FailingStateProbe probe)
+        : MediatR.IPipelineBehavior<RecordTwoFactorLockoutRequest, Application.Common.ServiceResult>
+    {
+        public Task<Application.Common.ServiceResult> Handle(RecordTwoFactorLockoutRequest request,
+            MediatR.RequestHandlerDelegate<Application.Common.ServiceResult> next, CancellationToken ct) =>
+            probe.Armed ? throw new InvalidOperationException("模擬暫停紀錄寫入失敗") : next();
     }
 
     /// <summary>F42：TOTP 金鑰解不開（換一套金鑰）→ 驗證碼都拒絕、每張憑證第 6 次起被拒、帳號層計數一直是 0；復原碼登入成功。</summary>
