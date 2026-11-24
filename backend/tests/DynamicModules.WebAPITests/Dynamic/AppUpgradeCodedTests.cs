@@ -174,9 +174,6 @@ public class AppUpgradeCodedTests : IDisposable
                 x.TryGetProperty("detail", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString() : null)).ToList()
             : [];
 
-    private static List<string> Blockers(JsonElement preview) =>
-        preview.GetProperty("blockers").EnumerateArray().Select(b => b.GetProperty("code").GetString()!).ToList();
-
     private static JsonObject Named(JsonObject p, string section, string code) =>
         p[section]!.AsArray().Single(x => (string?)x!["code"] == code)!.AsObject();
 
@@ -528,7 +525,6 @@ public class AppUpgradeCodedTests : IDisposable
         });
 
         var preview = await PreviewAsync();
-        Blockers(preview).Should().NotContain("secondBatch");
         Impacts(Item(preview, "taskRule:uc-ship-check")).Select(x => x.Code).Should().Contain("enablesTasks", Item(preview, "taskRule:uc-ship-check").ToString());
         var applied = await ApplyOkAsync(preview, Defaults(preview));
         applied.GetProperty("warnings").EnumerateArray().Select(w => w.GetString()).Should().Contain(w => w!.Contains("uc-ship-check"));
@@ -638,10 +634,8 @@ public class AppUpgradeCodedTests : IDisposable
         var preview = await PreviewAsync();
         foreach (var id in new[] { "taskRule:uc-bp-call", "taskRule:uc-bp-visit" })
         {
-            Reason(Item(preview, id)).Should().NotBe("notYetSupported", id);
             Item(preview, id).GetProperty("applicable").GetBoolean().Should().BeTrue(id);
         }
-        Blockers(preview).Should().NotContain("secondBatch");
         await ApplyOkAsync(preview, ["taskRule:uc-bp-call", "taskRule:uc-bp-visit"]);
         _rig.Db(db => db.Set<TaskRule>().Any(r => r.Key == "uc-bp-visit")).Should().BeTrue();
         _rig.Db(db => db.Set<TaskRuleTask>().Single(t => t.RuleId == db.Set<TaskRule>().Single(r => r.Key == "uc-bp-call").Id).TitleI18n.Resolve("zh-TW")).Should().Be("電話問候");
@@ -693,7 +687,6 @@ public class AppUpgradeCodedTests : IDisposable
         }, customize: Master);
 
         var preview = await PreviewAsync();
-        Blockers(preview).Should().NotContain("secondBatch");
         string[] ids = ["report:ucBpRoles", "report:ucBpHeads", "conversion:uc-ord-to-bp"];
         foreach (var id in ids) Item(preview, id).GetProperty("applicable").GetBoolean().Should().BeTrue(id);
         await ApplyOkAsync(preview, ids);
@@ -775,7 +768,6 @@ public class AppUpgradeCodedTests : IDisposable
         });
 
         var preview = await PreviewAsync();
-        Blockers(preview).Should().NotContain("secondBatch");
         foreach (var id in new[] { "event:uc-mark", "check:uc-cap", "conversion:uc-ship2", "taskRule:uc-follow" })
         {
             Item(preview, id).GetProperty("applicable").GetBoolean().Should().BeTrue(id);

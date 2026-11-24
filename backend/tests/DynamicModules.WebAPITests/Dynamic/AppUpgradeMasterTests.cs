@@ -12,7 +12,7 @@ using static DynamicModules.WebAPITests.Dynamic.ApiTestKit;
 namespace DynamicModules.WebAPITests.Dynamic;
 
 /// <summary>
-/// 共用主檔一起更新（套件更新設計 §9.6.3，pkg1d2）：候選新版不帶客戶欄位（A68）。
+/// 共用主檔一起更新（套件更新設計 §9.6.3，pkg1d2）：候選新版不帶客戶欄位（A68）、合併副本改寫（A49）、跨份相依（A47、A50）、勾選驗證（A69）。
 /// 做法：開啟 CRM（自動開啟往來對象），把主檔的版號與基準改小，目錄版就是主檔的新版。
 /// </summary>
 [Trait("Category", "Postgres")]
@@ -295,6 +295,243 @@ public class AppUpgradeMasterTests
         after.PackageJson.Should().Be(partnerBaseline, "基準原文不變");
         after.SkippedJson.Should().NotContain(Skip);
         rig.Db(db => db.Set<AppField>().Any(f => f.Name == "partner.address")).Should().BeTrue("地址勾回、建好");
+    }
+
+    /// <summary>
+    /// A49、A68 後半（T38、T53）：往來對象有再匯入的合併副本（含客戶加的「統編備註」），以內建新版升級。套用後副本是「內建新版合併舊副本」、
+    /// 版號新版，基準是同一份文字；主檔只有一個「統編備註」。刪除 CRM 與主檔後再開啟 CRM，客戶補的欄位還在。
+    /// </summary>
+    [Fact]
+    public async Task MergedCopy_ApplyRewritesTheCopy_AndReopenKeepsTheCustomerField_A49_A68()
+    {
+        using var rig = new SharedMasterRig();
+        await rig.OpenOkAsync("crm-sales", CrmMasterTests.CrmBody);
+        await rig.AddDesignerFieldAsync(Partner, rig.BlockId("partner", "partner.main"), "text", "統編備註");
+        await rig.ImportMergeOkAsync((await rig.ExportAsync("partner")).Package.GetRawText());
+        MakeMasterOlder(rig);
+
+        var preview = await PreviewAsync(rig);
+        var res = await ApplyAsync(rig, preview, [], new Dictionary<string, string[]> { ["partner"] = [] });
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+
+        var builtIn = rig.App.Services.GetRequiredService<AppCatalog>().BuiltIns.Single(p => p.Manifest.Id == "partner").Manifest.Version;
+        var copy = rig.Db(db => db.Set<AppPackage>().Single(p => p.Key == "partner"));
+        copy.Version.Should().Be(builtIn);
+        copy.Json.Should().Contain("統編備註", "副本是內建新版合併舊副本，客戶補的欄位留著");
+        rig.Db(db => db.Set<AppBaseline>().Single(b => b.AppId == db.Set<App>().Single(a => a.Key == "partner").Id).PackageJson)
+            .Should().Be(copy.Json, "基準與副本同一份文字，下次才不會比出假差異");
+        CustomerFields(rig).Should().Be(1, "套用後主檔沒有重複欄位（A68）");
+
+        // 刪除應用程式後主檔保持關閉；再刪主檔（聯絡人依賴往來對象，先刪），重新開啟 CRM 時往來對象照副本自動開啟
+        await rig.CloseOkAsync("crm-sales");
+        foreach (var key in new[] { "crm-sales", "contact", "partner" }) await rig.DeleteAppOkAsync(key);
+        rig.StatusOf("partner").Should().BeNull();
+        // 第一次開啟建的群組還在（刪除不移除群組），這次改成對應既有群組
+        object Map(string key) => new { mode = "map", groupId = rig.GroupId(key) };
+        await rig.OpenOkAsync("crm-sales", new
+        {
+            groupMap = new Dictionary<string, object> { ["sales"] = Map("sales"), ["manager"] = Map("sales-manager") },
+            masters = new Dictionary<string, object>
+            {
+                ["partner"] = new Dictionary<string, object> { ["steward"] = Map("ops-manager") },
+                ["contact"] = new Dictionary<string, object> { ["steward"] = Map("ops-manager") }
+            }
+        });
+        CustomerFields(rig).Should().Be(1, "重新開啟時照副本建回客戶補的欄位");
+    }
+
+    private static int CustomerFields(SharedMasterRig rig) =>
+        rig.Blocks(Partner).SelectMany(b => b.Fields).Count(f => f.StartsWith("統編備註"));
+
+    /// <summary>
+    /// A47（T37、T43 第 5 點）：往來對象新版多一個基本欄位「地址」，CRM 新版的報價單客戶欄位帶值用到它。
+    /// CRM 的那一項 dependsOn 寫 master:partner/field:partner.address；只勾 CRM 那一項 400 列出缺的主檔項目，兩個都勾成功。
+    /// 內建 CRM 的報表都不引用主檔欄位，所以用欄位的帶值示範同一條相依（換算規則相同）。
+    /// </summary>
+    [Fact]
+    public async Task AppItemNeedsANewMasterField_TickingOnlyTheAppItemIs400_A47()
+    {
+        using var rig = new SharedMasterRig();
+        await rig.OpenOkAsync("crm-sales", CrmMasterTests.CrmBody);
+        const string Added = "field:partner.address", Dep = "master:partner/field:partner.address";
+        rig.Db(db =>
+        {
+            var partner = db.Set<App>().Single(a => a.Key == "partner");
+            var crm = db.Set<App>().Single(a => a.Key == "crm-sales");
+            var address = db.Set<AppField>().Single(f => f.AppId == partner.Id && f.Name == "partner.address");
+            var addressId = address.FieldId;
+            var customerId = db.Set<AppField>().Single(f => f.AppId == crm.Id && f.Name == "quote.customer").FieldId;
+            var customer = db.Set<Field>().Single(f => f.Id == customerId);
+            customer.Config = customer.Config with { Fill = customer.Config.Fill! with { Map = customer.Config.Fill.Map.Where(m => m.From != addressId).ToList() } };
+            db.Set<AppField>().Remove(address);
+            db.Set<Field>().Remove(db.Set<Field>().Single(f => f.Id == addressId));
+            partner.PackageVersion = Older;
+            var partnerBaseline = db.Set<AppBaseline>().Single(b => b.AppId == partner.Id);
+            var pn = JsonNode.Parse(partnerBaseline.PackageJson)!;
+            pn["manifest"]!["version"] = Older;
+            var fields = pn["modules"]![0]!["blocks"]![0]!["fields"]!.AsArray();
+            fields.Remove(fields.Single(f => (string?)f!["code"] == "address"));
+            partnerBaseline.PackageJson = pn.ToJsonString();
+            crm.PackageVersion = Older;
+            var baseline = db.Set<AppBaseline>().Single(b => b.AppId == crm.Id);
+            var node = JsonNode.Parse(baseline.PackageJson)!;
+            var map = node["modules"]!.AsArray().Single(m => (string?)m!["code"] == "quote")!["blocks"]!.AsArray()
+                .SelectMany(b => b!["fields"]!.AsArray()).Single(f => (string?)f!["code"] == "customer")!["config"]!["fill"]!["map"]!.AsArray();
+            map.Remove(map.Single(x => (string?)x!["from"] == "partner/partner.address"));
+            baseline.PackageJson = node.ToJsonString();
+        });
+
+        var preview = await PreviewAsync(rig);
+        Category(MasterOf(preview), Added).Should().Be("added");
+        var customerItem = preview.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("id").GetString() == "field:quote.customer");
+        customerItem.GetProperty("dependsOn").EnumerateArray().Select(d => d.GetString()).Should().Contain(Dep);
+
+        var missing = await ApplyAsync(rig, preview, ["field:quote.customer"], new Dictionary<string, string[]> { ["partner"] = [] });
+        missing.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await missing.Content.ReadAsStringAsync()).Should().Contain("items.field:quote.customer").And.Contain(Dep);
+        rig.Db(db => db.Set<AppField>().Any(f => f.Name == "partner.address")).Should().BeFalse("400 不寫任何東西");
+
+        var res = await ApplyAsync(rig, preview, ["field:quote.customer"], new Dictionary<string, string[]> { ["partner"] = [Added] });
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        rig.Db(db => db.Set<AppField>().Any(f => f.Name == "partner.address")).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// 兩份虛構主檔：甲（mq，組織 org：名稱、數量、兩倍＝數量×2 的公式）、乙（nq，需要甲；據點 site 的「組織」參照帶出甲的數量），
+    /// 應用程式 uq 需要這兩份。給 A50 與 A69 第三格用。
+    /// </summary>
+    private const string Mq = """
+        { "format": "formwright-app", "formatVersion": 6,
+          "manifest": { "id": "mq", "kind": "master", "version": "1.0.0", "name": { "zh-TW": "測試組織" } },
+          "groups": [ { "code": "steward", "name": { "zh-TW": "組織管理員" } } ],
+          "modules": [ { "code": "org", "key": "master-mq-org", "name": { "zh-TW": "組織" }, "kind": "standalone", "titleField": "name", "section": "主檔", "extensible": true,
+            "blocks": [ { "code": "main", "label": { "zh-TW": "基本資料" }, "fields": [
+              { "code": "name", "type": "text", "label": { "zh-TW": "名稱" }, "config": { "required": true } },
+              { "code": "qty", "type": "decimal", "label": { "zh-TW": "數量" }, "config": { "scale": 0 } },
+              { "code": "double", "type": "formula", "label": { "zh-TW": "兩倍" }, "config": { "formula": "{qty} * 2", "resultType": "number", "scale": 0 } }
+            ] } ],
+            "permissions": [ { "group": "steward", "scope": "all", "privileges": { "read": true, "add": true, "edit": true, "delete": true, "printExport": true, "pricing": true, "approve": true } } ] } ] }
+        """;
+
+    private const string Nq = """
+        { "format": "formwright-app", "formatVersion": 6,
+          "manifest": { "id": "nq", "kind": "master", "version": "1.0.0", "name": { "zh-TW": "測試據點" },
+            "requires": { "masters": [ { "id": "mq", "modules": ["org"] } ] } },
+          "groups": [ { "code": "steward", "name": { "zh-TW": "據點管理員" } } ],
+          "modules": [ { "code": "site", "key": "master-nq-site", "name": { "zh-TW": "據點" }, "kind": "standalone", "titleField": "name", "section": "主檔", "extensible": true,
+            "blocks": [ { "code": "main", "label": { "zh-TW": "基本資料" }, "fields": [
+              { "code": "name", "type": "text", "label": { "zh-TW": "名稱" }, "config": { "required": true } },
+              { "code": "org", "type": "reference", "label": { "zh-TW": "組織" },
+                "config": { "onDelete": "restrict", "refTarget": { "kind": "module", "key": "org", "app": "mq" },
+                  "fill": { "mode": "default", "map": [ { "from": "mq/org.qty", "to": "qty" } ] } } },
+              { "code": "qty", "type": "decimal", "label": { "zh-TW": "數量" }, "config": { "scale": 0 } }
+            ] } ],
+            "permissions": [ { "group": "steward", "scope": "all", "privileges": { "read": true, "add": true, "edit": true, "delete": true, "printExport": true, "pricing": true, "approve": true } } ] } ] }
+        """;
+
+    private const string Uq = """
+        { "format": "formwright-app", "formatVersion": 6,
+          "manifest": { "id": "uq", "version": "1.0.0", "name": { "zh-TW": "主檔相依測試" },
+            "requires": { "masters": [ { "id": "mq", "modules": ["org"] }, { "id": "nq", "modules": ["site"] } ] } },
+          "groups": [ { "code": "sales", "name": { "zh-TW": "業務" } } ],
+          "modules": [ { "code": "memo", "key": "uq-memo", "name": { "zh-TW": "備忘" }, "kind": "standalone", "titleField": "title",
+            "blocks": [ { "code": "main", "label": { "zh-TW": "基本資料" }, "fields": [ { "code": "title", "type": "text", "label": { "zh-TW": "標題" }, "config": {} } ] } ],
+            "permissions": [ { "group": "sales", "scope": "all", "privileges": { "read": true, "add": true, "edit": true, "delete": false, "printExport": false, "pricing": false, "approve": false } } ] } ] }
+        """;
+
+    /// <summary>
+    /// 開啟 uq（自動開啟甲、乙），再把兩份主檔改成舊版：甲少「數量」與「兩倍」（新版新增，兩倍依賴數量），乙的「組織」沒有帶值（只有新版改，
+    /// 帶值用到甲的數量）。資料庫與基準一起改，匯入的 1.0.0 就是兩份的新版。
+    /// </summary>
+    private static async Task<SharedMasterRig> ChainAsync()
+    {
+        var rig = new SharedMasterRig();
+        foreach (var json in new[] { Mq, Nq, Uq }) await rig.ImportAsync(json);
+        await rig.OpenOkAsync("uq", new
+        {
+            groupMap = new Dictionary<string, object> { ["sales"] = new { mode = "map", groupId = rig.GroupId("sales") } },
+            masters = new Dictionary<string, object>
+            {
+                ["mq"] = new Dictionary<string, object> { ["steward"] = new { mode = "map", groupId = rig.GroupId("ops-manager") } },
+                ["nq"] = new Dictionary<string, object> { ["steward"] = new { mode = "map", groupId = rig.GroupId("ops-manager") } }
+            }
+        });
+        rig.Db(db =>
+        {
+            var mq = db.Set<App>().Single(a => a.Key == "mq");
+            var nq = db.Set<App>().Single(a => a.Key == "nq");
+            var orgRef = db.Set<AppField>().Single(f => f.AppId == nq.Id && f.Name == "site.org").FieldId;
+            var org = db.Set<Field>().Single(f => f.Id == orgRef);
+            org.Config = org.Config with { Fill = null };
+            foreach (var name in new[] { "org.double", "org.qty" })
+            {
+                var binding = db.Set<AppField>().Single(f => f.AppId == mq.Id && f.Name == name);
+                var id = binding.FieldId;
+                db.Set<AppField>().Remove(binding);
+                db.Set<Field>().Remove(db.Set<Field>().Single(f => f.Id == id));
+            }
+            foreach (var (app, edit) in new (App, Action<JsonArray>)[]
+            {
+                (mq, fields => { foreach (var code in new[] { "qty", "double" }) fields.Remove(fields.Single(f => (string?)f!["code"] == code)); }),
+                (nq, fields => fields.Single(f => (string?)f!["code"] == "org")!["config"]!.AsObject().Remove("fill"))
+            })
+            {
+                app.PackageVersion = "0.9.0";
+                var baseline = db.Set<AppBaseline>().Single(b => b.AppId == app.Id);
+                var node = JsonNode.Parse(baseline.PackageJson)!;
+                node["manifest"]!["version"] = "0.9.0";
+                edit(node["modules"]![0]!["blocks"]![0]!["fields"]!.AsArray());
+                baseline.PackageJson = node.ToJsonString();
+            }
+        });
+        return rig;
+    }
+
+    private static Task<HttpResponseMessage> ApplyUqAsync(SharedMasterRig rig, JsonElement preview, object masters) =>
+        rig.Admin.PostAsJsonAsync($"{SharedMasterRig.Apps}/uq/upgrade",
+            new { token = preview.GetProperty("token").GetString(), items = Array.Empty<string>(), masters });
+
+    private static IEnumerable<string?> DependsOn(JsonElement section, string id) =>
+        section.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("id").GetString() == id)
+            .GetProperty("dependsOn").EnumerateArray().Select(d => d.GetString());
+
+    /// <summary>A69 第三格（T35）：主檔裡勾了「兩倍」卻沒勾它依賴的「數量」，400，鍵 masters.mq.items.field:org.double，訊息列出缺的項目。</summary>
+    [Fact]
+    public async Task MastersBody_MissingDependencyInsideAMaster_Is400_A69()
+    {
+        using var rig = await ChainAsync();
+        var preview = await PreviewAsync(rig, "uq");
+        DependsOn(MasterOf(preview, "mq"), "field:org.double").Should().Contain("field:org.qty");
+
+        var res = await ApplyUqAsync(rig, preview, new Dictionary<string, string[]> { ["mq"] = ["field:org.double"], ["nq"] = [] });
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var text = System.Text.RegularExpressions.Regex.Unescape(await res.Content.ReadAsStringAsync());
+        text.Should().Contain("masters.mq.items.field:org.double").And.Contain("field:org.qty");
+        rig.Db(db => db.Set<App>().Single(a => a.Key == "mq").PackageVersion).Should().Be("0.9.0", "400 不寫任何東西");
+    }
+
+    /// <summary>
+    /// A50（§9.6.3 主檔之間、T37）：乙依賴甲、兩份都有新版，乙的「組織」帶值用到甲新版的「數量」。預覽甲排在乙前面，
+    /// 乙那一項 dependsOn 指向 master:mq/field:org.qty；兩段都勾，套用成功、兩份版號都換新、乙的帶值接上甲的數量。
+    /// </summary>
+    [Fact]
+    public async Task MasterDependsOnMaster_DependedOneFirst_AndCrossDependencyApplies_A50()
+    {
+        using var rig = await ChainAsync();
+        var preview = await PreviewAsync(rig, "uq");
+        preview.GetProperty("masters").EnumerateArray().Select(m => m.GetProperty("id").GetString()).Should().Equal("mq", "nq");
+        DependsOn(MasterOf(preview, "nq"), "field:site.org").Should().Contain("master:mq/field:org.qty");
+
+        var res = await ApplyUqAsync(rig, preview, new Dictionary<string, string[]>
+        {
+            ["mq"] = ["field:org.qty", "field:org.double"], ["nq"] = ["field:site.org"]
+        });
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        foreach (var key in new[] { "mq", "nq" })
+            rig.Db(db => db.Set<App>().Single(a => a.Key == key).PackageVersion).Should().Be("1.0.0", key);
+        var qty = rig.FieldId("mq", "org.qty");
+        var orgRef = rig.FieldId("nq", "site.org");
+        rig.Db(db => db.Set<Field>().Single(f => f.Id == orgRef).Config.Fill!.Map.Select(m => m.From)).Should().Contain(qty);
     }
 
     /// <summary>主檔的版號、匯入副本的版號都改小，內建目錄版就是新版（同 BuiltInMasterRoundTripTests 的做法）。</summary>

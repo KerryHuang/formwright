@@ -108,6 +108,10 @@ public class DemoStructureTests(DemoGeneratedFixture fx)
         inventory.FromVersion.Should().Be(inventory.ToVersion);
         inventory.CanApply.Should().BeTrue();
         ShouldListOnlyThePartnerLabel(inventory);
+
+        var mes = (UpgradePreview)(await fx.Host.Send(new PreviewAppUpgradeRequest(DemoCatalog.MesAppId, new UpgradeBody(null, null)))).Data!;
+        mes.Items.Should().BeEmpty("生產管理照目錄版開啟，自己已是最新（手冊 Demo 段）");
+        ShouldListOnlyThePartnerLabel(mes);
     }
 
     private static void ShouldListOnlyThePartnerLabel(UpgradePreview preview)
