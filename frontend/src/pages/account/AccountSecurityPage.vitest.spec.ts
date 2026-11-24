@@ -101,6 +101,11 @@ describe('AccountSecurityPage', () => {
       expect(JSON.stringify(queryClient.getMutationCache().getAll().map((m) => m.state))).not.toContain('pw-1');
       await click('security-2fa-codes-done');
       expect(q('security-2fa-codes')).toBeNull();
+      // 對話框關掉後金鑰與復原碼也不留在 mutation 狀態（審查 S3：頁面還開著，gcTime: 0 不會回收）；reset 後由 gcTime: 0 在下一輪事件迴圈移除
+      await new Promise((r) => setTimeout(r, 0));
+      const states = JSON.stringify(queryClient.getMutationCache().getAll().map((m) => m.state));
+      expect(states).not.toContain('JBSWY3DPEHPK3PXP');
+      expect(states).not.toContain('AAAA-BBBB-CCCC-DDDD');
     });
 
     it('disable can use a recovery code; regenerate needs the authenticator code', async () => {
@@ -122,6 +127,9 @@ describe('AccountSecurityPage', () => {
       await click('security-2fa-submit');
       expect(api.regenerateRecoveryCodes).toHaveBeenCalledWith({ password: 'pw-1', code: '654321' });
       expect(q('security-2fa-codes')!.textContent).toContain('ZZZZ-YYYY-XXXX-WWWW');
+      await click('security-2fa-codes-done');
+      await new Promise((r) => setTimeout(r, 0));
+      expect(JSON.stringify(queryClient.getMutationCache().getAll().map((m) => m.state))).not.toContain('ZZZZ-YYYY-XXXX-WWWW');
     });
 
     it('low recovery codes warn; unreadable key defaults rebind to a recovery code', async () => {

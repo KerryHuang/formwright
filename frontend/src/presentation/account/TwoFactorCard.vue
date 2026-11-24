@@ -57,6 +57,10 @@ function clearSecrets() {
   recoveryCode.value = '';
   setup.value = null;
   codes.value = [];
+  // 回應裡的金鑰與復原碼也留在 mutation 狀態：頁面開著時 gcTime: 0 不會回收，要自己清（審查 S3）
+  start.reset();
+  enable.reset();
+  regenerate.reset();
 }
 
 function openDialog(m: Mode) {
