@@ -4,7 +4,7 @@ using DynamicModules.Domain.Data;
 
 namespace DynamicModules.Persistence.Seed;
 
-public class DemoPeopleSeeder(DynamicDbContext db, IBusinessTime time) : IDemoPeople
+public class DemoPeopleSeeder(DynamicDbContext db, IBusinessTime time, TimeProvider clock) : IDemoPeople
 {
     public Task<IReadOnlyList<string>> ConflictsAsync(CancellationToken ct) => DemoPeople.ConflictsAsync(db, ct);
 
@@ -12,5 +12,6 @@ public class DemoPeopleSeeder(DynamicDbContext db, IBusinessTime time) : IDemoPe
     {
         await DemoPeople.EnsureAsync(db, ct);
         await DemoPeople.EnsureOrganizationAsync(db, time.Now, ct);
+        await DemoPeople.EnsureAccountSecurityAsync(db, clock.GetUtcNow().UtcDateTime, ct);
     }
 }
