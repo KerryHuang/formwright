@@ -476,6 +476,13 @@ public partial class PasswordResetTests
         self.StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await Json(self)).GetProperty("code").GetString().Should().Be("useChangePassword");
         (await SendLink(app, "sales01", actor: "sales02")).StatusCode.Should().Be(HttpStatusCode.Forbidden, "只有系統管理員");
+
+        // 正式環境的示範帳號：訊息講明是示範帳號，不說「停用或沒有已驗證 Email」
+        await Eligible(app, "sales03");
+        await Db(app, async db => (await db.Set<AppUser>().SingleAsync(u => u.UserId == "sales03")).IsDemoAccount = true);
+        var demoAccount = await SendLink(app, "sales03");
+        demoAccount.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await Body(demoAccount)).Should().Contain("示範帳號");
     }
 
     [Fact]
@@ -560,6 +567,13 @@ public partial class PasswordResetTests
         (await Forgot(app, "sales01")).StatusCode.Should().Be(HttpStatusCode.Accepted);
         (await Rows(app)).Should().BeEmpty();
         (await Audits(app, "account.passwordResetRequested")).Single().ReasonCode.Should().Be("unavailable");
+
+        // 管理員寄重設連結：系統寄不出信時回 409，不排信（au1b 審查 S4）
+        var admin = await SendLink(app, "sales01");
+        admin.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await Json(admin)).GetProperty("code").GetString().Should().Be("resetLinkMailUnavailable");
+        (await Body(admin)).Should().Contain("寄不出信");
+        (await Rows(app)).Should().BeEmpty();
     }
 
     [Fact]

@@ -182,7 +182,8 @@ public static class PasswordLength
 internal static class PasswordResetErrors
 {
     public const string LinkInvalidCode = "resetLinkInvalid", ThrottledCode = "tooManyAttempts", UnavailableCode = "resetLinkUnavailable",
-        TooSoonCode = "resetLinkTooSoon", UseChangePasswordCode = "useChangePassword", DemoSiteCode = "demoSite";
+        TooSoonCode = "resetLinkTooSoon", UseChangePasswordCode = "useChangePassword", DemoSiteCode = "demoSite",
+        MailUnavailableCode = "resetLinkMailUnavailable";
 
     /// <summary>無效權杖一律同一個 400，不分原因（§7.2）。</summary>
     public static ServiceResult LinkInvalid() => ServiceResult.Invalid("token", MessageRef.Of(MessageText.ResetLinkInvalid), LinkInvalidCode);
@@ -383,7 +384,8 @@ public sealed class ApplyPasswordResetHandler(
 /// <summary>
 /// 管理員替別人寄重設連結（<c>POST admin/users/{id}/send-reset-link</c>，§7.5）：寫一列 <c>passwordReset</c>（系統預設語系，<c>by: admin</c>），
 /// 不改現有密碼、不登出對方；不受 <c>auth.passwordResetMaxPerHour</c> 與 <c>auth.passwordResetEnabled</c> 限制（Q20），同一帳號 60 秒一次。
-/// 對自己回 409 <c>useChangePassword</c>；Demo 站只能寄給 mfa01（403 <c>demoSite</c>，Q22）；帳號停用或沒有已驗證 Email 回 409。
+/// 對自己回 409 <c>useChangePassword</c>；Demo 站只能寄給 mfa01（403 <c>demoSite</c>，Q22）；帳號停用、沒有已驗證 Email、示範帳號回 409；
+/// 系統寄不出信回 409 <c>resetLinkMailUnavailable</c>。
 /// </summary>
 public sealed record SendResetLinkRequest(string UserId) : IRequest<ServiceResult>, ITransactionalRequest, ISystemAdminRequest, IAuditedRequest
 {
@@ -391,8 +393,8 @@ public sealed record SendResetLinkRequest(string UserId) : IRequest<ServiceResul
 }
 
 public sealed class SendResetLinkHandler(
-    IAccountRepository accounts, AccountMailWriter writer, ResetLinkGate gate, CachedSystemPolicy system, AuthSettings auth, ICurrentUser current,
-    AfterCommitActions afterCommit, AuditContext audit, IUnitOfWork uow, TimeProvider time) : IRequestHandler<SendResetLinkRequest, ServiceResult>
+    IAccountRepository accounts, AccountMailWriter writer, ResetLinkGate gate, AccountMailAvailability mail, CachedSystemPolicy system, AuthSettings auth,
+    ICurrentUser current, AfterCommitActions afterCommit, AuditContext audit, IUnitOfWork uow, TimeProvider time) : IRequestHandler<SendResetLinkRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(SendResetLinkRequest r, CancellationToken ct)
     {
@@ -403,8 +405,12 @@ public sealed class SendResetLinkHandler(
             return ServiceResult.Conflict(MessageRef.Of(MessageText.ResetLinkUseChangePassword), PasswordResetErrors.UseChangePasswordCode);
         var user = await accounts.GetTrackedAsync(r.UserId, ct);
         if (user is null) return ServiceResult.NotFound(MessageRef.Of(MessageText.UserNotFound));
-        if (PasswordResetEligibility.Denial(user, auth.DemoLoginEnabled) is not null)
-            return ServiceResult.Conflict(MessageRef.Of(MessageText.ResetLinkUnavailable), PasswordResetErrors.UnavailableCode);
+        if (PasswordResetEligibility.Denial(user, auth.DemoLoginEnabled) is { } denial)
+            return ServiceResult.Conflict(MessageRef.Of(denial == PasswordResetDenials.DemoRestricted ? MessageText.ResetLinkDemoAccount : MessageText.ResetLinkUnavailable),
+                PasswordResetErrors.UnavailableCode);
+        // 系統寄不出信時不排信（寄送時只會記 skipped，管理員卻以為寄出去了；au1b 審查 S4）；Demo 站是 Demo 收件匣，視為可用
+        if (!await mail.IsAvailableAsync(ct))
+            return ServiceResult.Conflict(MessageRef.Of(MessageText.ResetLinkMailUnavailable), PasswordResetErrors.MailUnavailableCode);
         if (!gate.IsOpen(user.UserId))
             return ServiceResult.TooManyRequests(MessageRef.Of(MessageText.ResetLinkTooSoon, (int)MailDeliveryLimits.ResendGap.TotalSeconds),
                 PasswordResetErrors.TooSoonCode);
