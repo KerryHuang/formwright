@@ -466,5 +466,35 @@
     "en-US": "A system administrator account reset its password with an emailed link",
     "th": "บัญชีผู้ดูแลระบบรีเซ็ตรหัสผ่านด้วยลิงก์ทางอีเมล",
     "vi": "Một tài khoản quản trị viên đã đặt lại mật khẩu bằng liên kết qua email"
+  },
+  "alert.TitleAdminTwoFactorReset": {
+    "zh-TW": "另一位系統管理員的雙因素驗證被重設",
+    "en-US": "Another system administrator's two-factor authentication was reset",
+    "th": "การยืนยันตัวตนสองขั้นตอนของผู้ดูแลระบบอีกคนถูกรีเซ็ต",
+    "vi": "Xác thực hai lớp của một quản trị viên khác đã bị đặt lại"
+  },
+  "alert.TitleTwoFactorFailures": {
+    "zh-TW": "有帳號的驗證碼連續錯誤，已暫停輸入",
+    "en-US": "An account had too many wrong verification codes and code entry was paused",
+    "th": "มีบัญชีที่กรอกรหัสยืนยันผิดติดต่อกันหลายครั้ง จึงหยุดรับรหัสชั่วคราว",
+    "vi": "Một tài khoản nhập sai mã xác minh nhiều lần liên tiếp và đã bị tạm dừng nhập mã"
+  },
+  "alert.TitleRescueConfigLeft": {
+    "zh-TW": "緊急救援設定（Auth:ResetAdminPassword）還沒移除",
+    "en-US": "The emergency rescue setting (Auth:ResetAdminPassword) has not been removed",
+    "th": "ยังไม่ได้ลบการตั้งค่ากู้คืนฉุกเฉิน (Auth:ResetAdminPassword)",
+    "vi": "Cài đặt cứu hộ khẩn cấp (Auth:ResetAdminPassword) vẫn chưa được gỡ bỏ"
+  },
+  "alert.TitleKeysNotPersisted": {
+    "zh-TW": "伺服器沒有保存加密金鑰，雙因素驗證無法啟用",
+    "en-US": "The server does not keep its encryption keys, so two-factor authentication cannot be turned on",
+    "th": "เซิร์ฟเวอร์ไม่ได้เก็บคีย์เข้ารหัสไว้ จึงเปิดใช้การยืนยันตัวตนสองขั้นตอนไม่ได้",
+    "vi": "Máy chủ không lưu khóa mã hóa nên không thể bật xác thực hai lớp"
+  },
+  "alert.TitleKeysMayBeLost": {
+    "zh-TW": "金鑰可能遺失：已綁定的雙因素與寄信密碼可能解不開",
+    "en-US": "Encryption keys may be lost: existing two-factor setups and the email password may no longer be readable",
+    "th": "คีย์อาจสูญหาย: การยืนยันตัวตนสองขั้นตอนที่ตั้งไว้และรหัสผ่านอีเมลอาจถอดรหัสไม่ได้",
+    "vi": "Khóa có thể đã mất: xác thực hai lớp đã thiết lập và mật khẩu email có thể không giải mã được"
   }
 }

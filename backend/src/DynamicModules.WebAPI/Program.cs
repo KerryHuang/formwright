@@ -119,6 +119,8 @@ builder.Services.AddSingleton<IBusinessTime, ZoneBusinessTime>();
 // 須在 ICurrentUser、IBusinessTime 註冊之後：Demo 資料產生器靠它在範圍內切換身分與時間
 builder.Services.AddActingOverrides();
 builder.Services.AddSingleton<IDemoDataRunner, DemoDataRunner>();
+// 建置 Demo 映像（--generate-demo-data）時不寫 mfa01 的 TOTP 密文：建置後金鑰會被刪掉（帳號安全設計 §13.3）
+builder.Services.AddSingleton(new DemoBuildMode(args.Contains("--generate-demo-data")));
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(o =>
     {
@@ -144,10 +146,20 @@ if (trustForwardedHeaders)
 var keysDirectory = builder.Configuration["DataProtection:KeysDirectory"] is { Length: > 0 } configuredKeys
     ? Path.GetFullPath(configuredKeys, builder.Environment.ContentRootPath)
     : databaseDirectory is null ? null : Path.Combine(databaseDirectory, "keys");
+// 非 Development 環境金鑰不落地就拒絕啟動，不分資料庫種類（帳號安全設計 §8.7，T27、複審 N3、N7）：在 Build 之前、還沒連資料庫
+if (keysDirectory is null && !builder.Environment.IsDevelopment())
+    throw new InvalidOperationException("非開發環境必須設定 DataProtection:KeysDirectory（否則重啟後登入、寄信密碼與雙因素全部失效）");
+// 在 Data Protection 第一次使用前看金鑰環是不是空的（這次會產生新金鑰）：infra.keysMayBeLost 的判斷用（複審建議 B）
+var keyRingWasEmpty = keysDirectory is not null
+    && (!Directory.Exists(keysDirectory) || !Directory.EnumerateFiles(keysDirectory, "key-*.xml").Any());
+builder.Services.AddSingleton(new DynamicModules.Application.Common.Security.KeyPersistenceStatus(keysDirectory is not null, keyRingWasEmpty));
 if (keysDirectory is not null)
     builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(keysDirectory));
-else if (databaseProvider == DatabaseProvider.Postgres)
-    startupWarnings.Add("Database:Provider=Postgres 沒有設定 DataProtection:KeysDirectory，登入金鑰不落地，站台重開後要重新登入；正式環境請設定");
+else
+    startupWarnings.Add("沒有設定 DataProtection:KeysDirectory，金鑰不落地（只有 Development 環境允許）：雙因素驗證不能啟用，站台重開後要重新登入");
+// 雙因素（§8.1、§8.3）：TOTP 金鑰與第二步憑證各用自己的 Data Protection purpose
+builder.Services.AddSingleton<DynamicModules.Application.Common.Security.ITotpSecretProtector, DataProtectionTotpSecretProtector>();
+builder.Services.AddSingleton<DynamicModules.Application.Common.Security.ISecondStepTicketCodec, DataProtectionSecondStepTicketCodec>();
 // 產品內備份（備份設計 §7.4、§13.2）：Backup:Root 沒設就不備份；和資料庫、附件、金鑰、wwwroot 重疊的位置不收（記 Warning、新鮮度判嚴重）
 var (backupSettings, backupWarning) = DynamicModules.Application.Dynamic.OpsService.Backup.BackupSettings.Create(builder.Configuration["Backup:Root"],
     builder.Environment.ContentRootPath, [databaseDirectory, attachmentSettings.Root, keysDirectory, Path.Combine(builder.Environment.ContentRootPath, "wwwroot")]);
@@ -224,6 +236,13 @@ if (args.Contains("--generate-demo-data"))
     app.Logger.LogError("Demo 資料產生失敗：{State} {Message}", runner.Current.State, runner.Current.Message);
     return 1;
 }
+// Demo 站每次一般啟動用目前的金鑰把 mfa01 的固定 TOTP 金鑰加密寫回（§13.3）：排在 --generate-demo-data 之後，建置那次不寫
+if (app.Services.GetRequiredService<AuthSettings>().DemoLoginEnabled)
+{
+    using var demoScope = app.Services.CreateScope();
+    await new MediatR.Mediator(demoScope.ServiceProvider).Send(
+        new DynamicModules.Application.Dynamic.AccountService.TwoFactor.EnsureDemoMfaSecretRequest());
+}
 // Demo 站台（Render）啟動後在背景產生 Demo 資料；結果只記 log，不擋啟動也不擋 /api/health
 if (app.Configuration.GetValue<bool>("Demo:SeedOnStartup"))
     app.Lifetime.ApplicationStarted.Register(() => app.Services.GetRequiredService<IDemoDataRunner>().TryStart(startup: true));
@@ -290,7 +309,14 @@ static async Task InitializeDatabaseAsync(WebApplication app, string? databaseDi
     await AdminBootstrap.EnsureAsync(db, scope.ServiceProvider.GetRequiredService<IPasswordService>(), app.Configuration,
         app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(AdminBootstrap)),
         int.Parse(systemPolicy.Get(DynamicModules.Domain.Policies.PolicyCatalog.AuthPasswordMinLength), System.Globalization.CultureInfo.InvariantCulture),
-        (admin, ct) => passwordEffects.ApplyAsync(admin, systemPolicy.DefaultLocale, ct));
+        (admin, ct) => passwordEffects.ApplyAsync(admin, systemPolicy.DefaultLocale, ct),
+        (admin, ct) => DynamicModules.Application.Dynamic.AccountService.TwoFactor.TwoFactorClear.ApplyAsync(admin,
+            scope.ServiceProvider.GetRequiredService<DynamicModules.Domain.Repositories.Dynamic.ITwoFactorRepository>(), ct));
+    // 救援設定沒移除、金鑰不落地或可能遺失：開事件提醒（帳號安全設計 §8.7、§8.11）。啟動步驟直接建 Mediator（照樣走管線與交易），
+    // 不經可被替換的 IMediator 註冊（測試替身以呼叫次數決定丟例外，不該算到啟動步驟）
+    await new MediatR.Mediator(scope.ServiceProvider).Send(
+        new DynamicModules.Application.Dynamic.OpsService.Incidents.StartupSecurityCheckRequest(
+            !string.IsNullOrEmpty(app.Configuration["Auth:ResetAdminPassword"])));
     // 升級前的索引補上精確換算與截斷標記；版本達標就是空操作。完成前報表走記憶體路徑，結果仍正確
     if (await scope.ServiceProvider.GetRequiredService<IndexBackfillJob>().RunAsync(CancellationToken.None))
         app.Logger.LogInformation("索引回填完成（版本 {Version}）", RecordIndexer.BackfillVersion);

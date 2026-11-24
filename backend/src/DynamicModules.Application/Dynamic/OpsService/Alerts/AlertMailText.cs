@@ -31,7 +31,10 @@ public static class AlertMailText
         TitleMcpWriteLoop = P + nameof(TitleMcpWriteLoop),
         // 帳號安全（帳號安全設計 §6.2、§8.10）
         TitleAccountMail = P + nameof(TitleAccountMail), TitleAdminEmailChanged = P + nameof(TitleAdminEmailChanged),
-        TitleAdminPasswordReset = P + nameof(TitleAdminPasswordReset);
+        TitleAdminPasswordReset = P + nameof(TitleAdminPasswordReset),
+        // 雙因素與金鑰（§8.7、§8.10、§8.11）
+        TitleAdminTwoFactorReset = P + nameof(TitleAdminTwoFactorReset), TitleTwoFactorFailures = P + nameof(TitleTwoFactorFailures), TitleRescueConfigLeft = P + nameof(TitleRescueConfigLeft),
+        TitleKeysNotPersisted = P + nameof(TitleKeysNotPersisted), TitleKeysMayBeLost = P + nameof(TitleKeysMayBeLost);
 
     private static readonly Dictionary<string, (string Zh, string En, string Th, string Vi)> Table = new()
     {
@@ -87,6 +90,16 @@ public static class AlertMailText
             "อีเมลบัญชีของผู้ดูแลระบบถูกเปลี่ยนโดยผู้ดูแลระบบอีกคน", "Email tài khoản của một quản trị viên đã bị quản trị viên khác thay đổi"),
         [TitleAdminPasswordReset] = ("系統管理員帳號用寄信連結重設了密碼", "A system administrator account reset its password with an emailed link",
             "บัญชีผู้ดูแลระบบรีเซ็ตรหัสผ่านด้วยลิงก์ทางอีเมล", "Một tài khoản quản trị viên đã đặt lại mật khẩu bằng liên kết qua email"),
+        [TitleAdminTwoFactorReset] = ("另一位系統管理員的雙因素驗證被重設", "Another system administrator's two-factor authentication was reset",
+            "การยืนยันตัวตนสองขั้นตอนของผู้ดูแลระบบอีกคนถูกรีเซ็ต", "Xác thực hai lớp của một quản trị viên khác đã bị đặt lại"),
+        [TitleTwoFactorFailures] = ("有帳號的驗證碼連續錯誤，已暫停輸入", "An account had too many wrong verification codes and code entry was paused",
+            "มีบัญชีที่กรอกรหัสยืนยันผิดติดต่อกันหลายครั้ง จึงหยุดรับรหัสชั่วคราว", "Một tài khoản nhập sai mã xác minh nhiều lần liên tiếp và đã bị tạm dừng nhập mã"),
+        [TitleRescueConfigLeft] = ("緊急救援設定（Auth:ResetAdminPassword）還沒移除", "The emergency rescue setting (Auth:ResetAdminPassword) has not been removed",
+            "ยังไม่ได้ลบการตั้งค่ากู้คืนฉุกเฉิน (Auth:ResetAdminPassword)", "Cài đặt cứu hộ khẩn cấp (Auth:ResetAdminPassword) vẫn chưa được gỡ bỏ"),
+        [TitleKeysNotPersisted] = ("伺服器沒有保存加密金鑰，雙因素驗證無法啟用", "The server does not keep its encryption keys, so two-factor authentication cannot be turned on",
+            "เซิร์ฟเวอร์ไม่ได้เก็บคีย์เข้ารหัสไว้ จึงเปิดใช้การยืนยันตัวตนสองขั้นตอนไม่ได้", "Máy chủ không lưu khóa mã hóa nên không thể bật xác thực hai lớp"),
+        [TitleKeysMayBeLost] = ("金鑰可能遺失：已綁定的雙因素與寄信密碼可能解不開", "Encryption keys may be lost: existing two-factor setups and the email password may no longer be readable",
+            "คีย์อาจสูญหาย: การยืนยันตัวตนสองขั้นตอนที่ตั้งไว้และรหัสผ่านอีเมลอาจถอดรหัสไม่ได้", "Khóa có thể đã mất: xác thực hai lớp đã thiết lập và mật khẩu email có thể không giải mã được"),
         [TitleChannel] = ("告警信寄不出去（{0}）", "Alert emails cannot be sent ({0})", "ส่งอีเมลแจ้งเตือนไม่ได้ ({0})", "Không gửi được email cảnh báo ({0})"),
         [TitleChannelCode] = ("，伺服器回應 {0}", ", server replied {0}", ", เซิร์ฟเวอร์ตอบ {0}", ", máy chủ trả lời {0}"),
         [TitleConfig] = ("規則「{0}」設定有問題：{1}", "Rule \"{0}\" has a setup problem: {1}", "กฎ \"{0}\" มีปัญหาการตั้งค่า: {1}",

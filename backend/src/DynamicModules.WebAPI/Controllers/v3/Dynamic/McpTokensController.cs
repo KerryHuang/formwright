@@ -10,7 +10,7 @@ namespace DynamicModules.WebAPI.Controllers.v3.Dynamic;
 [Route("api/v3/dynamic")]
 public class McpTokensController(IMediator mediator, ClientIpResolver clientIp, IConfiguration config) : ControllerBase
 {
-    public record CreateTokenBody(string? Name, List<string>? Scopes, DateOnly? ExpiresOn, string? Password);
+    public record CreateTokenBody(string? Name, List<string>? Scopes, DateOnly? ExpiresOn, string? Password, string? Code = null, string? RecoveryCode = null);
 
     /// <summary>伺服器網址沿用站台網址 <c>App:PublicUrl</c>（舊鍵 <c>Ops:PublicUrl</c>，判斷 15）；沒設時用這個請求的 scheme＋host。</summary>
     [HttpGet("me/mcp")]
@@ -26,7 +26,7 @@ public class McpTokensController(IMediator mediator, ClientIpResolver clientIp, 
 
     [HttpPost("me/mcp/tokens")]
     public async Task<IActionResult> Create(CreateTokenBody body) =>
-        (await mediator.Send(new CreateMcpTokenRequest(body.Name, body.Scopes, body.ExpiresOn, body.Password, clientIp.Resolve(HttpContext))))
+        (await mediator.Send(new CreateMcpTokenRequest(body.Name, body.Scopes, body.ExpiresOn, body.Password, clientIp.Resolve(HttpContext), body.Code, body.RecoveryCode)))
         .ToActionResult(this);
 
     [HttpPost("me/mcp/tokens/{id:long}/revoke")]

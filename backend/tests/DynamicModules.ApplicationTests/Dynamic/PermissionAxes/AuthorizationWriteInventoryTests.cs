@@ -96,6 +96,12 @@ public class AuthorizationWriteInventoryTests
         new($"{Repo}AccountMailRepositories.cs", "SkipUnsentAsync"),  // 改 Email、停用時取消還沒寄的帶連結信，呼叫端交易內
         new($"{Repo}AccountMailRepositories.cs", "PurgeBatchAsync"),  // 帳號信佇列終態（MailOutbox）與過期帳號權杖（AccountToken）分批清除，PurgeOpsBatchRequest 交易＋清理稽核
         new($"{Repo}AccountMailRepositories.cs", "PurgeExpiredDevicesBatchAsync"), // 過期的記住裝置（TrustedDevice）分批清除，同上
+        new($"{Repo}TwoFactorRepository.cs", "TryClaimAttemptAsync"),  // 帳號層第二步佔名額（AppUser 兩欄原子更新），刻意在請求交易外立即提交（帳號安全設計 §8.3 複審 N5）
+        new($"{Repo}TwoFactorRepository.cs", "ClearFailuresAsync"),    // 第二因素成功清帳號層計數與暫停，ConsumeSecondFactor／CompleteTwoFactorLogin 交易內
+        new($"{Repo}TwoFactorRepository.cs", "TryAdvanceStepAsync"),   // TOTP 重放的條件式更新（AppUser.TotpLastStep），同上交易內
+        new($"{Repo}TwoFactorRepository.cs", "TryUseRecoveryCodeAsync"), // 復原碼只能用一次（UserRecoveryCode.UsedUtc IS NULL），同上交易內
+        new($"{Repo}TwoFactorRepository.cs", "DeleteRecoveryCodesAsync"), // 綁定、關閉、重新產生、管理員重設、救援時刪復原碼，呼叫端交易內（救援在啟動時）
+        new($"{Repo}TwoFactorRepository.cs", "DeleteTrustedDevicesAsync"), // 同上刪記住的裝置（TrustedDevice，清理用；失效靠換 stamp）
         new($"{Repo}ApprovalRepositories.cs", "TryReplaceDraftAsync"), // 簽核流程（ApprovalFlow）草稿樂觀鎖
         new($"{Repo}ApprovalRepositories.cs", "RemoveAsync"),         // 刪簽核流程的版本（ApprovalFlowVersion）
         new($"{Repo}ApprovalRepositories.cs", "TryBumpRowVersionAsync"), // 簽核實例（ApprovalInstance）列版本

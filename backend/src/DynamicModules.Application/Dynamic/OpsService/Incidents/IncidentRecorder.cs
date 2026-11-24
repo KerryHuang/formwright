@@ -96,7 +96,7 @@ public sealed class IncidentRecorder(
     /// <summary>新開（警告以上）、回歸、升級會通知；安全類每次發生都通知（O2-U11）；資訊級一律不通知。</summary>
     private static bool ShouldNotify(IncidentSignal s, IncidentTransition t)
     {
-        if (s.Severity == IncidentSeverity.Info) return false;
+        if (s.Severity == IncidentSeverity.Info || s.Quiet) return false;
         if (s.Source == IncidentSource.Security) return t is IncidentTransition.Opened or IncidentTransition.Regressed or IncidentTransition.Updated;
         return t is IncidentTransition.Opened or IncidentTransition.Regressed or IncidentTransition.Escalated;
     }

@@ -89,6 +89,7 @@ public static class DependencyInjection
         services.AddScoped<IMailSettingsRepository, MailSettingsRepository>();
         services.AddScoped<IMailOutboxRepository, MailOutboxRepository>();
         services.AddScoped<IAccountTokenRepository, AccountTokenRepository>();
+        services.AddScoped<ITwoFactorRepository, TwoFactorRepository>();
         services.AddScoped<IBackupRepository, BackupRepository>();
         services.AddScoped<IOpsLockRepository, OpsLockRepository>();
         services.AddScoped<ILocaleRepository, LocaleRepository>();

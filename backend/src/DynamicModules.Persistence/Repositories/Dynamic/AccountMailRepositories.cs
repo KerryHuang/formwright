@@ -51,6 +51,9 @@ public class MailOutboxRepository(DynamicDbContext db) : IMailOutboxRepository
                 .SetProperty(r => r.ClaimedBy, (string?)null)
                 .SetProperty(r => r.ClaimedUntilUtc, (DateTime?)null), ct);
 
+    public Task<bool> AnySinceAsync(string userId, string kind, DateTime sinceUtc, CancellationToken ct) =>
+        Rows.AnyAsync(r => r.UserId == userId && r.Kind == kind && r.CreatedUtc >= sinceUtc, ct);
+
     public async Task<(List<MailOutbox> Items, int Total)> ListPageAsync(int page, int pageSize, CancellationToken ct)
     {
         var total = await Rows.CountAsync(ct);

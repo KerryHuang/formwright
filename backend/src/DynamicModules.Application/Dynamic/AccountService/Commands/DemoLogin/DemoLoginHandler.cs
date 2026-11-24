@@ -16,7 +16,8 @@ namespace DynamicModules.Application.Dynamic.AccountService.Commands.DemoLogin;
 /// 另在查資料庫前限制每來源總嘗試量（成功也算，<see cref="LoginThrottle.TryDemoAttempt"/>），逐次登入公開帳號也灌不了。被擋下的只加計數器、不寫稽核。
 /// </summary>
 public class DemoLoginHandler(
-    AuthSettings settings, IAccountRepository accounts, IUnitOfWork uow, LoginThrottle throttle, IAuditLog audit, ILogger<DemoLoginHandler> logger)
+    AuthSettings settings, IAccountRepository accounts, IUnitOfWork uow, LoginThrottle throttle, IAuditLog audit, TwoFactor.DemoTwoFactorHints hints,
+    TimeProvider time, ILogger<DemoLoginHandler> logger)
     : IRequestHandler<DemoLoginRequest, ServiceResult>
 {
     private static readonly string? Method = new AuditSummary().Add("method", "demo").ToJson();
@@ -44,7 +45,9 @@ public class DemoLoginHandler(
             throttle.Release(key, ip);   // 例外不算失敗，歸還名額
             throw;
         }
-        throttle.Complete(key, ip, result.IsSuccess);
+        // 已啟用雙因素（只有 mfa01）：比照密碼登入，這一次只歸還名額，第二步自己結算（帳號安全設計 §8.3 第 1 點）
+        if (result.Data is TwoFactor.TwoFactorChallenge) throttle.Release(key, ip);
+        else throttle.Complete(key, ip, result.IsSuccess);
         return result;
     }
 
@@ -60,6 +63,14 @@ public class DemoLoginHandler(
             // 寫不進稽核不擋登入；行為者明確傳入（失敗為 null），不從請求帶的舊 cookie 取（維運設計 §17.2.1）
             await audit.TryWriteNowAsync(SignInAudit.Failed(user?.UserId, reason, Method), ct);
             return ServiceResult.Unauthorized(MessageRef.Of(MessageText.LoginFailed));
+        }
+
+        // 已啟用雙因素的示範帳號（mfa01）同樣走第二步（§8.3 第 8 點），提示目前的驗證碼與一組復原碼（§13.4）
+        if (user.TotpEnabledUtc is not null)
+        {
+            logger.LogInformation("帳號 {UserId} 一鍵登入進入雙因素第二步", user.UserId);
+            var ticket = new SecondStepTicket(user.UserId, user.SecurityStamp, time.GetUtcNow().UtcDateTime, SecondStepTickets.NewNonce());
+            return ServiceResult.Success(new TwoFactor.TwoFactorChallenge(ticket, await hints.ForAsync(user.UserId, ct)));
         }
 
         if (user.MustChangePassword)

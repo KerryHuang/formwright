@@ -40,6 +40,8 @@ public sealed record IncidentSignal
     public string? NotificationKind { get; init; }
     /// <summary>健康檢查的轉換識別碼與補寫資訊：寄送佇列列對照直送紀錄（§17.2.6）；其他來源為 null。</summary>
     public AlertBackfill? Backfill { get; init; }
+    /// <summary>只累加次數、不通知（站內與告警信）：第二步暫停的 24 小時去重（帳號安全設計 §8.3、Q23）。</summary>
+    public bool Quiet { get; init; }
 }
 
 /// <summary>一次訊號造成的轉換（決定要不要通知，§17.2.2「轉換與通知」）。</summary>

@@ -56,7 +56,13 @@ public record DesignerActionsResponse(bool Read, bool Add, bool Edit, bool Delet
 public record MeResponse(
     string UserId, string DisplayName, bool IsSystemAdmin, bool MustChangePassword,
     List<GroupBriefResponse> Groups, DesignerActionsResponse Designer, bool IsDemoAccount, MeThemeResponse Theme,
-    bool PermissionAdmin = false);
+    bool PermissionAdmin = false, MeTwoFactorResponse? TwoFactor = null);
+
+/// <summary>
+/// <c>GET /me</c> 的雙因素（帳號安全設計 §8.7）。au1c1 沒有強制政策：<paramref name="Required"/> 恆為 false、<paramref name="GraceUntil"/> 恆為 null；
+/// 記住的裝置與 <c>twoFactorEnrollmentRequired</c> 由 au1c2 加。
+/// </summary>
+public record MeTwoFactorResponse(bool Enabled, bool Required, DateTime? GraceUntil, int RecoveryCodesLeft);
 
 public static class PermissionMapping
 {

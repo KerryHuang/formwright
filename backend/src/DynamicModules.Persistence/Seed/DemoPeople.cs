@@ -93,13 +93,22 @@ public static class DemoPeople
     /// </summary>
     public static async Task EnsureAccountSecurityAsync(DynamicDbContext db, DateTime nowUtc, CancellationToken ct = default)
     {
-        // 「雙因素示範」帳號（§13.1）：不加入任何群組（不改動既有群組成員數與提及候選）；au1b 先建帳號與已驗證 Email，
-        // 讓忘記密碼在 Demo 站有成功路徑（只限這個帳號，§13.2）；雙因素金鑰與復原碼由 au1c 補上
-        if (!await db.Set<AppUser>().AnyAsync(u => u.UserId == MfaUser.Id, ct))
-            db.Set<AppUser>().Add(new AppUser
+        // 「雙因素示範」帳號（§13.1）：不加入任何群組（不改動既有群組成員數與提及候選）；已驗證 Email（忘記密碼在 Demo 站的成功路徑只限
+        // 這個帳號，§13.2）、已啟用雙因素與 10 組固定復原碼的雜湊。**不寫** TotpSecretProtected：建置 Demo 映像後金鑰會被刪掉，
+        // Demo 站每次啟動用當下的金鑰加密寫回（§13.3，EnsureDemoMfaSecretRequest）
+        var mfa = await db.Set<AppUser>().FirstOrDefaultAsync(u => u.UserId == MfaUser.Id, ct);
+        if (mfa is null)
+            db.Set<AppUser>().Add(mfa = new AppUser
             {
                 UserId = MfaUser.Id, DisplayName = MfaUser.Name, IsDemoAccount = true, Email = $"{MfaUser.Id}@example.com", EmailVerifiedUtc = nowUtc,
             });
+        if (mfa.TotpEnabledUtc is null)
+        {
+            mfa.TotpEnabledUtc = nowUtc;
+            if (!await db.Set<UserRecoveryCode>().AnyAsync(c => c.UserId == MfaUser.Id, ct))
+                db.Set<UserRecoveryCode>().AddRange(Application.Dynamic.DemoService.DemoAccounts.MfaRecoveryCodes.Select(c =>
+                    new UserRecoveryCode { UserId = MfaUser.Id, CodeHash = Domain.Accounts.RecoveryCodes.Hash(c)!, CreatedUtc = nowUtc }));
+        }
         var ids = Users.Select(u => u.Id).ToList();
         foreach (var user in await db.Set<AppUser>().Where(u => ids.Contains(u.UserId) && u.Email == null).ToListAsync(ct))
         {

@@ -352,6 +352,9 @@ public static class AccountMailComposer
             _ => m.Get(locale, AccountMailText.IntroOf(row.Kind)),
         };
         body.AppendLine(intro);
+        // 雙因素被關閉時標出是誰做的（管理員重設或本人關閉，帳號安全設計 §8.8）
+        if (row.Kind == MailKinds.TwoFactorDisabled && p.GetValueOrDefault("by") is { } by)
+            body.AppendLine(m.Get(locale, by == "admin" ? AccountMailText.ByAdmin : AccountMailText.BySelf));
         if (link is not null)
         {
             body.AppendLine(link);

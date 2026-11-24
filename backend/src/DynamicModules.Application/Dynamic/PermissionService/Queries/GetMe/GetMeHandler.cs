@@ -10,7 +10,7 @@ namespace DynamicModules.Application.Dynamic.PermissionService.Queries.GetMe;
 
 public class GetMeHandler(
     ICurrentUser current, IPermissionRepository permissions, IDynamicAccessGuard guard,
-    ISystemSettingRepository settings, AuthSettings auth)
+    ISystemSettingRepository settings, AuthSettings auth, ITwoFactorRepository twoFactor)
     : IRequestHandler<GetMeRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(GetMeRequest request, CancellationToken ct)
@@ -28,6 +28,8 @@ public class GetMeHandler(
         return ServiceResult.Success(new MeResponse(user.UserId, user.DisplayName, user.IsSystemAdmin, user.MustChangePassword, groups, designer, user.IsDemoAccount,
             ThemeResolver.ForUser(user, await ThemeResolver.ReadDefaultsAsync(settings, ct), auth.DemoLoginEnabled),
             // 有效結果（權限軸設計 §8）：管理員自動有、群組與個人合併、停用為 false
-            await guard.IsPermissionAdminAsync(ct)));
+            await guard.IsPermissionAdminAsync(ct),
+            new MeTwoFactorResponse(user.TotpEnabledUtc is not null, false, null,
+                user.TotpEnabledUtc is null ? 0 : await twoFactor.CountUnusedRecoveryCodesAsync(user.UserId, ct))));
     }
 }

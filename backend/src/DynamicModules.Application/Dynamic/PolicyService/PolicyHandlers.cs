@@ -29,7 +29,7 @@ public class GetSystemPoliciesHandler(IPolicyReader reader, PolicyOptionSource o
 public class UpdateSystemPolicyHandler(
     ISystemSettingRepository settings, IPolicyReader reader, IUnitOfWork uow, IAccountRepository accounts, IPermissionRepository permissions,
     AuditContext audit, IEnumerable<IPolicyChangeHook> hooks, CachedSystemPolicy cache, AfterCommitActions afterCommit,
-    PolicyOptionSource options, IInstalledLocales installed)
+    PolicyOptionSource options, IInstalledLocales installed, AuthSettings auth)
     : IRequestHandler<UpdateSystemPolicyRequest, ServiceResult>
 {
     /// <summary>
@@ -37,9 +37,14 @@ public class UpdateSystemPolicyHandler(
     /// 設定的讀取是 AsNoTracking，SaveChanges 之前查不到新值，所以 hooks 在 SaveChanges 之後；hook 拒絕時外層交易整個回滾，
     /// 快照的更新登記在 <see cref="AfterCommitActions"/>，提交後才套用、回滾就丟掉（計畫判斷 20）。
     /// </summary>
+    public const string AuthCategory = "auth";
+
     public async Task<ServiceResult> Handle(UpdateSystemPolicyRequest request, CancellationToken ct)
     {
         if (PolicyCatalog.Find(request.Code) is not { } def) return ServiceResult.NotFound(PolicyMessages.NotFound);
+        // Demo 站「帳號安全」分類唯讀（帳號安全設計 §8.7 末段、§10、§22 Demo 完整性守衛）：訪客都是 admin，改了會讓其他訪客的示範壞掉
+        if (auth.DemoLoginEnabled && def.Category == AuthCategory)
+            return ServiceResult.Forbidden(MessageRef.Of(MessageText.PolicyDemoSite), AccountService.TwoFactor.TwoFactorErrors.DemoSiteCode);
         // 稽核的舊值與新值：null＝出廠值（維運設計 §17.2.1）
         var old = await settings.GetValueAsync(def.SettingKey, ct);
         var oldEffective = (await reader.ResolveAsync(def, null, ct)).Effective;

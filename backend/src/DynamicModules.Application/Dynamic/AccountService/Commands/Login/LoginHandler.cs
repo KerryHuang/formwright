@@ -11,11 +11,15 @@ namespace DynamicModules.Application.Dynamic.AccountService.Commands.Login;
 
 public class LoginHandler(
     IAccountRepository accounts, IPasswordService passwords, IUnitOfWork uow, TimeProvider time, LoginThrottle throttle, IAuditLog audit,
-    ILogger<LoginHandler> logger)
+    TwoFactor.DemoTwoFactorHints hints, ILogger<LoginHandler> logger)
     : IRequestHandler<LoginRequest, ServiceResult>
 {
     /// <summary>一次登入嘗試的結果與稽核內容；<see cref="Throttled"/> 的不逐筆寫稽核（O2-T3）。</summary>
-    private sealed record Outcome(ServiceResult Result, string? UserId, string? Reason, bool Throttled = false);
+    private sealed record Outcome(ServiceResult Result, string? UserId, string? Reason, bool Throttled = false)
+    {
+        /// <summary>密碼正確、帳號已啟用雙因素：不算成功也不算失敗（複審 N1），歸還名額、不寫稽核，等第二步結算（帳號安全設計 §8.3）。</summary>
+        public bool SecondStep => Result.Data is TwoFactor.TwoFactorChallenge;
+    }
 
     // 同一帳號的登入序列化：失敗計數是「讀、驗 PBKDF2、寫」，並行猜測會互相覆蓋而超過 5 次。
     // 只在單一站台實例內有效（假設只有一個程序服務這個資料庫；多實例要改用資料庫層的原子更新）。
@@ -27,6 +31,7 @@ public class LoginHandler(
     public async Task<ServiceResult> Handle(LoginRequest request, CancellationToken ct)
     {
         var outcome = await AttemptAsync(request, ct);
+        if (outcome.SecondStep) return outcome.Result;
         if (outcome.Throttled)
         {
             OpsMetrics.LoginThrottled.Add(1);
@@ -64,7 +69,9 @@ public class LoginHandler(
                 throttle.Release(key, ip); // 例外不算失敗，歸還名額
                 throw;
             }
-            throttle.Complete(key, ip, result.Result.Data is AuthUserResponse);
+            // 進到第二步時只歸還名額：不清帳號＋IP 層的失敗紀錄、也不記失敗；第二步自己 TryBegin 結算（§8.3 第 1 點）
+            if (result.SecondStep) throttle.Release(key, ip);
+            else throttle.Complete(key, ip, result.Result.Data is AuthUserResponse);
             return result;
         }
         finally
@@ -103,6 +110,13 @@ public class LoginHandler(
         {
             user.FailedLoginCount = 0;
             await uow.CommitAsync(ct);
+        }
+        // 「密碼正確即成功」在有雙因素時改成「第二步通過才成功」（§16 第 12 點）：發第二步憑證，不發 session
+        if (user.TotpEnabledUtc is not null)
+        {
+            logger.LogInformation("帳號 {UserId} 密碼正確，進入雙因素第二步", user.UserId);
+            var ticket = new SecondStepTicket(user.UserId, user.SecurityStamp, now.UtcDateTime, SecondStepTickets.NewNonce());
+            return new Outcome(ServiceResult.Success(new TwoFactor.TwoFactorChallenge(ticket, await hints.ForAsync(user.UserId, ct))), user.UserId, null);
         }
         logger.LogInformation("帳號 {UserId} 登入成功", user.UserId);
         return new Outcome(ServiceResult.Success(new AuthUserResponse(user.UserId, user.DisplayName, user.MustChangePassword, user.SecurityStamp)), user.UserId, null);

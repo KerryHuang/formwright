@@ -17,7 +17,8 @@ public static partial class IncidentTitles
         AdminChanged = "ops.title.adminChanged", HealthPrefix = "ops.title.health.", ChannelFailed = "ops.title.channelFailed",
         ConfigPrefix = "ops.title.config.", RulePaused = "ops.title.rulePaused", PrivilegeChanged = "ops.title.privilegeChanged",
         McpWriteLoop = "ops.title.mcpWriteLoop", AccountMailFailed = "ops.title.accountMailFailed",
-        AdminEmailChanged = "ops.title.adminEmailChanged", AdminPasswordReset = "ops.title.adminPasswordReset";
+        AdminEmailChanged = "ops.title.adminEmailChanged", AdminPasswordReset = "ops.title.adminPasswordReset",
+        AdminTwoFactorReset = "ops.title.adminTwoFactorReset", TwoFactorFailures = "ops.title.twoFactorFailures", RescueConfigLeft = "ops.title.rescueConfigLeft", KeysNotPersisted = "ops.title.keysNotPersisted", KeysMayBeLost = "ops.title.keysMayBeLost";
 
     /// <summary>JavaScript 內建錯誤名稱；其他一律換成 <c>Error</c>（§17.2.2 標題表）。</summary>
     private static readonly HashSet<string> JsErrorNames = new(StringComparer.Ordinal)
@@ -89,6 +90,11 @@ public static partial class IncidentTitles
                 + (P("serverCode") is { Length: > 0 } ac ? m.Get(locale, AlertMailText.TitleChannelCode, ac) : "")),
             AdminEmailChanged => m.Get(locale, AlertMailText.TitleAdminEmailChanged),
             AdminPasswordReset => m.Get(locale, AlertMailText.TitleAdminPasswordReset),
+            AdminTwoFactorReset => m.Get(locale, AlertMailText.TitleAdminTwoFactorReset),
+            TwoFactorFailures => m.Get(locale, AlertMailText.TitleTwoFactorFailures),
+            RescueConfigLeft => m.Get(locale, AlertMailText.TitleRescueConfigLeft),
+            KeysNotPersisted => m.Get(locale, AlertMailText.TitleKeysNotPersisted),
+            KeysMayBeLost => m.Get(locale, AlertMailText.TitleKeysMayBeLost),
             McpWriteLoop => m.Get(locale, AlertMailText.TitleMcpWriteLoop, P("tokenId"), P("recordId"), P("count"), P("minutes")),
             _ when titleKey.StartsWith(ConfigPrefix, StringComparison.Ordinal) => m.Get(locale, AlertMailText.TitleConfig, P("ruleKey"),
                 AlertMailText.Label(m, locale, "ruleError." + titleKey[ConfigPrefix.Length..])),

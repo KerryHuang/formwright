@@ -74,6 +74,13 @@ public class TestApp : WebApplicationFactory<Program>
     /// <summary>附件的本機儲存根目錄（每個 TestApp 一個，Dispose 時刪除），測試可直接檢查磁碟上有什麼。</summary>
     internal string AttachmentRoot { get; } = Path.Combine(Path.GetTempPath(), $"dm-att-{Guid.NewGuid():N}");
 
+    /// <summary>
+    /// Data Protection 金鑰目錄（每個 TestApp 一個空目錄，Dispose 時刪除）：預設就有設，金鑰「落地」，雙因素可以綁定、也不會每個主機都開
+    /// <c>infra.keysNotPersisted</c>（帳號安全設計 §19 複審建議 A）。要測金鑰不落地時在 <see cref="Settings"/> 把 <c>DataProtection:KeysDirectory</c> 設成空字串；
+    /// 重新啟動（sharedConnectionString）的主機用新的空目錄，等於「換一套金鑰」。
+    /// </summary>
+    internal string KeysRoot { get; set; } = Path.Combine(Path.GetTempPath(), $"dm-keys-{Guid.NewGuid():N}");
+
     /// <summary>額外的設定值（如 Attachments:MaxBytes）；須在 host 啟動前指定。</summary>
     internal Dictionary<string, string?> Settings { get; } = new();
 
@@ -155,6 +162,7 @@ public class TestApp : WebApplicationFactory<Program>
             builder.UseSetting("Database:LockTimeoutSeconds", PostgresLockTimeoutSeconds.ToString(CultureInfo.InvariantCulture));
         }
         builder.UseSetting("Attachments:Root", AttachmentRoot);
+        builder.UseSetting("DataProtection:KeysDirectory", KeysRoot);
         // 背景排程器預設不跑：否則每個測試主機一啟動就補通知，改到既有測試的通知筆數；排程測試自己建 JobRunner 呼叫 TickAsync
         builder.UseSetting("Ops:Scheduler:Enabled", "false");
         // 看門狗的背景迴圈同理不跑；收件匣 flush 不看這個開關，在下面拿掉它的 hosted service。維運測試直接呼叫 OpsWatchdog.TickAsync、IncidentInboxDrain.FlushAsync
@@ -278,6 +286,7 @@ public class TestApp : WebApplicationFactory<Program>
         _keepAlive?.Dispose();
         if (_ownsPostgresDatabase) PostgresTestServer.DropDatabase(_connectionString);
         if (Directory.Exists(AttachmentRoot)) Directory.Delete(AttachmentRoot, recursive: true);
+        try { if (Directory.Exists(KeysRoot)) Directory.Delete(KeysRoot, recursive: true); } catch (IOException) { }
         if (_databaseFile is null) return;
         SqliteConnection.ClearAllPools();
         foreach (var f in Directory.GetFiles(Path.GetDirectoryName(_databaseFile)!, Path.GetFileName(_databaseFile) + "*"))

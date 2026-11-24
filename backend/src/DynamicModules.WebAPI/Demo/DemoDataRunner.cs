@@ -12,8 +12,11 @@ namespace DynamicModules.WebAPI.Demo;
 /// 在背景產生 Demo 資料（singleton）。每次產生開新的 DI scope；背景流程不帶觸發端的 ExecutionContext
 /// （HttpContext、ActingScope 都是 AsyncLocal）。結果只記 log、寫回 Current，不丟出。
 /// </summary>
+/// <summary>這次啟動是不是建置 Demo 映像（<c>--generate-demo-data</c>）。</summary>
+public sealed record DemoBuildMode(bool Building);
+
 public sealed class DemoDataRunner(
-    IServiceScopeFactory scopes, IBusinessTime time, ILogger<DemoDataRunner> log, IHostApplicationLifetime life)
+    IServiceScopeFactory scopes, IBusinessTime time, ILogger<DemoDataRunner> log, IHostApplicationLifetime life, DemoBuildMode build)
     : IDemoDataRunner
 {
     private readonly object _gate = new();
@@ -46,6 +49,9 @@ public sealed class DemoDataRunner(
                 var sender = scope.ServiceProvider.GetRequiredService<ISender>();
                 result = await sender.Send(
                     new GenerateDemoDataRequest(time.Today, new SnapshotProgress(this)), life.ApplicationStopping);
+                // 執行中的 Demo 站產生完資料：新建的 mfa01 用目前的金鑰寫回 TOTP 密文（帳號安全設計 §13.3）；建置映像時不寫
+                if (result.IsSuccess && !build.Building)
+                    await sender.Send(new Application.Dynamic.AccountService.TwoFactor.EnsureDemoMfaSecretRequest(), life.ApplicationStopping);
             }
 
             if (result.IsSuccess)

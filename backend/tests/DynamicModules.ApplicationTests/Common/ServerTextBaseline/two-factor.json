@@ -1,0 +1,62 @@
+{
+  "TwoFactorCodeWrong": {
+    "zh-TW": "驗證碼錯誤或已過期",
+    "en-US": "The verification code is wrong or has expired",
+    "th": "รหัสยืนยันไม่ถูกต้องหรือหมดอายุแล้ว",
+    "vi": "Mã xác minh sai hoặc đã hết hạn"
+  },
+  "TwoFactorLocked": {
+    "zh-TW": "驗證碼錯誤次數過多，請 {0} 分鐘後再試",
+    "en-US": "Too many wrong verification codes. Try again in {0} minutes",
+    "th": "กรอกรหัสยืนยันผิดหลายครั้งเกินไป โปรดลองใหม่ใน {0} นาที",
+    "vi": "Nhập sai mã xác minh quá nhiều lần, vui lòng thử lại sau {0} phút"
+  },
+  "TwoFactorCodeRequired": {
+    "zh-TW": "請輸入驗證碼或一組復原碼（擇一）",
+    "en-US": "Enter either a verification code or a recovery code",
+    "th": "โปรดกรอกรหัสยืนยันหรือรหัสกู้คืนอย่างใดอย่างหนึ่ง",
+    "vi": "Vui lòng nhập mã xác minh hoặc một mã khôi phục (chọn một)"
+  },
+  "TwoFactorKeysNotPersisted": {
+    "zh-TW": "伺服器沒有保存加密金鑰，重啟後雙因素會失效，請管理員先完成部署設定",
+    "en-US": "The server does not keep its encryption keys, so two-factor authentication would stop working after a restart. Ask the administrator to finish the deployment settings first",
+    "th": "เซิร์ฟเวอร์ไม่ได้เก็บคีย์เข้ารหัสไว้ การยืนยันตัวตนสองขั้นตอนจะใช้ไม่ได้หลังรีสตาร์ต โปรดให้ผู้ดูแลระบบตั้งค่าการติดตั้งให้เสร็จก่อน",
+    "vi": "Máy chủ không lưu khóa mã hóa nên xác thực hai lớp sẽ mất hiệu lực sau khi khởi động lại, hãy nhờ quản trị viên hoàn tất cài đặt triển khai trước"
+  },
+  "TwoFactorDemoSite": {
+    "zh-TW": "Demo 站不能變更雙因素驗證",
+    "en-US": "Two-factor authentication cannot be changed on the demo site",
+    "th": "ไม่สามารถเปลี่ยนการยืนยันตัวตนสองขั้นตอนในไซต์เดโมได้",
+    "vi": "Không thể thay đổi xác thực hai lớp trên trang demo"
+  },
+  "TwoFactorNotEnabled": {
+    "zh-TW": "尚未啟用雙因素驗證",
+    "en-US": "Two-factor authentication is not turned on",
+    "th": "ยังไม่ได้เปิดใช้การยืนยันตัวตนสองขั้นตอน",
+    "vi": "Chưa bật xác thực hai lớp"
+  },
+  "TwoFactorSetupExpired": {
+    "zh-TW": "綁定已逾時或尚未開始，請重新開始",
+    "en-US": "The setup has expired or was not started. Start again",
+    "th": "การตั้งค่าหมดเวลาหรือยังไม่ได้เริ่ม โปรดเริ่มใหม่",
+    "vi": "Quá trình thiết lập đã hết hạn hoặc chưa bắt đầu, vui lòng bắt đầu lại"
+  },
+  "TwoFactorRequired": {
+    "zh-TW": "你在必須使用雙因素驗證的範圍內，不能關閉，只能重新綁定",
+    "en-US": "Two-factor authentication is required for you, so it cannot be turned off. You can only set it up again",
+    "th": "คุณอยู่ในกลุ่มที่ต้องใช้การยืนยันตัวตนสองขั้นตอน จึงปิดไม่ได้ ทำได้เพียงตั้งค่าใหม่",
+    "vi": "Bạn thuộc phạm vi bắt buộc dùng xác thực hai lớp nên không thể tắt, chỉ có thể thiết lập lại"
+  },
+  "TwoFactorUseAccountSecurity": {
+    "zh-TW": "自己的雙因素驗證請到「帳號安全」頁關閉或重新綁定",
+    "en-US": "To change your own two-factor authentication, use the Account security page",
+    "th": "หากต้องการเปลี่ยนการยืนยันตัวตนสองขั้นตอนของคุณเอง โปรดไปที่หน้า \"ความปลอดภัยของบัญชี\"",
+    "vi": "Để thay đổi xác thực hai lớp của chính bạn, hãy vào trang \"Bảo mật tài khoản\""
+  },
+  "PolicyDemoSite": {
+    "zh-TW": "Demo 站不能修改帳號安全政策",
+    "en-US": "Account security policies cannot be changed on the demo site",
+    "th": "ไม่สามารถแก้ไขนโยบายความปลอดภัยของบัญชีในไซต์เดโมได้",
+    "vi": "Không thể sửa chính sách bảo mật tài khoản trên trang demo"
+  }
+}

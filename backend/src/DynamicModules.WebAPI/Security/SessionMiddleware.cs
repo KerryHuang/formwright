@@ -74,7 +74,9 @@ public class SessionMiddleware(RequestDelegate next)
         // 寄信重設密碼（§7）：申請、檢查連結、用連結設新密碼
         || (HttpMethods.IsPost(method) && path.Equals(AuthPrefix + "forgot-password", StringComparison.OrdinalIgnoreCase))
         || (HttpMethods.IsPost(method) && path.Equals(AuthPrefix + "reset-password/check", StringComparison.OrdinalIgnoreCase))
-        || (HttpMethods.IsPost(method) && path.Equals(AuthPrefix + "reset-password", StringComparison.OrdinalIgnoreCase));
+        || (HttpMethods.IsPost(method) && path.Equals(AuthPrefix + "reset-password", StringComparison.OrdinalIgnoreCase))
+        // 登入第二步（§8.3）：持第二步憑證 cookie，憑證檢查在 handler
+        || (HttpMethods.IsPost(method) && path.Equals(AuthPrefix + "two-factor", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// 登入與否都收的端點：有身分時照常檢查，檢查不過就當匿名。前端錯誤收件；介面文字（cookie 過期的人在登入頁照樣取得到啟用語系，

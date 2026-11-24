@@ -12,7 +12,7 @@ namespace DynamicModules.WebAPI.Controllers.v3.Dynamic;
 
 [ApiController]
 [Route("api/v3/dynamic/auth")]
-public class AuthController(IMediator mediator, ClientIpResolver clientIp) : ControllerBase
+public class AuthController(IMediator mediator, ClientIpResolver clientIp, Application.Common.Security.ISecondStepTicketCodec tickets) : ControllerBase
 {
     public record LoginBody(string? UserId, string? Password);
 
@@ -62,6 +62,27 @@ public class AuthController(IMediator mediator, ClientIpResolver clientIp) : Con
     public async Task<IActionResult> ResetPassword(ResetPasswordBody body) =>
         (await mediator.Send(new ResetPasswordByLinkRequest(body.Token, body.NewPassword, clientIp.Resolve(HttpContext)))).ToActionResult(this);
 
+    public record TwoFactorBody(string? Code, string? RecoveryCode);
+
+    /// <summary>
+    /// 登入第二步（帳號安全設計 §8.3 第 3 點）：只收第二步憑證 cookie（Path 限本端點），成功才發 session cookie、清憑證 cookie。
+    /// 憑證失效（<c>twoFactorExpired</c>）時也清掉，前端回到輸入密碼。
+    /// </summary>
+    [HttpPost("two-factor")]
+    public async Task<IActionResult> TwoFactor(TwoFactorBody body)
+    {
+        var result = await mediator.Send(new Application.Dynamic.AccountService.TwoFactor.TwoFactorLoginRequest(
+            SecondStepCookie.Read(HttpContext), body.Code, body.RecoveryCode, clientIp.Resolve(HttpContext)));
+        if (result.Data is Application.Dynamic.AccountService.TwoFactor.TwoFactorLoginResult ok)
+        {
+            SecondStepCookie.Clear(HttpContext);
+            await AuthCookies.SignInAsync(HttpContext, ok.User);
+            return Ok(new { ok.User.UserId, ok.User.DisplayName, ok.User.MustChangePassword, ok.RecoveryCodesLeft });
+        }
+        if (result.Code == Application.Dynamic.AccountService.TwoFactor.TwoFactorErrors.ExpiredCode) SecondStepCookie.Clear(HttpContext);
+        return result.ToActionResult(this);
+    }
+
     [HttpPost("logout")]
     public async Task<IActionResult> Logout()
     {
@@ -73,9 +94,14 @@ public class AuthController(IMediator mediator, ClientIpResolver clientIp) : Con
     public async Task<IActionResult> ChangePassword(ChangePasswordBody body) =>
         await SignInOnSuccess(await mediator.Send(new ChangePasswordRequest(body.OldPassword ?? "", body.NewPassword ?? "", clientIp.Resolve(HttpContext))));
 
-    /// <summary>成功就（重）發 cookie，回應不含 SecurityStamp。</summary>
+    /// <summary>成功就（重）發 cookie，回應不含 SecurityStamp。已啟用雙因素時改發第二步憑證 cookie、不發 session（§8.3 第 1 點）。</summary>
     private async Task<IActionResult> SignInOnSuccess(Application.Common.ServiceResult result)
     {
+        if (result.Data is Application.Dynamic.AccountService.TwoFactor.TwoFactorChallenge challenge)
+        {
+            SecondStepCookie.Issue(HttpContext, tickets.Protect(challenge.Ticket));
+            return Ok(new { twoFactorRequired = true, demoHint = challenge.DemoHint });
+        }
         if (result.Data is not AuthUserResponse user) return result.ToActionResult(this);
         await AuthCookies.SignInAsync(HttpContext, user);
         return Ok(new { user.UserId, user.DisplayName, user.MustChangePassword });

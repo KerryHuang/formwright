@@ -6,7 +6,8 @@ using MediatR;
 
 namespace DynamicModules.Application.Dynamic.AccountService.Queries.AdminListUsers;
 
-public class AdminListUsersHandler(IPermissionRepository permissions, IOrganizationRepository org, TimeProvider time, Common.RequestLocale locale)
+public class AdminListUsersHandler(
+    IPermissionRepository permissions, IOrganizationRepository org, TimeProvider time, Common.RequestLocale locale, TwoFactor.TwoFactorState twoFactor)
     : IRequestHandler<AdminListUsersRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(AdminListUsersRequest request, CancellationToken ct)
@@ -35,7 +36,9 @@ public class AdminListUsersHandler(IPermissionRepository permissions, IOrganizat
                 departments.TryGetValue(u.UserId, out var d) ? d : null,
                 Common.Security.SystemPrivilegeRules.Direct(personal),
                 Common.Security.SystemPrivilegeRules.Effective(u, fromGroups.Cast<ProgramPrivilege>().Concat(personal)),
-                sources, u.Email, u.EmailVerifiedUtc is not null);
+                sources, u.Email, u.EmailVerifiedUtc is not null,
+                // 帳號安全設計 §10：off／on／unreadable（金鑰解不開，例如不帶金鑰還原備份後）
+                twoFactor.Of(u.TotpSecretProtected, u.TotpEnabledUtc));
         }).ToList());
     }
 }

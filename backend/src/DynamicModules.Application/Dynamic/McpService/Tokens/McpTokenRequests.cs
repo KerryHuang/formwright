@@ -12,8 +12,16 @@ public sealed record GetMyMcpInfoRequest(string ServerBaseUrl) : IRequest<Servic
 
 public sealed record ListMyMcpTokensRequest : IRequest<ServiceResult>;
 
-/// <summary>建立權杖；<paramref name="Password"/> 是重新輸入的登入密碼，與登入同一套降速（判斷 16），不寫進稽核。</summary>
-public sealed record CreateMcpTokenRequest(string? Name, IReadOnlyList<string>? Scopes, DateOnly? ExpiresOn, string? Password, string? ClientIp)
+/// <summary>
+/// 建立權杖外層（帳號安全設計 §8.9、§8.12）：不是交易型請求——重新輸入的密碼與（已啟用雙因素時的）驗證碼或復原碼走 <c>IReauthVerifier</c>，
+/// 與登入同一套降速（判斷 16），失敗的稽核與帳號層計數不會被交易回滾；通過才送內層 <see cref="ApplyCreateMcpTokenRequest"/>。密碼與碼不寫進稽核。
+/// </summary>
+public sealed record CreateMcpTokenRequest(
+    string? Name, IReadOnlyList<string>? Scopes, DateOnly? ExpiresOn, string? Password, string? ClientIp, string? Code = null, string? RecoveryCode = null)
+    : IRequest<ServiceResult>;
+
+/// <summary>建立權杖內層（交易）：只收重新驗證的結果與檢查過的輸入，一開始重比 stamp、重查每人上限（§8.9 第 5 點）。</summary>
+public sealed record ApplyCreateMcpTokenRequest(Common.Security.ReauthResult Reauth, string Name, IReadOnlyList<string> Scopes, DateOnly ExpiresOn)
     : IRequest<ServiceResult>, ITransactionalRequest, IAuditedRequest
 {
     public AuditAction Audit => AuditAction.For("mcp.token.create", AuditTargets.User, null);

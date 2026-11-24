@@ -20,6 +20,9 @@ public interface IMailOutboxRepository
     /// <summary>把這個帳號還沒寄（pending、sending）的指定種類信標 skipped 並記原因代碼；回傳筆數。</summary>
     Task<int> SkipUnsentAsync(string userId, IReadOnlyCollection<string> kinds, string reason, CancellationToken ct);
 
+    /// <summary>這個帳號在 <paramref name="sinceUtc"/> 之後有沒有這種信（任何狀態；第二步暫停通知的 24 小時去重，§8.3）。</summary>
+    Task<bool> AnySinceAsync(string userId, string kind, DateTime sinceUtc, CancellationToken ct);
+
     /// <summary>寄送紀錄一頁（新到舊，Id 遞減打破同時間）與總筆數。</summary>
     Task<(List<MailOutbox> Items, int Total)> ListPageAsync(int page, int pageSize, CancellationToken ct);
 

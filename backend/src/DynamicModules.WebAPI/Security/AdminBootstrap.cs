@@ -16,14 +16,15 @@ public static class AdminBootstrap
 
     /// <param name="minPasswordLength">密碼最短長度的政策生效值（<c>auth.passwordMinLength</c>，帳號安全設計 §7.6）。</param>
     /// <param name="passwordChanged">救援真的改掉 admin 密碼後（原本不是救援密碼）的共用步驟（作廢重設連結、取消還沒寄的重設信、寄「密碼已變更」，§7.1 第 7 點）。</param>
+    /// <param name="clearTwoFactor">救援時清除 admin 的雙因素（金鑰、復原碼、記住的裝置、帳號層計數與寬限，帳號安全設計 §8.11）；跟著下一次 SaveChanges 寫入。</param>
     public static async Task EnsureAsync(
         DynamicDbContext db, IPasswordService passwords, IConfiguration config, ILogger logger, int minPasswordLength,
-        Func<AppUser, CancellationToken, Task> passwordChanged, CancellationToken ct = default)
+        Func<AppUser, CancellationToken, Task> passwordChanged, Func<AppUser, CancellationToken, Task> clearTwoFactor, CancellationToken ct = default)
     {
         var reset = config["Auth:ResetAdminPassword"];
         if (!string.IsNullOrEmpty(reset))
         {
-            await ResetAsync(db, passwords, reset, logger, minPasswordLength, passwordChanged, ct);
+            await ResetAsync(db, passwords, reset, logger, minPasswordLength, passwordChanged, clearTwoFactor, ct);
             return;
         }
 
@@ -51,7 +52,7 @@ public static class AdminBootstrap
     /// <summary>救援：唯一的管理員忘記密碼或被鎖住時，以設定強制重設 admin；用完要把設定移除。</summary>
     private static async Task ResetAsync(
         DynamicDbContext db, IPasswordService passwords, string password, ILogger logger, int minPasswordLength,
-        Func<AppUser, CancellationToken, Task> passwordChanged, CancellationToken ct)
+        Func<AppUser, CancellationToken, Task> passwordChanged, Func<AppUser, CancellationToken, Task> clearTwoFactor, CancellationToken ct)
     {
         if (password.Length < minPasswordLength)
             throw new InvalidOperationException($"Auth:ResetAdminPassword 至少需要 {minPasswordLength} 個字元");
@@ -67,8 +68,13 @@ public static class AdminBootstrap
         admin.FailedLoginCount = 0;
         admin.LockedUntil = null;
         admin.SecurityStamp = Guid.NewGuid().ToString("N");
+        // 一併清除雙因素（帳號安全設計 §8.11，au1-漏2）：金鑰、綁定中、重放、帳號層計數與暫停、寬限起點，復原碼與記住的裝置；
+        // 不需解任何密文，不帶金鑰還原備份後唯一的管理員也救得回來（§19 風險 1）。救援之後第一次綁定不會卡在舊的暫停或寬限（複審建議 7）
+        var hadTwoFactor = admin.TotpEnabledUtc is not null;
+        await clearTwoFactor(admin, ct);
         if (changed) await passwordChanged(admin, ct);
         await db.SaveChangesAsync(ct);
-        logger.LogWarning("已依 Auth:ResetAdminPassword 重設管理員 admin 的密碼並解除鎖定；請立刻移除這個設定，否則每次啟動都會重設");
+        logger.LogWarning("已依 Auth:ResetAdminPassword 重設管理員 admin 的密碼、解除鎖定並清除雙因素與記住的裝置{TwoFactor}；請立刻移除這個設定，否則每次啟動都會重設",
+            hadTwoFactor ? "（原本已啟用雙因素）" : "");
     }
 }

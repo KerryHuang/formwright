@@ -32,6 +32,7 @@ public class SecurityIncidents(IncidentRecorder recorder, IOpsEnvironment env)
     {
         [AdminEmailChangedCode] = IncidentTitles.AdminEmailChanged,
         [AdminPasswordResetCode] = IncidentTitles.AdminPasswordReset,
+        [AdminTwoFactorResetCode] = IncidentTitles.AdminTwoFactorReset,
     };
 
     /// <summary>系統管理員改了或清空另一位系統管理員的 Email（Q21：送出當下就開，不等驗證）。</summary>
@@ -39,6 +40,51 @@ public class SecurityIncidents(IncidentRecorder recorder, IOpsEnvironment env)
 
     /// <summary>系統管理員帳號用寄信連結重設了密碼（au1-5，§8.10）；全部管理員都看得到（T25）。</summary>
     public const string AdminPasswordResetCode = "security.adminPasswordReset";
+
+    /// <summary>重設了另一位系統管理員的雙因素（au1-8，§8.10）。</summary>
+    public const string AdminTwoFactorResetCode = "security.adminTwoFactorReset";
+
+    /// <summary>某帳號第二步連續失敗達上限（§8.3）；同帳號 24 小時內只通知一次（Q23），之後只累加次數。</summary>
+    public const string TwoFactorFailuresCode = "security.twoFactorFailures";
+
+    /// <summary>啟動時偵測到 <c>Auth:ResetAdminPassword</c> 仍設著（§8.11）。</summary>
+    public const string RescueConfigLeftCode = "security.rescueConfigLeft";
+
+    /// <summary>Development 環境金鑰不落地（§8.7）。</summary>
+    public const string KeysNotPersistedCode = "infra.keysNotPersisted";
+
+    /// <summary>金鑰目錄有設、但這次啟動是新的金鑰環，而資料庫已有密文（§8.7，複審建議 B、I）。</summary>
+    public const string KeysMayBeLostCode = "infra.keysMayBeLost";
+
+    /// <summary>第二步暫停（§8.3）：樣本只存觸發那一筆稽核的 Id 與帳號；<paramref name="quiet"/>＝24 小時內已通知過，只累加次數。</summary>
+    public Task TwoFactorFailuresAsync(AuditLogEntry audit, bool quiet, CancellationToken ct) => recorder.RecordAsync(new IncidentSignal
+    {
+        Fingerprint = ErrorFingerprint.ForInfra("security", TwoFactorFailuresCode), Source = IncidentSource.Security, Category = IncidentCategory.Security,
+        Severity = IncidentSeverity.Warning, Code = TwoFactorFailuresCode, TitleKey = IncidentTitles.TwoFactorFailures, OccurredUtc = audit.OccurredUtc,
+        Version = env.Version, RequestId = audit.RequestId, Quiet = quiet,
+        Sample = new IncidentSampleData(audit.OccurredUtc, audit.RequestId, audit.TargetId, null, null, AuditLogId: audit.Id),
+        Link = $"/system/audit?id={audit.Id}",
+    }, ct);
+
+    /// <summary>
+    /// 啟動時偵測到的事件（救援設定沒移除、金鑰不落地、金鑰可能遺失）：每次啟動記一次，同指紋聚合累加次數。
+    /// 金鑰兩種歸「基礎設施」類別；來源同安全類（不屬於健康檢查定義，免得被健康檢查的恢復判斷結掉）。
+    /// </summary>
+    public Task StartupAsync(string code, DateTime nowUtc, CancellationToken ct)
+    {
+        var (title, category, severity) = code switch
+        {
+            RescueConfigLeftCode => (IncidentTitles.RescueConfigLeft, IncidentCategory.Security, IncidentSeverity.Warning),
+            KeysNotPersistedCode => (IncidentTitles.KeysNotPersisted, IncidentCategory.Infra, IncidentSeverity.Warning),
+            KeysMayBeLostCode => (IncidentTitles.KeysMayBeLost, IncidentCategory.Infra, IncidentSeverity.Critical),
+            _ => throw new InvalidOperationException($"啟動事件代碼 {code} 沒有登記"),
+        };
+        return recorder.RecordAsync(new IncidentSignal
+        {
+            Fingerprint = ErrorFingerprint.ForInfra(category == IncidentCategory.Infra ? "infra" : "security", code), Source = IncidentSource.Security,
+            Category = category, Severity = severity, Code = code, TitleKey = title, OccurredUtc = nowUtc, Version = env.Version,
+        }, ct);
+    }
 
     /// <summary>帳號安全的安全事件；樣本只存那一筆稽核的 Id 與行為者（§8.10）。由 AuditBehavior 在稽核列同一交易呼叫。</summary>
     public Task AccountEventAsync(AuditLogEntry audit, string code, CancellationToken ct)

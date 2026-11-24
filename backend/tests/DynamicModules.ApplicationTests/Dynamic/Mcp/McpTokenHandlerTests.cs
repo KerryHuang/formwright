@@ -28,6 +28,14 @@ public abstract class McpTokenTestBase : DesignerTestBase
     {
         services.AddSingleton<TimeProvider>(Clock);
         services.AddSingleton<IPasswordService, FakePasswords>();
+        services.AddSingleton<ITotpSecretProtector, PlainTotpProtector>();
+    }
+
+    /// <summary>重新驗證會用到雙因素（帳號安全設計 §8.12）；Data Protection 在 WebAPI，這裡用不加密的替身。</summary>
+    private sealed class PlainTotpProtector : ITotpSecretProtector
+    {
+        public string Protect(byte[] secret) => Convert.ToBase64String(secret);
+        public byte[]? TryUnprotect(string? protectedText) => protectedText is null ? null : Convert.FromBase64String(protectedText);
     }
 
     /// <summary>正式的 PBKDF2 實作在 WebAPI；這裡只要「對的密碼驗得過、錯的驗不過」。</summary>

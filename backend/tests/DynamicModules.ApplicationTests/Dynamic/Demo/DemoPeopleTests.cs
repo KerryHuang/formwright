@@ -70,6 +70,11 @@ public class DemoPeopleTests
         users.Should().HaveCount(DemoPeople.Users.Length + 1);
         users.Should().Contain(u => u.UserId == "mfa01" && u.DisplayName == "雙因素示範" && u.EmailVerifiedUtc != null);
         (await host.Db.Context.Set<UserGroupMapping>().AsNoTracking().AnyAsync(m => m.UserId == "mfa01")).Should().BeFalse();
+        // 帳號安全設計 §13.1、§13.3：已啟用雙因素、10 組復原碼雜湊；建置時不寫 TOTP 密文（啟動時才用當下的金鑰寫回）
+        var mfa = users.Single(u => u.UserId == "mfa01");
+        mfa.TotpEnabledUtc.Should().NotBeNull();
+        mfa.TotpSecretProtected.Should().BeNull();
+        (await host.Db.Context.Set<UserRecoveryCode>().AsNoTracking().CountAsync(c => c.UserId == "mfa01" && c.UsedUtc == null)).Should().Be(10);
         users.Should().OnlyContain(u => u.Email == u.UserId + "@example.com");
         users.Where(u => u.EmailVerifiedUtc == null).Select(u => u.UserId).Should().Equal(DemoPeople.UnverifiedEmailUser);
         (await host.Db.Context.Set<SystemSetting>().AsNoTracking().SingleAsync(s => s.Key == "site.name")).Value.Should().Be("示範科技");

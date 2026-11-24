@@ -22,7 +22,7 @@ public record AdminUserResponse(
     Common.Security.SystemPrivilegesDto? SystemPrivileges = null, Common.Security.SystemPrivilegesDto? EffectiveSystemPrivileges = null,
     List<SystemPrivilegeSourceResponse>? SystemPrivilegeSources = null,
     // 帳號安全設計 §12：Email 與是否已驗證（清單顯示「未驗證」）
-    string? Email = null, bool EmailVerified = false);
+    string? Email = null, bool EmailVerified = false, string TwoFactor = "off");
 
 /// <summary>系統權限的來源：<c>group</c>（有任一系統權限的群組）或 <c>systemAdmin</c>（其餘欄位不輸出）。</summary>
 public record SystemPrivilegeSourceResponse(

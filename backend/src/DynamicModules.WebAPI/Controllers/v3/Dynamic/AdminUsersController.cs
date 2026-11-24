@@ -73,6 +73,11 @@ public class AdminUsersController(IMediator mediator) : ControllerBase
     public async Task<IActionResult> SendResetLink(string id) =>
         (await mediator.Send(new Application.Dynamic.AccountService.PasswordReset.SendResetLinkRequest(id))).ToActionResult(this);
 
+    /// <summary>重設對方的雙因素（帳號安全設計 §8.8）：清驗證器、復原碼與記住的裝置，登出對方所有裝置；不能對自己。</summary>
+    [HttpPost("{id}/reset-two-factor")]
+    public async Task<IActionResult> ResetTwoFactor(string id) =>
+        (await mediator.Send(new Application.Dynamic.AccountService.TwoFactor.ResetUserTwoFactorRequest(id))).ToActionResult(this);
+
     [HttpPost("{id}/deactivate")]
     public async Task<IActionResult> Deactivate(string id) => (await mediator.Send(new SetUserActiveRequest(id, false))).ToActionResult(this);
 
