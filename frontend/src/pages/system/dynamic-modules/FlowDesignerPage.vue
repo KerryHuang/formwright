@@ -17,13 +17,16 @@ import DesignerIssues from 'src/presentation/dynamic/approval-designer/graph/Des
 import DraftConflictDialog from 'src/presentation/dynamic/approval-designer/graph/DraftConflictDialog.vue';
 import PublishDialog from 'src/presentation/dynamic/approval-designer/graph/PublishDialog.vue';
 import DesignerCanvas from 'src/presentation/dynamic/approval-designer/graph/DesignerCanvas.vue';
+import DesignerPalette from 'src/presentation/dynamic/approval-designer/graph/DesignerPalette.vue';
 import DesignerPropertyPanel from 'src/presentation/dynamic/approval-designer/graph/DesignerPropertyPanel.vue';
 import DesignerTrialPanel from 'src/presentation/dynamic/approval-designer/graph/DesignerTrialPanel.vue';
 import DesignerToolbar from 'src/presentation/dynamic/approval-designer/graph/DesignerToolbar.vue';
-import { FLOW_SELECTION, toVueFlow } from 'src/presentation/dynamic/approval-designer/graph/designer-graph';
+import { FLOW_SELECTION, toVueFlow, type AddKind } from 'src/presentation/dynamic/approval-designer/graph/designer-graph';
 import type { TrialOverlay } from 'src/presentation/dynamic/approval-designer/graph/designer-trial';
 import { useDesignerActions } from 'src/presentation/dynamic/approval-designer/graph/use-designer-actions';
 import { useGraphDesigner } from 'src/presentation/dynamic/approval-designer/graph/use-graph-designer';
+import { useStructureEdit } from 'src/presentation/dynamic/approval-designer/graph/use-structure-edit';
+import { useApprovalLimits } from 'src/presentation/dynamic/approval-designer/use-approval-limits';
 import { isForbidden, type ApiError } from 'src/services/api/http';
 import { i18n } from 'src/i18n/instance';
 import { installedLocales } from 'src/i18n/locale-settings';
@@ -125,7 +128,38 @@ function toggleTrial() {
 }
 function endTrial() { trialOpen.value = false; trialOverlay.value = null; }
 
-const canvas = ref<{ fitAll(): void; focusNode(id: string, rightInset?: number): void } | null>(null);
+type Point = { x: number; y: number };
+const canvas = ref<{ fitAll(): void; focusNode(id: string, rightInset?: number): void; dropAt(x: number, y: number): { position: Point; edgeId: string | null } | null; centerPosition(): Point } | null>(null);
+
+// ---- 結構編輯（fg3e，§10.3）：平板以上、有編輯權才有節點面板、連線、線上「＋」、刪除與整理排版；手機與唯讀不顯示（§10.5、U62）----
+const structure = computed(() => canEdit.value && !phone.value);
+const approvalLimits = useApprovalLimits(moduleKey);
+const edit = useStructureEdit(designer, {
+  structure: () => structure.value,
+  limits: () => ({ ready: approvalLimits.ready.value, maxStages: approvalLimits.limits.value.maxStages, maxBranches: approvalLimits.limits.value.maxBranches }),
+});
+function onPaletteDrop(kind: AddKind, x: number, y: number) {
+  const hit = canvas.value?.dropAt(x, y);
+  if (hit) edit.place(kind, hit.position, hit.edgeId);
+}
+function onPaletteAdd(kind: AddKind) {
+  const at = canvas.value?.centerPosition();
+  if (at) edit.place(kind, at, null);
+}
+async function tidy() {
+  edit.tidy();
+  await nextTick();
+  canvas.value?.fitAll();
+}
+/** Delete（與 Mac 的 Backspace）刪除選取的節點或線（J75 deleteKeyCode=null，走自己的動作）；焦點在輸入框、對話框、選單裡時不攔。 */
+function onKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+  if (!structure.value || !edit.removable.value || e.defaultPrevented || e.isComposing) return;
+  const el = e.target as HTMLElement | null;
+  if (el?.closest?.('input, textarea, select, [contenteditable="true"], .q-dialog, .q-menu')) return;
+  e.preventDefault();
+  edit.remove();
+}
 const vf = computed(() => {
   const state = designer.state.value;
   if (!state) return { nodes: [], edges: [] };
@@ -176,8 +210,8 @@ function onBeforeUnload(e: BeforeUnloadEvent) {
   e.preventDefault();
   e.returnValue = '';
 }
-onMounted(() => window.addEventListener('beforeunload', onBeforeUnload));
-onBeforeUnmount(() => window.removeEventListener('beforeunload', onBeforeUnload));
+onMounted(() => { window.addEventListener('beforeunload', onBeforeUnload); window.addEventListener('keydown', onKeydown); });
+onBeforeUnmount(() => { window.removeEventListener('beforeunload', onBeforeUnload); window.removeEventListener('keydown', onKeydown); });
 </script>
 
 <template>
@@ -201,9 +235,10 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', onBeforeUnload)
           :readonly="!canEdit" :phone="phone" :show-flow-props="!docked" :undoable="designer.undoable.value" :redoable="designer.redoable.value"
           :list-open="listOpen" :trial-open="trialOpen" :dirty="designer.dirty.value" :busy="actions.busy.value" :error-count="actions.errorCount.value"
           :can-discard="designer.server.value.published && designer.server.value.hasDraft" :can-delete="!designer.server.value.isNew && !designer.server.value.published"
+          :structure="structure" :removable="edit.removable.value"
           @fit="canvas?.fitAll()" @flow-props="openFlowProps" @undo="designer.undo()" @redo="designer.redo()"
           @validate="actions.validate()" @save="actions.saveDraft()" @publish="actions.requestPublish()" @issues="actions.issuesOpen.value = true" @node-list="listOpen = !listOpen" @trial="toggleTrial"
-          @discard="confirmDiscard = true" @delete-flow="confirmDelete = true"
+          @discard="confirmDiscard = true" @delete-flow="confirmDelete = true" @relayout="tidy" @remove="edit.remove()"
         />
       </div>
       <q-banner v-if="!canEdit" dense class="bg-info-soft" data-testid="de-readonly">{{ t('approval.designer.graph.readonlyBanner') }}</q-banner>
@@ -211,11 +246,14 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', onBeforeUnload)
       <DesignerNodeList v-if="listOpen" :designer="designer" :selection="selection" @pick="(id: string) => pickIssue({ kind: 'node', id })" @close="listOpen = false" />
       <DesignerIssues v-if="actions.issuesOpen.value" :designer="designer" @pick="pickIssue" @close="actions.issuesOpen.value = false" />
       <div class="col row no-wrap de-body">
+        <DesignerPalette v-if="structure" :kinds="edit.paletteItems.value" :compact="tablet" @drop="onPaletteDrop" @add="onPaletteAdd" />
         <div class="col de-canvas-wrap">
           <DesignerCanvas
             ref="canvas" :canvas-id="canvasId" :nodes="vf.nodes" :edges="vf.edges" :draggable="canEdit && !phone" :initial-nodes="initialNodes"
+            :can-connect="edit.connectable" :insert-kinds="edit.insertItems.value"
             @node-open="(id: string) => open({ kind: 'node', id })" @edge-open="(id: string) => open({ kind: 'edge', id })" @pane-click="onPaneClick"
             @node-move="(id: string, to: { x: number; y: number }) => designer.move(id, to)"
+            @connect="edit.link" @edge-insert="edit.insert"
           />
           <aside v-if="tablet && panelOpen && !trialOpen" class="de-drawer" :style="{ width: `${panelWidth}px` }" data-testid="de-drawer">
             <DesignerPropertyPanel :designer="designer" :selection="selection" :module="moduleQuery.data.value!" :workflow="workflow.data.value!" closable @close="panelOpen = false" />
@@ -266,6 +304,17 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', onBeforeUnload)
         <q-card-actions align="right">
           <q-btn v-close-popup flat no-caps :label="t('approval.designer.graph.cancel')" />
           <q-btn v-close-popup color="negative" unelevated no-caps :label="t('approval.designer.graph.deleteFlow')" data-testid="delete-confirm" @click="actions.deleteFlow()" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+    <q-dialog :model-value="edit.askFork.value !== null" aria-labelledby="de-fork-title" @update:model-value="(v: boolean) => { if (!v) edit.answerFork(null); }">
+      <q-card style="min-width: min(420px, 92vw)" data-testid="fork-dialog">
+        <q-card-section id="de-fork-title" class="text-h6 q-pb-none">{{ t('approval.designer.graph.removeForkTitle') }}</q-card-section>
+        <q-card-section>{{ t('approval.designer.graph.removeForkBody') }}</q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat no-caps :label="t('approval.designer.graph.cancel')" data-testid="fork-cancel" @click="edit.answerFork(null)" />
+          <q-btn flat no-caps :label="t('approval.designer.graph.removeForkOnly')" data-testid="fork-only" @click="edit.answerFork(false)" />
+          <q-btn color="negative" unelevated no-caps :label="t('approval.designer.graph.removeForkWithJoin')" data-testid="fork-with-join" @click="edit.answerFork(true)" />
         </q-card-actions>
       </q-card>
     </q-dialog>
