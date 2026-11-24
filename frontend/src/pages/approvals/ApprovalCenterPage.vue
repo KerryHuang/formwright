@@ -77,7 +77,7 @@ const stage = (r: ApprovalInboxItem) => {
   return resolveI18n(r.stageName ?? undefined, locale.value) || '—';
 };
 const moment = (v: string | null) => (v ? date.formatDate(new Date(v), 'YYYY-MM-DD HH:mm') : '—');
-const open = (r: ApprovalInboxItem) => { void router.push(`/dynamic/${r.moduleKey}/${r.recordId}`); };
+const open = (r: ApprovalInboxItem) => { void router.push({ path: `/dynamic/${r.moduleKey}/${r.recordId}`, query: { via: 'approval' } }); };
 
 const columns = computed(() => [
   { name: 'title', label: t('approval.center.columns.title'), align: 'left' as const, field: 'titleSnapshot' },

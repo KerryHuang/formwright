@@ -5,7 +5,6 @@ import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { useRecordApproval } from 'src/application/dynamic/queries/approval-queries';
 import { useDeleteRecord, useRecord } from 'src/application/dynamic/queries/records-queries';
-import { useQueryClient } from '@tanstack/vue-query';
 import { useModuleSchema, useRecordScopedSchema } from 'src/application/dynamic/queries/schema-queries';
 import { hasApprovalActions } from 'src/presentation/dynamic/approval/approval-actions';
 import ApprovalHistoryOnly from 'src/presentation/dynamic/approval/ApprovalHistoryOnly.vue';
@@ -39,18 +38,17 @@ const router = useRouter();
 const moduleKey = computed(() => String(route.params.moduleKey));
 const recordId = computed(() => Number(route.params.id));
 
-const qc = useQueryClient();
-const recordQuery = useRecord(recordId);
-// The record answers first whether this is the approver's temporary read (approvalGrant): then the plain schema would only be refused.
-// Without a cached plain schema it waits for that answer, so a grant user never sends a request that is sure to fail.
-const plainSchemaEnabled = computed(() => !recordQuery.isPending.value || qc.getQueryData(['schema', moduleKey.value]) !== undefined);
-const schemaQuery = useModuleSchema(moduleKey, computed(() => plainSchemaEnabled.value && !recordQuery.data.value?.approvalGrant));
-// An approver without read access gets the schema through the temporary right of the open task.
-const viaGrant = computed(() => !!recordQuery.data.value?.approvalGrant || isForbidden(schemaQuery.error.value));
+// Opened from the approval center (?via=approval): the user may hold only the temporary read right, so ask for the record-scoped schema
+// right away instead of sending a plain request that would be refused. Without the hint (notification links etc.) the plain schema
+// goes out in parallel with the record, and only a refusal falls back to the record-scoped one.
+const viaApproval = computed(() => route.query.via === 'approval');
+const schemaQuery = useModuleSchema(moduleKey, computed(() => !viaApproval.value));
+const viaGrant = computed(() => viaApproval.value || isForbidden(schemaQuery.error.value));
 const grantSchemaQuery = useRecordScopedSchema(moduleKey, recordId, viaGrant);
 const schema = computed(() => schemaQuery.data.value ?? grantSchemaQuery.data.value);
-// While the plain schema is refused (or skipped for a grant), the record-scoped request decides what went wrong.
+// While the plain schema is refused (or skipped), the record-scoped request decides what went wrong.
 const schemaError = computed(() => (viaGrant.value ? grantSchemaQuery.error.value : schemaQuery.error.value));
+const recordQuery = useRecord(recordId);
 const del = useDeleteRecord();
 const confirming = ref(false);
 const blocked = ref<DeleteBlocked | null>(null);

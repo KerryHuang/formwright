@@ -48,7 +48,7 @@ const approvalOf = (current: ApprovalInstanceView | null, previous: ApprovalInst
 const gone = (status: number) => Promise.reject({ status });
 
 let qc: QueryClient;
-async function mountPage(setup: () => void) {
+async function mountPage(setup: () => void, path = '/dynamic/m/5') {
   vi.clearAllMocks();
   setActivePinia(createPinia());
   useIdentityStore().setSession('fin');
@@ -61,7 +61,7 @@ async function mountPage(setup: () => void) {
   api.getPrintTemplates.mockResolvedValue([]);
   setup();
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/dynamic/:moduleKey/:id', component: DetailPage }] });
-  await router.push('/dynamic/m/5');
+  await router.push(path);
   const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
   qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const Host = { render: () => h(quasar.QLayout, null, () => h(quasar.QPageContainer, null, () => h(DetailPage))) };
@@ -270,15 +270,38 @@ describe('DetailPage temporary read', () => {
     expect(api.getModuleSchema).toHaveBeenCalledWith('m');
   });
 
-  it('grant user: the plain schema is never requested (no 403 before the record-scoped one)', async () => {
+  it('opened from the approval center (via=approval): the plain schema is never requested', async () => {
     const w = await mountPage(() => {
       api.getModuleSchema.mockImplementation((_k, recordId) => (recordId === undefined ? gone(403) : Promise.resolve(grantSchema())));
       api.getRecord.mockResolvedValue(record(true));
       api.getRecordApproval.mockResolvedValue(approvalOf(instance()));
-    });
+    }, '/dynamic/m/5?via=approval');
     expect(api.getModuleSchema).toHaveBeenCalledTimes(1);
     expect(api.getModuleSchema).toHaveBeenCalledWith('m', 5);
     expect(has(w, 'approval-grant-banner')).toBe(true);
+    w.unmount();
+  });
+
+  it('without the hint the plain schema goes out in parallel with the record (does not wait for it)', async () => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+    api.getModuleSchema.mockResolvedValue(grantSchema());
+    api.getRecord.mockReturnValue(new Promise(() => {}) as never); // never answers
+    api.getRecordApproval.mockResolvedValue(approvalOf(null));
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/dynamic/:moduleKey/:id', component: DetailPage }] });
+    await router.push('/dynamic/m/5');
+    const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
+    const Host = { render: () => h(quasar.QLayout, null, () => h(quasar.QPageContainer, null, () => h(DetailPage))) };
+    const w = mount(Host, {
+      global: {
+        plugins: [[quasar.Quasar, { components: quasar, directives: quasar, plugins: { Notify: quasar.Notify } }], router, i18n,
+          [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]],
+      },
+    });
+    await flushPromises();
+    expect(api.getRecord).toHaveBeenCalled();
+    expect(api.getModuleSchema).toHaveBeenCalledTimes(1);
+    expect(api.getModuleSchema).toHaveBeenCalledWith('m');
     w.unmount();
   });
 

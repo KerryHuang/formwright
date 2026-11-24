@@ -178,17 +178,17 @@ describe('ApprovalCenterPage', () => {
     expect(q('approval-row-5')!.getAttribute('tabindex')).toBe('0');
     q('approval-row-5')!.click();
     await flushPromises();
-    expect(router.currentRoute.value.fullPath).toBe('/dynamic/po/9');
+    expect(router.currentRoute.value.fullPath).toBe('/dynamic/po/9?via=approval');
     await router.push('/approvals');
     await flushPromises();
     q('approval-row-6')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     await flushPromises();
-    expect(router.currentRoute.value.fullPath).toBe('/dynamic/po/10');
+    expect(router.currentRoute.value.fullPath).toBe('/dynamic/po/10?via=approval');
     await router.push('/approvals');
     await flushPromises();
     q('approval-row-5')!.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
     await flushPromises();
-    expect(router.currentRoute.value.fullPath).toBe('/dynamic/po/9');
+    expect(router.currentRoute.value.fullPath).toBe('/dynamic/po/9?via=approval');
     w.unmount();
   });
 
