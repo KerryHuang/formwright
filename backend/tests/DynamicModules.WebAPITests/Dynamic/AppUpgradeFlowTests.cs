@@ -987,4 +987,18 @@ public class AppUpgradeFlowTests : IDisposable
         wf.RequiresApproval(Option("sent"), Option("won")).Should().BeTrue("需簽核在流程建好後補上");
         _rig.Db(db => db.Set<ApprovalFlow>().Count(f => f.Key.StartsWith("uf-"))).Should().Be(2);
     }
+
+    /// <summary>#98 S3：新轉移只有部分群組被略過時，升級也像開啟一樣給 warning（只開放給有對應的群組）。</summary>
+    [Fact]
+    public async Task S3_NewTransitionPartlySkippedGroups_WarnsLikeOpen()
+    {
+        await OpenAsync(skipWh: true);
+        await NewVersionAsync(p => Wf(p)["transitions"]!.AsArray().Add(JsonNode.Parse("""{ "from": "check", "to": "returned", "groups": ["wh", "sales"] }""")));
+        var preview = await PreviewAsync();
+        var res = await ApplyAsync(preview, Defaults(preview));
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        var applied = await JsonOf(res);
+        applied.GetProperty("warnings").EnumerateArray().Select(w => w.GetString()).Should().Contain(w => w!.Contains("check → returned") && w.Contains("有群組沒有對應"));
+        WorkflowOf().Transitions.Single(t => t.From == Option("check") && t.To == Option("returned")).GroupIds.Should().Equal(_rig.GroupId("sales-manager"));
+    }
 }

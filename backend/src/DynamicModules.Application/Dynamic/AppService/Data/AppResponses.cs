@@ -115,6 +115,9 @@ public static class AppMessages
     public static string UpgradeItemMissingDependency(string ids) => $"要一起套用：{ids}";
     public static string UpgradeStrictMissing(string what) => $"引用的項目不存在：{what}，請一起勾選它";
     public static string UpgradeModulePass(string ids) => $"這一趟包含的項目：{ids}";
+    public static string TransitionSkippedAll(string module, string from, string to) => $"模組「{module}」的轉移 {from} → {to} 的群組都沒有對應，已略過這條轉移";
+    public static string TransitionGroupsPartial(string module, string from, string to) => $"模組「{module}」的轉移 {from} → {to} 有群組沒有對應，只開放給有對應的群組";
+    public static string FlowGroupSubstituted(string flow, string group) => $"簽核流程「{flow}」的群組「{group}」沒有對應，已由備援簽核人頂替";
     public static string UpgradeTitleFieldMissing(string title) => $"標題用到的欄位不存在：{title}，請一起勾選它";
     public static string ImportVersionNotNewer(string id, string version) => $"套件代碼已存在：{id}（目前版號 {version}）";
 

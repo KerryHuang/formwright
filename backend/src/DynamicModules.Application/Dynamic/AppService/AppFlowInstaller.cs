@@ -90,11 +90,11 @@ public sealed class AppFlowInstaller(ISender sender, IModuleRepository modules, 
                 // 空群組代表「有 Edit 權限的人都可以」：群組都沒對應時不能退化成空清單，那會放寬權限，整條轉移不建
                 if (TransitionSkipped(t, groupIds.ContainsKey))
                 {
-                    warnings.Add($"模組「{w.Module}」的轉移 {t.From} → {t.To} 的群組都沒有對應，已略過這條轉移");
+                    warnings.Add(AppMessages.TransitionSkippedAll(w.Module, t.From, t.To));
                     continue;
                 }
                 if (mapped.Count < t.Groups.Distinct().Count())
-                    warnings.Add($"模組「{w.Module}」的轉移 {t.From} → {t.To} 有群組沒有對應，只開放給有對應的群組");
+                    warnings.Add(AppMessages.TransitionGroupsPartial(w.Module, t.From, t.To));
                 transitions.Add(new WorkflowTransition(Option(t.From), Option(t.To), mapped));
                 approvals.Add(t.Approval);
             }

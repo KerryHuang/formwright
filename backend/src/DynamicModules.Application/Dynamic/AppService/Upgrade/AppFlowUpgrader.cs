@@ -98,7 +98,7 @@ public sealed class AppFlowUpgrader(ISender sender, IModuleRepository modules, I
             var substitutions = new List<AppApprovalFlowCodec.Substitution>();
             if ((failure = await installer.InstallApprovalFlowsAsync(n with { ApprovalFlows = n.ApprovalFlows.Where(f => newFlows.Contains(f.Code)).ToList() },
                     ids, groupIds, lc, substitutions, ct)) is not null) return failure;
-            warnings.AddRange(substitutions.Select(s => $"簽核流程「{s.FlowName.Resolve(lc)}」的群組「{s.GroupName.Resolve(lc)}」沒有對應，已由備援簽核人頂替"));
+            warnings.AddRange(substitutions.Select(s => AppMessages.FlowGroupSubstituted(s.FlowName.Resolve(lc), s.GroupName.Resolve(lc))));
         }
         foreach (var item in Modified("approvalFlows"))
             if ((failure = await UpdateFlowAsync(item, ctx, ids, groupIds, ct)) is not null) return failure;
@@ -279,10 +279,12 @@ public sealed class AppFlowUpgrader(ISender sender, IModuleRepository modules, I
                 // 群組全部對到略過的整條不建（同開啟的 fail closed）；預覽本來就不列這種轉移，這裡是防禦
                 if (AppFlowInstaller.TransitionSkipped(nt, groupIds.ContainsKey))
                 {
-                    warnings.Add($"模組「{code}」的轉移 {nt.From} → {nt.To} 的群組都沒有對應，已略過這條轉移");
+                    warnings.Add(AppMessages.TransitionSkippedAll(code, nt.From, nt.To));
                     continue;
                 }
-                transitions.Add(new WorkflowTransition(from, to, Groups(nt.Groups), approval));
+                var mapped = Groups(nt.Groups);
+                if (mapped.Count < nt.Groups.Distinct().Count()) warnings.Add(AppMessages.TransitionGroupsPartial(code, nt.From, nt.To));
+                transitions.Add(new WorkflowTransition(from, to, mapped, approval));
             }
             else transitions[index] = transitions[index] with
             {
