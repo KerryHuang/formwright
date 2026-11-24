@@ -1073,6 +1073,9 @@ SSO、AD／LDAP 列第二版候選（使用者 2026-11-17 裁決），au1 不做
 | 站台名稱不能含控制字元 | — | 格式守衛 |
 | 站台網址只認絕對 http(s) 網址 | — | 格式守衛 |
 | Demo 站：只有 `mfa01` 有雙因素、強制不生效、`auth` 政策唯讀、只有 `mfa01` 收重設信、不套帳號層暫停、`mfa01` 不檢查重放、不能取消記住的裝置 | — | Demo 完整性守衛 |
+| 記住裝置的標籤長度、`fw.device` cookie 讀取長度 | 100 字元、100 字元（超過視為無效） | 格式守衛（au1c2，§27） |
+| 強制綁定期間放行的端點 | `/auth/*`、`GET /me`、`POST account/two-factor/setup`、`POST account/two-factor/enable` | 安全檢查（§8.7） |
+| 金鑰不落地（開發環境）時強制暫停 | — | 安全守衛（綁定本來就不能做，強制只會把人鎖住；§8.7、F32） |
 
 ## 23. 留給實作者
 
@@ -1263,3 +1266,46 @@ SSO、AD／LDAP 列第二版候選（使用者 2026-11-17 裁決），au1 不做
 - 使用者管理在 1366 寬時要在表格容器內橫捲才看得到操作欄：不在本段修，主控另開票。
 - **CI r2：登入稽核守衛（修）**：`SecondFactorVerifier` 與 `RecordTwoFactorLockoutHandler` 由重新驗證路徑共用（有 session 身分），不該直接建帶登入標記的稽核。改由呼叫端傳入 `SecondFactorFailureAudit`：重新驗證用 `SecondFactorFailureAudit.Reauth`（`account.reauthFailed`），登入第二步的那一份（`login.failed`、帶登入標記）只在 `TwoFactorLoginHandler.Failures` 建立；暫停紀錄改收呼叫端組好的稽核列。`AuditArchitectureTests` 的允許清單改為登入流程四個 handler（`LoginHandler`、`DemoLoginHandler`、`TwoFactorLoginHandler`、`CompleteTwoFactorLoginHandler`），測試改名 `SignInAudit_IsReferencedOnlyByLoginFlowHandlers`。
 - **走查 r2：Demo 站 mfa01 同一來源錯 5 次後一鍵登入被擋（修）**：根因是第二步錯碼照常 `Complete(false)`，記進帳號＋IP 層；一鍵登入入口（`DemoLoginHandler`）也走 `TryBegin`，同一來源滿 5 次就回「帳號或密碼錯誤」，要等 15 分鐘。改為 Demo 站 `mfa01` 的錯碼（含內層搶輸）只歸還名額、不算進帳號＋IP、IP、帳號層：驗證碼本來就公開提示，計數擋不到任何猜測，只會擋到同一出口的下一位訪客。取代 §26 技術類 11 的「帳號＋IP 層照常」；每張憑證 5 次照常（F35）。**已知限制**：失效憑證重送（S2）仍計入 IP 層，同一來源 15 分鐘內用完 20 張憑證才會擋到一鍵登入，另有一鍵登入每來源 15 分鐘 30 次的總量上限，一般示範碰不到。補測試 `Demo_SameIp_FiveWrongOnOneTicket_OneClickAgain_SignsIn`（原 F27_F35 每張憑證換一個 IP、只錯 4 次，沒抓到）。
+
+## 27. au1c2 實作決定（2026-11-25）
+
+範圍：§8.5 記住這台裝置、§8.7 強制政策四項與寬限、middleware 封鎖、強制綁定頁、寬限提示；`GET /me` 的 `twoFactor.required`、`graceUntil`、`rememberedDevices` 與 `twoFactorEnrollmentRequired`；§18.3 F11–F18、F29、F31 後半、F32 的強制暫停、F37 的「被要求綁定」、F40、F45。不改表（`Dynamic_TrustedDevice`、`AppUser.TwoFactorGraceStartUtc` 在 au1a 已建）。技術類為實作者決定；標「使用者行為」的是代做的行為決定，附例子與選錯代價，審查或使用者可推翻。
+
+**短待辦（實作順序）**：記住裝置後端 → 強制政策後端 → 前端 → Demo 與文件。後端兩部分共用同一個新檔與同一組 repository 方法，合成一個 commit（見「偏離」）。
+
+**技術類**
+
+1. 政策單一來源：五項加在 `PolicyCatalog`（`auth.twoFactorRememberDays` 30／0–90、`auth.twoFactorMode` optional／all／groups、`auth.twoFactorGroups` 收件人型別 0–50 項、`auth.twoFactorRequireAdmins` 是、`auth.twoFactorGraceDays` 0／0–90）與 `shared/policy-catalog.json`。T26 照「先試用既有 `Recipients` 型別」：`PolicyDefinition` 加 `GroupsOnly`，正規化時只收 `group:<id>`（`admins`、`user:` 回 400），`GET system/policies` 多回 `groupsOnly: true`，政策頁的收件人選單只列群組；不新增 `GroupSet` 型別。
+2. 範圍判斷集中在 Domain `TwoFactorScope.From(mode, requireAdmins, groupIds)` 與 `TwoFactorDecision.Of(inScope, enabled, graceStart, graceDays, now)`（純函式）；middleware、`GET /me`、本人關閉的 409、存政策時的批次清除都用同一個範圍。`TwoFactorEnforcement`（scoped）讀快取政策，`Paused`＝Demo 站或金鑰不落地，暫停時範圍是 `Nobody`。
+3. `SessionMiddleware` 不再直接用 `DbContext`，改呼叫 `ITwoFactorRepository.SessionStateAsync(userId, scope)`：同一次依主鍵的查詢投影 `IsActive`、stamp、`MustChangePassword`、`TotpEnabledUtc`、`TwoFactorGraceStartUtc` 與「在範圍內」；`groups` 模式時「在範圍內」多一個群組成員的 `EXISTS` 子查詢（同一次往返）。因此 `TwoFactorRepository` 登記為可讀 `UserGroupMapping` 的檔案（PAX23 清單 3，只讀），`SessionMiddleware` 從 WebAPI 可用 `DbContext` 的清單移除。
+4. 判定順序：匿名可選路徑不判定；先 `MustChangePassword`（403 `passwordChangeRequired`），再雙因素（403 `twoFactorEnrollmentRequired`）。寬限起點要改（記下或清空）時，middleware 送交易型 `SyncTwoFactorGraceRequest`（條件式 `ExecuteUpdate`：記下只在 `TotpEnabledUtc IS NULL AND GraceStart IS NULL`，時間截到微秒），只在要改的那一次寫入。**已知限制**：這筆寫入失敗時記 Warning、照常用「起點＝現在」判定這一次請求，不回 500；寫入一直失敗、寬限天數大於 0 的人，寬限會一直從當下算（不會被擋），屬可觀測（log）的降級。
+5. 存政策時的批次清除（F40）：`TwoFactorPolicyChangeHook`（`IPolicyChangeHook`，在更新政策的交易內、生效值有變時才叫）只處理 mode、groups、requireAdmins 三項，用新的三個生效值算範圍，`ClearGraceOutsideAsync` 一次清掉「還沒啟用、有起點、不在新範圍內」的帳號。寬限天數改變不清起點（§8.7 只列三項）。
+6. 記住這台裝置：cookie `fw.device` 內容是 `AccountLinkTokens.NewToken()`（43 個 base62 字元，≥ 32 bytes 隨機），資料庫只存 SHA-256（`McpSecrets.Hash`）與發行時的 stamp。cookie HttpOnly、SameSite=Strict、Secure 比照 session（`IsHttps`）、Path `/api/v3/dynamic/auth`、`Expires`＝建立時間＋當時的政策天數。有效條件照 §8.5 五項，`TrustedDevices.IsValid` 一處判斷；登入與 Demo 一鍵登入都在密碼正確、帳號啟用雙因素之後才查。最近使用時間以交易型 `TouchTrustedDeviceRequest` 更新，失敗只記 Warning、不擋登入。
+7. 發裝置在 `CompleteTwoFactorLoginHandler` 內（和消耗驗證碼同一交易），超過 20 台時先 `ExecuteDelete` 最舊的、再新增（同交易）。`rememberDevice` 為真但政策是 0 時不發、不回 cookie。
+8. 失效：改密碼（任何路徑，`PasswordChangeEffects`）、停用帳號（`SetUserActiveHandler`）同交易刪該帳號全部列；重設／關閉／重新綁定雙因素與救援沿用 au1c1 的刪除。判斷只靠 stamp 與天數，刪列是清理（F12 有一條測試只換 stamp、不刪列，照樣失效）。
+9. 標籤由前端組（`browserFamily`／`osFamily`，例「Chrome 131／macOS」），後端去控制字元、截 100 字、空白時記 `Other`；cookie 值長度超過 100 視為無效，不查資料庫。
+10. 稽核：本人「全部取消記住」記 `account.trustedDevicesClear`；憑記住的裝置登入時 `login.succeeded` 的 `method` 是 `password+device`，Demo 一鍵登入是 `demo+device`。新登入流程沒有新增 handler，`AuditArchitectureTests.LoginFlowHandlers` 不變。
+11. `ITwoFactorRequirement` 換成 `PolicyTwoFactorRequirement`（依 §8.7 判斷），本人關閉在範圍內時回 409 `twoFactorRequired`，排在驗密碼與驗證碼之前：不佔限流、不推進 `TotpLastStep`、不用掉復原碼（F45）。`TwoFactorStatusResponse` 多 `required`。
+12. 前端：`useIdentityStore` 多 `twoFactorEnrollmentRequired`；守衛在第一次載入 `/me`、登入後（`useStartSession`）與改完密碼後都從 `/me` 補這個旗標，排在強制改密碼之後、載入營運時區之前（期間政策 API 會 403）。使用中收到 403 `twoFactorEnrollmentRequired` 時由 http 攔截器導到 `/account/two-factor-setup`。強制綁定頁不讀帳號安全 API，直接以「未啟用、在範圍內」的狀態重用 `TwoFactorCard` 的綁定對話框，按「我已保存」後解除旗標、清快取、回首頁。
+13. 測試主機：`TestApp` 預設把 `auth.twoFactorRequireAdmins` 的出廠值換成否（`PolicyEnvironmentDefaults.WithForTests`），既有測試的 admin 不必綁定；強制相關測試設 `TwoFactorFactoryPolicy = true` 用程式出廠值。
+14. 交易外的寫入：沒有新增。新增的 `ExecuteUpdate`／`ExecuteDelete`（`TouchTrustedDeviceAsync`、`AddTrustedDeviceAsync` 的刪最舊、`StartGraceAsync`、`ClearGraceAsync`、`ClearGraceOutsideAsync`）都在交易型請求或政策更新交易內，並登記在 `AuthorizationWriteInventoryTests`。
+
+**使用者行為（代做）**
+
+1. 「全部取消記住」不要求重新輸入密碼，按了先確認。例：小陳在網咖勾了記住，回家按一下就能全部取消。選錯代價：偷到 session 的人也能取消，但取消只會讓本人多輸一次驗證碼，不擴大權限。
+2. 「全部取消記住」不換 stamp、不登出目前與其他裝置的 session，只讓下次登入再問驗證碼。選錯代價：想同時踢掉其他裝置的人要改用「改密碼」。
+3. 記住的裝置清單只列仍有效的（過期、stamp 不符、超過目前政策天數的不列），最近使用時間沒有時顯示建立時間。選錯代價：想看歷史的人看不到失效的裝置。
+4. 「記住這台裝置」預設不勾；用復原碼過第二步也能勾。選錯代價：常用裝置的人每次要多勾一下。
+5. 帳號安全頁的「記住的裝置」卡只在已啟用雙因素時顯示；Demo 帳號仍沒有「帳號安全」選單，`mfa01` 走查要在網址列開 `/account/security`。選錯代價：Demo 走查多一步手動輸入網址。
+6. 金鑰解不開（「無法讀取」）但仍是已啟用的帳號，不算「應啟用而沒啟用」，強制不擋；照 au1c1 提示用復原碼重新綁定。選錯代價：這類帳號在修好前仍能只靠復原碼登入（本來就是 au1c1 的行為）。
+7. 寬限提示只在 `required` 且未啟用、而且還在寬限內時顯示，日期以營運時區的「YYYY-MM-DD HH:mm +08:00」格式；「現在啟用」連到帳號安全頁，不直接開對話框。選錯代價：多點一下才開始綁定。
+8. 強制模式下「選用時強制系統管理員」整列唯讀、不顯示儲存與還原鈕，提示「強制時固定包含系統管理員」（後端存檔仍接受，判斷時忽略）。判斷看已存的生效模式，不看畫面上還沒存的草稿。選錯代價：同時改模式與這一項的人要先存模式。
+9. 「存檔後你也必須立刻啟用雙因素驗證」的提示條件：操作者是系統管理員、還沒啟用、目前不在範圍內、存檔後在範圍內，而且寬限天數是 0。前端不知道站台是否暫停強制（開發環境金鑰不落地），暫停時也照樣提示。選錯代價：開發環境多一次確認。
+10. 強制綁定頁沒有回首頁或取消，只有「登出」；帳號沒有密碼（不能綁定）的人不會被豁免，會停在這頁（目前只有 Demo 帳號沒有密碼，而 Demo 站不強制）。選錯代價：日後若有沒密碼的帳號類型，要另外處理。
+
+**偏離與留待**
+
+- 交付分 commit：記住裝置與強制政策的後端共用 `TwoFactorPolicyHandlers.cs`、`ITwoFactorRepository` 與 `SessionMiddleware`，拆開會讓中間的 commit 編不過，所以合成一個後端 commit；前端、文件各一個。
+- 政策頁「只列群組」的收件人選項只有元件內的篩選，沒有前端元件測試；後端 400 的測試在 `GroupsPolicy_OnlyAcceptsGroups`。
+- 四種寬度、淺深主題的畫面走查（強制綁定頁、寬限提示、記住的裝置卡、登入第二步的勾選框）由主控在本機 Demo 安排，本段實作者沒跑瀏覽器。
+
