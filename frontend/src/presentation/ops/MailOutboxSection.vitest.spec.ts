@@ -45,6 +45,15 @@ describe('MailOutboxSection', () => {
     expect(q('mail-outbox-view-1')).toBeNull();
   });
 
+  it('hides the reason column when no row on the page has a reason (au1a walkthrough G3)', async () => {
+    const header = () => [...document.body.querySelectorAll('thead th')].map((th) => th.textContent!.trim());
+    await mountAt({ items: [item(1), item(2)], total: 2 });
+    expect(header()).not.toContain(zhTW.mailOutbox.reason);
+    mounted!.unmount();
+    await mountAt({ items: [item(1), item(2, { status: 'skipped', lastError: 'inactive' })], total: 2 });
+    expect(header()).toContain(zhTW.mailOutbox.reason);
+  });
+
   it('demo inbox at 390px: cards, and View opens the whole message with a clickable relative link', async () => {
     await mountAt({ items: [item(7, { previewBody: '驗證你的 Email\n請點下面的連結\n/verify-email#t=Abc' })], total: 1, demoInbox: true }, 390);
     expect(q('mail-outbox-card-7')).not.toBeNull();
