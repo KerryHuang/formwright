@@ -12,15 +12,13 @@ using DynamicModules.Domain.Data;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.Ops;
 using DynamicModules.Domain.Policies;
-using DynamicModules.WebAPI.Security;
 using DynamicModules.WebAPITests.Ops;
 using FluentAssertions;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Logging.Abstractions;
 using static DynamicModules.WebAPITests.Account.AccountMailKit;
 using static DynamicModules.WebAPITests.Ops.OpsIncidentKit;
 
@@ -386,16 +384,19 @@ public partial class PasswordResetTests
         await Forgot(app, "admin");
         await Dispatch(app);
         sent = ResetToken(mail);
-        await using (var scope = app.Services.CreateAsyncScope())
+        // 走 Program.cs 的實際接線：以救援設定重啟
+        using (var restarted = app.WithWebHostBuilder(b => b.UseSetting("Auth:ResetAdminPassword", "rescue-pass-1")))
         {
-            var effects = scope.ServiceProvider.GetRequiredService<PasswordChangeEffects>();
-            var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Auth:ResetAdminPassword"] = "rescue-pass-1" }).Build();
-            await AdminBootstrap.EnsureAsync(scope.ServiceProvider.GetRequiredService<DynamicDbContext>(),
-                scope.ServiceProvider.GetRequiredService<Application.Common.Security.IPasswordService>(), config, NullLogger.Instance, 8,
-                (u, ct) => effects.ApplyAsync(u, "zh-TW", ct));
+            _ = restarted.CreateClient();
+            (await Check(app, sent)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await Rows(app)).Where(r => r.UserId == "admin" && r.Kind == MailKinds.PasswordChanged).Should().ContainSingle();
         }
-        (await Check(app, sent)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await Rows(app)).Should().Contain(r => r.UserId == "admin" && r.Kind == MailKinds.PasswordChanged);
+        // 救援設定沒拿掉又重啟一次：密碼已經是救援密碼，不再寄「密碼已變更」
+        using (var again = app.WithWebHostBuilder(b => b.UseSetting("Auth:ResetAdminPassword", "rescue-pass-1")))
+        {
+            _ = again.CreateClient();
+            (await Rows(app)).Where(r => r.UserId == "admin" && r.Kind == MailKinds.PasswordChanged).Should().ContainSingle();
+        }
     }
 
     [Fact]

@@ -15,7 +15,7 @@ public static class AdminBootstrap
     private const string PasswordChars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
     /// <param name="minPasswordLength">密碼最短長度的政策生效值（<c>auth.passwordMinLength</c>，帳號安全設計 §7.6）。</param>
-    /// <param name="passwordChanged">救援重設 admin 密碼後的共用步驟（作廢重設連結、取消還沒寄的重設信、寄「密碼已變更」，§7.1 第 7 點）。</param>
+    /// <param name="passwordChanged">救援真的改掉 admin 密碼後（原本不是救援密碼）的共用步驟（作廢重設連結、取消還沒寄的重設信、寄「密碼已變更」，§7.1 第 7 點）。</param>
     public static async Task EnsureAsync(
         DynamicDbContext db, IPasswordService passwords, IConfiguration config, ILogger logger, int minPasswordLength,
         Func<AppUser, CancellationToken, Task> passwordChanged, CancellationToken ct = default)
@@ -58,6 +58,8 @@ public static class AdminBootstrap
 
         var admin = await db.Set<AppUser>().SingleOrDefaultAsync(u => u.UserId == "admin", ct);
         if (admin is null) db.Set<AppUser>().Add(admin = new AppUser { UserId = "admin", DisplayName = "系統管理員" });
+        // 救援設定沒拿掉時每次重啟都會跑到這裡：密碼本來就是救援密碼就不算「改了密碼」，不重複寄「密碼已變更」（au1b 審查次要）
+        var changed = admin.PasswordHash is not { } current || !passwords.Verify(current, password);
         admin.IsActive = true;
         admin.IsSystemAdmin = true;
         admin.PasswordHash = passwords.Hash(password);
@@ -65,7 +67,7 @@ public static class AdminBootstrap
         admin.FailedLoginCount = 0;
         admin.LockedUntil = null;
         admin.SecurityStamp = Guid.NewGuid().ToString("N");
-        await passwordChanged(admin, ct);
+        if (changed) await passwordChanged(admin, ct);
         await db.SaveChangesAsync(ct);
         logger.LogWarning("已依 Auth:ResetAdminPassword 重設管理員 admin 的密碼並解除鎖定；請立刻移除這個設定，否則每次啟動都會重設");
     }
