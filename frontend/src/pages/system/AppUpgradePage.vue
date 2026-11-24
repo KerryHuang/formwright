@@ -8,7 +8,7 @@ import { useAppUpgradePreview, useApplyAppUpgrade, useApps } from 'src/applicati
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import {
-  applyErrorLines, CATEGORY_ORDER, confirmCounts, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatProp, groupItems, isLong,
+  applyErrorLines, CATEGORY_ORDER, confirmSections, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatProp, groupItems, isLong, mastersOnly,
   localItemId, moduleNames, NOT_APPLICABLE, selectableItems, splitSelection, toggleItem,
 } from 'src/presentation/dynamic/upgrade/upgrade-view';
 import type { I18nText } from 'src/domain/dynamic/types';
@@ -135,7 +135,22 @@ function choose(master: string | null, code: string, value: string) {
 }
 
 const confirming = ref(false);
-const summary = computed(() => confirmCounts(allItems.value, selected.value));
+// 確認框分開列應用程式與各主檔的勾選數（走查 G3）
+const confirmParts = computed(() => (data.value ? confirmSections(data.value, selected.value) : []).map((p) => ({
+  ...p,
+  title: p.masterId === null
+    ? t('apps.upgrade.confirmApp', { name: name(data.value!.name) })
+    : t('apps.upgrade.confirmMaster', { name: name(data.value!.masters.find((m) => m.id === p.masterId)!.name) }),
+})));
+// 應用程式版號沒變、只更新共用主檔時，頁首與成功訊息講主檔（走查 G1）
+const mastersLine = computed(() => (data.value ? data.value.masters.map((m) => (m.fromVersion === m.toVersion
+  ? t('apps.upgrade.masterName', { name: name(m.name) })
+  : t('apps.upgrade.masterVersion', { name: name(m.name), from: m.fromVersion, to: m.toVersion }))).join(t('common.listSeparator')) : ''));
+const headerTitle = computed(() => {
+  if (!data.value) return t('apps.title');
+  return mastersOnly(data.value) ? t('apps.upgrade.titleMastersOnly', { masters: mastersLine.value })
+    : t('apps.upgrade.title', { name: name(data.value.name), from: data.value.fromVersion, to: data.value.toVersion });
+});
 // 套用回 400 的逐項原因（§8.3）：項目識別換成名稱；重新預覽後清掉
 const applyErrors = ref<{ label: string; messages: string[] }[]>([]);
 watch(() => data.value?.token, () => { applyErrors.value = []; });
@@ -147,7 +162,8 @@ async function apply() {
     const result = await applying.mutateAsync({ ...body.value, token: data.value.token, ...picked });
     confirming.value = false;
     $q.notify({
-      type: 'positive', timeout: 0, closeBtn: true, message: t('apps.upgrade.applied', { version: data.value.toVersion }),
+      type: 'positive', timeout: 0, closeBtn: true,
+      message: mastersOnly(data.value) ? t('apps.upgrade.appliedMasters', { masters: mastersLine.value }) : t('apps.upgrade.applied', { version: data.value.toVersion }),
       caption: result.warnings?.join('；') || undefined,
     });
     await router.push('/system/apps');
@@ -201,8 +217,7 @@ const viewing = ref<{ title: string; value: string } | null>(null);
       <div class="row items-center q-gutter-sm q-mb-md">
         <q-btn flat dense icon="arrow_back" :to="'/system/apps'" :aria-label="t('apps.upgrade.back')" data-testid="upgrade-back" />
         <div class="text-h6 col" data-testid="upgrade-title">
-          <template v-if="data">{{ t('apps.upgrade.title', { name: name(data.name), from: data.fromVersion, to: data.toVersion }) }}</template>
-          <template v-else>{{ t('apps.title') }}</template>
+          {{ headerTitle }}
         </div>
         <q-btn v-if="data" outline no-caps icon="download" :label="t('apps.upgrade.download')" :loading="downloading"
           data-testid="upgrade-download" @click="download" />
@@ -258,7 +273,8 @@ const viewing = ref<{ title: string; value: string } | null>(null);
                 @update:model-value="(v: string) => choose(s.master, g.code, v)" />
             </div>
           </div>
-          <div v-if="!s.groups.length" class="text-muted q-my-sm">{{ t('apps.upgrade.nothing') }}</div>
+          <div v-if="!s.master && !data.items.length" class="text-muted q-my-sm" data-testid="upgrade-app-no-changes">{{ t('apps.upgrade.appNoChanges') }}</div>
+          <div v-else-if="!s.groups.length" class="text-muted q-my-sm">{{ t('apps.upgrade.nothing') }}</div>
           <q-list v-for="g in s.groups" :key="g.key" bordered separator class="q-mb-md">
             <q-item-label header>{{ groupTitle(g, s.modules) }}</q-item-label>
             <q-item v-for="i in g.items" :key="i.id" class="column items-stretch upgrade-item" data-testid="upgrade-item">
@@ -318,9 +334,15 @@ const viewing = ref<{ title: string; value: string } | null>(null);
         <q-card class="upgrade-dialog" data-testid="upgrade-confirm">
           <q-card-section class="text-subtitle1">{{ t('apps.upgrade.confirmTitle') }}</q-card-section>
           <q-card-section class="q-pt-none">
-            <div v-for="(n, c) in summary.byCategory" :key="c">{{ t(`apps.upgrade.category.${c}`) }}：{{ n }}</div>
-            <div v-if="summary.overwrite" class="text-negative q-mt-sm" data-testid="upgrade-confirm-overwrite">
-              {{ t('apps.upgrade.confirmOverwrite', { n: summary.overwrite }) }}
+            <div v-for="p in confirmParts" :key="p.masterId ?? ''" class="q-mb-sm" data-testid="upgrade-confirm-part">
+              <div class="text-weight-medium">{{ p.title }}</div>
+              <div v-for="(n, c) in p.counts.byCategory" :key="c">{{ t(`apps.upgrade.category.${c}`) }}：{{ n }}</div>
+              <div v-if="p.counts.overwrite" class="text-negative" data-testid="upgrade-confirm-overwrite">
+                {{ t('apps.upgrade.confirmOverwrite', { n: p.counts.overwrite }) }}
+              </div>
+            </div>
+            <div v-if="confirmParts.some((p) => p.masterId !== null)" class="text-warning q-mt-sm" data-testid="upgrade-confirm-shared">
+              {{ t('apps.upgrade.confirmShared') }}
             </div>
             <div class="text-caption text-muted q-mt-sm">{{ t('apps.upgrade.applyHint') }}</div>
           </q-card-section>

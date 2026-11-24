@@ -183,6 +183,24 @@ export function confirmCounts(items: UpgradeItem[], selected: Set<string>): { by
 }
 
 /**
+ * Confirm dialog numbers split by part (walkthrough G3): the app first, then each shared master with something ticked;
+ * parts with nothing ticked are left out. `masterId` is null for the app.
+ */
+export function confirmSections(
+  preview: Pick<UpgradePreview, 'items' | 'masters'>, selected: Set<string>,
+): { masterId: string | null; counts: ReturnType<typeof confirmCounts> }[] {
+  const all = selectableItems(preview);
+  return [
+    { masterId: null as string | null, counts: confirmCounts(preview.items, selected) },
+    ...preview.masters.map((m) => ({ masterId: m.id, counts: confirmCounts(all.filter((i) => i.id.startsWith(`master:${m.id}/`)), selected) })),
+  ].filter((s) => s.counts.total > 0);
+}
+
+/** Only shared masters move (the app's own version stays, T55): the header and success message talk about the masters (walkthrough G1). */
+export const mastersOnly = (preview: Pick<UpgradePreview, 'fromVersion' | 'toVersion' | 'masters'>) =>
+  preview.fromVersion === preview.toVersion && preview.masters.length > 0;
+
+/**
  * 400 from apply (design §8.3): one line per error key, the item part shown with its label.
  * Keys are `items.<id>`, `<id>.<detail>`, `<id>` or `masters.<master id>.items.<id>` (items from {@link selectableItems});
  * ids contain dots, so the longest listed id that prefixes the key wins.

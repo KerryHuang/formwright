@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AppInfo, UpgradeItem } from 'src/services/api/dynamic-api';
 import type { I18nText } from 'src/domain/dynamic/types';
-import { applyErrorLines, confirmCounts, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatProp, formatValue, groupItems, isLong, moduleNames, NOT_APPLICABLE, selectableItems, splitSelection, toggleItem } from './upgrade-view';
+import { applyErrorLines, confirmCounts, confirmSections, mastersOnly, countByChip, DEFAULT_CATEGORIES, defaultSelection, filterItems, formatProp, formatValue, groupItems, isLong, moduleNames, NOT_APPLICABLE, selectableItems, splitSelection, toggleItem } from './upgrade-view';
 
 const item = (id: string, category: UpgradeItem['category'], extra: Partial<UpgradeItem> = {}): UpgradeItem => ({
   id, section: 'fields', module: 'lead', label: null, category, defaultSelected: false, applicable: true, reason: null,
@@ -223,5 +223,26 @@ describe('shared masters', () => {
       { label: 'L(report:byFax)', messages: ['要一起套用：L(master:partner/field:partner.fax)'] },
       { label: 'masters.ghost', messages: ['unknown'] },
     ]);
+  });
+});
+
+describe('walkthrough G1, G3: masters in the header and the confirm dialog', () => {
+  const it_ = (id: string, category: UpgradeItem['category'] = 'newOnly'): UpgradeItem => ({
+    id, section: 'fields', module: 'm', label: null, category, defaultSelected: true, applicable: true, reason: null, dependsOn: [],
+    properties: [], attachedPermissions: [],
+  });
+  const master = (id: string, items: UpgradeItem[], from = '1.0.0', to = '1.0.1') =>
+    ({ id, name: { 'zh-TW': id }, fromVersion: from, toVersion: to, hasBaseline: true, groups: [], items, counts: {} });
+
+  it('counts the app and each master separately, leaving out parts with nothing ticked', () => {
+    const preview = { items: [it_('field:m.a'), it_('field:m.b', 'both')], masters: [master('partner', [it_('field:p.x')]), master('contact', [it_('field:c.y')])] };
+    const sections = confirmSections(preview, new Set(['field:m.b', 'master:partner/field:p.x']));
+    expect(sections.map((s) => [s.masterId, s.counts.total, s.counts.overwrite])).toEqual([[null, 1, 1], ['partner', 1, 0]]);
+  });
+
+  it('only masters move when the app version stays and a master is listed', () => {
+    expect(mastersOnly({ fromVersion: '1.2.0', toVersion: '1.2.0', masters: [master('partner', [])] })).toBe(true);
+    expect(mastersOnly({ fromVersion: '1.2.0', toVersion: '1.3.0', masters: [master('partner', [])] })).toBe(false);
+    expect(mastersOnly({ fromVersion: '1.2.0', toVersion: '1.2.0', masters: [] })).toBe(false);
   });
 });
