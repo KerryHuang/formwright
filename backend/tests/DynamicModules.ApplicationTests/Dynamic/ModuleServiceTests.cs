@@ -52,6 +52,7 @@ public class ModuleServiceTests : IAsyncLifetime
         services.AddScoped<IWorkSavepoints, EfWorkSavepoints>();
         services.AddSingleton<ICurrentUser, FakeUser>();
         services.AddSingleton<IBusinessTime, FakeTime>();
+        services.AddSingleton(new AuthSettings(false));
         _sp = services.BuildServiceProvider();
     }
 
