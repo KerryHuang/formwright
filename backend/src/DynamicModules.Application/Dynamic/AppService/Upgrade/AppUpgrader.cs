@@ -49,7 +49,8 @@ public sealed class AppUpgrader(
     AppDependencyChecker dependencies, ISender sender, IUnitOfWork uow, IBusinessTime time, AppResponseBuilder builder,
     RequestLocale requestLocale, AuditContext audit, IAuditLog auditLog, IMessageCatalog messages,
     IReportRepository reports, ReportDefinitionValidator reportValidator, ICurrentUser user, AppFlowUpgrader flowUpgrader,
-    MasterLifecycle lifecycle, MasterGrants masterGrants, IAppPackageRepository packageRows, ISharedMasterRepository shared)
+    MasterLifecycle lifecycle, MasterGrants masterGrants, IAppPackageRepository packageRows, ISharedMasterRepository shared,
+    Integrations.IntegrationReconciler integrations)
 {
     private static readonly IReadOnlyDictionary<string, long> None = new Dictionary<string, long>();
 
@@ -99,10 +100,12 @@ public sealed class AppUpgrader(
             if (done.Failure is { } f) return f;
             masterApplied += done.Applied;
         }
+        IReadOnlyList<string> touched = [];
         if (mine?.Context is not null)
         {
             var done = await ApplyOneAsync(app, mine, built.Candidate!, selected, body.ModuleKeys, warnings, ct, masterApplied);
             if (done.Failure is { } f) return f;
+            touched = done.Integrations ?? [];
         }
         else
         {
@@ -112,10 +115,14 @@ public sealed class AppUpgrader(
         }
         // 主檔的權限來源有變（新模組、新貢獻），重算有效值（§9.1 第 7 步）
         if (built.Masters.Count > 0 || selected.Any(i => i.Contains('/'))) await lifecycle.RecomputeAsync(ct);
+        // 11. 調和（T52）：主檔與應用程式都套完、最後一次 CommitAsync 之後，只調和這次動到的整合；失敗只進 warnings，不讓套用失敗
+        foreach (var code in touched)
+            try { warnings.AddRange(await integrations.ReconcileAsync(ct, (app.Key, code))); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { warnings.Add($"integration {code}: {ex.Message}"); }
         return ServiceResult.Success(await builder.BuildAsync(app, withDependents: false, warnings, ct));
     }
 
-    private sealed record Outcome(ServiceResult? Failure, int Applied);
+    private sealed record Outcome(ServiceResult? Failure, int Applied, IReadOnlyList<string>? Integrations = null);
 
     /// <summary>
     /// 套一份（應用程式或一份共用主檔）的比對結果（T55：以 Comparison 為參數，應用程式與每份主檔各呼叫一次）。
@@ -392,6 +399,11 @@ public sealed class AppUpgrader(
             if ((failed = await SaveReportsAsync(app, reportItems, n, ctx, state, groupIds, warnings, ct)) is not null) return Stop(failed);
         if ((failed = await flowUpgrader.ApplyTaskRulesAsync(chosen, ctx, idMap, app.Id, warnings, ct)) is not null) return Stop(failed);
 
+        // 9. 整合：已安裝的改安裝項目並登記 ItemsJson、換宣告、補列；這一步不調和（T40、T52）
+        var touched = new List<string>();
+        if (Picked("integrations", out var integrationItems))
+            if ((failed = await ApplyIntegrationsAsync(app, integrationItems, n, touched, ct)) is not null) return Stop(failed);
+
         // 10. 版號、基準（§9.2）、稽核（§9.3）
         var from = app.PackageVersion;
         app.PackageVersion = n.Manifest.Version;
@@ -407,7 +419,7 @@ public sealed class AppUpgrader(
         }
         else WriteAudit(app, from, chosen, skippedCount, grants, masterApplied);
         await uow.CommitAsync(ct);
-        return new Outcome(null, chosen.Count);
+        return new Outcome(null, chosen.Count, touched);
     }
 
     // ---- 現況 ----
@@ -777,6 +789,41 @@ public sealed class AppUpgrader(
             if (input.ReattachBlockId is null) await lifecycle.ResequenceBlocksAsync(module.Id, ct);
         }
         if (contributed.Count > 0) await uow.CommitAsync(ct);
+    }
+
+    /// <summary>
+    /// 整合（§9.6.2 整合、T40）：安裝過的（不論目前是否在跑）先把安裝項目改成新宣告並登記；沒安裝過的只換宣告，之後安裝時照新宣告。
+    /// 新整合補 AppIntegration 列（內建的預設啟用、匯入的要管理員逐一啟用，同開啟）。宣告從新版取整份。
+    /// </summary>
+    private async Task<ServiceResult?> ApplyIntegrationsAsync(App app, List<UpgradeItemResponse> items, AppPackageData n, List<string> touched, CancellationToken ct)
+    {
+        var decls = Integrations.IntegrationDeclarations.Parse(app.IntegrationsJson);
+        var rows = (await apps.ListIntegrationsAsync(ct)).Where(r => r.AppId == app.Id).ToList();
+        var appList = await apps.ListAsync(ct);
+        foreach (var item in items)
+        {
+            var code = item.Id["integration:".Length..];
+            if (n.Integrations.FirstOrDefault(d => d.Code == code) is not { } decl) continue;
+            var row = rows.FirstOrDefault(r => r.Code == code);
+            if (row is { Installed: true } && await integrations.UpgradeInstalledAsync(app, row, decl, appList, ct) is { } failure)
+                return ServiceResult.Invalid(new Dictionary<string, string[]> { [item.Id] = [failure] });
+            var index = decls.FindIndex(d => d.Code == code);
+            if (index >= 0) decls[index] = decl;
+            else decls.Add(decl);
+            if (row is null)
+            {
+                var builtIn = app.Source == AppPackageSource.BuiltIn;
+                apps.AddIntegration(new AppIntegration
+                {
+                    AppId = app.Id, Code = code, Enabled = builtIn,
+                    Status = builtIn ? Integrations.IntegrationStatus.Waiting : Integrations.IntegrationStatus.Disabled
+                });
+            }
+            touched.Add(code);
+        }
+        app.IntegrationsJson = decls.Count == 0 ? null : Integrations.IntegrationDeclarations.ToJson(decls);
+        await uow.CommitAsync(ct);
+        return null;
     }
 
     private async Task<ServiceResult?> SaveReportsAsync(

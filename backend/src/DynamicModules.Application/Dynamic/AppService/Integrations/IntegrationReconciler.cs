@@ -26,7 +26,7 @@ public class IntegrationReconciler(
     IUnitOfWork uow, IWorkSavepoints savepoints, ICurrentUser user, IBusinessTime time, RequestLocale requestLocale)
 {
     /// <summary>調和全部整合；<paramref name="only"/> 指定時只調和那一個；<paramref name="retry"/> 為真時缺的項目補建（管理員確認過）。回傳要給使用者看的警告。</summary>
-    public async Task<List<string>> ReconcileAsync(CancellationToken ct, (string AppKey, string Code)? only = null, bool retry = false)
+    public virtual async Task<List<string>> ReconcileAsync(CancellationToken ct, (string AppKey, string Code)? only = null, bool retry = false)
     {
         // 整合補的欄位與事件來自套件宣告，只要求繁中（判斷 12）
         using var packageText = Common.PackageTextScope.Begin();
@@ -233,7 +233,7 @@ public class IntegrationReconciler(
             if (existing is not null && world.Fields.TryGetValue(existing.FieldId, out var field))
             {
                 if (field.Status != FieldStatus.Active) return $"itemDisabled: 欄位 {name} 已被停用";
-                if (field.Type != f.Type || JsonSerializer.Serialize(field.Config.RefTarget) != JsonSerializer.Serialize(config.RefTarget))
+                if (FieldConflicts(field, f, config))
                     return $"itemConflict: 欄位 {name} 的型別或參照目標被改過；請還原成宣告的定義（保留原欄位）後重試";
                 created.Fields.Add(existing);
                 world.FieldIds[name] = existing.FieldId;
@@ -267,7 +267,7 @@ public class IntegrationReconciler(
             else
             {
                 if (!old.Events.Contains(e.Code)) return $"codeConflict: 事件代碼 {e.Code} 已被其他來源使用";
-                if (Serialize(existing.Definition) != Serialize(input.Definition) || existing.SourceModuleId != world.OwnerModules[e.Source].Id)
+                if (EventConflicts(existing, input, world.OwnerModules[e.Source].Id))
                     return $"itemConflict: 事件 {e.Code} 的定義被改過；請還原成宣告的定義後重試";
                 if (!existing.Active && input.Active)
                 {
@@ -297,7 +297,7 @@ public class IntegrationReconciler(
             else
             {
                 if (!old.Checks.Contains(c.Code)) return $"codeConflict: 檢查代碼 {c.Code} 已被其他來源使用";
-                if (Serialize(existing.Definition) != Serialize(input.Definition)) return $"itemConflict: 檢查 {c.Code} 的定義被改過；請還原成宣告的定義後重試";
+                if (CheckConflicts(existing, input)) return $"itemConflict: 檢查 {c.Code} 的定義被改過；請還原成宣告的定義後重試";
                 if (!existing.Active && input.Active)
                 {
                     if (!allowCreate && old.SuspendedActive?.Checks.Contains(c.Code) != true) return $"itemDisabled: 檢查 {c.Code} 被停用";
@@ -359,6 +359,184 @@ public class IntegrationReconciler(
     }
 
     private static string Serialize<T>(T value) => JsonSerializer.Serialize(value);
+
+    // ---- 一致性比對（EnsureAsync 與升級預覽共用，套件更新設計 §9.6.2 整合、Q24）----
+
+    private static bool FieldConflicts(Field field, AppIntegrationField f, FieldConfig config) =>
+        field.Type != f.Type || JsonSerializer.Serialize(field.Config.RefTarget) != JsonSerializer.Serialize(config.RefTarget);
+
+    private static bool EventConflicts(ModuleEvent existing, EventInput input, long sourceModuleId) =>
+        Serialize(existing.Definition) != Serialize(input.Definition) || existing.SourceModuleId != sourceModuleId;
+
+    private static bool CheckConflicts(ModuleCheck existing, CheckInput input) => Serialize(existing.Definition) != Serialize(input.Definition);
+
+    /// <summary>
+    /// 唯讀的一致性比對（升級預覽用，不建不改）：整合被擋下，或已安裝的欄位、事件、檢查和保存的宣告不一致，回原因；一致回 null。
+    /// 判斷和 <see cref="EnsureAsync"/> 同一份（型別與參照目標、事件與檢查的定義）。夥伴不在、符號解析不到時不在這裡判斷。
+    /// </summary>
+    public async Task<string?> ConflictAsync(App owner, AppIntegration row, AppIntegrationDecl decl, List<App> appList, CancellationToken ct)
+    {
+        if (row.Status == IntegrationStatus.Blocked) return row.Reason ?? IntegrationStatus.Blocked;
+        if (!row.Installed) return null;
+        var (world, _) = await IntegrationWorld.LoadAsync(owner, decl, appList, apps, modules, ct);
+        if (world is null) return null;
+        var items = IntegrationItems.Parse(row.ItemsJson);
+        foreach (var f in decl.Fields)
+        {
+            var name = $"{f.Module}.{f.Code}";
+            if (items.Fields.FirstOrDefault(x => x.Module == f.Module && x.Code == f.Code) is not { } item || !world.Fields.TryGetValue(item.FieldId, out var field)) continue;
+            if (ConfigOf(f, world) is { } config && FieldConflicts(field, f, config)) return $"itemConflict: 欄位 {name}";
+            world.FieldIds[name] = item.FieldId;
+            world.FieldTypes[name] = f.Type;
+        }
+        foreach (var e in decl.Events.Where(e => items.Events.Contains(e.Code)))
+            if (await events.GetByKeyAsync(e.Code, ct) is { } existing && AppEffectsCodec.ToInput(e, world.Lookups([])).Input is { } input
+                && world.OwnerModules.TryGetValue(e.Source, out var source) && EventConflicts(existing, input, source.Id))
+                return $"itemConflict: 事件 {e.Code}";
+        foreach (var c in decl.Checks.Where(c => items.Checks.Contains(c.Code)))
+            if (await checks.GetByKeyAsync(c.Code, ct) is { } existing && AppEffectsCodec.ToInput(c, world.Lookups([])).Input is { } input && CheckConflicts(existing, input))
+                return $"itemConflict: 檢查 {c.Code}";
+        return null;
+    }
+
+    /// <summary>
+    /// 新宣告引用的夥伴模組或欄位解析不到（T51）：回那個夥伴的應用程式 id。夥伴沒開（不存在或已關閉）不判斷，照「沒安裝過」只換宣告。
+    /// 擁有者自己的新欄位還不存在，解析時當成有。
+    /// </summary>
+    public async Task<string?> UnboundPartnerAsync(App owner, AppIntegrationDecl decl, List<App> appList, CancellationToken ct)
+    {
+        var open = decl.With.Where(w => appList.FirstOrDefault(a => a.Key == w.Id) is { Status: AppStatus.Open }).ToList();
+        if (open.Count == 0) return null;
+        foreach (var w in open)
+            if (w.Modules.FirstOrDefault(m => appList.First(a => a.Key == w.Id).Modules.All(x => x.Code != m)) is not null) return w.Id;
+        var partial = decl with { With = open };
+        var (world, _) = await IntegrationWorld.LoadAsync(owner, partial, appList, apps, modules, ct);
+        if (world is null) return open[0].Id;
+        foreach (var f in decl.Fields)
+        {
+            if (ConfigString(f, "app") is { } app && open.Any(w => w.Id == app) && ConfigOf(f, world) is null) return app;
+            world.FieldIds.TryAdd($"{f.Module}.{f.Code}", -1);
+            world.FieldTypes.TryAdd($"{f.Module}.{f.Code}", f.Type);
+        }
+        var missing = new List<string>();
+        var lookups = new AppReportCodec.Lookups(
+            code => world.ModuleKeys.GetValueOrDefault(code) ?? Miss(code),
+            name => world.FieldIds.TryGetValue(name, out var id) ? id : MissId(name),
+            name => world.OptionIds.TryGetValue(name, out var id) ? id : MissId(name),
+            name => world.FieldTypes.TryGetValue(name, out var t) ? t : null);
+        foreach (var e in decl.Events) AppEffectsCodec.ToInput(e, lookups);
+        foreach (var c in decl.Checks) AppEffectsCodec.ToInput(c, lookups);
+        return missing.FirstOrDefault(m => open.Any(w => w.Id == m));
+
+        string? Miss(string symbol)
+        {
+            if (symbol.IndexOf('/') is var slash and > 0) missing.Add(symbol[..slash]);
+            return null;
+        }
+        long? MissId(string symbol)
+        {
+            Miss(symbol);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 升級已安裝過的整合（T40）：把安裝出來的項目改成新宣告，新建的每一項登記進 ItemsJson，宣告拿掉的項目只取消登記、不刪。
+    /// 不改整合的開關：整合目前沒在跑（停用）時，新事件與新檢查建成停用並記進 suspendedActive，恢復時照常打開；
+    /// 夥伴不在（暫停）時新事件、新檢查先不建，恢復時由調和照新宣告補建並登記。
+    /// 回 null 代表成功，否則是失敗原因（呼叫端回 400、整批回滾）。不調和（T52）。
+    /// </summary>
+    public async Task<string?> UpgradeInstalledAsync(App owner, AppIntegration row, AppIntegrationDecl decl, List<App> appList, CancellationToken ct)
+    {
+        var (world, problem) = await IntegrationWorld.LoadAsync(owner, decl, appList, apps, modules, ct);
+        if (world is null) return $"unbound: {problem}";
+        var old = IntegrationItems.Parse(row.ItemsJson);
+        var running = row.Status is IntegrationStatus.Active or IntegrationStatus.Held;
+        // 夥伴不在（暫停中）：新事件、新檢查的目標可能是停用的夥伴模組，建不起來；不建、不登記，恢復時調和照新宣告補建
+        var (present, _) = await PartnersAsync(decl, appList, ct);
+        var next = IntegrationItems.Empty;
+        var suspended = new IntegrationSuspendedItems(new List<string>(old.SuspendedActive?.Events ?? []), new List<string>(old.SuspendedActive?.Checks ?? []));
+
+        foreach (var f in decl.Fields)
+        {
+            var name = $"{f.Module}.{f.Code}";
+            var config = ConfigOf(f, world);
+            if (config is null) return $"unbound: 欄位 {name}";
+            if (old.Fields.FirstOrDefault(x => x.Module == f.Module && x.Code == f.Code) is { } item && world.Fields.TryGetValue(item.FieldId, out var field))
+            {
+                if (FieldConflicts(field, f, config)) return $"itemConflict: 欄位 {name}";
+                // EnsureAsync 只比型別與參照對象：標籤等其他屬性換成新宣告
+                if (JsonSerializer.Serialize(field.LabelI18n) != JsonSerializer.Serialize(f.Label) || Serialize(field.Config) != Serialize(config))
+                {
+                    var updated = await sender.Send(new FieldService.Commands.UpdateField.UpdateFieldRequest(field.Id, f.Type, f.Label, config, field.BlockId), ct);
+                    if (!updated.IsSuccess) return $"欄位 {name}：{Describe(updated)}";
+                }
+                next.Fields.Add(item);
+                world.FieldIds[name] = item.FieldId;
+                world.FieldTypes[name] = f.Type;
+                continue;
+            }
+            if (!world.OwnerBlocks.TryGetValue($"{f.Module}.{f.Block}", out var blockId)) return $"unbound: 區塊 {f.Module}.{f.Block} 解析不到";
+            var added = await sender.Send(new AddFieldRequest(world.ModuleKeys[f.Module], blockId, f.Type, f.Label, config), ct);
+            if (!added.IsSuccess) return $"欄位 {name}：{Describe(added)}";
+            var id = ((FieldResponse)added.Data!).Id;
+            next.Fields.Add(new IntegrationFieldItem(f.Module, f.Code, id));
+            world.FieldIds[name] = id;
+            world.FieldTypes[name] = f.Type;
+        }
+
+        foreach (var e in AppFlowInstaller.InDependencyOrder(decl.Events))
+        {
+            var (input, errors) = AppEffectsCodec.ToInput(e, world.Lookups([]));
+            if (input is null) return $"unbound: 事件 {e.Code}：{string.Join("；", errors)}";
+            var existing = await events.GetByKeyAsync(e.Code, ct);
+            ServiceResult r;
+            if (existing is not null && old.Events.Contains(e.Code))
+            {
+                if (existing.SourceModuleId != world.OwnerModules[e.Source].Id) return $"itemConflict: 事件 {e.Code} 的來源模組不同";
+                if (!EventConflicts(existing, input, existing.SourceModuleId) && Serialize(existing.NameI18n) == Serialize(input.Name)) { next.Events.Add(e.Code); continue; }
+                r = await sender.Send(new UpdateEventRequest(e.Code, input with { Active = existing.Active }), ct);
+            }
+            else if (existing is not null) return $"codeConflict: 事件代碼 {e.Code} 已被其他來源使用";
+            else if (!present) continue;
+            else
+            {
+                r = await sender.Send(new CreateEventRequest(input with { Active = running && input.Active }), ct);
+                if (!running && input.Active) suspended.Events.Add(e.Code);
+            }
+            if (!r.IsSuccess) return $"事件 {e.Code}：{Describe(r)}";
+            next.Events.Add(e.Code);
+        }
+
+        foreach (var c in decl.Checks)
+        {
+            var (input, errors) = AppEffectsCodec.ToInput(c, world.Lookups([]));
+            if (input is null) return $"unbound: 檢查 {c.Code}：{string.Join("；", errors)}";
+            var existing = await checks.GetByKeyAsync(c.Code, ct);
+            ServiceResult r;
+            if (existing is not null && old.Checks.Contains(c.Code))
+            {
+                if (!CheckConflicts(existing, input) && Serialize(existing.NameI18n) == Serialize(input.Name)) { next.Checks.Add(c.Code); continue; }
+                r = await sender.Send(new UpdateCheckRequest(c.Code, input with { Active = existing.Active }), ct);
+            }
+            else if (existing is not null) return $"codeConflict: 檢查代碼 {c.Code} 已被其他來源使用";
+            else if (!present) continue;
+            else
+            {
+                r = await sender.Send(new CreateCheckRequest(input with { Active = running && input.Active }), ct);
+                if (!running && input.Active) suspended.Checks.Add(c.Code);
+            }
+            if (!r.IsSuccess) return $"檢查 {c.Code}：{Describe(r)}";
+            next.Checks.Add(c.Code);
+        }
+
+        // 宣告拿掉的項目只取消登記、不刪（Q4）；暫停紀錄只留仍登記的
+        suspended = new IntegrationSuspendedItems(suspended.Events.Where(next.Events.Contains).Distinct().ToList(),
+            suspended.Checks.Where(next.Checks.Contains).Distinct().ToList());
+        row.ItemsJson = (next with { SuspendedActive = old.SuspendedActive is null && suspended.Events.Count + suspended.Checks.Count == 0 ? null : suspended }).ToJson();
+        await uow.CommitAsync(ct);
+        return null;
+    }
 
     private static string? ConfigString(AppIntegrationField f, string name) =>
         f.Config.ValueKind == JsonValueKind.Object && f.Config.TryGetProperty("refTarget", out var t) && t.ValueKind == JsonValueKind.Object

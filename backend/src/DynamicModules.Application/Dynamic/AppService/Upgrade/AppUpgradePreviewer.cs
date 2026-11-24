@@ -18,14 +18,15 @@ namespace DynamicModules.Application.Dynamic.AppService.Upgrade;
 public sealed class AppUpgradePreviewer(
     IAppRepository apps, AppPackageSource packages, AppExporter exporter, IPermissionRepository permissions,
     IModuleRepository modules, ISharedMasterRepository shared, AppDependencyChecker dependencies, PackageLimitReader limits,
-    RequestLocale requestLocale, FieldService.FieldChangeImpact impact, UpgradeFlowGuards flowGuards, UpgradeCodedGuards codedGuards)
+    RequestLocale requestLocale, FieldService.FieldChangeImpact impact, UpgradeFlowGuards flowGuards, UpgradeCodedGuards codedGuards,
+    Integrations.IntegrationReconciler integrations)
 {
     /// <summary>
     /// 還不能套用的第二批項目（§15 第 3 點、§9.6.7 blocker 狀態表）：有差異時預覽照列、整個套用被擋（A16）。
     /// 狀態機與簽核流程在 pkg1d1a 開放，轉換、事件、檢查、分錄、列印範本、任務規則在 pkg1d1b 開放；
     /// 貢獻的區塊、欄位、權限與主檔模組上的報表看模組符號含不含 /。
     /// </summary>
-    public static readonly IReadOnlySet<string> SecondBatch = new HashSet<string> { "integrations" };
+    public static readonly IReadOnlySet<string> SecondBatch = new HashSet<string>();
 
     /// <summary>
     /// 「/」規則不套的 Coded 類（T54）：它們的 Module 是主檔符號時照一般規則套（任務規則掛在主檔模組上；轉換、事件、檢查的
@@ -512,6 +513,7 @@ public sealed class AppUpgradePreviewer(
         // 轉換、事件、檢查、分錄、任務規則的守衛與影響說明（pkg1d1b）
         items = await codedGuards.CheckAsync(app, context, items, ct);
         items = StateMoves(items, B, N, C, hasBaseline, lc);
+        items = await IntegrationGuardsAsync(app, n, exported.Package, items, ct);
         // 依賴不能套用的項目：勾了會連帶勾那一項、套用必定失敗，自己也標不能勾，原因指出是哪一項（審查 S7，可遞移）
         var blocked = items.Where(i => !i.Applicable).Select(i => i.Id).ToHashSet(StringComparer.Ordinal);
         for (var changed = blocked.Count > 0; changed;)
@@ -559,6 +561,32 @@ public sealed class AppUpgradePreviewer(
             var key = module?.Blocks.SelectMany(b => b.Fields).FirstOrDefault(f => f.Id == fieldId)?.Key;
             return key is null ? 0 : await impact.MissingValueCountAsync(moduleId, key, ct);
         }
+    }
+
+    /// <summary>
+    /// 整合（§9.6.2 整合）：已安裝的項目被改過或整合被擋下 → integrationConflict（Q24，detail 是原因）；
+    /// 夥伴已開、新宣告引用的夥伴模組或欄位解析不到 → integrationUnbound（T51，detail 是夥伴的應用程式 id）。
+    /// </summary>
+    private async Task<List<UpgradeItemResponse>> IntegrationGuardsAsync(
+        App app, AppPackageData n, AppPackageData current, List<UpgradeItemResponse> items, CancellationToken ct)
+    {
+        if (!items.Any(i => i.Section == "integrations" && i.Applicable)) return items;
+        var rows = (await apps.ListIntegrationsAsync(ct)).Where(r => r.AppId == app.Id).ToList();
+        var appList = await apps.ListAsync(ct);
+        for (var k = 0; k < items.Count; k++)
+        {
+            var item = items[k];
+            if (item.Section != "integrations" || !item.Applicable) continue;
+            var code = item.Id["integration:".Length..];
+            string? reason = null, detail = null;
+            if (current.Integrations.FirstOrDefault(d => d.Code == code) is { } decl && rows.FirstOrDefault(r => r.Code == code) is { } row
+                && await integrations.ConflictAsync(app, row, decl, appList, ct) is { } conflict)
+                (reason, detail) = (UpgradeClassifier.ReasonIntegrationConflict, conflict);
+            else if (n.Integrations.FirstOrDefault(d => d.Code == code) is { } next && await integrations.UnboundPartnerAsync(app, next, appList, ct) is { } partner)
+                (reason, detail) = (UpgradeClassifier.ReasonIntegrationUnbound, partner);
+            if (reason is not null) items[k] = item with { Applicable = false, DefaultSelected = false, Reason = reason, Detail = detail };
+        }
+        return items;
     }
 
     /// <summary>建立後不能改的屬性（§9.6.2）：新版改了就是 kindChanged。</summary>
