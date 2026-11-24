@@ -548,6 +548,17 @@ public class AccountMailTests
     }
 
     [Fact]
+    public async Task Review_S3_MalformedNewPublicUrl_DoesNotOverrideLegacyKey()
+    {
+        var mail = new FakeMailSender();
+        using var app = App(mail, publicUrl: "erp.example.test/no-scheme", configure: a => a.Settings["Ops:PublicUrl"] = "https://legacy.example.test");
+        await ConfigureMail(app);
+        (await SetEmail(app, "sales01", "a@example.com")).EnsureSuccessStatusCode();
+        await Dispatch(app);
+        mail.Sent.Single().Body.Should().Contain("https://legacy.example.test/verify-email#t=");
+    }
+
+    [Fact]
     public async Task Review_S5_ResendGate_NotArmedWhenCommitFails()
     {
         var spy = new TxSpy();
