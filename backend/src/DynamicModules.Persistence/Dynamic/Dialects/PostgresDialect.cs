@@ -39,12 +39,12 @@ public sealed class PostgresDialect : ISqlDialect
 
     public string OrderedJoin() => "JOIN";
 
-    // ValuesJson 在 PostgreSQL 是 text，轉 jsonb 後取鍵；根不是物件時 -> 回 NULL。btrim 去掉與 SQLite 版相同的 ASCII 空白
-    public string JsonKeyEmpty(string column, string param)
-    {
-        var v = $"(({column})::jsonb -> CAST({param} AS text))";
-        return $"({v} IS NULL OR jsonb_typeof({v}) = 'null' "
-            + $"OR (jsonb_typeof({v}) = 'string' AND btrim({v} #>> '{{}}', E' \t\n\v\f\r') = '') "
-            + $"OR (jsonb_typeof({v}) = 'array' AND jsonb_array_length({v}) = 0))";
-    }
+    // ValuesJson 在 PostgreSQL 是 text。用 json（不是 jsonb，不重排、解析較輕），子查詢讓每列只解析一次；根不是物件時 -> 回 NULL。
+    // btrim 去掉與 SQLite 版相同的 ASCII 空白。已知限制：值裡有 \u0000 或孤立代理字元跳脫時 PostgreSQL 的 json 與 jsonb 都會丟錯（System.Text.Json 不會）；
+    // 正常寫入路徑寫不進這種值。
+    public string JsonKeyEmpty(string column, string param) =>
+        $"(SELECT v IS NULL OR json_typeof(v) = 'null' "
+        + $"OR (json_typeof(v) = 'string' AND btrim(v #>> '{{}}', E' \t\n\v\f\r') = '') "
+        + $"OR (json_typeof(v) = 'array' AND json_array_length(v) = 0) "
+        + $"FROM (SELECT ({column})::json -> CAST({param} AS text) AS v) x)";
 }

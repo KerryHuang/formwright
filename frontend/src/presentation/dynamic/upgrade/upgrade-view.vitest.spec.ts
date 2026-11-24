@@ -111,6 +111,18 @@ describe('reconcileSelection (pkg1c review S8): re-preview after changing the gr
     expect([...reconcileSelection(after, before, new Set(['a']))].sort()).toEqual(['a', 'n']);
   });
 
+  it('applies the new default to an item that was not tickable before but is now', () => {
+    const before = [mk('a'), mk('b', { applicable: false, reason: 'transitionGroups' })];
+    const after = [mk('a'), mk('b')];
+    expect([...reconcileSelection(after, before, new Set(['a']))].sort()).toEqual(['a', 'b']);
+  });
+
+  it('removes a whole dependency chain (a <- b <- c) when the root is no longer applicable', () => {
+    const before = [mk('a'), mk('b', { dependsOn: ['a'] }), mk('c', { dependsOn: ['b'] })];
+    const after = [mk('a', { applicable: false }), mk('b', { dependsOn: ['a'] }), mk('c', { dependsOn: ['b'] })];
+    expect([...reconcileSelection(after, before, new Set(['a', 'b', 'c']))]).toEqual([]);
+  });
+
   it('drops an item whose listed dependency ended up unselected, so the apply is never sent with a missing dependency', () => {
     const before = [mk('a'), mk('b', { dependsOn: ['a'] })];
     const after = [mk('a', { applicable: false }), mk('b', { dependsOn: ['a'] })];

@@ -156,7 +156,8 @@ export function defaultSelection(items: UpgradeItem[]): Set<string> {
  * (transitively), so the apply request never lacks a dependency.
  */
 export function reconcileSelection(items: UpgradeItem[], previousItems: UpgradeItem[], previousSelected: Set<string>): Set<string> {
-  const known = new Set(previousItems.map((i) => i.id));
+  // 只有上次可勾的才算「使用者看過、決定過」；上次不能勾、這次解除的項目用新的預設
+  const known = new Set(previousItems.filter((i) => i.applicable).map((i) => i.id));
   const next = new Set(items.filter((i) => i.applicable && (known.has(i.id) ? previousSelected.has(i.id) : i.defaultSelected)).map((i) => i.id));
   const byId = new Map(items.map((i) => [i.id, i]));
   for (let changed = true; changed;) {

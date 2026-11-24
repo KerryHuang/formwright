@@ -23,7 +23,7 @@ public class MissingValueCountTests : IAsyncLifetime
 {
     private TestDb _db = null!;
     private ServiceProvider _sp = null!;
-    private long _moduleId;
+    private long _moduleId, _otherModuleId;
 
     private sealed class FakeUser : ICurrentUser { public string UserId => "admin"; }
 
@@ -49,6 +49,8 @@ public class MissingValueCountTests : IAsyncLifetime
         var mediator = _sp.GetRequiredService<IMediator>();
         await mediator.Send(new CreateModuleRequest("order", new I18nText([KeyValuePair.Create("zh-TW", "訂單")]), null, null));
         _moduleId = ((ModuleDetailResponse)(await mediator.Send(new GetModuleRequest("order"))).Data!).Id;
+        await mediator.Send(new CreateModuleRequest("other", new I18nText([KeyValuePair.Create("zh-TW", "其他")]), null, null));
+        _otherModuleId = ((ModuleDetailResponse)(await mediator.Send(new GetModuleRequest("other"))).Data!).Id;
     }
 
     public async Task DisposeAsync()
@@ -57,9 +59,9 @@ public class MissingValueCountTests : IAsyncLifetime
         await _db.DisposeAsync();
     }
 
-    private void Add(string json, bool deleted = false)
+    private void Add(string json, bool deleted = false, long? moduleId = null)
     {
-        var rec = new DynamicModules.Domain.Entities.Dynamic.Record { ModuleId = _moduleId, OwnerUserId = "admin", RowVersion = Guid.NewGuid().ToString(), ValuesJson = json, DeleteFlag = deleted };
+        var rec = new DynamicModules.Domain.Entities.Dynamic.Record { ModuleId = moduleId ?? _moduleId, OwnerUserId = "admin", RowVersion = Guid.NewGuid().ToString(), ValuesJson = json, DeleteFlag = deleted };
         rec.StampCreated("admin", new DateTime(2026, 11, 3, 9, 0, 0));
         _db.Context.Set<DynamicModules.Domain.Entities.Dynamic.Record>().Add(rec);
     }
@@ -83,11 +85,13 @@ public class MissingValueCountTests : IAsyncLifetime
         Add("""{"other":"x"}""");              // 缺 qty：算沒有值
         // 不算：已刪除
         Add("{}", deleted: true);
+        Add("{}", moduleId: _otherModuleId);   // 別的模組的記錄
+        Add("""{"qty":"\u0020\t\n"}""");       // 以跳脫寫的空白也算沒有值
         await _db.Context.SaveChangesAsync();
 
         var count = await _sp.GetRequiredService<FieldChangeImpact>().MissingValueCountAsync(_moduleId, "qty", default);
 
-        count.Should().Be(7);
+        count.Should().Be(8);
     }
 
     [Fact]
