@@ -362,12 +362,20 @@ public sealed class AppUpgradePreviewer(
     {
         var knownMasters = (await packages.ListAsync(ct)).Where(k => k.Package.Manifest.IsMaster)
             .GroupBy(k => k.Package.Manifest.Id).ToDictionary(g => g.Key, g => g.First().Package);
-        foreach (var master in (await apps.ListAsync(ct)).Where(a => a.Kind == AppKind.Master))
+        var opened = (await apps.ListAsync(ct)).ToDictionary(a => a.Key, StringComparer.Ordinal);
+        foreach (var master in opened.Values.Where(a => a.Kind == AppKind.Master))
             if (await MasterCandidateAsync(master, ct) is { } c && PackageVersion.Compare(c.Package.Manifest.Version, master.PackageVersion) >= 0)
                 knownMasters[master.Key] = c.Package;
-        var list = AppPackageValidator.Validate(n, knownMasters, await packages.TemplateIdsAsync(ct)).ErrorRefs
+        var templateIds = await packages.TemplateIdsAsync(ct);
+        var list = AppPackageValidator.Validate(n, knownMasters, templateIds).ErrorRefs
             .Select(r => r.Resolve(messages, requestLocale.Current)).Concat(await limits.ErrorsAsync(n, ct))
             .Select(e => new UpgradeBlocker("invalidPackage", e)).ToList();
+        // requires.masters 的對象要真的是共用主檔：已開啟的看帳本種類（目錄同 id 的主檔遮不住已開啟的範本），沒開啟的不能是範本（codex 審查必修 2）
+        var requiredMasters = n.Manifest.Requires.Masters;
+        for (var i = 0; i < requiredMasters.Count; i++)
+            if (requiredMasters[i]?.Id is { } id && (opened.TryGetValue(id, out var target) ? target.Kind != AppKind.Master
+                    : templateIds.Contains(id) && !knownMasters.ContainsKey(id)))
+                list.Add(new UpgradeBlocker("invalidPackage", messages.Get(requestLocale.Current, MessageText.AppRequiresNotMaster, i, id)));
         var requirement = await dependencies.CheckRequirementsAsync(AppOpenPlanner.RequiresOf(n), ct);
         // 需要的是別的應用程式新版才有的模組：請先更新它（不自動連帶更新，套件設計決策 5）
         list.AddRange(requirement.Missing.Select(m => m.ModuleCode is not null && m.AppId is not null

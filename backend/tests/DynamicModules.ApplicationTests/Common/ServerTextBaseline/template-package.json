@@ -17,6 +17,12 @@
     "th": "manifest.requires.apps[{0}]: {1} เป็นเทมเพลต แพ็กเกจอื่นไม่สามารถกำหนดให้ต้องใช้ได้",
     "vi": "manifest.requires.apps[{0}]: {1} là mẫu, các gói khác không thể phụ thuộc vào nó"
   },
+  "AppRequiresNotMaster": {
+    "zh-TW": "manifest.requires.masters[{0}]: {1} 不是共用主檔",
+    "en-US": "manifest.requires.masters[{0}]: {1} is not a shared master",
+    "th": "manifest.requires.masters[{0}]: {1} ไม่ใช่ข้อมูลหลักที่ใช้ร่วมกัน",
+    "vi": "manifest.requires.masters[{0}]: {1} không phải dữ liệu chủ dùng chung"
+  },
   "AppPartnerIsTemplate": {
     "zh-TW": "integrations[{0}].with[{1}]: {1} 是範本，不能當整合對象",
     "en-US": "integrations[{0}].with[{1}]: {1} is a template and cannot be an integration partner",

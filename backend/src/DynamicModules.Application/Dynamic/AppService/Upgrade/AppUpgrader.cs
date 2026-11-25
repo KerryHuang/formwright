@@ -180,7 +180,12 @@ public sealed class AppUpgrader(
         var requirement = await dependencies.CheckRequirementsAsync(AppOpenPlanner.RequiresOf(n), ct);
         var masters = new List<App>();
         foreach (var r in n.Manifest.Requires.Masters)
-            if (await apps.GetByKeyAsync(r.Id, ct) is { } master) masters.Add(master);
+            if (await apps.GetByKeyAsync(r.Id, ct) is { } master)
+            {
+                // 預檢已擋；交易內再守一次，不建立指向非主檔（例如範本）的使用關係（codex 審查必修 2）
+                if (master.Kind != AppKind.Master) return Stop(ServiceResult.Conflict(AppMessages.UpgradeBlocked, AppMessages.UpgradeBlockedCode));
+                masters.Add(master);
+            }
         var masterSeeds = await symbols.SeedsAsync(masters, ct);
         var state = await LoadStateAsync(app, masterSeeds, ct);
         var external = new Dictionary<string, string>(requirement.ExternalModuleKeys);

@@ -288,4 +288,70 @@ public class AppUpgradePreviewApiTests : IDisposable
         invalid.GetProperty("detail").GetString().Should().Contain(expected);
         if (locale is not null) invalid.GetProperty("detail").GetString().Should().NotMatchRegex("[一-鿿]");
     }
+
+    private Task<HttpResponseMessage> PostJsonAsync(string path, string json) =>
+        _admin.PostAsync($"{Apps}/{path}", new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
+
+    /// <summary>直接改資料庫把匯入套件的原文換掉（匯入會被 V7 等擋下的情境）。</summary>
+    private void SetImportedPackage(string key, string version, string json)
+    {
+        using var scope = _app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DynamicDbContext>();
+        var row = db.Set<AppPackage>().Single(r => r.Key == key);
+        row.Version = version;
+        row.Json = json;
+        db.SaveChanges();
+    }
+
+    /// <summary>
+    /// 候選新版的種類和已開啟的不同（一般應用程式 1.0 開啟後，同 id 的 1.1 變成範本）：不算候選，沒有更新提示，
+    /// 預覽與套用都 409 upgradeUnavailable（codex 審查必修 1）。
+    /// </summary>
+    [Fact]
+    public async Task CandidateOfAnotherKind_IsNotACandidate()
+    {
+        (await PostJsonAsync("packages/import", AppTestPackagesTemplate.App("app-u"))).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await _admin.PostAsJsonAsync($"{Apps}/packages/app-u/open", new { })).StatusCode.Should().Be(HttpStatusCode.Created);
+        SetImportedPackage("app-u", "1.1.0", AppTestPackagesTemplate.Template("app-u", "1.1.0"));
+
+        HasUpgrade(await JsonOf(await _admin.GetAsync($"{Apps}/app-u"))).Should().BeFalse();
+        foreach (var path in new[] { "upgrade/preview", "upgrade" })
+        {
+            var res = await _admin.PostAsJsonAsync($"{Apps}/app-u/{path}", new { });
+            res.StatusCode.Should().Be(HttpStatusCode.Conflict, path);
+            (await JsonOf(res)).GetProperty("code").GetString().Should().Be("upgradeUnavailable", path);
+        }
+    }
+
+    /// <summary>
+    /// 新版的 requires.masters 列了一個已開啟的範本（直接改資料庫造出）：預覽擋下、套用 409，不建立指向範本的主檔使用關係（codex 審查必修 2）。
+    /// </summary>
+    [Theory]
+    [InlineData(null, "tpl-x 不是共用主檔")]
+    [InlineData("en-US", "tpl-x is not a shared master")]
+    public async Task NewVersionRequiringATemplateAsMaster_IsBlocked(string? locale, string expected)
+    {
+        (await PostJsonAsync("packages/import", AppTestPackagesTemplate.Template("tpl-x"))).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await _admin.PostAsJsonAsync($"{Apps}/packages/tpl-x/open", new { })).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await PostJsonAsync("packages/import", AppTestPackagesTemplate.App("app-u"))).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await _admin.PostAsJsonAsync($"{Apps}/packages/app-u/open", new { })).StatusCode.Should().Be(HttpStatusCode.Created);
+        SetImportedPackage("app-u", "1.1.0", AppTestPackagesTemplate.App("app-u", "1.1.0")
+            .Replace("\"entities\": [] }", "\"entities\": [], \"masters\": [ { \"id\": \"tpl-x\", \"modules\": [\"item\"] } ] }"));
+
+        var req = new HttpRequestMessage(HttpMethod.Post, $"{Apps}/app-u/upgrade/preview") { Content = JsonContent.Create(new { }) };
+        if (locale is not null) req.Headers.Add("X-Locale", locale);
+        var res = await _admin.SendAsync(req);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        var preview = await JsonOf(res);
+        preview.GetProperty("canApply").GetBoolean().Should().BeFalse();
+        var invalid = preview.GetProperty("blockers").EnumerateArray().Single(b => b.GetProperty("code").GetString() == "invalidPackage");
+        invalid.GetProperty("detail").GetString().Should().Contain(expected);
+
+        var apply = await _admin.PostAsJsonAsync($"{Apps}/app-u/upgrade", new { token = preview.GetProperty("token").GetString(), items = Array.Empty<string>() });
+        apply.StatusCode.Should().Be(HttpStatusCode.Conflict, await apply.Content.ReadAsStringAsync());
+        using var scope = _app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DynamicDbContext>();
+        var tplId = db.Set<App>().Single(a => a.Key == "tpl-x").Id;
+        db.Set<AppMasterUse>().Any(u => u.MasterAppId == tplId).Should().BeFalse();
+    }
 }

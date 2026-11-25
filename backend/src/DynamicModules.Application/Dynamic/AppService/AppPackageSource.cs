@@ -37,7 +37,7 @@ public sealed class AppPackageSource(AppCatalog catalog, TemplateCatalog templat
     /// <summary>
     /// 已開啟的應用程式的候選新版（§7.1）：一般應用程式不跨來源，內建開的只看目錄、匯入的只看匯入表；
     /// 共用主檔取內建與匯入兩份裡版號較大的，同版號取匯入的（只用在升級候選，合併副本不會永遠遮住內建新版；開啟與合併仍照 <see cref="FindAsync"/>）。
-    /// 不判斷版號是否比已開啟的新，呼叫端自己比 <c>App.PackageVersion</c>。
+    /// 不判斷版號是否比已開啟的新，呼叫端自己比 <c>App.PackageVersion</c>。種類不同的（一般應用程式的新版變成主檔或範本）不算候選。
     /// </summary>
     public async Task<SourcedPackage?> CandidateForAsync(App app, CancellationToken ct)
     {
@@ -50,8 +50,8 @@ public sealed class AppPackageSource(AppCatalog catalog, TemplateCatalog templat
             return PackageVersion.IsNewer(builtIn.Package.Manifest.Version, imported.Package.Manifest.Version) ? builtIn : imported;
         }
         if (app.Source == BuiltIn)
-            return catalog.BuiltIns.FirstOrDefault(p => p.Manifest.Id == app.Key) is { Manifest.IsMaster: false } b ? BuiltInOf(b) : null;
-        return await ImportedAsync(app.Key, ct) is { Package.Manifest.IsMaster: false } i ? i : null;
+            return catalog.BuiltIns.FirstOrDefault(p => p.Manifest.Id == app.Key) is { Manifest.IsMaster: false, Manifest.IsTemplate: false } b ? BuiltInOf(b) : null;
+        return await ImportedAsync(app.Key, ct) is { Package.Manifest.IsMaster: false, Package.Manifest.IsTemplate: false } i ? i : null;
     }
 
     private SourcedPackage BuiltInOf(AppPackageData p) => new(p, BuiltIn, catalog.OriginalOf(p.Manifest.Id));
