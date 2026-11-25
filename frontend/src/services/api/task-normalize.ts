@@ -2,6 +2,7 @@ import type {
   ManualRule, NotificationItem, NotificationList, RecordTasks, TaskCapabilities, TaskComment, TaskDetail, TaskLevel, TaskPage, TaskProgress,
   TaskRecordRef, TaskSummary, TaskUpdateResult,
 } from 'src/domain/dynamic/task-types';
+import { parseNotifyData } from 'src/domain/dynamic/approval-notify';
 import type { TaskRule } from 'src/domain/dynamic/task-rule-draft';
 import type {
   BoardCard, BoardColumn, BoardColumnPage, GanttParent, GanttSpan, TaskBoardConfig, TaskBoardData, TaskGanttConfig, TaskGanttData, TaskMoveResult,
@@ -124,6 +125,7 @@ export function normalizeNotificationList(l: unknown): NotificationList {
     items: items.map((n) => ({
       id: n.id as number, kind: n.kind ?? '', title: n.title ?? '', link: n.link ?? '', read: !!n.read, createdTime: n.createdTime ?? '',
       ...(n.titleKey ? { titleKey: n.titleKey, titleParams: n.titleParams ?? {} } : {}),
+      ...(n.data ? { data: parseNotifyData(n.data) } : {}),
     })),
     unreadCount: typeof raw.unreadCount === 'number' ? raw.unreadCount : 0,
   };

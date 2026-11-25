@@ -32,6 +32,19 @@ function branchCancelledText(a: ApprovalActionView): string {
   return t('approval.panel.branchCancelled', { name: name || t('approval.panel.branchUnnamed') });
 }
 
+/**
+ * A notify node (flow graph fg5): the server's comment is a Traditional Chinese note for audit only, so the screen words it from `data`
+ * ({ count, total, truncated, none }) in the reader's language; the wording follows `count`. No usable data means no line (and no comment).
+ */
+function notifyText(a: ApprovalActionView): string {
+  const d = a.data as { count?: unknown; total?: unknown; truncated?: unknown; none?: unknown } | null;
+  if (a.action !== 'notify' || !d || typeof d.count !== 'number') return '';
+  if (d.count === 0 || d.none === true) return t('approval.panel.notify.none');
+  return d.truncated === true && typeof d.total === 'number'
+    ? t('approval.panel.notify.truncated', { total: d.total, count: d.count })
+    : t('approval.panel.notify.sent', { count: d.count });
+}
+
 /** Why a seat stayed with its own holder (design 7.7): the targets are the holder and the delegate, in that order. */
 function notDelegatedText(a: ApprovalActionView): string {
   const reason = (a.data as { reason?: string } | null)?.reason;
@@ -71,9 +84,10 @@ function changes(a: ApprovalActionView): Change[] {
       <div v-if="a.action === 'reroute'" class="q-pl-sm" data-testid="log-reroute">{{ rerouteText(a) }}</div>
       <div v-else-if="a.action === 'fallback'" class="q-pl-sm" data-testid="log-fallback">{{ t('approval.panel.fallbackNote') }}</div>
       <div v-else-if="a.action === 'branch-cancelled'" class="q-pl-sm" data-testid="log-branch-cancelled-note">{{ branchCancelledText(a) }}</div>
+      <div v-else-if="a.action === 'notify' && notifyText(a)" class="q-pl-sm" data-testid="log-notify-note">{{ notifyText(a) }}</div>
       <div v-else-if="a.action === 'not-delegated' && notDelegatedText(a)" class="q-pl-sm" data-testid="log-not-delegated-note">{{ notDelegatedText(a) }}</div>
       <div v-if="targetsText(a)" class="q-pl-sm" data-testid="log-targets">{{ targetsText(a) }}</div>
-      <div v-if="a.action !== 'reroute' && a.action !== 'fallback' && a.action !== 'branch-cancelled' && a.comment" class="q-pl-sm" data-testid="log-comment">{{ a.comment }}</div>
+      <div v-if="a.action !== 'reroute' && a.action !== 'fallback' && a.action !== 'branch-cancelled' && a.action !== 'notify' && a.comment" class="q-pl-sm" data-testid="log-comment">{{ a.comment }}</div>
       <ul v-if="changes(a).length" class="q-my-none">
         <li v-for="c in changes(a)" :key="c.fieldId">{{ t('approval.panel.changed', { field: c.label, before: c.before || '—', after: c.after || '—' }) }}</li>
       </ul>

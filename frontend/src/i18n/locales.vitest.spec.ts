@@ -32,7 +32,7 @@ describe('四語系訊息檔', () => {
   const UNTRANSLATED_OK = new Set([
     'dynamic.export.csv', 'dynamic.export.excel', 'designer.types.email', 'designer.types.url', 'designer.programCode',
     'designer.locales.en-US', 'groups.blockingItem', 'reports.designer.rangeN', 'common.listSeparator', 'policies.recipients.userLabel',
-    'tasks.colon', 'tasks.none', 'approval.panel.targets', 'approval.graph.detailTitle', // punctuation, placeholders only, same as English by design
+    'tasks.colon', 'tasks.none', 'approval.panel.targets', 'approval.graph.detailTitle', 'notifications.notify.empty', // punctuation, placeholders only, same as English by design
     'ops.stage.tls', 'ops.titles.routeSuffix', 'ops.unit.count', 'audit.channel.mcp', 'audit.groups.mcp', // 協定名、純佔位符
     'apps.upgrade.masterVersion', 'apps.upgrade.masterName', // 引號加佔位符
   ]);

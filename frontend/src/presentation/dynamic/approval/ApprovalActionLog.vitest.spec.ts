@@ -77,4 +77,30 @@ describe('ApprovalActionLog', () => {
     expect(zh[1]!.text()).toContain('· 財務一 ·');
     expect(render([sys], 'en-US').find('[data-testid="approval-log"] > li').text()).toContain('· System ·');
   });
+
+  describe('notify', () => {
+    const notify = (data: unknown, comment: string | null = '已通知 3 人') => action({ action: 'notify', actorUserId: 'system', actorName: '', comment, data });
+
+    it('依 data.count 用讀者語系組「已通知 n 人」，不顯示伺服器的 comment', () => {
+      const w = render([notify({ count: 3, total: 3, truncated: false, none: false })]);
+      expect(w.get('[data-testid="log-notify-note"]').text()).toBe('已通知 3 人');
+      expect(w.find('[data-testid="log-comment"]').exists()).toBe(false);
+      expect(render([notify({ count: 3, total: 3, truncated: false, none: false })], 'en-US').get('[data-testid="log-notify-note"]').text()).toBe('Notified 3 people');
+    });
+
+    it('沒有收件人：沒有收件人，未發送', () => {
+      expect(render([notify({ count: 0, total: 0, truncated: false, none: true }, '沒有收件人')]).get('[data-testid="log-notify-note"]').text()).toBe('沒有收件人，未發送');
+    });
+
+    it('超過上限：以 count 為準，說明只通知前 count 人', () => {
+      const text = render([notify({ count: 200, total: 350, truncated: true, none: false })]).get('[data-testid="log-notify-note"]').text();
+      expect(text).toBe('收件人共 350 人，只通知前 200 人');
+    });
+
+    it('data 缺或格式不對：不顯示 comment 也不壞', () => {
+      const w = render([notify(null), notify({ count: 'x' })]);
+      expect(w.findAll('[data-testid="log-comment"]').length).toBe(0);
+      expect(w.findAll('[data-testid="log-notify-note"]').length).toBe(0);
+    });
+  });
 });

@@ -1,3 +1,4 @@
+import type { ApprovalNotifyData } from './approval-notify';
 import type { I18nText } from './types';
 
 export type TaskStatus = 'todo' | 'inProgress' | 'done' | 'cancelled';
@@ -203,7 +204,7 @@ export const taskStatusColor = (s: TaskStatus): string => (s === 'done' ? 'posit
 export const NOTIFICATION_KINDS = [
   'taskAssigned', 'taskMentioned', 'taskCommented', 'taskDueSoon', 'taskOverdue', 'taskCompleted', 'taskCancelled', 'taskSubtasksDone',
   'approvalPending', 'approvalTransferred', 'approvalAddSigned', 'approvalRejected', 'approvalReturned', 'approvalApproved',
-  'approvalWithdrawn', 'approvalCancelled', 'approvalReassignedAway', 'approvalRerouted', 'approvalOverdue', 'approvalAdminAlert',
+  'approvalWithdrawn', 'approvalCancelled', 'approvalReassignedAway', 'approvalRerouted', 'approvalOverdue', 'approvalAdminAlert', 'approvalNotify',
   'opsIncident', 'opsRulePaused',
 ] as const;
 
@@ -219,6 +220,8 @@ export interface NotificationItem {
   /** 維運兩個種類：標題代碼＋白名單參數，鈴鐺依語系組字（維運設計 §17.2.5）；沒有時用 title（繁中快照）。 */
   titleKey?: string;
   titleParams?: Record<string, string | number>;
+  /** approvalNotify only: the server's whitelisted DataJson; the bell composes title and body from it in the reader's locale. Absent or malformed → show `title`. */
+  data?: ApprovalNotifyData | null;
 }
 
 export interface NotificationList {

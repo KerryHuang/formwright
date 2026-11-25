@@ -9,6 +9,7 @@ import enUS from 'shared/i18n/en-US/ui.json';
 import th from 'shared/i18n/th/ui.json';
 import vi_ from 'shared/i18n/vi/ui.json';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
+import { setLocaleInfos, setLocaleSettings } from 'src/i18n/locale-settings';
 import { NOTIFICATION_KINDS } from 'src/domain/dynamic/task-types';
 import { mockHttp, type Call } from 'src/test-utils/mock-http';
 import NotificationBell from './NotificationBell.vue';
@@ -18,13 +19,13 @@ let calls: Call[];
 const note = (id: number, o: Record<string, unknown> = {}) =>
   ({ id, kind: 'taskAssigned', title: `任務${id}`, link: `/tasks?open=${id + 4}`, read: false, createdTime: '2026-11-10T01:00:00', ...o });
 
-async function mountBell(list: unknown) {
+async function mountBell(list: unknown, locale = 'zh-TW') {
   setActivePinia(createPinia());
   calls = mockHttp((c) => (c.url === '/notifications' ? list : {}));
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:p(.*)*', component: { render: () => null } }] });
   await router.push('/');
   const push = vi.spyOn(router, 'push');
-  const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
+  const i18n = createI18n({ legacy: false, locale, messages: { 'zh-TW': zhTW, 'en-US': enUS } });
   const w = mount(NotificationBell, {
     attachTo: document.body,
     global: { plugins: [[quasar.Quasar, { components: quasar, directives: quasar }], createPinia(), router, i18n, [VueQueryPlugin, { queryClient: new QueryClient() }]] },
@@ -35,8 +36,19 @@ async function mountBell(list: unknown) {
 
 const body = (sel: string) => document.body.querySelector<HTMLElement>(sel);
 
+const notifyData = (o: Record<string, unknown> = {}) => ({
+  v: 1, node: 'n1', read: true,
+  template: { title: { 'zh-TW': '{title} 已過主管核准', 'en-US': '{title} approved' }, body: { 'zh-TW': '第一行\n第二行\n第三行 {f:21}', 'en-US': 'Line one' } },
+  values: { title: { t: 'PO-0001' }, flow: { i18n: { 'zh-TW': '採購單' } }, node: { i18n: { 'zh-TW': '知會' } }, initiator: { t: '王小明' }, 'f:21': { t: '99' } },
+  ...o,
+});
+
 describe('NotificationBell', () => {
-  beforeEach(() => { document.body.innerHTML = ''; });
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    setLocaleInfos(['zh-TW', 'en-US', 'th', 'vi'].map((code) => ({ code, nativeName: code, quasarLang: null, fallbackCode: null, uiHash: '' })) as never);
+    setLocaleSettings({ defaultLocale: 'zh-TW' });
+  });
 
   it('未讀數 3 時 badge 顯示 3，0 時沒有 badge', async () => {
     const a = await mountBell({ items: [note(9)], unreadCount: 3 });
@@ -147,12 +159,107 @@ describe('NotificationBell', () => {
   });
 });
 
+describe('approvalNotify 通知', () => {
+  const approvalNote = (id: number, data: unknown, o: Record<string, unknown> = {}) =>
+    note(id, { kind: 'approvalNotify', title: 'PO-0001', link: '/dynamic/m/5', data, ...o });
+  const openBell = async (w: Awaited<ReturnType<typeof mountBell>>['w']) => {
+    await w.get('[data-testid="notification-bell"]').trigger('click');
+    await flushPromises();
+  };
+
+  it('清單顯示組好的標題與內文前 2 行（超過截斷「…」）；不顯示第 3 行', async () => {
+    const { w } = await mountBell({ items: [approvalNote(1, notifyData())], unreadCount: 1 });
+    await openBell(w);
+    const item = body('[data-testid="notification-item-1"]')!;
+    expect(item.textContent).toContain('PO-0001 已過主管核准');
+    const preview = body('[data-testid="notification-preview-1"]')!;
+    expect(preview.textContent).toBe('第一行\n第二行…');
+    expect(preview.textContent).not.toContain('第三行');
+    w.unmount();
+  });
+
+  it('依讀者語系組字：英文讀者取英文範本', async () => {
+    const { w } = await mountBell({ items: [approvalNote(1, notifyData())], unreadCount: 1 }, 'en-US');
+    await openBell(w);
+    expect(body('[data-testid="notification-item-1"]')!.textContent).toContain('PO-0001 approved');
+    expect(body('[data-testid="notification-preview-1"]')!.textContent).toBe('Line one');
+    w.unmount();
+  });
+
+  it('沒有 data（或格式不對）退回 title，點擊照舊前往連結', async () => {
+    const { w, push } = await mountBell({ items: [approvalNote(1, null), approvalNote(2, { v: 9 })], unreadCount: 2 });
+    await openBell(w);
+    expect(body('[data-testid="notification-item-1"]')!.textContent).toContain('PO-0001');
+    expect(body('[data-testid="notification-preview-1"]')).toBeNull();
+    body('[data-testid="notification-item-1"]')!.click();
+    await flushPromises();
+    expect(push).toHaveBeenCalledWith('/dynamic/m/5');
+    expect(body('[data-testid="notification-detail"]')).toBeNull();
+    w.unmount();
+  });
+
+  it('點下去標已讀並開詳情（全文＋開啟單據），不直接前往；按「開啟單據」才前往', async () => {
+    const { w, push } = await mountBell({ items: [approvalNote(1, notifyData())], unreadCount: 1 });
+    await openBell(w);
+    body('[data-testid="notification-item-1"]')!.click();
+    await flushPromises();
+    expect(calls.some((c) => c.method === 'post' && c.url === '/notifications/1/read')).toBe(true);
+    expect(push).not.toHaveBeenCalled();
+    const bodyEl = body('[data-testid="notification-detail-body"]')!;
+    expect(bodyEl.textContent).toBe('第一行\n第二行\n第三行 99');
+    expect(bodyEl.classList.contains('notification-detail-body')).toBe(true);
+    body('[data-testid="notification-detail-open"]')!.click();
+    await flushPromises();
+    expect(push).toHaveBeenCalledWith('/dynamic/m/5');
+    w.unmount();
+  });
+
+  it('read:false：詳情沒有「開啟單據」，改寫沒有讀取權；申請人與欄位顯示無權限', async () => {
+    const data = notifyData({
+      read: false,
+      template: { title: { 'zh-TW': '{initiator} 的 {flow}' }, body: { 'zh-TW': '金額 {f:21}' } },
+      values: { title: { t: '' }, flow: { i18n: { 'zh-TW': '採購單' } }, node: { i18n: { 'zh-TW': '知會' } }, initiator: { s: 'denied' } },
+    });
+    const { w, push } = await mountBell({ items: [approvalNote(1, data, { link: '' })], unreadCount: 1 });
+    await openBell(w);
+    expect(body('[data-testid="notification-item-1"]')!.textContent).toContain('（無權限） 的 採購單');
+    body('[data-testid="notification-item-1"]')!.click();
+    await flushPromises();
+    expect(body('[data-testid="notification-detail-body"]')!.textContent).toBe('金額 （無權限）');
+    expect(body('[data-testid="notification-detail-open"]')).toBeNull();
+    expect(body('[data-testid="notification-detail-no-read"]')!.textContent).toContain('你沒有這張單的讀取權，需要細節請洽申請人');
+    expect(push).not.toHaveBeenCalled();
+    w.unmount();
+  });
+
+  it('read:false 即使 link 有值也不給「開啟單據」', async () => {
+    const { w } = await mountBell({ items: [approvalNote(1, notifyData({ read: false }))], unreadCount: 1 });
+    await openBell(w);
+    body('[data-testid="notification-item-1"]')!.click();
+    await flushPromises();
+    expect(body('[data-testid="notification-detail-open"]')).toBeNull();
+    w.unmount();
+  });
+
+  it('範本裡的 HTML 只當文字，不會變成節點（不用 v-html）', async () => {
+    const data = notifyData({ template: { title: { 'zh-TW': '<img src=x onerror=alert(1)>' }, body: { 'zh-TW': '<b>粗體</b>' } } });
+    const { w } = await mountBell({ items: [approvalNote(1, data)], unreadCount: 1 });
+    await openBell(w);
+    expect(body('[data-testid="notification-item-1"] img')).toBeNull();
+    body('[data-testid="notification-item-1"]')!.click();
+    await flushPromises();
+    expect(body('[data-testid="notification-detail-body"] b')).toBeNull();
+    expect(body('[data-testid="notification-detail-body"]')!.textContent).toBe('<b>粗體</b>');
+    w.unmount();
+  });
+});
+
 describe('notification kinds', () => {
   const APPROVAL = [
     'approvalPending', 'approvalTransferred', 'approvalAddSigned', 'approvalRejected', 'approvalReturned', 'approvalApproved',
-    'approvalWithdrawn', 'approvalCancelled', 'approvalReassignedAway', 'approvalRerouted', 'approvalOverdue', 'approvalAdminAlert',
+    'approvalWithdrawn', 'approvalCancelled', 'approvalReassignedAway', 'approvalRerouted', 'approvalOverdue', 'approvalAdminAlert', 'approvalNotify',
   ];
-  it('NOTIFICATION_KINDS lists all 12 approval kinds the server writes', () => {
+  it('NOTIFICATION_KINDS lists all 13 approval kinds the server writes', () => {
     for (const k of APPROVAL) expect(NOTIFICATION_KINDS as readonly string[]).toContain(k);
   });
   it('every NOTIFICATION_KINDS entry has a label in all four locales, and the foreign ones hold no Chinese', () => {

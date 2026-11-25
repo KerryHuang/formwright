@@ -1178,3 +1178,15 @@
 - **在實例有任務的人看得到標題，但從沒動作就被關閉的任務不算**（同 `ApprovalReader.OwnStages`）；模組不是可讀狀態（Draft／Inactive）時連發起人也不給標題；已關閉（Closed）的模組沒有簽核管理員（同 guard 的 `ClosedBlocks`）。
 - **`DataJson` 解析更嚴**（S1、S2）：重複的語系鍵後者蓋前者、不丟例外；`s` 不是 `denied`／`empty` 的一律當 `denied`；`read:false` 時丟掉所有 `f:*`。
 - **記錄不見**（資料不一致，S4）：寫通知時找不到記錄回引擎既有的 409＋系統管理員警示，不丟例外。
+
+### fg5c 實作偏離
+
+依 §24 實作；以下是設計與計畫沒寫到、實作時決定的細節（技術類，實作者決定；標「待確認」的會改使用者看到的結果，交主控確認）。
+
+- **歷程 `notify` 的截斷說明改寫成「收件人共 {total} 人，只通知前 {count} 人」**（計畫寫「超過 200 人」）：上限是後端政策，前端不寫死數字（鐵則 2），改用 `data.total`／`data.count` 組字。組字以 `count` 為準：`count` 為 0 或 `none` 為真 →「沒有收件人，未發送」。
+- **`data` 的處理**：`task-normalize.ts` 用 `parseNotifyData` 只確認形狀（`v` 為 1、`read` 是布林、`template.title` 與 `values` 是物件），不對就當沒有 `data`，鈴鐺退回 `title`（繁中快照）。`s` 的白名單由後端收緊；前端對「不是 `empty` 的 `s`」一律當無權限（fail closed）。
+- **內文前 2 行**：以換行切 2 行、後面還有行就加「…」；單行過長另由 CSS 兩行截斷。
+- **有 `data` 的通知，點下去一律開詳情**，不直接前往連結（沒有 `data` 的退回情形照舊直接前往）。詳情的「開啟單據」要 `read` 為 true 且 `link` 非空才顯示，兩者缺一就寫「你沒有這張單的讀取權，需要細節請洽申請人」。
+- **清單的種類標籤沿用「種類標籤＋標題」**（`notifications.kind.approvalNotify`＝「簽核通知：」），與其他種類一致。
+- 新增鍵：`notifications.kind.approvalNotify`、`notifications.notify.{denied,empty,noTitle,open,noReadRight,close}`、`approval.action.notify`、`approval.panel.notify.{sent,none,truncated}`；四語都有，`empty`（「—」）列入 `locales.vitest.spec.ts` 的「同英文」允許清單（純標點）。
+- **未驗證：** 390／820／1366／1920 四種寬度的實際畫面（目前沒有資料可看，fg5d 開放存檔後才有通知；CSS 已設 `max-width`、`overflow-wrap`、兩行截斷）。
