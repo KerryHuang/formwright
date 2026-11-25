@@ -24,6 +24,7 @@ public sealed class AppDependencyChecker(IAppRepository apps, IModuleRepository 
             var app = await apps.GetByKeyAsync(req.Id, ct);
             if (app is null) { missing.Add(new("app", req.Id, null, null, "notInstalled")); continue; }
             if (app.Status == AppStatus.Closed) { missing.Add(new("app", req.Id, null, null, "closed")); continue; }
+            if (app.Kind == AppKind.Template) { missing.Add(new("app", req.Id, null, null, "isTemplate")); continue; }
             foreach (var code in req.Modules)
             {
                 var member = app.Modules.FirstOrDefault(m => m.Code == code);

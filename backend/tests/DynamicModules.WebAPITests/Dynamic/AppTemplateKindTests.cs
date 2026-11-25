@@ -238,4 +238,153 @@ public class AppTemplateKindTests : IDisposable
         again.StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await Body(again)).Should().Contain("目前版號 1.1.0");
     }
+
+    private async Task<HttpResponseMessage> OpenAppPackage(string id) =>
+        await _admin.PostAsJsonAsync($"{Base}/apps/packages/{id}/open", new { });
+
+    private async Task<List<string?>> CloseWarnings(string key)
+    {
+        var res = await _admin.PostAsJsonAsync($"{Base}/apps/{key}/close", new { cascade = false });
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await Body(res));
+        return JsonDocument.Parse(await Body(res)).RootElement.GetProperty("warnings").EnumerateArray().Select(w => w.GetString()).ToList();
+    }
+
+    private AppStatus StatusOf(string key) => Db(db => db.Set<App>().Single(a => a.Key == key).Status);
+
+    [Fact]
+    public async Task OnlyTemplate_CloseAndReopen_TakesTheMasterAlong_TP15()
+    {
+        await ImportMasterAndTplA();
+        (await OpenTpl()).StatusCode.Should().Be(HttpStatusCode.Created);
+        StatusOf("partner-lite").Should().Be(AppStatus.Open);
+
+        (await CloseWarnings("tpl-a")).Should().Contain(w => w!.Contains("共用主檔「往來對象（測試）」已沒有開啟中的應用程式使用，一起關閉"));
+        StatusOf("partner-lite").Should().Be(AppStatus.Closed);
+
+        (await _admin.PostAsync($"{Base}/apps/tpl-a/reopen", null)).StatusCode.Should().Be(HttpStatusCode.OK);
+        StatusOf("partner-lite").Should().Be(AppStatus.Open);
+    }
+
+    [Fact]
+    public async Task TemplateCountsAsAMasterUser_TP16()
+    {
+        await ImportMasterAndTplA();
+        (await ImportAsync(AppTestPackagesV6.Crm)).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await OpenTpl()).StatusCode.Should().Be(HttpStatusCode.Created);
+        var crm = await OpenAppPackage("crm6-lite");
+        crm.StatusCode.Should().Be(HttpStatusCode.Created, await Body(crm));
+
+        (await CloseWarnings("tpl-a")).Should().NotContain(w => w!.Contains("一起關閉"));
+        StatusOf("partner-lite").Should().Be(AppStatus.Open);
+
+        (await _admin.PostAsync($"{Base}/apps/tpl-a/reopen", null)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await CloseWarnings("crm6-lite")).Should().NotContain(w => w!.Contains("一起關閉"));
+        StatusOf("partner-lite").Should().Be(AppStatus.Open);
+    }
+
+    [Fact]
+    public async Task TemplateRequiresApp_NotInstalled_TP13()
+    {
+        (await ImportAsync(AppTestPackagesTemplate.TplR)).StatusCode.Should().Be(HttpStatusCode.Created);
+        var res = await _admin.PostAsJsonAsync($"{Base}/apps/packages/tpl-r/preview", new { });
+        var dep = JsonDocument.Parse(await Body(res)).RootElement.GetProperty("missingDependencies").EnumerateArray().Single();
+        Prop(dep, "reason").Should().Be("notInstalled");
+        Prop(dep, "appId").Should().Be("crm-sales");
+        JsonDocument.Parse(await Body(res)).RootElement.GetProperty("canOpen").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DependingOnAnOpenedTemplate_IsTemplateReason_TP14()
+    {
+        (await ImportAsync(AppTestPackagesTemplate.App("tpl-x"))).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await ImportAsync(AppTestPackagesTemplate.App("app-e", requiresApp: "tpl-x"))).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await _admin.PostAsJsonAsync($"{Base}/apps/packages/tpl-x/open",
+            new { groupMap = new Dictionary<string, object> { ["staff"] = new { mode = "create" } } })).StatusCode.Should().Be(HttpStatusCode.Created);
+        using (var scope = _app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<DynamicDbContext>();
+            db.Set<App>().Single(a => a.Key == "tpl-x").Kind = AppKind.Template;
+            await db.SaveChangesAsync();
+        }
+
+        var res = await _admin.PostAsJsonAsync($"{Base}/apps/packages/app-e/preview", new { });
+        var root = JsonDocument.Parse(await Body(res)).RootElement;
+        var dep = root.GetProperty("missingDependencies").EnumerateArray().Single();
+        Prop(dep, "reason").Should().Be("isTemplate");
+        Prop(dep, "appId").Should().Be("tpl-x");
+        root.GetProperty("canOpen").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ClosingRequiredApp_CascadesToTemplate_TP17()
+    {
+        (await ImportAsync(AppTestPackagesTemplate.TplR)).StatusCode.Should().Be(HttpStatusCode.Created);
+        var crm = await OpenAppPackage("crm-sales");
+        crm.StatusCode.Should().Be(HttpStatusCode.Created, await Body(crm));
+        var open = await _admin.PostAsJsonAsync($"{Base}/apps/packages/tpl-r/open",
+            new { groupMap = new Dictionary<string, object> { ["staff"] = new { mode = "create" } } });
+        open.StatusCode.Should().Be(HttpStatusCode.Created, await Body(open));
+
+        var blocked = await _admin.PostAsJsonAsync($"{Base}/apps/crm-sales/close", new { cascade = false });
+        blocked.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        JsonDocument.Parse(await Body(blocked)).RootElement.GetProperty("dependents").EnumerateArray().Select(d => d.GetString()).Should().Contain("tpl-r");
+
+        (await _admin.PostAsJsonAsync($"{Base}/apps/crm-sales/close", new { cascade = true })).StatusCode.Should().Be(HttpStatusCode.OK);
+        StatusOf("tpl-r").Should().Be(AppStatus.Closed);
+        StatusOf("crm-sales").Should().Be(AppStatus.Closed);
+    }
+
+    private async Task<HttpResponseMessage> DeleteApp(string key, int purged) => await _admin.DeleteAsync($"{Base}/apps/{key}?purged={purged}");
+
+    [Fact]
+    public async Task DeleteTemplate_TP18()
+    {
+        await ImportMasterAndTplA();
+        (await OpenTpl()).StatusCode.Should().Be(HttpStatusCode.Created);
+        var created = await _admin.PostAsJsonAsync($"{Base}/modules/tpl-a-item/records",
+            new { values = new Dictionary<string, object> { [await TitleKey(_admin, "tpl-a-item")] = "甲" } });
+        created.StatusCode.Should().Be(HttpStatusCode.Created, await Body(created));
+        var record = JsonDocument.Parse(await Body(created)).RootElement;
+        (await _admin.PostAsJsonAsync($"{Base}/apps/tpl-a/close", new { cascade = false })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var blocked = await DeleteApp("tpl-a", -1);
+        blocked.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var blockers = JsonDocument.Parse(await Body(blocked)).RootElement.GetProperty("blockers").EnumerateArray().ToList();
+        blockers.Should().Contain(b => Prop(b, "kind") == "liveRecords" && Prop(b, "moduleKey") == "tpl-a-item");
+
+        // 關閉後模組唯讀：重開、軟刪記錄、再關
+        (await _admin.PostAsync($"{Base}/apps/tpl-a/reopen", null)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var id = record.GetProperty("id").GetInt64();
+        var fresh = JsonDocument.Parse(await _admin.GetStringAsync($"{Base}/records/{id}")).RootElement;
+        var del = await _admin.DeleteAsync($"{Base}/records/{id}?rowVersion={Prop(fresh, "rowVersion")}");
+        del.IsSuccessStatusCode.Should().BeTrue(await Body(del));
+        (await _admin.PostAsJsonAsync($"{Base}/apps/tpl-a/close", new { cascade = false })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var preview = JsonDocument.Parse(await Body(await DeleteApp("tpl-a", -1))).RootElement;
+        preview.GetProperty("canDelete").GetBoolean().Should().BeTrue(preview.ToString());
+        var done = await DeleteApp("tpl-a", preview.GetProperty("purgedTotal").GetInt32());
+        done.StatusCode.Should().Be(HttpStatusCode.OK, await Body(done));
+
+        Db(db => db.Set<App>().Any(a => a.Key == "tpl-a")).Should().BeFalse();
+        Db(db => db.Set<Module>().Count(m => m.Key == "tpl-a-item" || m.Key == "tpl-a-record")).Should().Be(0);
+        Db(db => db.Set<App>().Any(a => a.Key == "partner-lite")).Should().BeTrue();
+        var list = JsonDocument.Parse(await _admin.GetStringAsync($"{Base}/apps/packages")).RootElement.EnumerateArray().ToList();
+        var item = list.Single(x => Prop(x, "id") == "tpl-a");
+        (!item.TryGetProperty("status", out var st) || st.ValueKind == JsonValueKind.Null).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task DeleteOnlyTemplate_WarnsMasterKept_TP19()
+    {
+        await ImportMasterAndTplA();
+        (await OpenTpl()).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await _admin.PostAsJsonAsync($"{Base}/apps/tpl-a/close", new { cascade = false })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var preview = JsonDocument.Parse(await Body(await DeleteApp("tpl-a", -1))).RootElement;
+        var done = await DeleteApp("tpl-a", preview.GetProperty("purgedTotal").GetInt32());
+        done.StatusCode.Should().Be(HttpStatusCode.OK, await Body(done));
+        JsonDocument.Parse(await Body(done)).RootElement.GetProperty("warnings").EnumerateArray().Select(w => w.GetString())
+            .Should().Contain(w => w!.Contains("共用主檔「往來對象（測試）」已沒有應用程式使用"));
+        StatusOf("partner-lite").Should().Be(AppStatus.Closed);
+    }
 }

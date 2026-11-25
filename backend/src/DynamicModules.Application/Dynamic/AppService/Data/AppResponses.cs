@@ -50,7 +50,7 @@ public record CloseAppResponse(AppResponse App, List<string> Closed, List<string
 
 public record KeyConflict(string ModuleCode, string Key);
 
-/// <summary>Reason：notInstalled、closed、moduleMissing、moduleNotActive、entityMissing、masterNotAvailable（Kind = master，目錄與匯入套件都沒有這份主檔）。</summary>
+/// <summary>Reason：notInstalled、closed、isTemplate（被依賴的是已開啟的範本，範本不能被依賴）、moduleMissing、moduleNotActive、entityMissing、masterNotAvailable（Kind = master，目錄與匯入套件都沒有這份主檔）。</summary>
 public record MissingDependency(string Kind, string? AppId, string? ModuleCode, string? Entity, string Reason);
 
 public record GroupSuggestion(string Code, I18nText Name, string Suggestion, long? SuggestedGroupId);

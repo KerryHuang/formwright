@@ -96,6 +96,27 @@ public class AppsApiTests : IDisposable
     }
 
     [Fact]
+    public async Task FreshInstall_OnlyTemplate_PlatformWorks()
+    {
+        await ImportOk(AppTestPackagesV6.Master);
+        await ImportOk(AppTestPackagesTemplate.TplA);
+        var open = await Open("tpl-a", new
+        {
+            groupMap = new Dictionary<string, object> { ["staff"] = new { mode = "create" } },
+            masters = new Dictionary<string, object> { ["partner-lite"] = new Dictionary<string, object> { ["steward"] = new { mode = "create" } } }
+        });
+        open.StatusCode.Should().Be(HttpStatusCode.Created, await open.Content.ReadAsStringAsync());
+
+        (await JsonOf(await _admin.GetAsync(Apps))).EnumerateArray().Select(a => a.GetProperty("key").GetString())
+            .Should().BeEquivalentTo("tpl-a", "partner-lite");
+        (await _admin.GetAsync($"{Base}/reports/catalog")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _admin.GetAsync($"{Base}/modules")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await _admin.GetAsync($"{Apps}/nope")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var key = await CreateModule(_admin);
+        await Activate(_admin, key);
+    }
+
+    [Fact]
     public async Task Writes_RequireSystemAdmin_NotJustDesignerRights()
     {
         await ImportOk(AppTestPackages.Procure);
