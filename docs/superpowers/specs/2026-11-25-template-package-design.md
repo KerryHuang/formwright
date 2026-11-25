@@ -1,7 +1,7 @@
 # 範本套件開啟機制 設計文件（段 tp1）
 
 > 2026-11-25｜平台共用能力（非應用程式）｜上位：[ERP 模組藍圖](2026-11-23-erp-module-blueprint-design.md) §3.2、§3.3、§6；[路線](2026-11-06-erp-roadmap-design.md)「內建應用程式的取捨基準」｜前置：[應用程式套件](2026-11-06-app-package-design.md)（§4.3、§4.8、§6、§7、§8）、[套件更新](2026-11-21-package-upgrade-design.md)、[應用程式整合](2026-11-09-app-integration-design.md)、[共用主檔](2026-11-10-shared-master-design.md)
-> 實作前檢查：✅ 2026-11-25（內容 fb3fab11）
+> 實作前檢查：✅ 2026-11-25（內容 7c9f8051）
 > 狀態：主控起草，只寫設計、不改程式。2026-11-25 同日依使用者裁決（B1、B2）與主控裁決（B3–B6、匯出拿掉指向範本的參照、整合夥伴是範本時一律等待）改版，行為類已無未決題。標記：「（使用者裁決）」已拍板；「（主控裁決）」經 domain-advisor 分流判可定，可推翻；「（主控裁決，待使用者確認）」附理由與選錯代價；「（B#）」是起草時發現的行為題，裁決狀態見 §19.1；「（T#）」是技術類，主控已定，彙整在 §19.2。
 > 路徑：後端省略 `backend/src/DynamicModules.Application/Dynamic/` 前綴；`AppService/...` 即該目錄下的檔案。
 
@@ -418,7 +418,7 @@ tp1 在應用程式套件格式上加一個「範本」種類，沿用開啟精�
 
 - **TP-24** 直接寫資料庫讓已開啟應用程式 `app-i` 的整合（`onPartnerClosed: skip`、尚未安裝）`with[]` 指向已開啟的範本，觸發調和 → 狀態 `Waiting`、原因含「是範本」，沒有安裝任何欄位、事件、檢查。
 - **TP-24a** 同上但 `onPartnerClosed: block` → 仍是 `Waiting`，不是 `Held`；`app-i` 的來源單據照常新增成功。
-- **TP-24b** 整合已安裝且 `Active`，再直接把夥伴的 `Dynamic_App.Kind` 改成 `Template`，觸發調和 → 狀態 `Waiting`，整合的欄位、事件、檢查全部停用；`skip`、`block` 結果相同。
+- **TP-24b** 整合已安裝且 `Active`，再直接把夥伴的 `Dynamic_App.Kind` 改成 `Template`，觸發調和 → 狀態 `Waiting`，照 §7.5 的暫停做法：整合的事件、檢查停用，欄位保留（主控裁決 2026-11-25，與夥伴關閉時的暫停一致）；`skip`、`block` 結果相同。
 - **TP-25** 匯出已開啟的 `tpl-a` → 檔案 `manifest.kind = "template"`；拿到另一個全新資料庫匯入 → 201 且仍是範本。
 - **TP-25a** CRM、`tpl-a` 都已開啟，客戶在 CRM 的商機加參照欄位「檢驗紀錄」指向 `tpl-a` 的模組，再加一個公式欄位引用它 → 匯出 CRM：檔案沒有這兩欄、`requires.apps` 不含 `tpl-a`，`X-Export-Warnings` 含「指向範本「tpl-a」的模組，範本不能被依賴，未匯出」與公式欄位的略過說明；把檔案改 id 後匯入全新資料庫 → 201，沒被 V4 擋。
 - **TP-25b** 範本 `tpl-r`（`requires.apps` CRM，有欄位參照 CRM 的模組）匯出 → `requires.apps` 含 CRM，該參照欄位照常在檔案裡。
