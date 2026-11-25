@@ -188,6 +188,23 @@ public class DatabaseErrorsTests
         Classify(thrown).Should().Be(Kind.Unavailable, thrown.ToString());
     }
 
+    /// <summary>
+    /// 連線邊界：開連線逾時（Npgsql 的連線 Timeout 涵蓋名稱解析，DNS 慢時丟裸的 TimeoutException，#118）也歸連不上；
+    /// 連線池耗盡是包在 NpgsqlException 內層的 TimeoutException，不在連線邊界攔、照舊歸忙碌。
+    /// </summary>
+    [Fact]
+    public void PostgresConnectionBoundary_ConnectTimeout_IsUnavailable_PoolExhaustionUntouched()
+    {
+        var timeout = () => DynamicModules.Persistence.Postgres.PostgresConnectionFailureInterceptor.ThrowIfDatabaseUnreachable(new TimeoutException());
+        Classify(timeout.Should().Throw<DatabaseUnavailableException>().Which).Should().Be(Kind.Unavailable);
+
+        var dns = () => DynamicModules.Persistence.Postgres.PostgresConnectionFailureInterceptor.ThrowIfDatabaseUnreachable(new SocketException((int)SocketError.HostNotFound));
+        dns.Should().Throw<DatabaseUnavailableException>();
+
+        var pool = () => DynamicModules.Persistence.Postgres.PostgresConnectionFailureInterceptor.ThrowIfDatabaseUnreachable(new Npgsql.NpgsqlException("池滿", new TimeoutException()));
+        pool.Should().NotThrow();
+    }
+
     // ---- 真的 SQLite 丟出的例外：確認錯誤碼與擴充碼的假設 ----
 
     private static async Task<SqliteException> Raise(string setup, string failing)

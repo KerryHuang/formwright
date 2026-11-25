@@ -1462,7 +1462,7 @@ O2 做六件事：
 |---|---|---|
 | 唯讀 `IsReadOnly` | `SQLITE_READONLY` 8 | `25006`（read_only_sql_transaction） |
 | 空間滿 `IsStorageFull` | `SQLITE_FULL` 13 | `53100`（disk_full） |
-| 連不上 `IsUnavailable` | `SQLITE_CANTOPEN` 14、`SQLITE_IOERR` 10 | 類別 `08`（connection exception）、`57P01`–`57P03`（伺服器關閉中或還沒能接受連線）；不帶 SQLSTATE 的 `NpgsqlException`（socket 斷線、連不到主機），但連線池耗盡已歸忙碌（pg0 §5.7），不重複算；主機名稱解析失敗由連線邊界包成 `DatabaseUnavailableException`（§17.12） |
+| 連不上 `IsUnavailable` | `SQLITE_CANTOPEN` 14、`SQLITE_IOERR` 10 | 類別 `08`（connection exception）、`57P01`–`57P03`（伺服器關閉中或還沒能接受連線）；不帶 SQLSTATE 的 `NpgsqlException`（socket 斷線、連不到主機），但連線池耗盡已歸忙碌（pg0 §5.7），不重複算；主機名稱解析失敗與開連線逾時（裸的 `TimeoutException`，DNS 慢時也是這個，#118）由連線邊界包成 `DatabaseUnavailableException`（§17.12） |
 
 - 一般請求遇到這三類：新增 `DatabaseUnwritableExceptionHandler`（排在 `DatabaseBusyExceptionHandler` 之後、`UnhandledExceptionHandler` 之前），回 503 加 `Retry-After: 60`；唯讀與空間滿的代碼是 `databaseUnwritable`、訊息四語「資料庫目前無法寫入，請聯絡系統管理員」，連不上是 `databaseUnavailable`、訊息「資料庫目前無法連線，請聯絡系統管理員」（O2-U8）；記 Warning、不算 500、不開產品缺陷事件（同一個原因已由 `database.writable` 開了一件）。`SessionMiddleware` 讀帳號時丟的同類例外也走這個處理器。
 - 這段期間（唯讀或空間滿）：
