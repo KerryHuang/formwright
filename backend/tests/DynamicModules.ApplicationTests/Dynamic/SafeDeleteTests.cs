@@ -89,6 +89,19 @@ public class SafeDeleteTests : DesignerTestBase
     }
 
     [Fact]
+    public async Task Module_Closed_IsBlocked_LikeActive()
+    {
+        await NewModule("cust", activate: true);
+        (await Ctx.Set<Module>().SingleAsync(m => m.Key == "cust")).Status = ModuleStatus.Closed;
+        await Ctx.SaveForTestsAsync();
+
+        var r = await Send(new DeleteModuleRequest("cust", 0));
+
+        r.IsConflict.Should().BeTrue();
+        Blocker(r, "moduleActive");
+    }
+
+    [Fact]
     public async Task Module_Draft_WithNoData_IsDeleted()
     {
         await NewModule("cust");

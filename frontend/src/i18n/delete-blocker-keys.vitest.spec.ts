@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -7,13 +8,18 @@ import { describe, expect, it } from 'vitest';
  * 否則畫面會顯示 designer.delete.kind.xxx 這類原始鍵。清單從後端原始碼讀（單一來源），不在前端另寫一份。
  * 對應後端：DeleteResponses.cs（DeleteBlockerKind）、ModuleStatus.cs（ModuleStatus）。
  */
-const root = resolve(process.cwd(), '..');
+// 以測試檔自己的位置定位 repo 根目錄（frontend/src/i18n → 上三層），不依賴執行時的 cwd
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const read = (p: string) => readFileSync(resolve(root, p), 'utf8');
 
-const kinds = [...read('backend/src/DynamicModules.Application/Dynamic/DeleteService/Data/DeleteResponses.cs')
-  .matchAll(/public const string \w+ = "(\w+)";/g)].map((m) => m[1]);
-const statuses = /enum ModuleStatus\s*\{([^}]*)\}/.exec(read('backend/src/DynamicModules.Domain/Entities/Dynamic/ModuleStatus.cs'))![1]
-  .split(',').map((s) => s.trim()).filter(Boolean);
+// 只掃 DeleteBlockerKind 類別區塊，避免撈到同檔其他常數
+const kindsBody = /static class DeleteBlockerKind\s*\{([^}]*)\}/.exec(
+  read('backend/src/DynamicModules.Application/Dynamic/DeleteService/Data/DeleteResponses.cs'))![1];
+const kinds = [...kindsBody.matchAll(/public const string \w+ = "(\w+)";/g)].map((m) => m[1]);
+// enum 成員以識別字匹配：先去掉註解，容忍 `Draft = 0` 這類賦值
+const statusBody = /enum ModuleStatus\s*\{([^}]*)\}/.exec(read('backend/src/DynamicModules.Domain/Entities/Dynamic/ModuleStatus.cs'))![1]
+  .replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+const statuses = statusBody.split(',').map((s) => /^\s*([A-Za-z_]\w*)/.exec(s)?.[1]).filter((s): s is string => !!s);
 
 type Tree = { designer: { delete: { kind: Record<string, string> }; moduleStatus: Record<string, string> } };
 const locales = ['zh-TW', 'en-US', 'th', 'vi'];

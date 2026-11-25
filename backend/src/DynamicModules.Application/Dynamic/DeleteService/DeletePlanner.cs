@@ -81,10 +81,7 @@ public class DeletePlanner(IDeletionRepository data, IApprovalFlowRepository app
             ? new PurgeCounts(await data.CountRecordsAsync(module.Id, deleted: true, ct),
                 await data.CountIndexRowsByModuleAsync(module.Id, ct), await data.CountHistoryRowsByModuleAsync(module.Id, ct))
             : await FieldPurgeAsync(module, fields, ct);
-        // 有模組代碼的原因都帶模組顯示名稱（前端不顯示代碼）；模組啟用中、還有記錄的 Name 本身就是模組名，不重複帶
-        var distinct = blockers.DistinctBy(b => (b.Kind, b.ModuleKey, b.Id))
-            .Select(b => b.ModuleName is null && b.ModuleKey is { } mk && b.Kind is not (DeleteBlockerKind.ModuleActive or DeleteBlockerKind.LiveRecords)
-                && all.FirstOrDefault(m => m.Key == mk) is { } owner ? b with { ModuleName = Name(owner.NameI18n, owner.Key) } : b).ToList();
+        var distinct = WithModuleNames(blockers, all);
         return new DeletePlan(new DeleteCheckResponse(distinct.Count == 0, distinct, purge), module.Id, fieldIds,
             blocks.Select(b => b.Id).ToList());
     }
@@ -155,7 +152,7 @@ public class DeletePlanner(IDeletionRepository data, IApprovalFlowRepository app
         {
             var key = KeyOf(l.ModuleId);
             if ((isModule && l.ModuleId == module.Id || EffectReferences.Of(l).Overlaps(ids)) && !(isModule && key is not null && Inside([key])))
-                blockers.Add(new(DeleteBlockerKind.Ledger, key, l.Id, key ?? ""));
+                blockers.Add(new(DeleteBlockerKind.Ledger, key, l.Id, ModuleLabel(all, key)));
         }
     }
 
@@ -221,8 +218,8 @@ public class DeletePlanner(IDeletionRepository data, IApprovalFlowRepository app
         // 帳簿同理：擁有者模組在刪除集合內就隨模組移除（待決 4）
         foreach (var l in (await data.ListLedgersAsync(ct))
                      .Where(l => !(KeyOf(l.ModuleId) is { } lk && alsoDeleting.Contains(lk)) && EffectReferences.Of(l).Overlaps(contributed)))
-            blockers.Add(new(DeleteBlockerKind.Ledger, KeyOf(l.ModuleId), l.Id, KeyOf(l.ModuleId) ?? ""));
-        return blockers.DistinctBy(b => (b.Kind, b.ModuleKey, b.Id)).ToList();
+            blockers.Add(new(DeleteBlockerKind.Ledger, KeyOf(l.ModuleId), l.Id, ModuleLabel(all, KeyOf(l.ModuleId))));
+        return WithModuleNames(blockers, all);
     }
 
     /// <summary>刪欄位或區塊：targetFields 是要刪的欄位，blockIds 是要刪的區塊（欄位刪除時為空）。</summary>
@@ -337,6 +334,18 @@ public class DeletePlanner(IDeletionRepository data, IApprovalFlowRepository app
                 blockers.Add(new(d.IsPersonal ? DeleteBlockerKind.PersonalDashboard : DeleteBlockerKind.Dashboard, null, d.Id, d.Name));
         }
     }
+
+    /// <summary>
+    /// 去重，並替有模組代碼的原因帶模組顯示名稱（前端不顯示代碼）。Name 本身就是模組名的原因（模組啟用中、還有記錄、狀態機等）不重複帶。
+    /// </summary>
+    private List<DeleteBlocker> WithModuleNames(IEnumerable<DeleteBlocker> blockers, List<Module> all) =>
+        blockers.DistinctBy(b => (b.Kind, b.ModuleKey, b.Id))
+            .Select(b => b.ModuleName is null && b.ModuleKey is { } mk && all.FirstOrDefault(m => m.Key == mk) is { } owner
+                && b.Kind is not (DeleteBlockerKind.ModuleActive or DeleteBlockerKind.LiveRecords) && Name(owner.NameI18n, owner.Key) is var label && label != b.Name
+                ? b with { ModuleName = label } : b).ToList();
+
+    private string ModuleLabel(List<Module> all, string? key) =>
+        all.FirstOrDefault(m => m.Key == key) is { } m ? Name(m.NameI18n, m.Key) : key ?? "";
 
     private DeleteBlocker FieldBlocker(string kind, Module m, Field f) =>
         new(kind, m.Key, f.Id, Name(f.LabelI18n, f.Key), ModuleName: Name(m.NameI18n, m.Key));

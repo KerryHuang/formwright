@@ -275,6 +275,9 @@ public class SharedMasterDeleteTests : IDisposable
         var preview = await PreviewAsync("crmx");
         preview.GetProperty("canDelete").GetBoolean().Should().BeFalse();
         preview.GetProperty("blockers").EnumerateArray().Select(b => b.GetProperty("kind").GetString()).Should().Contain("check");
+        var b = preview.GetProperty("blockers").EnumerateArray().Single(x => x.GetProperty("kind").GetString() == "check");
+        b.GetProperty("moduleKey").GetString().Should().Be("stk-ship");
+        b.GetProperty("moduleName").GetString().Should().NotBeNullOrEmpty().And.NotBe("stk-ship", "貢獻欄位引用也帶模組顯示名稱，前端不顯示代碼");
     }
 
     /// <summary>直接寫一筆分錄設定（驗證器只收本模組欄位，貢獻欄位走不到 API；這裡只測刪除規劃看到的引用）。</summary>
@@ -316,6 +319,9 @@ public class SharedMasterDeleteTests : IDisposable
         var preview = await PreviewAsync("crmx");
         preview.GetProperty("canDelete").GetBoolean().Should().BeFalse();
         preview.GetProperty("blockers").EnumerateArray().Select(b => b.GetProperty("kind").GetString()).Should().Contain("ledger");
+        var b = preview.GetProperty("blockers").EnumerateArray().Single(x => x.GetProperty("kind").GetString() == "ledger");
+        b.GetProperty("moduleKey").GetString().Should().Be("stk-ship");
+        b.GetProperty("name").GetString().Should().NotBeNullOrEmpty().And.NotBe("stk-ship", "分錄設定的名稱用模組顯示名稱，不是代碼");
     }
 
     [Fact]
