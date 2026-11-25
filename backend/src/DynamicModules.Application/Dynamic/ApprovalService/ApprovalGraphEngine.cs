@@ -70,6 +70,8 @@ public sealed class ApprovalGraphEngine(IApprovalInstanceRepository repo, Approv
         public CancellationToken Ct { get; } = ct;
         public int Seq { get; set; } = runs.Count == 0 ? 0 : runs.Max(r => r.Seq);
         public List<PendingNotice> Defer { get; } = [];
+        /// <summary>通知節點延後寫的通知（R1）：節點＋已解析好的收件人，推進結束的 Flush 才組內容；不重解析，歷程的人數與寫入筆數才不會分岔。</summary>
+        public List<(ApprovalNodeDef Node, IReadOnlyList<string> UserIds)> Notifies { get; } = [];
         public ResolveContext? Resolve { get; set; }
         public bool Ended { get; set; }
     }
@@ -91,7 +93,7 @@ public sealed class ApprovalGraphEngine(IApprovalInstanceRepository repo, Approv
         var failure = done is null ? await EnterAsync(p, g.Start, null, "") : await AfterApprovedAsync(p, done);
         if (failure is not null) return (GraphAdvance.Stopped, failure);
 
-        await FlushNoticesAsync(p);
+        if (await FlushNoticesAsync(p) is { } flushFailure) return (GraphAdvance.Stopped, flushFailure);
         inst.CurrentStageRunId = p.Runs.Where(r => r.Status == ApprovalStageStatus.Active).MinBy(r => r.Seq)?.Id;   // J15
         await uow.CommitAsync(ct);
         return (p.Ended ? GraphAdvance.ReachedEnd : GraphAdvance.Stopped, null);
@@ -184,8 +186,9 @@ public sealed class ApprovalGraphEngine(IApprovalInstanceRepository repo, Approv
     }
 
     /// <summary>
-    /// 通知節點（流程圖設計 §8.12、§12；fg5 計畫 fg5b）：寫 passed 列 → SaveChanges（同一次推進剛建的任務才查得到，可動作者判斷用；歷程要掛這列的 Id，計畫 T4）
-    /// → 解析收件人 → 逐人組 DataJson 寫通知 → 一筆 notify 歷程（系統身分，data 只有人數，不列收件人）→ 照常沿出線往下走。
+    /// 通知節點（流程圖設計 §8.12、§12；fg5 計畫 fg5b、審查 R1）：寫 passed 列 → SaveChanges（拿 Id 給歷程，歷程順序留在節點當下）
+    /// → 解析收件人 → 一筆 notify 歷程（系統身分，data 只有人數，不列收件人）→ 把（節點，收件人）交給推進結束的 <see cref="FlushNoticesAsync"/>，照常沿出線往下走。
+    /// 內容與逐人可見性延後到推進結束才判斷：同一次推進裡被「任一到齊」取消的任務，不能讓收件人拿到臨時讀取權。
     /// 沒有收件人、值空、沒有權限都不擋流程（§12.4）；資料庫例外照常往上拋、整筆回滾（T5）。重跑時再發一次（U10）。
     /// </summary>
     private async Task<ServiceResult?> EnterNotifyAsync(Pass p, ApprovalNodeDef node, string? inEdgeId, string key)
@@ -197,7 +200,7 @@ public sealed class ApprovalGraphEngine(IApprovalInstanceRepository repo, Approv
         var initiator = p.Inst.InitiatorUserId;
         var recipients = ApprovalNotifyRecipients.Resolve(node.Recipients,
             new NotifyAudienceInput(initiator, org.ActiveUsers, p.Resolve.GroupMembers, level => ManagerChain.Resolve(org, initiator, level)));
-        notifier.NotifyPrepared(p.Inst, await composer.ComposeAsync(p.Inst, p.Module, p.Values, node, recipients.UserIds, p.Ct));
+        if (recipients.UserIds.Count > 0) p.Notifies.Add((node, recipients.UserIds));
 
         var count = recipients.UserIds.Count;
         var note = count == 0 ? ApprovalMessages.NotifyNoneNote
@@ -320,15 +323,30 @@ public sealed class ApprovalGraphEngine(IApprovalInstanceRepository repo, Approv
         return Task.FromResult<ServiceResult?>(null);
     }
 
-    /// <summary>J6、U7：推進途中收集的「待簽」通知，推進結束才寫，只寫任務仍是 open 的（被任一到齊取消的分支負責人不會收到）。</summary>
-    private async Task FlushNoticesAsync(Pass p)
+    /// <summary>
+    /// 推進結束時寫通知。J6、U7：「待簽」通知只寫任務仍是 open 的（被任一到齊取消的分支負責人不會收到）；
+    /// 通知節點的內容（R1）也在這裡才組：先 SaveChanges 讓這次推進新建的任務查得到，再逐人判斷可見性（可動作者＝推進結束時仍 open 的任務）。
+    /// 回非 null 是失敗（記錄不見等資料不一致），呼叫端整筆回滾。
+    /// </summary>
+    private async Task<ServiceResult?> FlushNoticesAsync(Pass p)
     {
-        if (p.Defer.Count == 0) return;
-        var tasks = (await repo.ListTasksAsync(p.Inst.Id, p.Ct)).ToDictionary(t => t.Id);
-        foreach (var notice in p.Defer)
+        if (p.Defer.Count > 0)
         {
-            var assignees = notice.TaskIds.Where(id => tasks.TryGetValue(id, out var t) && t.Status == ApprovalTaskStatus.Open).Select(id => tasks[id].AssigneeUserId).ToList();
-            if (assignees.Count > 0) await notifier.NotifyAsync(notice.Kind, p.Inst, assignees, notice.ExceptUserId, p.Ct);
+            var tasks = (await repo.ListTasksAsync(p.Inst.Id, p.Ct)).ToDictionary(t => t.Id);
+            foreach (var notice in p.Defer)
+            {
+                var assignees = notice.TaskIds.Where(id => tasks.TryGetValue(id, out var t) && t.Status == ApprovalTaskStatus.Open).Select(id => tasks[id].AssigneeUserId).ToList();
+                if (assignees.Count > 0) await notifier.NotifyAsync(notice.Kind, p.Inst, assignees, notice.ExceptUserId, p.Ct);
+            }
         }
+        if (p.Notifies.Count == 0) return null;
+        await uow.CommitAsync(p.Ct);
+        foreach (var (node, userIds) in p.Notifies)
+        {
+            var messages = await composer.ComposeAsync(p.Inst, p.Module, p.Values, node, userIds, p.Ct);
+            if (messages is null) return p.Steps.RuntimeInvalid(p.Inst, $"通知節點 {node.Id} 的記錄 {p.Inst.RecordId} 不存在", ApprovalMessages.GraphRuntimeInvalid);
+            notifier.NotifyPrepared(p.Inst, messages);
+        }
+        return null;
     }
 }

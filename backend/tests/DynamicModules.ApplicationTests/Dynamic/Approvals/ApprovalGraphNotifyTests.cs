@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using DynamicModules.Application.Common;
+using DynamicModules.Application.Common.Security;
 using DynamicModules.Application.Dynamic.ApprovalService;
 using DynamicModules.Application.Dynamic.NotificationService;
 using DynamicModules.Application.Dynamic.PermissionService.Commands.SaveModulePermissions;
@@ -8,10 +9,13 @@ using DynamicModules.Application.Dynamic.PermissionService.Data;
 using DynamicModules.Application.Dynamic.RecordService.Commands.CreateRecord;
 using DynamicModules.Domain.Approvals;
 using DynamicModules.Domain.Entities.Dynamic;
+using DynamicModules.Domain.Repositories.Dynamic;
 using DynamicModules.Domain.ValueObjects;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using DynamicModules.ApplicationTests.Dynamic.Mcp;
 using DynamicModules.TestSupport;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit.Abstractions;
 using static DynamicModules.ApplicationTests.Dynamic.Approvals.ApprovalGraphTestKit;
 
@@ -25,6 +29,15 @@ namespace DynamicModules.ApplicationTests.Dynamic.Approvals;
 public class ApprovalGraphNotifyTests(ITestOutputHelper output) : ApprovalTestBase
 {
     protected override bool ScopePerRequest => true;
+
+    private readonly TestRequestChannel _channel = new();
+
+    protected override void ConfigureServices(IServiceCollection services)
+    {
+        base.ConfigureServices(services);
+        services.AddSingleton<IRequestChannel>(_channel);
+        services.AddChannelPermissionMasking();
+    }
 
     private long _amount;
 
@@ -389,5 +402,99 @@ public class ApprovalGraphNotifyTests(ITestOutputHelper output) : ApprovalTestBa
         var res = await Submit(po.Id, r.Confirmed);
         res.IsConflict.Should().BeTrue(Dump(res));
         res.Message.Should().Be(ApprovalMessages.GraphRuntimeInvalid.Resolve(null));
+    }
+
+    // ───────── 修正輪：R1 延後 Compose、Y1 通道 ─────────
+
+    [Fact]
+    [Trait("Category", "Postgres")]
+    public async Task AnyJoin_CancelledTaskHolderAsRecipient_NoTemporaryRead_NoAmount()
+    {
+        // R1：分支一先建 fin1 的任務，分支二的通知節點收件人也是 fin1，任一到齊取消分支一。
+        // fin1 對模組沒有權限，交易提交後他不是可動作者（任務已 closed、待簽通知也被丟掉），通知不能帶金額與連結
+        var r = await Rig(_ => G([Start(), Fork("f"), Approval("a", Users("fin1")), Notify("n", [ToUsers("fin1")], "{title}", $"{{f:{_amount}}}"),
+             Join("j", "f", ApprovalModes.Any), End()],
+            [E("e0", "start", "f"), E("fa", "f", "a"), E("fn", "f", "n"), E("aj", "a", "j"), E("nj", "n", "j"), E("je", "j", "end")]), restricted: true);
+        var (_, id) = await SubmitAs(r);
+
+        TasksOf(id).Single(t => t.AssigneeUserId == "fin1").Status.Should().Be(ApprovalTaskStatus.Closed);
+        Notices("fin1", NotificationKinds.ApprovalPending).Should().Be(0);
+        var row = NotifyRows("fin1").Single();
+        var d = Payload(row);
+        d.Read.Should().BeFalse();
+        d.Values.Keys.Should().NotContain(k => k.StartsWith("f:"));
+        row.Link.Should().BeEmpty();
+        row.DataJson.Should().NotContain("120000");
+        row.TitleSnapshot.Should().BeEmpty();   // 從沒動作就被取消的任務不算參與者
+    }
+
+    [Fact]
+    public async Task NotifyBeforeApproval_SameRecipient_SeesAmount_ByEndOfPassState()
+    {
+        // 語意改變（計畫 T4）：可動作者看推進結束時的任務。start → n(fin1) → a(fin1)：通知節點在前、任務在後，fin1 仍看得到金額
+        var r = await Rig(_ => G([Start(), Notify("n", [ToUsers("fin1")], "{title}", $"{{f:{_amount}}}"), Approval("a", Users("fin1")), End()],
+            [E("e0", "start", "n"), E("e1", "n", "a"), E("e2", "a", "end")]), restricted: true);
+        await SubmitAs(r);
+
+        var d = Payload(NotifyRows("fin1").Single());
+        d.Read.Should().BeTrue();
+        d.Values[ApprovalNotifyData.FieldKey(_amount)].T.Should().Be("120000.00");
+    }
+
+    [Fact]
+    public async Task NotifyHistory_StaysAtNodeTime_BeforeLaterHistory_CountEqualsRows()
+    {
+        // 歷程與該次 Commit 留在節點當下（維持順序）；count 等於實際寫入筆數
+        var r = await Rig(_ => G([Start(), Fork("f"), Notify("n", [ToUsers("emp1", "emp2")]), Approval("a", Users("fin1")), Join("j", "f", ApprovalModes.Any),
+             Approval("c", Users("gm")), End()],
+            [E("e0", "start", "f"), E("fn", "f", "n"), E("fe", "f", "j"), E("na", "n", "a"), E("aj", "a", "j"), E("jc", "j", "c"), E("ce", "c", "end")]));
+        var (_, id) = await SubmitAs(r);
+
+        var actions = ActionsOf(id);
+        var log = actions.Single(a => a.Action == ApprovalActions.Notify);
+        actions.Single(a => a.Action == ApprovalActions.BranchCancelled).Id.Should().BeGreaterThan(log.Id);
+        DataOf(log).GetProperty("count").GetInt32().Should().Be(NotifyRows().Count);
+    }
+
+    [Fact]
+    public async Task Flush_NoPendingNotices_StillWritesNotifications()
+    {
+        // 陷阱 1：只有通知節點、沒有待簽通知的推進，Flush 不能提早 return
+        // 簽核節點的略過條件不成立（總額 ≥ 一億才簽）→ 略過，整段推進沒有任何待簽通知
+        var r = await Rig(rr => G([Start(), Notify("n", [ToUsers("emp1")]), Approval("a", Users("fin1"), when: Cond(rr.Total, "gte", 100000000)), End()],
+            [E("e0", "start", "n"), E("e1", "n", "a"), E("e2", "a", "end")]));
+        var (_, id) = await SubmitAs(r);
+        Inst(id).Status.Should().Be(ApprovalInstanceStatus.Approved);
+        NotifyRows("emp1").Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task McpChannelTrigger_HumanRecipientStillSeesNonAiFieldValues()
+    {
+        // Y1：觸發者經 MCP 通道送出，收件人的權限不能被標 AiMasked；「不提供給 AI」的欄位對人類收件人照常看得到
+        var r = await Rig(rr => G([Start(), Notify("n", [ToUsers("emp1", "buyer2")], "{title}", $"{{f:{rr.Memo}}}"), Approval("a", Users("fin1")), End()],
+            [E("e0", "start", "n"), E("e1", "n", "a"), E("e2", "a", "end")]), restricted: true);
+        foreach (var f in await Db.Context.Set<Field>().Where(f => f.Id == r.Memo).ToListAsync()) f.ExcludeFromAi = true;
+        await Db.Context.SaveForTestsAsync();
+        Db.Context.ChangeTracker.Clear();
+        As("buyer1");
+        var po = await NewPo(r, price: 5000, title: "PO-0001", extra: V((r.Memo, "請盡快")));
+        // 直接呼叫 handler（不經 MCP 寫入工具的上膛管線），觸發這次推進的請求通道是 MCP
+        using (var scope = NewScope())
+        {
+            var sp = scope.ServiceProvider;
+            _channel.Channel = RequestChannel.Mcp;
+            try
+            {
+                var res = await sp.GetRequiredService<MediatR.IRequestHandler<SubmitApprovalRequest, ServiceResult>>()
+                    .Handle(new SubmitApprovalRequest(po.Id, r.Confirmed, Rec(po.Id).Row.RowVersion, null, null), CancellationToken.None);
+                res.IsSuccess.Should().BeTrue(Dump(res));
+                await sp.GetRequiredService<IUnitOfWork>().CommitAsync(CancellationToken.None);
+            }
+            finally { _channel.Channel = RequestChannel.Ui; }
+        }
+
+        foreach (var user in new[] { "emp1", "buyer2" })
+            Payload(NotifyRows(user).Single()).Values[ApprovalNotifyData.FieldKey(r.Memo)].T.Should().Be("請盡快");
     }
 }
