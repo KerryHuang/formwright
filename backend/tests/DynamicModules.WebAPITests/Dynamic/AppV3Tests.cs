@@ -384,6 +384,9 @@ public class AppV3Tests : IDisposable
         var blocked = await _admin.DeleteAsync($"{Apps}/sales-flow?purged=0");
         blocked.StatusCode.Should().Be(HttpStatusCode.Conflict, await blocked.Content.ReadAsStringAsync());
         (await blocked.Content.ReadAsStringAsync()).Should().Contain("業務看板");
+        var blocker = JsonDocument.Parse(await blocked.Content.ReadAsStringAsync()).RootElement.GetProperty("blockers").EnumerateArray()
+            .Single(b => b.GetProperty("kind").GetString() == "dashboard");
+        blocker.GetProperty("reportName").GetString().Should().Be(Db(db => db.Set<Report>().Single(r => r.Id == reportId).Name), "帶出報表名，畫面才寫得出「報表『○○』還在儀表板『△△』上」");
         Db(db => db.Set<Report>().Count()).Should().BeGreaterThan(0);
 
         (await _admin.DeleteAsync($"{DashboardTestKit.AdminDashboards}/{dashboard}")).EnsureSuccessStatusCode();
