@@ -92,6 +92,20 @@ public class SharedMasterDeleteTests : IDisposable
     }
 
     [Fact]
+    public async Task DeleteWarnings_FollowRequestLocale()
+    {
+        await ConvertedThenClosedAsync(withStock: true);
+        var preview = await PreviewAsync("crmx");
+        var req = new HttpRequestMessage(HttpMethod.Delete, $"{SharedMasterRig.Apps}/crmx?purged={preview.GetProperty("purgedTotal").GetInt32()}");
+        req.Headers.Add("X-Locale", "en-US");
+        var res = await _rig.Admin.SendAsync(req);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        var warnings = (await JsonOf(res)).GetProperty("warnings").EnumerateArray().Select(w => w.GetString()).ToList();
+        warnings.Should().ContainSingle().Which.Should().StartWith("Shared master \"").And.EndWith("0 records remain and were kept")
+            .And.NotContain("已沒有");
+    }
+
+    [Fact]
     public async Task DeletingANonLastUser_PurgesOwnReferences_OrphansValuedFields_DropsEmptyOnes_DeletesOwnConversion()
     {
         var (partner, industry, fromLead, score) = await ConvertedThenClosedAsync(withStock: true);
