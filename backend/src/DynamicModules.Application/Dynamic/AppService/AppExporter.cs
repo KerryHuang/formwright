@@ -57,10 +57,10 @@ public sealed partial class AppExporter(
         // 別的應用程式（含共用主檔）的模組：key → (模組代號, 應用程式 id, 是不是主檔)
         var allApps = await apps.ListAsync(ct);
         var moduleKeyById = all.ToDictionary(m => m.Id, m => m.Key);
-        var external = new Dictionary<string, (string Code, string App, bool Master)>();
+        var external = new Dictionary<string, (string Code, string App, AppKind Kind)>();
         foreach (var other in allApps.Where(a => a.Id != app.Id))
             foreach (var m in other.Modules.Where(m => moduleKeyById.ContainsKey(m.ModuleId)))
-                external[moduleKeyById[m.ModuleId]] = (m.Code, other.Key, other.Kind == AppKind.Master);
+                external[moduleKeyById[m.ModuleId]] = (m.Code, other.Key, other.Kind);
         // 主檔歸 requires.masters、不進 requires.apps（共用主檔 §9，第二輪必修 1）
         var usedApps = new Dictionary<string, HashSet<string>>();
         var usedMasters = new Dictionary<string, HashSet<string>>();
@@ -73,7 +73,8 @@ public sealed partial class AppExporter(
         {
             if (keyToCode.TryGetValue(key, out var code)) return (code, null);
             if (!external.TryGetValue(key, out var ext)) return null;
-            if (record) Use(ext.Master ? usedMasters : usedApps, ext.App, ext.Code);
+            if (ext.Kind == AppKind.Template) return null; // 範本不能被依賴：參照略過、不進 requires
+            if (record) Use(ext.Kind == AppKind.Master ? usedMasters : usedApps, ext.App, ext.Code);
             return (ext.Code, ext.App);
         }
         (string Code, string? App)? RefTarget(string key) => Target(key, record: true);
@@ -107,7 +108,8 @@ public sealed partial class AppExporter(
         }
         var codes = ExportCodeBook(members, codeOfModule, bindings, excludedFields);
         var exported = await templates.ExportMembersAsync(members, m => codeOfModule[m.Id], RefTarget, ct, codes,
-            includeInactive: isMaster || compare, external: masterNames);
+            includeInactive: isMaster || compare, external: masterNames,
+            templateOf: key => external.TryGetValue(key, out var e) && e.Kind == AppKind.Template ? e.App : null);
         warnings.AddRange(exported.Warnings);
         var names = masterNames is null ? exported.Names : AppReportCodec.Names.Or(exported.Names, masterNames);
 
@@ -239,7 +241,7 @@ public sealed partial class AppExporter(
             .Select(g => new AppGroup(g.Value, groupList.First(x => x.Id == g.Key).NameI18n)).ToList();
         var package = new AppPackageData(
             AppPackageData.FormatName, AppPackageData.CurrentFormatVersion,
-            new AppManifest(app.Key, app.PackageVersion, app.NameI18n, null, app.Icon, null, requires, isMaster ? AppManifest.MasterKindName : null),
+            new AppManifest(app.Key, app.PackageVersion, app.NameI18n, null, app.Icon, null, requires, app.Kind == AppKind.App ? null : AppManifest.KindNameOf(app.Kind)),
             groups, moduleList, fieldAccess, optionScopes, reportList, null, workflows, conversionList, eventList, printList,
             checkList, ledgerList, IntegrationDeclarations.Parse(app.IntegrationsJson), contributions, taskRuleList, approvalList);
         // groups 在上面各步驟用到才加進 codeOfGroup，最後才組出來

@@ -15,7 +15,7 @@ namespace DynamicModules.Application.Dynamic.TemplateService;
 /// 匯出範本（決策 6）：模組加上以它為表頭的明細模組，id 換成代號（模組＝鍵、欄位＝Field.Key、區塊 b_&lt;id&gt;、選項 o_&lt;id&gt;），
 /// 是 TemplateInstantiator 代號→id 替換的反向。表達不了的引用不匯出，記在 warnings。
 /// </summary>
-public sealed partial class TemplateExporter(IModuleRepository modules, IPermissionRepository permissions, IListViewRepository views, Common.RequestLocale requestLocale)
+public sealed partial class TemplateExporter(IModuleRepository modules, IPermissionRepository permissions, IListViewRepository views, Common.RequestLocale requestLocale, Common.Localization.IMessageCatalog messages)
 {
     /// <summary>module 要含子層（GetByKeyAsync includeChildren）。</summary>
     public async Task<TemplatePackage> ExportAsync(Module module, CancellationToken ct)
@@ -39,9 +39,10 @@ public sealed partial class TemplateExporter(IModuleRepository modules, IPermiss
     /// </summary>
     public async Task<ExportedModules> ExportMembersAsync(
         List<Module> members, Func<Module, string> codeOf, Func<string, (string Code, string? App)?>? refTargets, CancellationToken ct,
-        ExportCodes? codes = null, bool includeInactive = false, AppReportCodec.Names? external = null)
+        ExportCodes? codes = null, bool includeInactive = false, AppReportCodec.Names? external = null,
+        Func<string, string?>? templateOf = null)
     {
-        var ctx = new Context(members, codeOf, refTargets, codes ?? ExportCodes.Default, requestLocale.Current, includeInactive, external);
+        var ctx = new Context(members, codeOf, refTargets, codes ?? ExportCodes.Default, requestLocale.Current, includeInactive, external, templateOf, messages);
         var groups = (await permissions.ListGroupsAsync(ct)).OrderBy(g => g.Id).ToList();
         var result = new List<TemplateModule>();
         foreach (var m in members)
@@ -123,6 +124,8 @@ public sealed partial class TemplateExporter(IModuleRepository modules, IPermiss
         private readonly ExportCodes _codes;
         private readonly bool _includeInactive;
         private readonly AppReportCodec.Names? _external;
+        private readonly Func<string, string?>? _templateOf;
+        private readonly Common.Localization.IMessageCatalog? _messages;
 
         public IEnumerable<Field> FieldsOf(Block b) => _includeInactive
             ? b.Fields.Where(f => f.Status is FieldStatus.Active or FieldStatus.Inactive).OrderBy(f => f.Sequence).ThenBy(f => f.Id)
@@ -133,9 +136,12 @@ public sealed partial class TemplateExporter(IModuleRepository modules, IPermiss
         public string OptionCode(long id) => _codes.Option(id);
 
         public Context(List<Module> members, Func<Module, string> codeOf, Func<string, (string Code, string? App)?>? refTargets, ExportCodes codes, LocaleContext lc,
-            bool includeInactive = false, AppReportCodec.Names? external = null)
+            bool includeInactive = false, AppReportCodec.Names? external = null,
+            Func<string, string?>? templateOf = null, Common.Localization.IMessageCatalog? messages = null)
         {
             _lc = lc;
+            _templateOf = templateOf;
+            _messages = messages;
             _codes = codes;
             _includeInactive = includeInactive;
             _external = external;
@@ -197,7 +203,11 @@ public sealed partial class TemplateExporter(IModuleRepository modules, IPermiss
             var unresolved = $"「{Label(f)}」引用了停用或未匯出的欄位，未匯出";
             if (_refTargets is not null && f.Type == FieldType.Reference && f.Config.RefTarget is { Kind: ReferenceTarget.ModuleKind } target
                 && _refTargets(target.Key) is null)
+            {
+                if (_templateOf?.Invoke(target.Key) is { } templateId && _messages is not null)
+                    return _messages.Get(_lc, Common.MessageText.ExportRefToTemplate, Label(f), templateId);
                 return $"「{Label(f)}」指向不屬於任何應用程式的模組，未匯出";
+            }
             if (f.Config.Formula is { } formula
                 && FormulaReference().Matches(formula).Any(x => !Exported.Contains(long.Parse(x.Groups[1].Value))))
                 return unresolved;

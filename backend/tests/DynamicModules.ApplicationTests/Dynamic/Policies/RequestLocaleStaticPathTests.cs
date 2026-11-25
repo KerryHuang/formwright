@@ -74,7 +74,7 @@ public class RequestLocaleStaticPathTests : EffectsTestBase
         async Task<string> Export(string locale)
         {
             var exporter = new TemplateExporter(Svc<IModuleRepository>(), Svc<IPermissionRepository>(), Svc<IListViewRepository>(),
-                new RequestLocale(new Fixed(locale), Svc<CachedSystemPolicy>()));
+                new RequestLocale(new Fixed(locale), Svc<CachedSystemPolicy>()), Svc<DynamicModules.Application.Common.Localization.IMessageCatalog>());
             var package = await exporter.ExportAsync(module, default);
             return JsonSerializer.Serialize(package with { Warnings = null }, TemplateJson.Options);
         }

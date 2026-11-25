@@ -116,6 +116,112 @@ public class AppsApiTests : IDisposable
         await Activate(_admin, key);
     }
 
+    private static readonly object TplAOpenBody = new
+    {
+        groupMap = new Dictionary<string, object> { ["staff"] = new { mode = "create" } },
+        masters = new Dictionary<string, object> { ["partner-lite"] = new Dictionary<string, object> { ["steward"] = new { mode = "create" } } }
+    };
+
+    private async Task<JsonElement> OpenCrmAndTplA()
+    {
+        await ImportOk(AppTestPackagesV6.Master);
+        await ImportOk(AppTestPackagesTemplate.TplA);
+        await ImportOk(AppTestPackages.Crm);
+        var crm = await OpenOk("crm-lite", MapAll);
+        await OpenOk("tpl-a", TplAOpenBody);
+        return crm;
+    }
+
+    private async Task<HttpResponseMessage> ExportCrmWithRefToTemplate(JsonElement crm, string? locale = null)
+    {
+        var customer = KeyOf(crm, "customer");
+        var tplRecord = KeyOf(await JsonOf(await _admin.GetAsync($"{Apps}/tpl-a")), "record");
+        var blockId = (await JsonOf(await _admin.GetAsync($"{Base}/modules/{customer}"))).GetProperty("blocks")[0].GetProperty("id").GetInt64();
+        async Task<long> Add(string label, string type, object config)
+        {
+            var res = await _admin.PostAsJsonAsync($"{Base}/modules/{customer}/fields", new
+            {
+                blockId, type, label = new Dictionary<string, string> { ["zh-TW"] = label, ["en-US"] = "Inspection record" }, config
+            });
+            res.StatusCode.Should().Be(HttpStatusCode.Created, await res.Content.ReadAsStringAsync());
+            return (await JsonOf(res)).GetProperty("id").GetInt64();
+        }
+        await Add("檢驗紀錄", "reference", new { refTarget = new { kind = "module", key = tplRecord } });
+        var req = new HttpRequestMessage(HttpMethod.Get, $"{Apps}/crm-lite/export");
+        if (locale is not null) req.Headers.Add("X-Locale", locale);
+        return await _admin.SendAsync(req);
+    }
+
+    private static string WarningsOf(HttpResponseMessage res) =>
+        Uri.UnescapeDataString(string.Join('|', res.Headers.GetValues("X-Export-Warnings")));
+
+    [Fact]
+    public async Task ExportTemplate_KeepsKind_RoundTrips_TP25()
+    {
+        await ImportOk(AppTestPackagesV6.Master);
+        await ImportOk(AppTestPackagesTemplate.TplA);
+        await OpenOk("tpl-a", TplAOpenBody);
+        var res = await _admin.GetAsync($"{Apps}/tpl-a/export");
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var file = await res.Content.ReadAsStringAsync();
+        JsonDocument.Parse(file).RootElement.GetProperty("manifest").GetProperty("kind").GetString().Should().Be("template");
+
+        using var other = new TestApp();
+        var admin2 = other.AsUser();
+        (await admin2.PostAsync($"{Apps}/packages/import", Body(AppTestPackagesV6.Master))).StatusCode.Should().Be(HttpStatusCode.Created);
+        var back = await admin2.PostAsync($"{Apps}/packages/import", Body(file));
+        back.StatusCode.Should().Be(HttpStatusCode.Created, await back.Content.ReadAsStringAsync());
+        (await JsonOf(back)).GetProperty("kind").GetString().Should().Be("template");
+    }
+
+    [Fact]
+    public async Task ExportApp_ReferenceToTemplateIsOmitted_TP25a()
+    {
+        var crm = await OpenCrmAndTplA();
+        var res = await ExportCrmWithRefToTemplate(crm);
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var warnings = WarningsOf(res);
+        warnings.Should().Contain("指向範本「tpl-a」的模組，範本不能被依賴，未匯出");  // 公式不能引用參照欄位，依賴略過走既有 fixpoint，不另測
+        var file = await res.Content.ReadAsStringAsync();
+        file.Should().NotContain("檢驗紀錄");
+        var root = JsonDocument.Parse(file).RootElement;
+        root.GetProperty("manifest").GetProperty("requires").GetProperty("apps").EnumerateArray()
+            .Select(a => a.GetProperty("id").GetString()).Should().NotContain("tpl-a");
+
+        var node = System.Text.Json.Nodes.JsonNode.Parse(file)!;
+        node["manifest"]!["id"] = "crm-copy";
+        foreach (var m in node["modules"]!.AsArray()) m!["key"] = "cp-" + m["key"]!.GetValue<string>();
+        using var other = new TestApp();
+        var imported = await other.AsUser().PostAsync($"{Apps}/packages/import", Body(node.ToJsonString()));
+        imported.StatusCode.Should().Be(HttpStatusCode.Created, await imported.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task ExportWarning_IsLocalized()
+    {
+        var crm = await OpenCrmAndTplA();
+        var res = await ExportCrmWithRefToTemplate(crm, "en-US");
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var line = WarningsOf(res).Split('|').Single(w => w.Contains("tpl-a"));
+        line.Should().Contain("template").And.Contain("tpl-a");
+        System.Text.RegularExpressions.Regex.IsMatch(line, "[一-鿿]").Should().BeFalse(line);
+    }
+
+    [Fact]
+    public async Task ExportTemplate_ReferenceToAppIsKept_TP25b()
+    {
+        await ImportOk(AppTestPackagesTemplate.TplR);
+        (await Open("crm-sales")).StatusCode.Should().Be(HttpStatusCode.Created);
+        await OpenOk("tpl-r", new { groupMap = new Dictionary<string, object> { ["staff"] = new { mode = "create" } } });
+        var res = await _admin.GetAsync($"{Apps}/tpl-r/export");
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var root = JsonDocument.Parse(await res.Content.ReadAsStringAsync()).RootElement;
+        root.GetProperty("manifest").GetProperty("kind").GetString().Should().Be("template");
+        root.GetProperty("manifest").GetProperty("requires").GetProperty("apps").EnumerateArray()
+            .Select(a => a.GetProperty("id").GetString()).Should().Contain("crm-sales");
+        root.GetProperty("modules").GetRawText().Should().MatchRegex("\"app\"\\s*:\\s*\"crm-sales\"");
+    }
+
     [Fact]
     public async Task Writes_RequireSystemAdmin_NotJustDesignerRights()
     {
