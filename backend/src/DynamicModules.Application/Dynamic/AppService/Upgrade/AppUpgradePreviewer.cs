@@ -317,6 +317,7 @@ public sealed class AppUpgradePreviewer(
     /// </summary>
     public async Task<AppUpgradeHint?> HintAsync(App app, CancellationToken ct)
     {
+        if (app.Kind == AppKind.Template) return null; // 範本開啟後屬於使用者，不提供更新（範本套件設計 V9）
         var candidate = await packages.CandidateForAsync(app, ct);
         var own = candidate is not null && PackageVersion.IsNewer(candidate.Package.Manifest.Version, app.PackageVersion)
             ? candidate.Package.Manifest.Version : null;

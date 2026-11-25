@@ -5,6 +5,7 @@ using DynamicModules.Application.Common.Audit;
 using DynamicModules.Application.Common.Security;
 using DynamicModules.Application.Common.Time;
 using DynamicModules.Application.Dynamic.AppService.Data;
+using DynamicModules.Application.Dynamic.AppService.Integrations;
 using DynamicModules.Application.Dynamic.AppService.SharedMasters;
 using DynamicModules.Application.Dynamic.TemplateService;
 using DynamicModules.Domain.Entities.Dynamic;
@@ -27,7 +28,8 @@ public record ImportAppPackageRequest(byte[] Content) : IRequest<ServiceResult>,
 /// </summary>
 public class ImportAppPackageHandler(
     AppCatalog catalog, AppPackageSource packages, IAppPackageRepository repository, IAppRepository apps,
-    IUnitOfWork uow, ICurrentUser user, IBusinessTime time, MasterMerger merger, AppExporter exporter, PackageLimitReader limits, AuditContext audit, DynamicModules.Application.Common.RequestLocale requestLocale)
+    IUnitOfWork uow, ICurrentUser user, IBusinessTime time, MasterMerger merger, AppExporter exporter, PackageLimitReader limits, AuditContext audit, DynamicModules.Application.Common.RequestLocale requestLocale,
+    DynamicModules.Application.Common.Localization.IMessageCatalog messages)
     : IRequestHandler<ImportAppPackageRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(ImportAppPackageRequest request, CancellationToken ct)
@@ -49,6 +51,22 @@ public class ImportAppPackageHandler(
         if (limitErrors.Count > 0) return Invalid(limitErrors);
 
         var id = package.Manifest.Id;
+        // 範本不能被依賴也不能當整合夥伴：已知套件與已開啟應用程式只要點名這個 id 就不能以範本匯入（範本套件設計 V6）
+        if (package.Manifest.IsTemplate)
+        {
+            var dependents = known.Where(k => k.Package.Manifest.Id != id
+                    && (k.Package.Manifest.Requires.Apps.Any(a => a.Id == id)
+                        || k.Package.Integrations.Any(d => d.With.Any(w => w.Id == id))))
+                .Select(k => k.Package.Manifest.Id)
+                .Concat((await apps.ListAsync(ct)).Where(a => a.Key != id
+                        && (a.Requires.Apps.Any(r => r.Id == id)
+                            || IntegrationDeclarations.Parse(a.IntegrationsJson).Any(d => d.With.Any(w => w.Id == id))))
+                    .Select(a => a.Key))
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+            if (dependents.Count > 0)
+                return ServiceResult.Invalid(new Dictionary<string, MessageRef[]>
+                    { ["package"] = [MessageRef.Of(MessageText.AppImportTemplateDepended, id, string.Join("、", dependents))] });
+        }
         var stored = await repository.GetByKeyAsync(id, ct);
         var exists = catalog.BuiltIns.Any(p => p.Manifest.Id == id) || stored is not null;
         SourcedPackage? current = null;
@@ -57,6 +75,9 @@ public class ImportAppPackageHandler(
         if (!package.Manifest.IsMaster && stored is not null && catalog.BuiltIns.All(p => p.Manifest.Id != id)
             && (await packages.ReadAsync(stored.Json, ct)).Package is { Manifest.IsMaster: false })
         {
+            if ((await packages.ReadAsync(stored.Json, ct)).Package!.Manifest.IsTemplate != package.Manifest.IsTemplate)
+                return ServiceResult.Conflict(MessageRef.Of(
+                    package.Manifest.IsTemplate ? MessageText.AppImportKindToTemplate : MessageText.AppImportKindToApp, id));
             if (!Upgrade.PackageVersion.IsNewer(package.Manifest.Version, stored.Version))
                 return ServiceResult.Conflict(AppMessages.ImportVersionNotNewer(id, stored.Version));
             replace = stored;
@@ -92,7 +113,8 @@ public class ImportAppPackageHandler(
             await uow.CommitAsync(ct);
             var opened = await apps.GetByKeyAsync(id, ct);
             return ServiceResult.Success(AppResponseBuilder.Summarize(new SourcedPackage(package, AppPackageSource.Imported),
-                opened is null ? null : AppMapper.StatusName(opened.Status)));
+                opened is null ? null : AppMapper.StatusName(opened.Status))
+                with { Warnings = package.Manifest.IsTemplate ? [messages.Get(requestLocale.Current, MessageText.AppTemplateReimported)] : [] });
         }
         var row = new AppPackage { Key = id, Version = package.Manifest.Version, Json = Encoding.UTF8.GetString(c, skip, c.Length - skip) };
         row.StampCreated(user.UserId, time.Now);

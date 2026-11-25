@@ -146,4 +146,96 @@ public class AppTemplateKindTests : IDisposable
         closed.StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await closed.Content.ReadAsStringAsync()).Should().Contain("應用程式已開啟但目前是關閉狀態，請改用重新開啟");
     }
+
+    private static bool HasCjk(string s) => Regex.IsMatch(s, "[一-鿿]");
+
+    private async Task<string> Body(HttpResponseMessage res) => await res.Content.ReadAsStringAsync();
+
+    [Fact]
+    public async Task TemplateImport_AfterADependentPackage_IsRejected_TP07()
+    {
+        (await ImportAsync(AppTestPackagesTemplate.App("app-b", requiresApp: "tpl-x"))).StatusCode.Should().Be(HttpStatusCode.Created);
+        var errors = await ErrorsOf(await ImportAsync(AppTestPackagesTemplate.Template("tpl-x")));
+        errors.Should().Contain("tpl-x 已被 app-b 列為相依或整合對象，不能以範本匯入");
+    }
+
+    [Fact]
+    public async Task OpenedAppIntegrationNamingTheId_BlocksTemplateImport()
+    {
+        (await ImportAsync(AppTestPackagesTemplate.App("app-e"))).StatusCode.Should().Be(HttpStatusCode.Created);
+        var open = await _admin.PostAsJsonAsync($"{Base}/apps/packages/app-e/open",
+            new { groupMap = new Dictionary<string, object> { ["staff"] = new { mode = "create" } } });
+        open.StatusCode.Should().Be(HttpStatusCode.Created, await Body(open));
+        using (var scope = _app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<DynamicDbContext>();
+            db.Set<App>().Single(a => a.Key == "app-e").IntegrationsJson =
+                """[{"code":"link","name":{"zh-TW":"串接"},"with":[{"id":"tpl-y","modules":["item"]}]}]""";
+            await db.SaveChangesAsync();
+        }
+        var errors = await ErrorsOf(await ImportAsync(AppTestPackagesTemplate.Template("tpl-y")));
+        errors.Should().Contain("tpl-y 已被 app-e 列為相依或整合對象，不能以範本匯入");
+    }
+
+    [Fact]
+    public async Task ReimportChangingKind_Is409_TP08()
+    {
+        (await ImportAsync(AppTestPackagesTemplate.App("app-d"))).StatusCode.Should().Be(HttpStatusCode.Created);
+        var toTpl = await ImportAsync(AppTestPackagesTemplate.Template("app-d", "2.0.0"));
+        toTpl.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await Body(toTpl)).Should().Contain("套件 app-d 已經是應用程式，再匯入不能改成範本");
+
+        (await ImportAsync(AppTestPackagesTemplate.Template("tpl-r"))).StatusCode.Should().Be(HttpStatusCode.Created);
+        var toApp = await ImportAsync(AppTestPackagesTemplate.App("tpl-r") .Replace("\"1.0.0\"", "\"2.0.0\""));
+        toApp.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await Body(toApp)).Should().Contain("套件 tpl-r 已經是範本，再匯入不能改成應用程式");
+    }
+
+    [Fact]
+    public async Task ImportErrors_AreLocalized()
+    {
+        (await ImportAsync(AppTestPackagesTemplate.App("app-b", requiresApp: "tpl-x"))).StatusCode.Should().Be(HttpStatusCode.Created);
+        var v6 = await ErrorsOf(await ImportAsync(AppTestPackagesTemplate.Template("tpl-x"), "en-US"));
+        v6.Should().Contain("tpl-x is required or integrated by app-b and cannot be imported as a template");
+        v6.Should().OnlyContain(m => !HasCjk(m));
+
+        (await ImportAsync(AppTestPackagesTemplate.App("app-d"))).StatusCode.Should().Be(HttpStatusCode.Created);
+        var toTpl = await ImportAsync(AppTestPackagesTemplate.Template("app-d", "2.0.0"), "en-US");
+        toTpl.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await Body(toTpl)).Should().Contain("Package app-d is already an app and cannot be re-imported as a template").And.NotMatchRegex("[一-鿿]");
+
+        (await ImportAsync(AppTestPackagesTemplate.Template("tpl-r"))).StatusCode.Should().Be(HttpStatusCode.Created);
+        var toApp = await ImportAsync(AppTestPackagesTemplate.App("tpl-r").Replace("\"1.0.0\"", "\"2.0.0\""), "en-US");
+        toApp.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await Body(toApp)).Should().Contain("Package tpl-r is already a template and cannot be re-imported as an app").And.NotMatchRegex("[一-鿿]");
+
+        await ImportTplAAsync();
+        var newer = await ImportAsync(AppTestPackagesTemplate.TplA.Replace("\"1.0.0\"", "\"1.1.0\""), "en-US");
+        newer.StatusCode.Should().Be(HttpStatusCode.OK, await Body(newer));
+        var warnings = JsonDocument.Parse(await Body(newer)).RootElement.GetProperty("warnings").EnumerateArray().Select(w => w.GetString()!).ToList();
+        warnings.Should().Contain("The new version was imported; templates that are already opened are not updated");
+        warnings.Should().OnlyContain(m => !HasCjk(m));
+    }
+
+    [Fact]
+    public async Task ReimportNewerTemplate_ReplacesTheOriginalOnly_TP09()
+    {
+        await ImportMasterAndTplA();
+        (await OpenTpl()).StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var newer = await ImportAsync(AppTestPackagesTemplate.TplA.Replace("\"1.0.0\"", "\"1.1.0\""));
+        newer.StatusCode.Should().Be(HttpStatusCode.OK, await Body(newer));
+        JsonDocument.Parse(await Body(newer)).RootElement.GetProperty("warnings").EnumerateArray().Select(w => w.GetString())
+            .Should().Contain("已匯入新版；已開啟的範本不會更新");
+
+        Prop(JsonDocument.Parse(await _admin.GetStringAsync($"{Base}/apps/tpl-a")).RootElement, "packageVersion").Should().Be("1.0.0");
+        var list = JsonDocument.Parse(await _admin.GetStringAsync($"{Base}/apps/packages")).RootElement.EnumerateArray().ToList();
+        // 沒有更新提示時 API 省略 upgrade（null 不輸出）
+        var tpl = list.Single(x => Prop(x, "id") == "tpl-a");
+        (!tpl.TryGetProperty("upgrade", out var upgrade) || upgrade.ValueKind == JsonValueKind.Null).Should().BeTrue();
+
+        var again = await ImportAsync(AppTestPackagesTemplate.TplA.Replace("\"1.0.0\"", "\"1.1.0\""));
+        again.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await Body(again)).Should().Contain("目前版號 1.1.0");
+    }
 }
