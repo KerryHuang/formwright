@@ -123,6 +123,44 @@ describe('AppDeleteDialog', () => {
     expect(api.deleteApp).toHaveBeenLastCalledWith('tpl-a', 4);
   });
 
+  it('a stale check response for the previous target never overwrites the current one', async () => {
+    const appB: AppInfo = { ...app, key: 'app-b', name: { 'zh-TW': '乙應用程式' }, modules: [] };
+    const checkB: AppDeleteCheck = { ...deletable, purgedTotal: 5, purge: { records: 5, indexRows: 0, historyRows: 0 }, reports: [{ id: 7, name: '乙的報表' }] };
+    let resolveA!: (c: AppDeleteCheck) => void;
+    let resolveB!: (c: AppDeleteCheck) => void;
+    api.getAppDeleteCheck.mockImplementation((key: string) => new Promise<AppDeleteCheck>((r) => { if (key === 'tpl-a') resolveA = r; else resolveB = r; }));
+    api.deleteApp.mockResolvedValue({ warnings: [] });
+    const w = await mountDialog();
+    await w.setProps({ modelValue: false });
+    await w.setProps({ app: appB, modelValue: true });
+    await flushPromises();
+    resolveB(checkB);
+    await flushPromises();
+    resolveA(deletable);
+    await flushPromises();
+    expect(q('app-delete-reports')!.textContent).toContain('乙的報表');
+    expect(q('app-delete-reports')!.textContent).not.toContain('不良率報表');
+    expect(document.body.textContent).toContain('將永久清除 5 筆已刪除的記錄');
+    await tick('app-delete-confirm');
+    await tick('app-delete-submit');
+    expect(api.deleteApp).toHaveBeenCalledWith('app-b', 5);
+  });
+
+  it('switching the target while open reloads and clears the acknowledgement', async () => {
+    const appB: AppInfo = { ...app, key: 'app-b', modules: [] };
+    api.getAppDeleteCheck.mockResolvedValueOnce(deletable).mockResolvedValueOnce({ ...deletable, purgedTotal: 5 });
+    const w = await mountDialog();
+    await tick('app-delete-confirm');
+    expect(submit().disabled).toBe(false);
+    await w.setProps({ app: appB });
+    await flushPromises();
+    expect(api.getAppDeleteCheck).toHaveBeenLastCalledWith('app-b');
+    expect(submit().disabled).toBe(true);
+    await tick('app-delete-confirm');
+    await tick('app-delete-submit');
+    expect(api.deleteApp).toHaveBeenCalledWith('app-b', 5);
+  });
+
   it.each([
     ['403', { status: 403 }, 'app-delete-forbidden'],
     ['generic', { status: 500, message: 'boom' }, 'app-delete-error'],

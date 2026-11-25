@@ -23,31 +23,45 @@ const loading = ref(false);
 const forbidden = ref(false);
 const error = ref('');
 const check = ref<AppDeleteCheck | null>(null);
+// 預檢結果屬於哪個目標：送出只用目前目標的結果
+const checkKey = ref<string | null>(null);
 const stale = ref(false);
 const acknowledged = ref(false);
+// 每次開啟、切換目標、關閉都換號，舊請求晚到的回應一律丟掉
+let seq = 0;
 
 const name = (n: Parameters<typeof resolveI18n>[0]) => resolveI18n(n, locale.value);
-const canSubmit = computed(() => !!check.value?.canDelete && acknowledged.value && !del.isPending.value);
+const canSubmit = computed(() => !!check.value?.canDelete && checkKey.value === props.app?.key && acknowledged.value
+  && !loading.value && !error.value && !forbidden.value && !del.isPending.value);
 
 async function load() {
   const app = props.app;
-  if (!app) return;
+  const mine = ++seq;
   loading.value = true;
   forbidden.value = false;
   error.value = '';
   check.value = null;
+  checkKey.value = null;
   acknowledged.value = false;
+  if (!app) { loading.value = false; return; }
   try {
-    check.value = await dynamicApi.getAppDeleteCheck(app.key);
+    const c = await dynamicApi.getAppDeleteCheck(app.key);
+    if (mine !== seq) return;
+    check.value = c;
+    checkKey.value = app.key;
+    acknowledged.value = false;
   } catch (e) {
+    if (mine !== seq) return;
     if (isForbidden(e)) forbidden.value = true;
     else error.value = (e as ApiError).message ?? t('designer.delete.checkFailed');
   } finally {
-    loading.value = false;
+    if (mine === seq) loading.value = false;
   }
 }
 
-watch(() => props.modelValue, (open) => { if (open) { stale.value = false; void load(); } }, { immediate: true });
+watch(() => [props.modelValue, props.app?.key] as const, ([open]) => {
+  if (open) { stale.value = false; void load(); } else seq++;
+}, { immediate: true });
 
 function submit() {
   const app = props.app;
