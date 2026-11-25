@@ -10,6 +10,8 @@ export const COL_GAP = 56;
 /** 有條件標籤的線，起點右側第一個欄距（約 8 個中文字）；只在傳了 labeledEdgeIds 時使用。 */
 export const LABELED_COL_GAP = 136;
 export const ROW_GAP = 24;
+/** 手排時標籤寬度上限（U59）；設計頁與進度圖共用。 */
+export const MANUAL_LABEL_MAX_PX = 160;
 
 export interface LayoutNode { id: string; kind: string }
 export interface LayoutEdge { id: string; from: string; to: string }

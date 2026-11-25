@@ -2,8 +2,8 @@
 // （只有 ProgressGraphCanvas.vue、ProgressGraphNode.vue 可以，見 fg4 計畫 J3）。
 // 狀態只在後端算；這裡只做「狀態 → 顏色、圖示、文字」的對照，顏色與圖示和時間軸共用 approval-display.ts 那一份。
 import type { Edge, Node } from '@vue-flow/core';
-import type { ApprovalProgressGraph, ApprovalProgressNode, ApprovalProgressState, ApprovalStageView } from 'src/domain/dynamic/approval-types';
-import { ADDSIGN_H, ADDSIGN_W, COL_GAP, edgeBendX, layoutLeftToRight, NODE_H, NODE_W, type LayoutResult } from 'src/domain/dynamic/approval-graph-layout';
+import type { ApprovalProgressEdge, ApprovalProgressGraph, ApprovalProgressNode, ApprovalProgressState, ApprovalStageView } from 'src/domain/dynamic/approval-types';
+import { ADDSIGN_H, ADDSIGN_W, COL_GAP, edgeBendX, layoutLeftToRight, manualGapAfter, MANUAL_LABEL_MAX_PX, NODE_H, NODE_W, type LayoutResult } from 'src/domain/dynamic/approval-graph-layout';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import { stageColor, stageIcon } from './approval-display';
 
@@ -149,10 +149,54 @@ function nodeData(n: ApprovalProgressNode, stagesById: Map<number, ApprovalStage
   };
 }
 
+/**
+ * J84、U58：設計器的手排版面。版面涵蓋定義裡每一個節點（所有非加簽節點、而且座標是有限數字）才用，否則回 null、照舊自動排版。
+ * 座標平移到左上角為原點（視角與縮圖都假設圖從 0,0 起）。加簽小節點放在主節點右側一個欄距、垂直置中，同一主節點的多個依序排開；
+ * 主節點右側（左緣在主節點右緣之後）的所有節點一起往右挪「小節點寬＋欄距」× 該主節點的小節點數。
+ */
+function manualLayout(graph: ApprovalProgressGraph): LayoutResult | null {
+  const saved = graph.layout?.nodes;
+  if (!saved) return null;
+  const finite = (id: string) => Number.isFinite(saved[id]?.x) && Number.isFinite(saved[id]?.y);
+  const defined = graph.nodes.filter((n) => n.kind !== 'addSign');
+  if (!defined.length || !defined.every((n) => finite(n.id))) return null;
+  const small = graph.nodes.filter((n) => n.kind === 'addSign');
+  const hosts = new Map<string, string[]>();
+  for (const n of small) {
+    if (!n.hostId || !finite(n.hostId) || !defined.some((d) => d.id === n.hostId)) return null;
+    hosts.set(n.hostId, [...(hosts.get(n.hostId) ?? []), n.id]);
+  }
+  const step = ADDSIGN_W + COL_GAP;
+  // 原座標 x 要往右挪多少：左邊每個有加簽的主節點貢獻 小節點數 × step。
+  const shiftAt = (x: number) => [...hosts].reduce((sum, [hostId, ids]) => (x >= saved[hostId].x + NODE_W ? sum + ids.length * step : sum), 0);
+  const placed: Record<string, { x: number; y: number }> = {};
+  for (const n of defined) placed[n.id] = { x: saved[n.id].x + shiftAt(saved[n.id].x), y: saved[n.id].y };
+  for (const [hostId, ids] of hosts) {
+    const host = placed[hostId];
+    ids.forEach((id, i) => { placed[id] = { x: host.x + NODE_W + COL_GAP + i * step, y: host.y + NODE_H / 2 - ADDSIGN_H / 2 }; });
+  }
+  const kindOf = new Map(graph.nodes.map((n) => [n.id, n.kind]));
+  const sizeOf = (id: string) => (kindOf.get(id) === 'addSign' ? { w: ADDSIGN_W, h: ADDSIGN_H } : { w: NODE_W, h: NODE_H });
+  const ids = Object.keys(placed);
+  const minX = Math.min(...ids.map((id) => placed[id].x));
+  const minY = Math.min(...ids.map((id) => placed[id].y));
+  const positions: LayoutResult['positions'] = {};
+  for (const id of ids) positions[id] = { x: placed[id].x - minX, y: placed[id].y - minY };
+  return {
+    positions,
+    width: Math.max(...ids.map((id) => positions[id].x + sizeOf(id).w)),
+    height: Math.max(...ids.map((id) => positions[id].y + sizeOf(id).h)),
+  };
+}
+
 /** API 的圖 → Vue Flow 的節點與線（含排版）。節點與線的順序照 API；沒有名稱的節點用型別文字。 */
 export function buildProgressGraph(graph: ApprovalProgressGraph, stages: ApprovalStageView[], ctx: BuildContext): BuiltProgressGraph {
   const stagesById = new Map(stages.map((s) => [s.id, s]));
-  const layout = layoutLeftToRight(graph.nodes.map((n) => ({ id: n.id, kind: n.kind })), graph.edges.map((e) => ({ id: e.id, from: e.from, to: e.to })));
+  const labelOf = new Map(graph.edges.map((e) => [e.id, resolveI18n(e.label ?? undefined, ctx.locale)]));
+  const labeled = new Set(graph.edges.filter((e) => labelOf.get(e.id)).map((e) => e.id));
+  const manual = manualLayout(graph);
+  // U59：有標籤的線起點右側欄距加寬；沒有任何標籤時不傳選項，輸出和 fg4 完全相同。
+  const layout = manual ?? layoutLeftToRight(graph.nodes.map((n) => ({ id: n.id, kind: n.kind })), graph.edges.map((e) => ({ id: e.id, from: e.from, to: e.to })), labeled.size ? { labeledEdgeIds: labeled } : undefined);
   const nodes: Node<ProgressNodeData>[] = graph.nodes.map((n) => {
     const data = nodeData(n, stagesById, ctx);
     const pos = layout.positions[n.id] ?? { x: 0, y: 0 };
@@ -163,18 +207,32 @@ export function buildProgressGraph(graph: ApprovalProgressGraph, stages: Approva
     };
   });
   const widthByNode = new Map(nodes.map((n) => [n.id, n.data!.width]));
-  const outDegree = new Map<string, number>();
-  for (const e of graph.edges) outDegree.set(e.from, (outDegree.get(e.from) ?? 0) + 1);
+  const outs = new Map<string, ApprovalProgressEdge[]>();
+  for (const e of graph.edges) outs.set(e.from, [...(outs.get(e.from) ?? []), e]);
+  // 手排時和設計頁同一套（J74）：座標就是欄位框左緣，轉折點由 edgeBendX 與 manualGapAfter 從座標推算；自動排版沿用排版給的欄距。
+  const slot = (id: string) => ({ x: layout.positions[id]?.x ?? 0 });
+  const auto = (id: string) => ({ ...slot(id), width: widthByNode.get(id) });
   const edges: Edge<ProgressEdgeData>[] = graph.edges.map((e) => {
-    const full = resolveI18n(e.label ?? undefined, ctx.locale);
-    const from = { ...(layout.positions[e.from] ?? { x: 0 }), width: widthByNode.get(e.from) };
-    const to = { ...(layout.positions[e.to] ?? { x: 0 }), width: widthByNode.get(e.to) };
+    const full = labelOf.get(e.id) ?? '';
+    const siblings = outs.get(e.from) ?? [];
+    const branching = siblings.length >= 2;
+    let bendX: number;
+    let maxPx: number;
+    if (manual) {
+      const gap = manualGapAfter(slot(e.from), siblings.map((s) => slot(s.to)));
+      bendX = edgeBendX(slot(e.from), slot(e.to), branching, gap);
+      maxPx = Math.min(MANUAL_LABEL_MAX_PX, Math.max(COL_GAP, gap) - 8);
+    } else {
+      const gap = layout.gapAfter?.[e.from] ?? COL_GAP;
+      bendX = edgeBendX(auto(e.from), auto(e.to), branching, gap);
+      maxPx = (branching ? gap : COL_GAP) - 8;
+    }
     return {
       id: e.id, source: e.from, target: e.to, type: 'progress', selectable: false, focusable: false, interactionWidth: 0,
       // 線的資訊由節點的 aria-label 表達；Vue Flow 預設會念「Edge from <內部代號> to <內部代號>」，所以整條線從可及性樹拿掉。
       ariaLabel: null, domAttributes: { 'aria-hidden': 'true' },
-      class: e.traversed ? 'pg-edge pg-edge-on' : 'pg-edge pg-edge-off', ...(full ? { label: truncateEdgeLabel(full) } : {}),
-      data: { bendX: edgeBendX(from, to, (outDegree.get(e.from) ?? 0) >= 2), fullLabel: full },
+      class: e.traversed ? 'pg-edge pg-edge-on' : 'pg-edge pg-edge-off', ...(full ? { label: truncateEdgeLabel(full, maxPx) } : {}),
+      data: { bendX, fullLabel: full },
     };
   });
   return { nodes, edges, layout, focus: focusPoint(graph, stages, layout) };

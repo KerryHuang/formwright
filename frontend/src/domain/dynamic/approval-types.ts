@@ -1,3 +1,4 @@
+import type { ApprovalFlowLayout } from './approval-flow-types';
 import type { I18nText } from './types';
 
 export type ApprovalInstanceStatus = 'pending' | 'approved' | 'rejected' | 'withdrawn' | 'cancelled' | 'rerouted';
@@ -68,7 +69,11 @@ export interface ApprovalProgressNode {
   hostId?: string;
 }
 export interface ApprovalProgressEdge { id: string; from: string; to: string; label?: I18nText | null; traversed: boolean }
-export interface ApprovalProgressGraph { nodes: ApprovalProgressNode[]; edges: ApprovalProgressEdge[] }
+export interface ApprovalProgressGraph {
+  nodes: ApprovalProgressNode[]; edges: ApprovalProgressEdge[];
+  /** Designer-placed node positions of a flow-route instance's version; absent for sequence and fallback instances or when the version has none. */
+  layout?: ApprovalFlowLayout | null;
+}
 export interface ApprovalInstanceView {
   id: number; status: ApprovalInstanceStatus; routeKind: 'flow' | 'fallback'; flowName: I18nText | null;
   fromOptionId: number; toOptionId: number; initiatorUserId: string; submittedTime: string; completedTime: string | null;

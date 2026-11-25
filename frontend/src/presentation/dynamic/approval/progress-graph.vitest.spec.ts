@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ApprovalProgressEdge, ApprovalProgressNode, ApprovalProgressState, ApprovalStageView } from 'src/domain/dynamic/approval-types';
-import { ADDSIGN_H, ADDSIGN_W, NODE_H, NODE_W } from 'src/domain/dynamic/approval-graph-layout';
+import { ADDSIGN_H, ADDSIGN_W, COL_GAP, LABELED_COL_GAP, NODE_H, NODE_W } from 'src/domain/dynamic/approval-graph-layout';
 import enUS from 'shared/i18n/en-US/ui.json';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import { stageColor, stageIcon } from './approval-display';
@@ -373,5 +373,111 @@ describe('revealViewport', () => {
   });
   it('treats a partially clipped node as outside', () => {
     expect(revealViewport({ x: 900 / 0.8 - 100, y: 20, width: 168, height: 84 }, vp, 800, 200)).not.toBeNull();
+  });
+});
+
+describe('manual layout (fg3g, J84, U58, U59)', () => {
+  const pos = (g: ReturnType<typeof buildProgressGraph>) => Object.fromEntries(g.nodes.map((n) => [n.id, n.position]));
+  const bend = (g: ReturnType<typeof buildProgressGraph>) => Object.fromEntries(g.edges.map((e) => [e.id, (e.data as { bendX: number }).bendX]));
+  const handPlaced = { nodes: { s: { x: 0, y: 100 }, m: { x: 300, y: 100 }, f: { x: 600, y: 100 }, l: { x: 900, y: 0 }, c: { x: 900, y: 200 }, j: { x: 1200, y: 100 }, e: { x: 1500, y: 100 } } };
+
+  it('uses the designer coordinates when the layout covers every node', () => {
+    const g = buildProgressGraph({ ...parallel(), layout: handPlaced }, stagesOf, ctx);
+    expect(pos(g)).toEqual(handPlaced.nodes);
+    expect(g.layout.width).toBe(1500 + NODE_W);
+    expect(g.layout.height).toBe(200 + NODE_H);
+  });
+
+  it('shifts the coordinates so the top-left of the graph is the origin, keeping relative positions', () => {
+    const shifted = { nodes: Object.fromEntries(Object.entries(handPlaced.nodes).map(([k, v]) => [k, { x: v.x - 50, y: v.y + 70 }])) };
+    const g = buildProgressGraph({ ...parallel(), layout: shifted }, stagesOf, ctx);
+    expect(pos(g).s).toEqual({ x: 0, y: 100 });
+    expect(pos(g).l).toEqual({ x: 900, y: 0 });
+    expect(g.layout.width).toBe(1500 + NODE_W);
+  });
+
+  it('falls back to the automatic layout, identical to no layout, when any node has no coordinates', () => {
+    const { e: _e, ...partial } = handPlaced.nodes;
+    const base = buildProgressGraph(parallel(), stagesOf, ctx);
+    for (const layout of [{ nodes: partial }, { nodes: {} }, null, undefined]) {
+      const g = buildProgressGraph({ ...parallel(), layout }, stagesOf, ctx);
+      expect(pos(g)).toEqual(pos(base));
+      expect(bend(g)).toEqual(bend(base));
+      expect(g.layout).toEqual(base.layout);
+    }
+  });
+
+  it('ignores a layout with non-finite coordinates', () => {
+    const bad = { nodes: { ...handPlaced.nodes, e: { x: Number.NaN, y: 0 } } };
+    expect(pos(buildProgressGraph({ ...parallel(), layout: bad }, stagesOf, ctx))).toEqual(pos(buildProgressGraph(parallel(), stagesOf, ctx)));
+  });
+
+  it('bends edges from the coordinates (J74): branching after the source by half the manual gap, others before the target', () => {
+    const g = buildProgressGraph({ ...parallel(), layout: handPlaced }, stagesOf, ctx);
+    const b = bend(g);
+    // f 右緣 768 到 l、c 左緣 900 的距離是 132（夾在 56 到 136 之間）
+    expect(b['3']).toBe(600 + NODE_W + 132 / 2);
+    expect(b['4']).toBe(600 + NODE_W + 132 / 2);
+    expect(b['5']).toBe(1200 - COL_GAP / 2);
+    expect(b['2']).toBe(600 - COL_GAP / 2);
+  });
+
+  const withAddSign = () => ({
+    nodes: [node('s', 'start', 'passed'), node('m', 'approval', 'active', { runIds: [1] }), node('as-m-1', 'addSign', 'active', { hostId: 'm', runIds: [2] }), node('as-m-2', 'addSign', 'notReached', { hostId: 'm' }), node('n', 'approval', 'notReached'), node('e', 'end', 'notReached')],
+    edges: [edge('1', 's', 'm', true), edge('as-m-1-in', 'm', 'as-m-1', true), edge('as-m-2-in', 'as-m-1', 'as-m-2'), edge('2', 'as-m-2', 'n'), edge('3', 'n', 'e')],
+    layout: { nodes: { s: { x: 0, y: 0 }, m: { x: 300, y: 0 }, n: { x: 600, y: 0 }, e: { x: 900, y: 0 } } },
+  });
+
+  it('U58: add-sign nodes sit one column gap right of the host, vertically centred, side by side; everything right of the host moves right', () => {
+    const g = buildProgressGraph(withAddSign(), [stage(1, 1), stage(2, 2)], ctx);
+    const p = pos(g);
+    const step = ADDSIGN_W + COL_GAP;
+    expect(p.s).toEqual({ x: 0, y: 0 });
+    expect(p.m).toEqual({ x: 300, y: 0 });
+    expect(p['as-m-1']).toEqual({ x: 300 + NODE_W + COL_GAP, y: NODE_H / 2 - ADDSIGN_H / 2 });
+    expect(p['as-m-2']).toEqual({ x: 300 + NODE_W + COL_GAP + step, y: NODE_H / 2 - ADDSIGN_H / 2 });
+    expect(p.n.x).toBe(600 + 2 * step);
+    expect(p.e.x).toBe(900 + 2 * step);
+  });
+
+  it('U58: an add-sign node on a host that has no coordinates sends the whole graph back to the automatic layout', () => {
+    const g = withAddSign();
+    delete (g.layout.nodes as Record<string, unknown>).m;
+    expect(pos(buildProgressGraph(g, [stage(1, 1), stage(2, 2)], ctx))).toEqual(pos(buildProgressGraph({ ...g, layout: null }, [stage(1, 1), stage(2, 2)], ctx)));
+  });
+
+  it('U58: edges around the add-sign nodes bend in the gap', () => {
+    const g = buildProgressGraph(withAddSign(), [stage(1, 1), stage(2, 2)], ctx);
+    const p = pos(g);
+    const b = bend(g);
+    expect(b['as-m-1-in']).toBe(p['as-m-1'].x - COL_GAP / 2);
+    expect(b['2']).toBe(p.n.x - COL_GAP / 2);
+  });
+
+  it('U59: the automatic layout widens only the first gap after a labelled edge, and unlabelled graphs are unchanged', () => {
+    const labelled = { ...parallel(), edges: parallel().edges.map((e) => (e.id === '3' ? { ...e, label: { 'zh-TW': '金額大' } } : e)) };
+    const plain = pos(buildProgressGraph(parallel(), stagesOf, ctx));
+    const wide = pos(buildProgressGraph(labelled, stagesOf, ctx));
+    expect(wide.l.x - wide.f.x).toBe(NODE_W + LABELED_COL_GAP);
+    expect(plain.l.x - plain.f.x).toBe(NODE_W + COL_GAP);
+    expect(wide.m.x).toBe(plain.m.x); // 欄距只加在有標籤的線起點右側
+    const b = bend(buildProgressGraph(labelled, stagesOf, ctx));
+    expect(b['3']).toBe(wide.f.x + NODE_W + LABELED_COL_GAP / 2);
+  });
+
+  it('U59: auto layout labels get the widened gap only on branching edges; manual labels are capped at 160px with the full text kept', () => {
+    const full = '金額大於十萬元且不是急件的採購單';
+    const labelled = { ...parallel(), edges: parallel().edges.map((e) => (e.id === '3' ? { ...e, label: { 'zh-TW': full } } : e)) };
+    const auto = buildProgressGraph(labelled, stagesOf, ctx).edges.find((e) => e.id === '3')!;
+    expect(auto.label).toBe(truncateEdgeLabel(full, LABELED_COL_GAP - 8));
+    const manual = buildProgressGraph({ ...labelled, layout: handPlaced }, stagesOf, ctx).edges.find((e) => e.id === '3')!;
+    expect(manual.label).toBe(truncateEdgeLabel(full, 132 - 8)); // 手排：min(160, 欄距 132 − 8)
+    expect(String(manual.label).endsWith('…')).toBe(true);
+    expect((manual.data as { fullLabel: string }).fullLabel).toBe(full);
+  });
+
+  it('the focus follows the manual coordinates', () => {
+    const g = buildProgressGraph({ ...parallel(), layout: handPlaced }, stagesOf, ctx);
+    expect(g.focus).toEqual({ x: 900 + NODE_W / 2, y: 0 + NODE_H / 2 }); // l 是最早進入的進行中節點
   });
 });

@@ -2,7 +2,7 @@ import type { Edge, Node } from '@vue-flow/core';
 import type { ApprovalEdgeDef, ApprovalFlow, ApprovalFlowLayout, ApprovalNodeDef, ApprovalNodeKind, ApproverSource, GraphDefinition } from 'src/domain/dynamic/approval-flow-types';
 import { relayout, type GraphState, type Position } from 'src/domain/dynamic/approval-graph-edit';
 import type { GraphIssue, GraphIssueMap } from 'src/domain/dynamic/approval-graph-errors';
-import { COL_GAP, NODE_H, NODE_W, edgeBendX, manualGapAfter } from 'src/domain/dynamic/approval-graph-layout';
+import { COL_GAP, MANUAL_LABEL_MAX_PX, NODE_H, NODE_W, edgeBendX, manualGapAfter } from 'src/domain/dynamic/approval-graph-layout';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import type { SchemaField } from 'src/domain/dynamic/types';
 import type { FlowBasicErrors } from '../FlowBasicFields.vue';
@@ -19,8 +19,7 @@ import type { EdgeTrialState, NodeTrial, TrialOverlay } from './designer-trial';
 export type Selection = { kind: 'flow' } | { kind: 'node'; id: string } | { kind: 'edge'; id: string };
 export const FLOW_SELECTION: Selection = { kind: 'flow' };
 
-/** 手排時標籤寬度上限（U59）。 */
-export const MANUAL_LABEL_MAX_PX = 160;
+export { MANUAL_LABEL_MAX_PX };
 
 const KIND_ICON: Record<ApprovalNodeKind, string> = {
   start: 'play_arrow', end: 'flag', condition: 'alt_route', fork: 'call_split', join: 'call_merge', notify: 'notifications', approval: 'person',
