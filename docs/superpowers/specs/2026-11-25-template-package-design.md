@@ -218,8 +218,8 @@ tp1 在應用程式套件格式上加一個「範本」種類，沿用開啟精�
 | `POST apps/packages/{id}/preview`、`/open` | 範本照常；`missingDependencies` 可能出現原因 `isTemplate` |
 | `POST apps/{key}/upgrade/preview`、`/upgrade` | 範本回 409 V9 |
 | `POST apps/packages/import` | V6、V7；範本取代原文時的成功訊息（§7.4 第 4 點） |
-| `GET apps/{key}/delete-check`（新增，tp1c） | 唯讀，回 `DeleteAppCheck`（`canDelete`、`blockers`、`purge`、`purgedTotal`、`cleared`、`orphaned`）；權限是系統管理員＋設計器 Read（T9） |
-| `DELETE apps/{key}` | 行為不變；畫面送出時帶 delete-check 回的 `purgedTotal` |
+| `GET apps/{key}/delete-check`（新增，tp1c） | 唯讀，回 `DeleteAppCheck`（`canDelete`、`blockers`、`purge`、`purgedTotal`、`cleared`、`orphaned`、`reports`——會一起刪的自有報表 `id`、`name`）；權限是系統管理員＋設計器 Read（T9） |
+| `DELETE apps/{key}` | 行為不變（409 回應同樣多帶 `reports`）；畫面送出時帶 delete-check 回的 `purgedTotal` |
 | `GET apps/{key}/export` | 範本寫 `kind: template`；一般應用程式指向範本模組的參照欄位略過，warning 在 `X-Export-Warnings`（§7.7） |
 | `close`、`reopen` | 不變 |
 
