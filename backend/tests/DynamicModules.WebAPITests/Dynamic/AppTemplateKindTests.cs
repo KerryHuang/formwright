@@ -387,4 +387,24 @@ public class AppTemplateKindTests : IDisposable
             .Should().Contain(w => w!.Contains("共用主檔「往來對象（測試）」已沒有應用程式使用"));
         StatusOf("partner-lite").Should().Be(AppStatus.Closed);
     }
+
+    [Fact]
+    public async Task DeletingOneTemplate_WhileAnotherStillUsesTheMaster_DoesNotWarnMasterUnused()
+    {
+        await ImportMasterAndTplA();
+        (await ImportAsync(AppTestPackagesTemplate.TplA.Replace("tpl-a", "tpl-b"))).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await OpenTpl()).StatusCode.Should().Be(HttpStatusCode.Created);
+        var openB = await _admin.PostAsJsonAsync($"{Base}/apps/packages/tpl-b/open",
+            new { groupMap = new Dictionary<string, object> { ["staff"] = new { mode = "skip" } } });
+        openB.StatusCode.Should().Be(HttpStatusCode.Created, await Body(openB));
+
+        (await _admin.PostAsJsonAsync($"{Base}/apps/tpl-a/close", new { cascade = false })).StatusCode.Should().Be(HttpStatusCode.OK);
+        StatusOf("partner-lite").Should().Be(AppStatus.Open);
+        var preview = JsonDocument.Parse(await Body(await DeleteApp("tpl-a", -1))).RootElement;
+        var done = await DeleteApp("tpl-a", preview.GetProperty("purgedTotal").GetInt32());
+        done.StatusCode.Should().Be(HttpStatusCode.OK, await Body(done));
+        JsonDocument.Parse(await Body(done)).RootElement.GetProperty("warnings").EnumerateArray().Select(w => w.GetString())
+            .Should().NotContain(w => w!.Contains("已沒有應用程式使用"));
+        StatusOf("partner-lite").Should().Be(AppStatus.Open);
+    }
 }
