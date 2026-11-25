@@ -334,11 +334,11 @@ public class BuiltInAppsRuntimeTests : IDisposable
         return new EvKit(await QcFieldsAsync(EvEvent), await QcFieldsAsync(EvReg));
     }
 
-    private async Task<HttpResponseMessage> PostEventAsync(EvKit k, int? capacity, string[] regStatuses, string? start = null, string? end = null, string status = "報名中")
+    private async Task<HttpResponseMessage> PostEventAsync(EvKit k, int? capacity, string[] regStatuses, string? start = null, string? end = null, string status = "報名中", string type = "說明會")
     {
         var values = new Dictionary<string, object>
         {
-            [k.Ev["名稱"]] = "新產品說明會", [k.Ev["類型"]] = await QcOptionAsync(EvEvent, "類型", "說明會"),
+            [k.Ev["名稱"]] = "新產品說明會", [k.Ev["類型"]] = await QcOptionAsync(EvEvent, "類型", type),
             [k.Ev["開始日期"]] = start ?? "2026-12-01", [k.Ev["狀態"]] = await QcOptionAsync(EvEvent, "狀態", status)
         };
         if (capacity is { } c) values[k.Ev["名額"]] = c;
@@ -450,9 +450,14 @@ public class BuiltInAppsRuntimeTests : IDisposable
 
         fill.GetProperty("mode").GetString().Should().Be("default", "帶入後可改");
         long IdOf(string label) => fields.Single(f => f.GetProperty("key").GetString() == k.Reg[label]).GetProperty("id").GetInt64();
-        var targets = fill.GetProperty("map").EnumerateArray().Select(m => m.GetProperty("to").GetInt64()).ToList();
-        targets.Should().BeEquivalentTo([IdOf("姓名"), IdOf("電話"), IdOf("Email")]);
-        targets.Should().NotContain(IdOf("公司"));
+        var contactFields = (await JsonOf(await _rig.Admin.GetAsync($"{Base}/modules/master-contact"))).GetProperty("blocks").EnumerateArray()
+            .SelectMany(b => b.GetProperty("fields").EnumerateArray())
+            .ToDictionary(f => f.GetProperty("label").GetProperty("zh-TW").GetString()!, f => f.GetProperty("id").GetInt64());
+        var pairs = fill.GetProperty("map").EnumerateArray().ToDictionary(m => m.GetProperty("to").GetInt64(), m => m.GetProperty("from").GetInt64());
+        pairs.Should().BeEquivalentTo(new Dictionary<long, long>
+        {
+            [IdOf("姓名")] = contactFields["姓名"], [IdOf("電話")] = contactFields["電話"], [IdOf("Email")] = contactFields["Email"]
+        }, "每個目標欄位從聯絡人的同名欄位帶入，不帶公司");
 
         var noContact = await PostEventAsync(k, null, ["待出席"]);   // 不選聯絡人、只填姓名也存得進去
         noContact.StatusCode.Should().Be(HttpStatusCode.Created, await noContact.Content.ReadAsStringAsync());
@@ -462,17 +467,23 @@ public class BuiltInAppsRuntimeTests : IDisposable
     public async Task EventRegistration_ReportExcludesCancelledEvents()   // ER-10
     {
         var k = await OpenEventsAsync();
-        (await PostEventAsync(k, null, ["待出席", "待出席", "已出席"])).StatusCode.Should().Be(HttpStatusCode.Created);
-        (await PostEventAsync(k, null, ["待出席"], status: "已取消")).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await PostEventAsync(k, null, ["待出席", "取消", "已出席"])).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await PostEventAsync(k, null, ["已出席", "已出席", "未出席"])).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await PostEventAsync(k, null, ["待出席"], type: "研討會")).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await PostEventAsync(k, null, ["待出席", "已出席"], status: "已取消")).StatusCode.Should().Be(HttpStatusCode.Created);
 
         var reports = await JsonOf(await _rig.Admin.GetAsync($"{Base}/reports"));
         var report = reports.EnumerateArray().Single(r => r.GetProperty("name").GetString() == "活動報名統計");
         var run = await JsonOf(await _rig.Admin.PostAsJsonAsync($"{Base}/reports/{report.GetProperty("id").GetInt64()}/run", new { }));
 
-        run.GetProperty("groups").GetRawText().Should().Contain("說明會");
+        // 依分組標籤精確比對（不依賴回傳順序）：同類型兩場活動的活動數要是 2，不能被報名明細的列數放大；已取消的活動不列入
+        var groups = run.GetProperty("groups").EnumerateArray().ToDictionary(g => g.GetProperty("groupLabels")[0].GetString()!,
+            g => (N: g.GetProperty("values").GetProperty("n").GetDecimal(), Registered: g.GetProperty("values").GetProperty("registered").GetDecimal(),
+                Attended: g.GetProperty("values").GetProperty("attended").GetDecimal()));
+        groups.Should().BeEquivalentTo(new Dictionary<string, (decimal, decimal, decimal)> { ["說明會"] = (2m, 5m, 3m), ["研討會"] = (1m, 1m, 0m) });
         var total = run.GetProperty("total");
-        total.GetProperty("n").GetDecimal().Should().Be(1);
-        total.GetProperty("registered").GetDecimal().Should().Be(3);
-        total.GetProperty("attended").GetDecimal().Should().Be(1);
+        total.GetProperty("n").GetDecimal().Should().Be(3);
+        total.GetProperty("registered").GetDecimal().Should().Be(6);
+        total.GetProperty("attended").GetDecimal().Should().Be(3);
     }
 }
