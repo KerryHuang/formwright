@@ -1,0 +1,142 @@
+{
+  "$comment": "通知節點 approvalNotify 的 DataJson（流程圖設計 §12.5、fg5 計畫 T1）→ 依讀者語系組出的標題與內文。前後端共用：後端 Domain ApprovalNotifyData.Render、前端 renderNotify 都跑這份。texts 是前端 i18n 提供的系統字（無權限、空值、標題被遮蔽時的替代字），這裡用固定字串讓兩邊對齊；fallbacks 是讀者語系之後的退回鏈（要求的語系 → 這串 → 內建語系順序第一個有值的）。",
+  "texts": { "denied": "（無權限）", "empty": "—", "noTitle": "（未顯示標題）" },
+  "cases": [
+    {
+      "name": "有讀取權：文字、多語選項、四個內建佔位符",
+      "locale": "zh-TW",
+      "fallbacks": ["zh-TW"],
+      "data": {
+        "v": 1, "node": "tell-hr", "read": true,
+        "template": {
+          "title": { "zh-TW": "{title} 已過主管核准", "en-US": "{title} approved by manager" },
+          "body": { "zh-TW": "{initiator} 的 {flow} 走到 {node}；金額 {f:21}，急件：{f:35}" }
+        },
+        "values": {
+          "title": { "t": "PO-0001" },
+          "flow": { "i18n": { "zh-TW": "採購單（大額）", "en-US": "Purchase (large)" } },
+          "node": { "i18n": { "zh-TW": "知會人事" } },
+          "initiator": { "t": "王小明" },
+          "f:21": { "t": "120000.00" },
+          "f:35": { "i18n": { "zh-TW": "急件", "en-US": "Urgent" } }
+        }
+      },
+      "expected": { "title": "PO-0001 已過主管核准", "body": "王小明 的 採購單（大額） 走到 知會人事；金額 120000.00，急件：急件" }
+    },
+    {
+      "name": "英文讀者：範本與多語值取英文，節點名稱只有繁中退回繁中",
+      "locale": "en-US",
+      "fallbacks": ["zh-TW"],
+      "data": {
+        "v": 1, "node": "tell-hr", "read": true,
+        "template": {
+          "title": { "zh-TW": "{title} 已過主管核准", "en-US": "{title} approved at {node}" },
+          "body": { "zh-TW": "急件：{f:35}", "en-US": "Priority: {f:35}" }
+        },
+        "values": {
+          "title": { "t": "PO-0001" },
+          "flow": { "i18n": { "zh-TW": "採購單" } },
+          "node": { "i18n": { "zh-TW": "知會人事" } },
+          "initiator": { "t": "王小明" },
+          "f:35": { "i18n": { "zh-TW": "急件", "en-US": "Urgent" } }
+        }
+      },
+      "expected": { "title": "PO-0001 approved at 知會人事", "body": "Priority: Urgent" }
+    },
+    {
+      "name": "範本沒有讀者語系：退回鏈第一個有值的（繁中）",
+      "locale": "th",
+      "fallbacks": ["zh-TW", "en-US"],
+      "data": {
+        "v": 1, "node": "n1", "read": true,
+        "template": { "title": { "zh-TW": "通知：{title}", "en-US": "Notice: {title}" }, "body": { "en-US": "See {flow}" } },
+        "values": { "title": { "t": "PO-0002" }, "flow": { "i18n": { "en-US": "Purchase" } }, "node": { "i18n": { "zh-TW": "n1" } }, "initiator": { "t": "王小明" } }
+      },
+      "expected": { "title": "通知：PO-0002", "body": "See Purchase" }
+    },
+    {
+      "name": "欄位隱藏 denied、有權限但空值 empty、缺值一律無權限（fail closed）",
+      "locale": "zh-TW",
+      "fallbacks": ["zh-TW"],
+      "data": {
+        "v": 1, "node": "n1", "read": true,
+        "template": { "title": { "zh-TW": "{title}" }, "body": { "zh-TW": "金額 {f:40}／備註 {f:41}／交期 {f:42}" } },
+        "values": {
+          "title": { "t": "PO-0003" }, "flow": { "i18n": { "zh-TW": "採購單" } }, "node": { "i18n": { "zh-TW": "n1" } }, "initiator": { "t": "王小明" },
+          "f:40": { "s": "denied" },
+          "f:41": { "s": "empty" }
+        }
+      },
+      "expected": { "title": "PO-0003", "body": "金額 （無權限）／備註 —／交期 （無權限）" }
+    },
+    {
+      "name": "沒有讀取權：申請人無權限、欄位全部無權限、流程與節點照常",
+      "locale": "zh-TW",
+      "fallbacks": ["zh-TW"],
+      "data": {
+        "v": 1, "node": "n1", "read": false,
+        "template": { "title": { "zh-TW": "{initiator} 的 {flow} 已到 {node}" }, "body": { "zh-TW": "金額 {f:21}" } },
+        "values": {
+          "title": { "t": "" }, "flow": { "i18n": { "zh-TW": "採購單" } }, "node": { "i18n": { "zh-TW": "知會人事" } },
+          "initiator": { "s": "denied" }
+        }
+      },
+      "expected": { "title": "（無權限） 的 採購單 已到 知會人事", "body": "金額 （無權限）" }
+    },
+    {
+      "name": "read 為 false 時即使資料夾帶了欄位值也不顯示",
+      "locale": "zh-TW",
+      "fallbacks": ["zh-TW"],
+      "data": {
+        "v": 1, "node": "n1", "read": false,
+        "template": { "title": { "zh-TW": "{title}" }, "body": { "zh-TW": "金額 {f:21}" } },
+        "values": { "title": { "t": "PO-0004" }, "flow": { "i18n": { "zh-TW": "採購單" } }, "node": { "i18n": { "zh-TW": "n1" } }, "initiator": { "s": "denied" }, "f:21": { "t": "99" } }
+      },
+      "expected": { "title": "PO-0004", "body": "金額 （無權限）" }
+    },
+    {
+      "name": "標題被遮蔽（空字串）用替代字",
+      "locale": "zh-TW",
+      "fallbacks": ["zh-TW"],
+      "data": {
+        "v": 1, "node": "n1", "read": true,
+        "template": { "title": { "zh-TW": "{title} 已核准" }, "body": { "zh-TW": "" } },
+        "values": { "title": { "t": "" }, "flow": { "i18n": { "zh-TW": "採購單" } }, "node": { "i18n": { "zh-TW": "n1" } }, "initiator": { "t": "王小明" } }
+      },
+      "expected": { "title": "（未顯示標題） 已核准", "body": "" }
+    },
+    {
+      "name": "內文省略、多行內文保留換行、未知佔位符與單獨大括號照字面",
+      "locale": "zh-TW",
+      "fallbacks": ["zh-TW"],
+      "data": {
+        "v": 1, "node": "n1", "read": true,
+        "template": { "title": { "zh-TW": "{title} {unknown} {" }, "body": { "zh-TW": "第一行\n第二行 {f:21}" } },
+        "values": { "title": { "t": "PO-0005" }, "flow": { "i18n": { "zh-TW": "採購單" } }, "node": { "i18n": { "zh-TW": "n1" } }, "initiator": { "t": "王小明" }, "f:21": { "t": "10" } }
+      },
+      "expected": { "title": "PO-0005 {unknown} {", "body": "第一行\n第二行 10" }
+    },
+    {
+      "name": "沒有內文欄位",
+      "locale": "zh-TW",
+      "fallbacks": ["zh-TW"],
+      "data": {
+        "v": 1, "node": "n1", "read": true,
+        "template": { "title": { "zh-TW": "{flow} 通知" } },
+        "values": { "title": { "t": "PO-0006" }, "flow": { "i18n": { "zh-TW": "採購單" } }, "node": { "i18n": { "zh-TW": "n1" } }, "initiator": { "t": "王小明" } }
+      },
+      "expected": { "title": "採購單 通知", "body": "" }
+    },
+    {
+      "name": "不認得的 s 值當無權限",
+      "locale": "zh-TW",
+      "fallbacks": ["zh-TW"],
+      "data": {
+        "v": 1, "node": "n1", "read": true,
+        "template": { "title": { "zh-TW": "{f:21}" }, "body": { "zh-TW": "" } },
+        "values": { "title": { "t": "PO-0007" }, "flow": { "i18n": { "zh-TW": "採購單" } }, "node": { "i18n": { "zh-TW": "n1" } }, "initiator": { "t": "王小明" }, "f:21": { "s": "later" } }
+      },
+      "expected": { "title": "（無權限）", "body": "" }
+    }
+  ]
+}
