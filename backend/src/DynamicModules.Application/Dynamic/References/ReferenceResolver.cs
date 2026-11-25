@@ -21,8 +21,17 @@ public class ReferenceResolver(
     IModuleRepository modules, IRecordRepository records, ReferenceProviderRegistry providers, IDynamicAccessGuard guard)
 {
     /// <summary>鍵是 Record.Id，內層鍵是參照欄位 key；只含使用者看得到且有值的參照欄位。</summary>
+    public Task<IReadOnlyDictionary<long, Dictionary<string, ReferenceInfo>>> ResolveAsync(
+        Module module, EffectivePermissions perms, IReadOnlyList<Record> rows, CancellationToken ct) =>
+        ResolveAsync(module, perms, rows, async (target, c) => (await guard.AuthorizeAsync(target, PermissionAction.Read, c)).Permissions, ct);
+
+    /// <summary>
+    /// 同上，但被參照模組的讀取權由呼叫端判斷（回 null＝沒有讀取權）：給不能用目前使用者判斷的路徑，
+    /// 例如通知節點以收件人的身分判斷（fg5 U-f）。Restricted 的規則不變。
+    /// </summary>
     public async Task<IReadOnlyDictionary<long, Dictionary<string, ReferenceInfo>>> ResolveAsync(
-        Module module, EffectivePermissions perms, IReadOnlyList<Record> rows, CancellationToken ct)
+        Module module, EffectivePermissions perms, IReadOnlyList<Record> rows,
+        Func<Module, CancellationToken, Task<EffectivePermissions?>> readAccess, CancellationToken ct)
     {
         var result = new Dictionary<long, Dictionary<string, ReferenceInfo>>();
         var fields = module.Blocks.SelectMany(b => b.Fields)
@@ -45,7 +54,7 @@ public class ReferenceResolver(
             var keys = group.Select(r => r.Key).Distinct().ToList();
             var infos = group.Key.Kind == ReferenceTarget.EntityKind
                 ? await ResolveEntityAsync(group.Key.Key, keys, ct)
-                : await ResolveModuleAsync(group.Key.Key, keys, ct);
+                : await ResolveModuleAsync(group.Key.Key, keys, readAccess, ct);
             foreach (var r in group)
             {
                 if (!result.TryGetValue(r.RecordId, out var map)) result[r.RecordId] = map = new();
@@ -64,13 +73,13 @@ public class ReferenceResolver(
             ? new ReferenceInfo(k, t, ReferenceInfo.Ok) : new ReferenceInfo(k, null, ReferenceInfo.Missing));
     }
 
-    private async Task<Dictionary<string, ReferenceInfo>> ResolveModuleAsync(string moduleKey, List<string> keys, CancellationToken ct)
+    private async Task<Dictionary<string, ReferenceInfo>> ResolveModuleAsync(string moduleKey, List<string> keys,
+        Func<Module, CancellationToken, Task<EffectivePermissions?>> readAccess, CancellationToken ct)
     {
         var restricted = keys.ToDictionary(k => k, k => new ReferenceInfo(k, null, ReferenceInfo.Restricted));
         var target = await modules.GetByKeyAsync(moduleKey, includeChildren: true, ct);
         if (!target.IsReadable()) return restricted;
-        var access = await guard.AuthorizeAsync(target, PermissionAction.Read, ct);
-        if (access.Permissions is not { } perms || !target.TitleVisibleTo(perms)) return restricted;
+        if (await readAccess(target, ct) is not { } perms || !target.TitleVisibleTo(perms)) return restricted;
 
         var ids = keys.Select(k => long.TryParse(k, out var id) ? id : (long?)null).Where(i => i.HasValue).Select(i => i!.Value).ToList();
         var existing = (await records.ListExistingAsync(target.Id, ids, ct)).ToDictionary(r => r.Id);
