@@ -4,6 +4,7 @@ using DynamicModules.Application.Common.Time;
 using DynamicModules.Domain.Approvals;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.FieldTypes;
+using DynamicModules.Domain.Organization;
 using DynamicModules.Domain.Repositories.Dynamic;
 using DynamicModules.Domain.ValueObjects;
 
@@ -39,7 +40,8 @@ public interface IApprovalStageSteps
 /// 建圖一律用 <see cref="ApprovalGraphMode.SupportedKinds"/>、條件求值用 <see cref="ApprovalGraphMode.Eval"/>；引擎內不引入任何範本、槽位概念（§16）。
 /// </summary>
 public sealed class ApprovalGraphEngine(IApprovalInstanceRepository repo, ApproverResolver resolver, FieldTypeRegistry registry,
-    IModuleRepository modules, IBusinessTime time, ApprovalNotifier notifier, IUnitOfWork uow, DynamicModules.Application.Common.RequestLocale requestLocale)
+    IModuleRepository modules, IBusinessTime time, ApprovalNotifier notifier, IUnitOfWork uow, DynamicModules.Application.Common.RequestLocale requestLocale,
+    ApprovalNotifyComposer composer)
 {
     /// <summary>送出或重來後從 start 推進。</summary>
     public Task<(GraphAdvance Result, ServiceResult? Failure)> StartAsync(ApprovalInstance inst, Module module,
@@ -124,7 +126,8 @@ public sealed class ApprovalGraphEngine(IApprovalInstanceRepository repo, Approv
         ApprovalNodeKinds.Fork => EnterForkAsync(p, node, inEdgeId, key),
         ApprovalNodeKinds.Join => EnterJoinAsync(p, node, inEdgeId!, key),
         ApprovalNodeKinds.End => EnterEndAsync(p, node, inEdgeId, key),
-        // start 之外的瞬間節點只有條件、分支、匯合、結束；不支援的型別（通知）在 Build 就被擋下，到不了這裡
+        ApprovalNodeKinds.Notify => EnterNotifyAsync(p, node, inEdgeId, key),
+        // 不支援的型別在 Build 就被擋下（J31），到不了這裡
         ApprovalNodeKinds.Start => EnterStartAsync(p, node, inEdgeId, key),
         _ => Task.FromResult<ServiceResult?>(p.Steps.RuntimeInvalid(p.Inst, $"不支援的節點型別 {node.Kind}（{node.Id}）", ApprovalMessages.GraphRuntimeInvalid))
     };
@@ -178,6 +181,30 @@ public sealed class ApprovalGraphEngine(IApprovalInstanceRepository repo, Approv
         await p.Steps.StartAsync(p.Inst, run, resolution.Seats, s.DueHours, p.Ct, NotificationKinds.ApprovalPending, p.Defer);   // 這條執行線停住
         p.Runs.Add(run);
         return null;
+    }
+
+    /// <summary>
+    /// 通知節點（流程圖設計 §8.12、§12；fg5 計畫 fg5b）：寫 passed 列 → SaveChanges（同一次推進剛建的任務才查得到，可動作者判斷用；歷程要掛這列的 Id，計畫 T4）
+    /// → 解析收件人 → 逐人組 DataJson 寫通知 → 一筆 notify 歷程（系統身分，data 只有人數，不列收件人）→ 照常沿出線往下走。
+    /// 沒有收件人、值空、沒有權限都不擋流程（§12.4）；資料庫例外照常往上拋、整筆回滾（T5）。重跑時再發一次（U10）。
+    /// </summary>
+    private async Task<ServiceResult?> EnterNotifyAsync(Pass p, ApprovalNodeDef node, string? inEdgeId, string key)
+    {
+        var run = PassedRun(p, node, key, inEdgeId);
+        await uow.CommitAsync(p.Ct);
+        p.Resolve ??= await resolver.ContextAsync(p.Module, p.Inst.InitiatorUserId, p.Values, null, p.Ct);
+        var org = p.Resolve.Org;
+        var initiator = p.Inst.InitiatorUserId;
+        var recipients = ApprovalNotifyRecipients.Resolve(node.Recipients,
+            new NotifyAudienceInput(initiator, org.ActiveUsers, p.Resolve.GroupMembers, level => ManagerChain.Resolve(org, initiator, level)));
+        notifier.NotifyPrepared(p.Inst, await composer.ComposeAsync(p.Inst, p.Module, p.Values, node, recipients.UserIds, p.Ct));
+
+        var count = recipients.UserIds.Count;
+        var note = count == 0 ? ApprovalMessages.NotifyNoneNote
+            : recipients.Truncated ? ApprovalMessages.NotifyTruncatedNote(count, recipients.Total) : ApprovalMessages.NotifyNote(count);
+        var data = new Dictionary<string, object> { ["count"] = count, ["total"] = recipients.Total, ["truncated"] = recipients.Truncated, ["none"] = count == 0 };
+        p.Steps.Log(p.Inst, ApprovalActions.Notify, ApprovalEngine.SystemActor, run.Id, comment: note, data: JsonSerializer.Serialize(data));
+        return await FollowAsync(p, p.G.Out(node.Id).Single(), key);
     }
 
     private async Task<ServiceResult?> EnterConditionAsync(Pass p, ApprovalNodeDef node, string? inEdgeId, string key)

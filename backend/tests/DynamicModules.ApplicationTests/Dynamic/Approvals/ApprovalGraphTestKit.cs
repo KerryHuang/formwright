@@ -27,10 +27,19 @@ public static class ApprovalGraphTestKit
     public static ApprovalNodeDef Join(string id, string forkId, string mode = ApprovalModes.All) =>
         new(id, ApprovalNodeKinds.Join, ForkId: forkId, Mode: mode);
 
-    /// <summary>通知節點（fg5 之前引擎不支援，用來測能力守門）：收件人是發起人，範本只有純文字。</summary>
-    public static ApprovalNodeDef Notify(string id) =>
-        new(id, ApprovalNodeKinds.Notify, Name(id), Recipients: [new NotifyRecipientDef(ApprovalNotifyRecipientKinds.Initiator)],
-            Template: new NotifyTemplateDef(Name(id), Name(id)));
+    /// <summary>通知節點：收件人省略時是發起人；範本標題、內文省略時是節點代號（純文字）。</summary>
+    public static ApprovalNodeDef Notify(string id, List<NotifyRecipientDef>? recipients = null, string? title = null, string? body = null) =>
+        new(id, ApprovalNodeKinds.Notify, Name(id), Recipients: recipients ?? [new NotifyRecipientDef(ApprovalNotifyRecipientKinds.Initiator)],
+            Template: new NotifyTemplateDef(Name(title ?? id), Name(body ?? id)));
+
+    /// <summary>通知收件人：指定使用者、群組、發起人、發起人往上第 level 層主管。</summary>
+    public static NotifyRecipientDef ToUsers(params string[] ids) => new(ApprovalNotifyRecipientKinds.Users, UserIds: [.. ids]);
+
+    public static NotifyRecipientDef ToGroup(params long[] ids) => new(ApprovalNotifyRecipientKinds.Group, GroupIds: [.. ids]);
+
+    public static NotifyRecipientDef ToInitiator() => new(ApprovalNotifyRecipientKinds.Initiator);
+
+    public static NotifyRecipientDef ToManager(int? level = null) => new(ApprovalNotifyRecipientKinds.InitiatorManager, Level: level);
 
     /// <summary>連線；when、order、isDefault 只用在條件節點的出線。</summary>
     public static ApprovalEdgeDef E(string id, string from, string to, JsonElement? when = null, int? order = null, bool isDefault = false) =>

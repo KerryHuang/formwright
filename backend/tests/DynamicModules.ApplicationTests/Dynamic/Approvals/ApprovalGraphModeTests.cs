@@ -61,17 +61,18 @@ public class ApprovalGraphModeTests : ApprovalTestBase
     // ───────── SupportedKinds ─────────
 
     [Fact]
-    public void SupportedKinds_SixKinds_NoNotify()
+    public void SupportedKinds_SevenKinds_IncludesNotify()
     {
+        // fg5b：引擎支援通知節點（J31 的清單加 notify）
         ApprovalGraphMode.SupportedKinds.Should().BeEquivalentTo(
-            [ApprovalNodeKinds.Start, ApprovalNodeKinds.End, ApprovalNodeKinds.Approval, ApprovalNodeKinds.Condition, ApprovalNodeKinds.Fork, ApprovalNodeKinds.Join]);
-        ApprovalGraphMode.SupportedKinds.Should().NotContain(ApprovalNodeKinds.Notify);
+            [ApprovalNodeKinds.Start, ApprovalNodeKinds.End, ApprovalNodeKinds.Approval, ApprovalNodeKinds.Condition, ApprovalNodeKinds.Fork, ApprovalNodeKinds.Join,
+             ApprovalNodeKinds.Notify]);
     }
 
     [Fact]
-    public void Build_WithSupportedKinds_NotifyRejected()
+    public void Build_WithSupportedKinds_NotifyAccepted()
     {
-        // 設計 §7.1 範例含通知節點：結構合法，但引擎還不支援，建圖回 null 與 unsupportedKind
+        // 設計 §7.1 範例含通知節點：fg5b 起引擎支援，建圖成功
         var def = G(
             [Start(), Approval("mgr", Manager(1)), Condition("amount"), Fork("split"), Approval("legal", Group(5)), Approval("fin", Group(6)),
              Join("merge", "split"), Notify("tell-hr"), End()],
@@ -80,8 +81,17 @@ public class ApprovalGraphModeTests : ApprovalTestBase
 
         var g = ApprovalGraphRuntime.Build(def, ApprovalGraphMode.SupportedKinds, out var errors);
 
-        g.Should().BeNull();
-        errors.Should().ContainSingle().Which.Should().Be(new GraphIssue("nodes.tell-hr", "runtime", "unsupportedKind"));
+        g.Should().NotBeNull();
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Build_WithSupportedKinds_InvalidGraphStillRejected()
+    {
+        // 能力守門反證：放行 notify 不影響其他錯誤，不認得的型別照舊建不出圖
+        var def = G([Start(), new ApprovalNodeDef("hook", "webhook"), End()], [E("e1", "start", "hook"), E("e2", "hook", "end")]);
+        ApprovalGraphRuntime.Build(def, ApprovalGraphMode.SupportedKinds, out var errors).Should().BeNull();
+        errors.Should().Contain(new GraphIssue("nodes.hook", "G1", "kindInvalid"));
     }
 
     [Fact]

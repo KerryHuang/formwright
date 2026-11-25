@@ -17,11 +17,11 @@ public static class ApprovalGraphMode
     public static bool Applies(ApprovalInstance inst, ApprovalDefinition def) =>
         def.Shape == ApprovalShapes.Graph && inst.RouteKind == ApprovalRouteKind.Flow;
 
-    /// <summary>能力守門（U2）：引擎支援的節點型別，傳給 <see cref="ApprovalGraphRuntime.Build"/>；fg5 加 notify。</summary>
+    /// <summary>能力守門（U2、J31）：引擎支援的節點型別，傳給 <see cref="ApprovalGraphRuntime.Build"/>；fg5b 加 notify。</summary>
     public static readonly IReadOnlySet<string> SupportedKinds = new HashSet<string>
     {
         ApprovalNodeKinds.Start, ApprovalNodeKinds.End, ApprovalNodeKinds.Approval,
-        ApprovalNodeKinds.Condition, ApprovalNodeKinds.Fork, ApprovalNodeKinds.Join
+        ApprovalNodeKinds.Condition, ApprovalNodeKinds.Fork, ApprovalNodeKinds.Join, ApprovalNodeKinds.Notify
     };
 
     /// <summary>

@@ -81,4 +81,52 @@ public class NotificationsApiTests : IDisposable
         var task = items.EnumerateArray().Single(i => i.GetProperty("kind").GetString() == "taskAssigned");
         task.TryGetProperty("titleKey", out var k).Should().BeFalse(k.ToString());
     }
+
+    /// <summary>
+    /// 通知節點（流程圖設計 §12.5、fg5 計畫 T1）：data 是解析後重組的白名單結構（不認得的屬性丟掉）；格式不對不輸出 data、退回 title；
+    /// 其他種類不輸出 data；只回本人的。
+    /// </summary>
+    [Fact]
+    public async Task ApprovalNotify_ExposesWhitelistedData_OnlyToOwner()
+    {
+        await using (var scope = _app.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<DynamicDbContext>();
+            db.Set<Notification>().AddRange(
+                new Notification
+                {
+                    UserId = "sales01", Kind = NotificationKinds.ApprovalNotify, TitleSnapshot = "PO-0001", Link = "",
+                    DataJson = """{"v":1,"node":"tell-hr","read":false,"evil":"<b>","template":{"title":{"zh-TW":"{initiator} 送出 {title}"}},"values":{"title":{"t":"PO-0001","x":1},"initiator":{"s":"denied"},"flow":{"i18n":{"zh-TW":"採購單","en-US":"Purchase"}}}}""",
+                    CreatedTime = DateTime.Now,
+                },
+                new Notification
+                {
+                    UserId = "sales01", Kind = NotificationKinds.ApprovalNotify, TitleSnapshot = "PO-0002", Link = "",
+                    DataJson = """{"v":9}""", CreatedTime = DateTime.Now.AddMinutes(-1),
+                },
+                new Notification
+                {
+                    UserId = "sales01", Kind = NotificationKinds.ApprovalPending, TitleSnapshot = "PO-0003", Link = "/x",
+                    DataJson = """{"v":1}""", CreatedTime = DateTime.Now.AddMinutes(-2),
+                });
+            await db.SaveChangesAsync();
+        }
+
+        var items = (await JsonOf(await _app.AsUser("sales01").GetAsync($"{Base}/notifications"))).GetProperty("items").EnumerateArray().ToList();
+        var good = items.Single(i => i.GetProperty("title").GetString() == "PO-0001").GetProperty("data");
+        good.GetProperty("v").GetInt32().Should().Be(1);
+        good.GetProperty("node").GetString().Should().Be("tell-hr");
+        good.GetProperty("read").GetBoolean().Should().BeFalse();
+        good.TryGetProperty("evil", out _).Should().BeFalse();
+        good.GetProperty("template").GetProperty("title").GetProperty("zh-TW").GetString().Should().Be("{initiator} 送出 {title}");
+        var values = good.GetProperty("values");
+        values.GetProperty("title").EnumerateObject().Select(p => p.Name).Should().Equal("t");
+        values.GetProperty("initiator").GetProperty("s").GetString().Should().Be("denied");
+        values.GetProperty("flow").GetProperty("i18n").GetProperty("en-US").GetString().Should().Be("Purchase");
+        items.Single(i => i.GetProperty("title").GetString() == "PO-0002").TryGetProperty("data", out _).Should().BeFalse();
+        items.Single(i => i.GetProperty("title").GetString() == "PO-0003").TryGetProperty("data", out _).Should().BeFalse();
+
+        var others = (await JsonOf(await _app.AsUser().GetAsync($"{Base}/notifications"))).GetProperty("items");
+        others.EnumerateArray().Should().NotContain(i => i.GetProperty("kind").GetString() == NotificationKinds.ApprovalNotify);
+    }
 }

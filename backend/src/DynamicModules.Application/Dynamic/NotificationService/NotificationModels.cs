@@ -1,19 +1,23 @@
 using System.Text.Json;
+using DynamicModules.Domain.Approvals;
 using DynamicModules.Domain.Entities.Dynamic;
 
 namespace DynamicModules.Application.Dynamic.NotificationService;
 
 /// <summary>
 /// 一則通知。維運兩個種類（<c>opsIncident</c>、<c>opsRulePaused</c>）另帶標題代碼與白名單參數，鈴鐺依語系組字（維運設計 §17.2.5）；
-/// <see cref="Title"/> 是寫入時的繁中快照，只當前端沒有組字程式時的退路。其他種類的 <c>DataJson</c> 不輸出。
+/// <see cref="Title"/> 是寫入時的繁中快照，只當前端沒有組字程式時的退路。
+/// 通知節點（<c>approvalNotify</c>）的 <see cref="Data"/> 是解析後重組的白名單結構（不原樣轉發 DataJson），格式不對就是 null、前端退回 Title。
+/// 其他種類的 <c>DataJson</c> 不輸出。
 /// </summary>
 public sealed record NotificationResponse(long Id, string Kind, string Title, string Link, bool Read, DateTime CreatedTime,
-    string? TitleKey = null, IReadOnlyDictionary<string, object>? TitleParams = null)
+    string? TitleKey = null, IReadOnlyDictionary<string, object>? TitleParams = null, ApprovalNotifyData? Data = null)
 {
     public static NotificationResponse From(Notification n)
     {
         var (key, p) = n.Kind is NotificationKinds.OpsIncident or NotificationKinds.OpsRulePaused ? OpsTitle(n.DataJson) : (null, null);
-        return new(n.Id, n.Kind, n.TitleSnapshot, n.Link, n.ReadTime is not null, n.CreatedTime, key, p);
+        var data = n.Kind == NotificationKinds.ApprovalNotify ? ApprovalNotifyData.Parse(n.DataJson) : null;
+        return new(n.Id, n.Kind, n.TitleSnapshot, n.Link, n.ReadTime is not null, n.CreatedTime, key, p, data);
     }
 
     /// <summary>讀 <c>{ titleKey, params }</c>：數字回 long、其他回字串；格式不對就當沒有（退回快照）。</summary>

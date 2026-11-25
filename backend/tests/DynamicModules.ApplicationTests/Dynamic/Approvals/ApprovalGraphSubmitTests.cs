@@ -625,10 +625,15 @@ public class ApprovalGraphSubmitTests : ApprovalTestBase
     }
 
     [Fact]
-    public async Task Submit_NotifyNode_409_Unsupported_AlertWritten_NothingWritten()
+    public async Task Submit_NotifyNode_Supported_NoAlert()
     {
-        var def = G([Start(), Notify("tell"), End()], [E("e0", "start", "tell"), E("e1", "tell", "end")]);
-        await SubmitExpect409(def, ApprovalMessages.GraphRuntimeInvalid.Resolve(null)!);
+        // fg5b 起引擎支援通知節點：不再 409，通知節點寫 passed 後往下走（細節見 ApprovalGraphNotifyTests）
+        var r = await Rig(G([Start(), Notify("tell"), Approval("a", Users("fin1")), End()],
+            [E("e0", "start", "tell"), E("e1", "tell", "a"), E("e2", "a", "end")]));
+        var (_, id, _) = await SubmitAs(r);
+        RunsOf(id).Select(x => (x.NodeId, x.Status)).Should().Equal(("start", "passed"), ("tell", "passed"), ("a", "active"));
+        Notices("admin", NotificationKinds.ApprovalAdminAlert).Should().Be(0);
+        Notices("buyer1", NotificationKinds.ApprovalNotify).Should().Be(1);
     }
 
     [Fact]
