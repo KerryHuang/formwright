@@ -65,7 +65,8 @@ public sealed class DemoStructure(
             (DemoCatalog.MesAppId, [("sales", "sales"), ("salesManager", "sales-manager"), ("floor", "floor"), ("maint", "maint"), ("qa", "qa"), ("planner", "planner")]),
             (DemoCatalog.CrmAppId, [("sales", "sales"), ("manager", "sales-manager"), ("designer", "design")]),
             (DemoCatalog.InventoryAppId, [("buyer", "purchasing"), ("keeper", "warehouse"), ("manager", "ops-manager"), ("viewer", "inv-viewer")]),
-            (DemoCatalog.QualityInspectionAppId, [("qa", "qa")])
+            (DemoCatalog.QualityInspectionAppId, [("qa", "qa")]),
+            (DemoCatalog.EventRegistrationAppId, [("events", "sales")])
         })
         {
             var groupMap = map.ToDictionary(m => m.Code, m => new GroupMapEntry("map", groupIds[m.Group]));
@@ -96,6 +97,7 @@ public sealed class DemoStructure(
             Crm = new DemoContext(today, sender, opened[DemoCatalog.CrmAppId], groupIds),
             Inventory = new DemoContext(today, sender, opened[DemoCatalog.InventoryAppId], groupIds),
             QualityInspection = new DemoContext(today, sender, opened[DemoCatalog.QualityInspectionAppId], groupIds),
+            EventRegistration = new DemoContext(today, sender, opened[DemoCatalog.EventRegistrationAppId], groupIds),
             Masters = masters is null ? null : new DemoContext(today, sender, masters, groupIds)
         }, null);
     }

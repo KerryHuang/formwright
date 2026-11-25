@@ -57,10 +57,24 @@ public class DemoStructureTests(DemoGeneratedFixture fx)
         var db = fx.Host.Db.Context;
         var app = await db.Set<App>().AsNoTracking().SingleAsync(a => a.Key == DemoCatalog.QualityInspectionAppId);
         app.Kind.Should().Be(AppKind.Template);
-        DemoCatalog.AppIds.Last().Should().Be(DemoCatalog.QualityInspectionAppId, "排在 MES、CRM、進銷存之後");
+        DemoCatalog.AppIds.Should().ContainInOrder(DemoCatalog.MesAppId, DemoCatalog.CrmAppId, DemoCatalog.InventoryAppId, DemoCatalog.QualityInspectionAppId);   // 排在 MES、CRM、進銷存之後
         var groups = await GroupIds();
         foreach (var key in new[] { "qc-item", "qc-inspection" })
             (await Permissions(key)).Groups.Single(g => g.GroupId == groups["qa"]).Privileges.Add.Should().BeTrue($"{key}：套件的 qa 群組對應到 Demo 的 qa");
+        (await db.Set<AppBaseline>().AsNoTracking().AnyAsync(x => x.AppId == app.Id)).Should().BeFalse("範本開啟後屬於客戶，不留升級基準");
+    }
+
+    [Fact]
+    public async Task Generate_OpensTheEventRegistrationTemplate_WithItsGroupMappedToTheDemoSalesGroup()
+    {
+        fx.Generated();
+
+        var db = fx.Host.Db.Context;
+        var app = await db.Set<App>().AsNoTracking().SingleAsync(a => a.Key == DemoCatalog.EventRegistrationAppId);
+        app.Kind.Should().Be(AppKind.Template);
+        DemoCatalog.AppIds.Last().Should().Be(DemoCatalog.EventRegistrationAppId, "排在品質檢驗之後");
+        var groups = await GroupIds();
+        (await Permissions("ev-event")).Groups.Single(g => g.GroupId == groups["sales"]).Privileges.Add.Should().BeTrue("套件的 events 群組對應到 Demo 的 sales（明細沿用表頭權限）");
         (await db.Set<AppBaseline>().AsNoTracking().AnyAsync(x => x.AppId == app.Id)).Should().BeFalse("範本開啟後屬於客戶，不留升級基準");
     }
 
