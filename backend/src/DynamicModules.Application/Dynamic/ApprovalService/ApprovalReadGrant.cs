@@ -60,11 +60,11 @@ public sealed class ApprovalReadGrant(
     }
 
     /// <summary>個人權限換成「讀取＋Pricing」：Pricing 判斷照常走 PermissionResolver，欄位例外不受影響。</summary>
-    private static PermissionInputs Elevate(PermissionInputs inputs, Module access) => inputs with
+    internal static PermissionInputs Elevate(PermissionInputs inputs, Module access) => inputs with
     {
         UserPrivilege = new UserProgramPrivilege { UserId = inputs.User.UserId, ProgramCode = access.ProgramCode, CanRead = true, CanAmt = true }
     };
 
-    private static EffectivePermissions Grant(EffectivePermissions p) =>
+    internal static EffectivePermissions Grant(EffectivePermissions p) =>
         p with { Actions = GrantedActions, Scope = DataScope.All, OwnerUserIds = null, Hash = p.Hash + "-ag" };
 }
