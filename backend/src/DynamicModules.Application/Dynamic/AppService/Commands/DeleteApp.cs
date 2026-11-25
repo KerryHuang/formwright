@@ -50,7 +50,8 @@ public class DeleteAppHandler(
     IReportRepository reports, IUnitOfWork uow,
     Integrations.IntegrationReconciler integrations, ISharedMasterRepository shared, IDeletionRepository deletion,
     SharedMasters.MasterLifecycle lifecycle, ICurrentUser user, Common.Time.IBusinessTime time, ITaskRuleRepository taskRules,
-    OpsService.RulePause.RulePauseCleanup rulePause, DynamicModules.Application.Common.RequestLocale requestLocale)
+    OpsService.RulePause.RulePauseCleanup rulePause, DynamicModules.Application.Common.RequestLocale requestLocale,
+    Common.Localization.IMessageCatalog messages)
     : IRequestHandler<DeleteAppRequest, ServiceResult>
 {
     public const string DependentKind = "appDependent";
@@ -100,7 +101,7 @@ public class DeleteAppHandler(
         {
             var count = 0;
             foreach (var member in master.Modules) count += await deletion.CountRecordsAsync(member.ModuleId, deleted: false, ct);
-            warnings.Add($"共用主檔「{master.NameI18n.Resolve(requestLocale.Current)}」已沒有應用程式使用，仍有 {count} 筆資料，已保留");
+            warnings.Add(messages.Get(requestLocale.Current, MessageText.AppDeleteMasterKept, master.NameI18n.Resolve(requestLocale.Current), count));
         }
         return ServiceResult.Success(new DeleteAppResponse(warnings));
     }
