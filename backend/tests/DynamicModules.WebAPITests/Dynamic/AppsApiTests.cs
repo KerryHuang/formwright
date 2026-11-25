@@ -846,12 +846,22 @@ public class AppsApiTests : IDisposable
     {
         await OpenTplAOk();
         foreach (var name in new[] { "甲", "乙", "丙" }) await SoftDelete(await AddTplAItem(name));
-        var fourth = await AddTplAItem("丁");
         await Close("tpl-a");
-        (await DeleteCheckOk("tpl-a")).GetProperty("purge").GetProperty("records").GetInt32().Should().Be(3);
+        var first = await DeleteCheckOk("tpl-a");
+        first.GetProperty("canDelete").GetBoolean().Should().BeTrue(first.ToString());
+        first.GetProperty("purgedTotal").GetInt32().Should().Be(3);
 
-        // 預檢之後另一個管理員又軟刪一筆（應用程式已關閉，直接改資料庫模擬）
-        Db(db => { db.Set<DynamicModules.Domain.Entities.Dynamic.Record>().Single(r => r.Id == fourth).DeleteFlag = true; db.SaveForTests(); return 0; });
+        // 預檢之後另一個管理員又軟刪一筆（應用程式已關閉，直接在資料庫加一筆已軟刪除的記錄模擬）
+        Db(db =>
+        {
+            var moduleId = db.Set<Module>().Single(m => m.Key == "tpl-a-item").Id;
+            var r = new DynamicModules.Domain.Entities.Dynamic.Record
+                { ModuleId = moduleId, OwnerUserId = "admin", RowVersion = Guid.NewGuid().ToString(), DeleteFlag = true };
+            r.StampCreated("admin", new DateTime(2026, 11, 25, 9, 0, 0));
+            db.Set<DynamicModules.Domain.Entities.Dynamic.Record>().Add(r);
+            db.SaveForTests();
+            return 0;
+        });
         var stale = await _admin.DeleteAsync($"{Apps}/tpl-a?purged=3");
         stale.StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await JsonOf(stale)).GetProperty("purgedTotal").GetInt32().Should().Be(4);
