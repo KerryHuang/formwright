@@ -355,11 +355,39 @@ describe('FlowDesignerPage', () => {
     w.unmount();
   });
 
-  it('back goes to the flows tab of the module and focuses the target state', async () => {
+  it('back goes to the flows tab of the module and focuses the target state and the flow card', async () => {
     const w = await mountAt(url());
     await w.get('[data-testid="de-back"]').trigger('click');
     await flushPromises();
-    expect(router.currentRoute.value.fullPath).toBe('/system/dynamic-modules/doc?tab=approvalFlows&target=12');
+    expect(router.currentRoute.value.fullPath).toBe('/system/dynamic-modules/doc?tab=approvalFlows&target=12&flow=po');
+    w.unmount();
+  });
+
+  it('back from a new flow that was never saved has no flow to return the focus to', async () => {
+    const w = await mountAt('/system/dynamic-modules/doc/approval-flows/_new?target=12');
+    await w.get('[data-testid="de-back"]').trigger('click');
+    await flushPromises();
+    expect(router.currentRoute.value.fullPath).toBe('/system/dynamic-modules/doc?tab=approvalFlows');
+    w.unmount();
+  });
+
+  it('a ?target= that is not a positive integer is ignored: nothing is prefilled', async () => {
+    api.validateApprovalFlow.mockResolvedValue({ errors: {}, warnings: [], newVersion: false, pendingCount: 0 });
+    for (const bad of ['abc', '-3', '1.5', '0']) {
+      api.validateApprovalFlow.mockClear();
+      const w = await mountAt(`/system/dynamic-modules/doc/approval-flows/_new?target=${bad}`);
+      await w.get('[data-testid="tb-validate"]').trigger('click');
+      await flushPromises();
+      // Without a target the designer stops on "target required" before anything is sent; a NaN target would be sent.
+      expect(api.validateApprovalFlow, bad).not.toHaveBeenCalled();
+      w.unmount();
+    }
+  });
+
+  it('the conversion notice says no records are in progress when there are none', async () => {
+    const seq = flow({ definition: { shape: 'sequence', stages: [] } as never, graph: def('轉來的關卡'), pendingCount: 0 });
+    const w = await mountAt(url(), { flow: seq });
+    expect(w.get('[data-testid="de-sequence-notice"]').text()).toBe('這條流程已轉成流程圖；發布後以流程圖保存，已送出的單不受影響');
     w.unmount();
   });
 

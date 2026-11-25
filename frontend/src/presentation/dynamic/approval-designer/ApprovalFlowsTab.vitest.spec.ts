@@ -48,7 +48,7 @@ const draftOnly = (key: string, toOptionId: number, priority: number, extra: Par
   return f;
 };
 
-async function mountTab(flows: ApprovalFlow[], opts: { workflow?: Workflow | null; edit?: boolean; focusTarget?: number | null; m?: ModuleDetail } = {}) {
+async function mountTab(flows: ApprovalFlow[], opts: { workflow?: Workflow | null; edit?: boolean; focusTarget?: number | null; createOnEmpty?: boolean; focusFlow?: string | null; m?: ModuleDetail } = {}) {
   api.getWorkflow.mockImplementation(async () => {
     if (opts.workflow === null) throw { status: 404 };
     return (opts.workflow ?? wf) as never;
@@ -67,7 +67,7 @@ async function mountTab(flows: ApprovalFlow[], opts: { workflow?: Workflow | nul
   await router.push('/');
   const w = mount(ApprovalFlowsTab, {
     attachTo: document.body,
-    props: { module: opts.m ?? mod(), focusTarget: opts.focusTarget },
+    props: { module: opts.m ?? mod(), focusTarget: opts.focusTarget, createOnEmpty: opts.createOnEmpty, focusFlow: opts.focusFlow },
     global: { plugins: [[quasar.Quasar, { components: quasar, directives: quasar, plugins: { Notify: quasar.Notify } }], createPinia(), i18n, router,
       [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]] },
   });
@@ -406,9 +406,31 @@ describe('ApprovalFlowsTab', () => {
   });
 
   it('focusTarget from the workflow tab goes to the new-flow designer page with the target when it has no flow yet', async () => {
-    const w = await mountTab([flow('a', 13, 1)], { focusTarget: 12 });
+    const w = await mountTab([flow('a', 13, 1)], { focusTarget: 12, createOnEmpty: true });
     await flushPromises();
     expect(router.currentRoute.value.fullPath).toBe('/d/doc/_new?target=12');
+    w.unmount();
+  });
+
+  it('focusTarget alone (from the address, e.g. back after deleting the target\'s only flow) highlights but never opens the new-flow page', async () => {
+    const w = await mountTab([flow('a', 13, 1)], { focusTarget: 12 });
+    await flushPromises();
+    expect(router.currentRoute.value.fullPath).toBe('/');
+    expect(w.find('[data-testid="flow-group-12"]').classes()).toContain('flow-group--focus');
+    w.unmount();
+  });
+
+  it('focusFlow puts the keyboard focus back on that flow card', async () => {
+    const w = await mountTab([flow('a', 12, 1), flow('b', 12, 2)], { focusFlow: 'b' });
+    await flushPromises();
+    expect(document.activeElement).toBe(w.get('[data-testid="flow-card-b"]').element);
+    w.unmount();
+  });
+
+  it('focusFlow that is gone (deleted) or never saved falls back to the add-flow button', async () => {
+    const w = await mountTab([flow('a', 12, 1)], { focusFlow: 'gone' });
+    await flushPromises();
+    expect(document.activeElement).toBe(w.get('[data-testid="flow-add"]').element);
     w.unmount();
   });
 
@@ -420,7 +442,7 @@ describe('ApprovalFlowsTab', () => {
   });
 
   it('a read-only designer gets no add button and cannot create by focusTarget', async () => {
-    const w = await mountTab([flow('a', 12, 1)], { edit: false, focusTarget: 13 });
+    const w = await mountTab([flow('a', 12, 1)], { edit: false, focusTarget: 13, createOnEmpty: true });
     expect(w.find('[data-testid="flow-add"]').exists()).toBe(false);
     expect(w.find('[data-testid="flow-add-12"]').exists()).toBe(false);
     expect(w.find('[data-testid="flow-edit-a"]').exists()).toBe(false);

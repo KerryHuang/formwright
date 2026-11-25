@@ -40,7 +40,8 @@ const router = useRouter();
 const moduleKey = computed(() => String(route.params.moduleKey));
 const isNewRoute = computed(() => route.name === 'flow-designer-new');
 const flowKey = computed(() => (isNewRoute.value ? null : String(route.params.flowKey)));
-const target = computed(() => (route.query.target ? Number(route.query.target) : null));
+// A hand-typed ?target= that is not a positive integer is ignored (nothing prefilled).
+const target = computed(() => { const n = Number(route.query.target); return Number.isInteger(n) && n > 0 ? n : null; });
 
 const moduleQuery = useModuleDetail(moduleKey);
 const workflow = useWorkflowQuery(moduleKey);
@@ -185,7 +186,8 @@ const onPaneClick = () => { designer.select(FLOW_SELECTION); if (!docked.value) 
 const openFlowProps = () => { designer.select(FLOW_SELECTION); panelOpen.value = true; };
 
 function back() {
-  void router.replace({ path: `/system/dynamic-modules/${moduleKey.value}`, query: { tab: 'approvalFlows', ...(!designer.server.value.isNew && meta.value?.toOptionId != null ? { target: String(meta.value.toOptionId) } : {}) } });
+  // `flow` lets the tab return the keyboard focus to this flow's card (it falls back to the add button when the flow was deleted or never saved).
+  void router.replace({ path: `/system/dynamic-modules/${moduleKey.value}`, query: { tab: 'approvalFlows', ...(!designer.server.value.isNew && meta.value?.toOptionId != null ? { target: String(meta.value.toOptionId) } : {}), ...(flowKey.value ? { flow: flowKey.value } : {}) } });
 }
 
 // ---- 未儲存保護（U52）：站內換頁跳自訂對話框；關分頁、重新整理只有瀏覽器原生提示 ----
@@ -243,7 +245,7 @@ onBeforeUnmount(() => { window.removeEventListener('beforeunload', onBeforeUnloa
           @discard="confirmDiscard = true" @delete-flow="confirmDelete = true" @relayout="tidy" @remove="edit.remove()"
         />
       </div>
-      <q-banner v-if="sequenceNotice !== null" dense class="bg-info-soft" data-testid="de-sequence-notice">{{ t('approval.designer.graph.sequenceNotice', { n: sequenceNotice }) }}</q-banner>
+      <q-banner v-if="sequenceNotice !== null" dense class="bg-info-soft" data-testid="de-sequence-notice">{{ sequenceNotice > 0 ? t('approval.designer.graph.sequenceNotice', { n: sequenceNotice }) : t('approval.designer.graph.sequenceNoticeNone') }}</q-banner>
       <q-banner v-if="!canEdit" dense class="bg-info-soft" data-testid="de-readonly">{{ t('approval.designer.graph.readonlyBanner') }}</q-banner>
 
       <DesignerNodeList v-if="listOpen" :designer="designer" :selection="selection" @pick="(id: string) => pickIssue({ kind: 'node', id })" @close="listOpen = false" />

@@ -44,9 +44,14 @@ const moduleKey = computed(() => String(route.params.moduleKey));
 const hasApprovalFlows = computed(() => !!mod.value && !mod.value.detailOf && mod.value.kind !== 'extension');
 // The state machine tab sends the target state to focus; reset first so asking for the same state again re-triggers the highlight.
 const flowsTarget = ref<number | null>(null);
-async function openFlows(toOptionId: number) {
+// Only the state machine tab's button asks the flows tab to open the new-flow page for an empty target; an address's ?target= only highlights.
+const flowsCreate = ref(false);
+async function openFlows(toOptionId: number, create = false) {
   flowsTarget.value = null;
+  flowsCreate.value = create;
   tab.value = 'approvalFlows';
+  // Record the tab in the address so browser back from the new-flow page returns here, not to the default tab.
+  if (create && route.query.tab !== 'approvalFlows') await router.replace({ query: { ...route.query, tab: 'approvalFlows' } });
   await nextTick();
   flowsTarget.value = toOptionId;
 }
@@ -56,6 +61,7 @@ const showEventsLedger = computed(() => !!useMeData.value?.designer.read);
 const query = useModuleDetail(moduleKey);
 const mod = computed(() => query.data.value);
 // 流程圖設計頁的返回鈕帶 ?tab=approvalFlows&target=<狀態選項代號>：切到「簽核流程」分頁並聚焦那個目標狀態
+const flowsFocusFlow = computed(() => (route.query.tab === 'approvalFlows' && typeof route.query.flow === 'string' ? route.query.flow : null));
 watch([() => route.query.tab, () => route.query.target, hasApprovalFlows], ([q, target, ok]) => {
   if (q !== 'approvalFlows' || !ok) return;
   const id = target ? Number(target) : NaN;
@@ -419,10 +425,10 @@ function saveSection() {
           <ModulePoliciesTab v-if="mod" :module="mod" />
         </q-tab-panel>
         <q-tab-panel name="workflow" class="q-pa-none">
-          <WorkflowTab :module="mod" @open-flows="openFlows" />
+          <WorkflowTab :module="mod" @open-flows="(id: number) => openFlows(id, true)" />
         </q-tab-panel>
         <q-tab-panel v-if="hasApprovalFlows" name="approvalFlows" class="q-pa-none">
-          <ApprovalFlowsTab :module="mod" :focus-target="flowsTarget" />
+          <ApprovalFlowsTab :module="mod" :focus-target="flowsTarget" :create-on-empty="flowsCreate" :focus-flow="flowsFocusFlow" />
         </q-tab-panel>
         <q-tab-panel name="events" class="q-pa-none">
           <EventsTab :module="mod" />

@@ -17,7 +17,8 @@ import { conditionSummary } from 'src/presentation/dynamic/rules/condition-summa
 import type { ApiError } from 'src/services/api/http';
 import { groupFlows, moveKeys, moveKeyTo } from './flow-groups';
 
-const props = defineProps<{ module: ModuleDetail; focusTarget?: number | null }>();
+// focusTarget only highlights (it also comes from the address); createOnEmpty is the state machine tab's button asking for the new-flow page. focusFlow: the flow whose card gets the keyboard focus back.
+const props = defineProps<{ module: ModuleDetail; focusTarget?: number | null; createOnEmpty?: boolean; focusFlow?: string | null }>();
 const { t, locale } = useI18n();
 const $q = useQuasar();
 const router = useRouter();
@@ -112,11 +113,22 @@ function openEdit(f: ApprovalFlow) {
 }
 // The state machine tab's "create the flow" link: a target that has no flow yet goes straight to the designer's new-flow page (one that already has flows is only highlighted).
 const wantCreate = ref<number | null>(null);
-watch(() => props.focusTarget, (id) => { wantCreate.value = id ?? null; }, { immediate: true });
+watch([() => props.focusTarget, () => props.createOnEmpty], ([id, create]) => { wantCreate.value = create ? (id ?? null) : null; }, { immediate: true });
 watch([wantCreate, () => flows.data.value, () => me.data.value], ([id, list]) => {
   if (id == null || !list || !me.data.value) return;
   wantCreate.value = null;
   if (!list.some((f) => f.toOptionId === id)) openCreate(id);
+}, { immediate: true });
+
+// ---- back from the designer page: the keyboard focus returns to the flow's card, or to the add button when that flow is gone (deleted) or was never saved ----
+const wantFocusFlow = ref<string | null>(props.focusFlow ?? null);
+watch(() => props.focusFlow, (k) => { wantFocusFlow.value = k ?? null; });
+watch([wantFocusFlow, () => flows.data.value, () => workflow.data.value], async ([k, list, wf]) => {
+  if (k == null || !list || !wf) return;
+  wantFocusFlow.value = null;
+  await nextTick();
+  const el = document.querySelector<HTMLElement>(`[data-testid="flow-card-${k}"]`) ?? document.querySelector<HTMLElement>('[data-testid="flow-add"]');
+  el?.focus();
 }, { immediate: true });
 
 // ---- focus a group when the state machine tab sent us here ----

@@ -30,7 +30,7 @@ async function mountPage(d: ModuleDetail = detail, canDelete = true, canRead = t
   api.getMe.mockResolvedValue({ designer: { read: canRead, add: true, edit: canEdit, delete: canDelete } } as never);
   api.entities.mockResolvedValue([{ key: 'test.entity', name: { 'zh-TW': '測試實體' } }]);
   api.updateModule.mockResolvedValue({} as never);
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/m/:moduleKey', component: ModuleEditorPage }] });
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/m/:moduleKey', component: ModuleEditorPage }, { path: '/d/:moduleKey/_new', name: 'flow-designer-new', component: { template: '<i/>' } }] });
   await router.push(url);
   const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
   const Host = { render: () => h(quasar.QLayout, null, () => h(quasar.QPageContainer, null, () => h(ModuleEditorPage))) };
@@ -91,8 +91,7 @@ describe('ModuleEditorPage', () => {
   });
 
   it('workflow open-flows switches to the approval flows tab and passes the target', async () => {
-    // A target with no flow would send the tab to the designer's new-flow page; these tests are about the tab and the highlight.
-    api.getApprovalFlows.mockResolvedValue([{ key: 'x', name: { 'zh-TW': 'x' }, toOptionId: 12, priority: 1, active: true, moduleKey: 'm', version: 1, used: false, pendingCount: 0 }] as never);
+    api.getApprovalFlows.mockResolvedValue([]);
     const w = await mountPage();
     await w.find('[data-testid="tab-workflow"]').trigger('click');
     await flushPromises();
@@ -100,12 +99,34 @@ describe('ModuleEditorPage', () => {
     await flushPromises();
     expect(w.findComponent(ApprovalFlowsTab).exists()).toBe(true);
     expect(w.findComponent(ApprovalFlowsTab).props('focusTarget')).toBe(12);
+    // Only this entry asks the tab to open the new-flow page; the address records the tab so browser back returns to it.
+    expect(w.findComponent(ApprovalFlowsTab).props('createOnEmpty')).toBe(true);
+    // The empty target sends the tab to the new-flow page; browser back lands on the tab, not on the default fields tab.
+    expect(w.vm.$router.currentRoute.value.name).toBe('flow-designer-new');
+    w.vm.$router.back();
+    await flushPromises();
+    expect(w.vm.$router.currentRoute.value.fullPath).toBe('/m/m?tab=approvalFlows');
+    w.unmount();
+  });
+
+  it('?target= in the address only highlights: a target with no flow (back from deleting its only flow) does not ask for the new-flow page', async () => {
+    api.getApprovalFlows.mockResolvedValue([]);
+    const w = await mountPage(detail, true, true, true, '/m/m?tab=approvalFlows&target=12');
+    expect(w.findComponent(ApprovalFlowsTab).props('focusTarget')).toBe(12);
+    expect(w.findComponent(ApprovalFlowsTab).props('createOnEmpty')).toBe(false);
+    expect(w.vm.$router.currentRoute.value.fullPath).toBe('/m/m?tab=approvalFlows&target=12');
+    w.unmount();
+  });
+
+  it('?flow= goes to the tab so it can return the keyboard focus to that card', async () => {
+    api.getApprovalFlows.mockResolvedValue([]);
+    const w = await mountPage(detail, true, true, true, '/m/m?tab=approvalFlows&target=12&flow=f1');
+    expect(w.findComponent(ApprovalFlowsTab).props('focusFlow')).toBe('f1');
     w.unmount();
   });
 
   it('a second open-flows for the same state resets the target first so the highlight fires again', async () => {
-    // A target with no flow would send the tab to the designer's new-flow page; these tests are about the tab and the highlight.
-    api.getApprovalFlows.mockResolvedValue([{ key: 'x', name: { 'zh-TW': 'x' }, toOptionId: 12, priority: 1, active: true, moduleKey: 'm', version: 1, used: false, pendingCount: 0 }] as never);
+    api.getApprovalFlows.mockResolvedValue([]);
     const w = await mountPage();
     await w.find('[data-testid="tab-workflow"]').trigger('click');
     await flushPromises();

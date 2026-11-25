@@ -1059,9 +1059,9 @@
 
 1. 切換：`ApprovalFlowsTab.vue` 的卡片、編輯鈕、新增、分組內新增與狀態機分頁帶來的 `focusTarget`（目標狀態還沒有流程）全部走路由：既有流程 `flow-designer`，新增 `flow-designer-new`，目標狀態用 query `target` 帶（設計頁早就讀這個 query 預填流程層目標狀態，沒有新機制）。唯讀者新增鈕本來就不顯示，`focusTarget` 也不會自動開新增頁。
 2. 打開關卡格式流程：設計頁拿掉 fg3c 的導回（`sequenceRedirect`），沿用 `sourceOf` 讀後端 `GET approval-flows/{key}` 回的 `graph`（J14），畫面上完全不另寫轉換。提示橫幅的 N 取單筆 GET 的 `pendingCount`，條件是「已發布的定義還是 `sequence`」；發布後回應的定義變成 graph，橫幅隨之消失（以程式邏輯為準，未在瀏覽器驗過）。後端草稿端點只認 `graph` 形狀，這種圖本來就送得過去，後端不用改；設計頁 spec 斷言儲存草稿送出的是 `graph`。
-3. 移除：`FlowEditorDialog`、`FlowStagesEditor`、`FlowTrialPanel`（只有舊對話框的「試算」段用，設計頁用 `DesignerTrialPanel`）與各自的 spec。`approval-flow-draft.ts` 只留設計頁還在用的 `isSingleApprover`、`nextPriority`，其餘（`StageDraft`、`FlowDraft`、`buildFlowInput`、`definitionChanged`、`stageErrors` 等）、型別 `SequenceFlow`、`isSequenceFlow` 全刪；四語 i18n 刪 `approval.designer.dialog.*`（11 鍵）、`stage.*` 的 8 鍵、`basic.active`，並刪 `graph.sequenceRedirect`（換成 `graph.sequenceNotice`）。保留 J78 抽出的 `ApprovalStageFields.vue`、`FlowBasicFields.vue`。
+3. 移除：`FlowEditorDialog`、`FlowStagesEditor`、`FlowTrialPanel`（只有舊對話框的「試算」段用，設計頁用 `DesignerTrialPanel`）與各自的 spec。`approval-flow-draft.ts` 只留設計頁還在用的 `isSingleApprover`、`nextPriority`，其餘（`StageDraft`、`FlowDraft`、`buildFlowInput`、`definitionChanged`、`stageErrors` 等）、型別 `SequenceFlow`、`isSequenceFlow` 全刪；四語 i18n 刪 `approval.designer.dialog.*`（11 鍵）、`stage.*` 的 8 鍵、`basic.active`、`trial.stageError`（只有 `FlowTrialPanel` 用，修正輪補刪，`locales.vitest.spec.ts` 例外名單同步拿掉），並刪 `graph.sequenceRedirect`（換成 `graph.sequenceNotice`）。保留 J78 抽出的 `ApprovalStageFields.vue`、`FlowBasicFields.vue`。
 4. 狀態機分頁計數：`flowCount` 只算 `version != null` 的流程（沿用「後端沒版本就不寫 `version`」的判斷）；`noFlowTargets`（儲存前擋「目標狀態還沒有簽核流程」）一起改為只看已發布的，與後端「沒有已發布版本的流程不參與比對」一致。
-5. 測試：卡片以 `data-testid`（`flow-stages-*`、`flow-branches-*`、`flow-unpublished-*`、`flow-has-draft-*`）斷言；`ModuleEditorPage.vitest.spec.ts` 兩個測試原本靠「沒有流程時開對話框」不離頁，改成給目標狀態一個既有流程（測的是分頁與標示，不是新增）。
+5. 測試：卡片以 `data-testid`（`flow-stages-*`、`flow-branches-*`、`flow-unpublished-*`、`flow-has-draft-*`）斷言；`ModuleEditorPage.vitest.spec.ts` 兩個測試原本靠「沒有流程時開對話框」不離頁，一度改成給目標狀態一個既有流程；這遮住了 M1，修正輪改回空清單。
 
 **使用者行為（代做）**
 
@@ -1072,6 +1072,27 @@
 5. 狀態機分頁「目標狀態已掛 n 個流程」只算已發布的，另有只有草稿的才補「（另有 m 個未發布）」；目標狀態只有草稿流程時，n 為 0，仍擋下儲存需簽核的轉移，原因文字照舊。例：「已核准」狀態只有一個草稿流程，顯示「目標狀態已掛 0 個流程（另有 1 個未發布）」，儲存會被擋。選錯代價：把草稿算進去，會放行一個實際送出時比對不到流程的轉移。
 6. 提示橫幅在設計頁打開時一直顯示到發布或離開（不是只彈一次通知，也不能關掉）。例：打開關卡格式流程時頂端橫幅寫「這條流程已轉成流程圖；發布後以流程圖保存，進行中的 4 張單照舊版走完」。選錯代價：彈出通知消失後，使用者可能忘了這張圖是轉出來的、發布會改變保存格式。
 7. 唯讀設計者點關卡格式的卡片也進設計頁看（U62 的延伸；之前這種卡片完全不能點）。例：只有讀取權的人點「採購單（一萬以上）」看到轉好的直線圖，沒有儲存與發布。選錯代價：唯讀者看不到關卡格式流程的長相，要靠模組設計頁以外的畫面。
+
+**修正輪（審查後，2026-11-25）**
+
+技術類（實作者決定）
+
+1. M1：把「建立意圖」和「網址聚焦」分開（審查建議 (b)）。`ApprovalFlowsTab` 新增 prop `createOnEmpty`；`focusTarget` 只負責高亮與捲動，只有 `createOnEmpty` 為真且目標狀態沒有流程時才 `openCreate`。`ModuleEditorPage` 的 `openFlows(id, create)`：狀態機分頁的 `open-flows` 傳 `create = true`，網址 `?tab=approvalFlows&target=` 的路徑傳 `false`。這也擋住其他「帶 `target` 回來、但該狀態已沒有流程」的情況。
+2. S1：刪孤兒鍵 `approval.designer.trial.stageError`（四語），並拿掉 `locales.vitest.spec.ts` 例外名單裡那一項。
+3. S2：`TrialInputs.vue`、`ApprovalPreviewer.cs`、`ApprovalStageFields.vue` 三處註解改成現況（只改註解，後端行為不變）。
+4. S3：`docs/manual.md` §21.9 把舊對話框的說法（關卡卡片、「儲存才生效」、「任何編輯都清掉錯誤」）改成節點、驗證、發布。手冊其他「對話框」都是別的功能（套件開啟、使用者、送簽等），沒有再描述簽核流程編輯。
+5. S4 的做法：設計頁 `back()` 多帶 `flow=<流程代碼>`，`ModuleEditorPage` 把它轉成 `focusFlow` prop 交給分頁，分頁在清單載入後 `focus()` 那張 `flow-card-<key>`。
+6. 測試：`ModuleEditorPage` 兩個測試改回空清單（路由表補 `flow-designer-new` 的樁）；新增「網址只標示不換頁」、`flow=` 轉 prop、瀏覽器上一頁；`ApprovalFlowsTab` 新增只有 `focusTarget` 不換頁、`focusFlow` 兩種焦點；`FlowDesignerPage` 新增返回帶 `flow`、非正整數 `target`、0 張文案。
+
+使用者行為（代做）
+
+1. M1：在設計頁刪掉某目標狀態唯一的（草稿）流程後，回到「簽核流程」分頁，停在分頁上並高亮那個目標狀態（顯示「還沒有流程」），不再被帶進空白的新增頁。例：「已核准」只有草稿流程「請假流程」，在設計頁按刪除，回到分頁看到「已核准」分組是空的。選錯代價：每次刪除都多跳一頁新增畫面，使用者看不到刪除結果，還可能誤存一條空流程。狀態機分頁的「建立流程」連結行為不變（沒有流程才直接開新增頁）。
+2. S4：從設計頁返回「簽核流程」分頁後，鍵盤焦點回到原本那張流程卡片；剛新增並存過的流程回來是它的卡片；流程被刪或從沒存過，焦點落在「新增流程」鈕（唯讀者沒有該鈕就不移焦點）。例：用鍵盤開了「採購單（大額）」、按返回，焦點仍在那張卡片，按 Enter 可再次開啟。選錯代價：焦點落在頁首，鍵盤與讀屏使用者每次都要重新 Tab 過整個分頁。
+3. S5：關卡格式流程在沒有進行中單據時，橫幅寫「這條流程已轉成流程圖；發布後以流程圖保存，已送出的單不受影響」，不寫「進行中的 0 張單照舊版走完」；有單時文案不變。新鍵 `approval.designer.graph.sequenceNoticeNone`（四語）。選錯代價：「0 張單照舊版走完」讓人以為有單在跑。
+4. S6：網址手打的 `?target=` 不是正整數（`abc`、`0`、`-3`、`1.5`）就忽略，目標狀態不預填，儲存時照常提示「請選目標狀態」。例：`…/_new?target=abc` 開出來目標狀態是空的。選錯代價：`NaN` 被送到後端，序列化成 `null`，使用者看到的是後端錯誤而不是欄位提示。是正整數但不是這個模組的狀態時，仍交給既有的下拉與後端驗證。
+5. N2：從狀態機分頁的「建立流程」進新增頁後按瀏覽器上一頁，回到「簽核流程」分頁而不是模組設計頁預設的「欄位」分頁（入口先把網址換成 `?tab=approvalFlows` 再換頁）。選錯代價：使用者回到欄位分頁，要自己再找回原本的位置。
+
+未做：審查 N3（只有草稿流程時狀態機分頁的原因文字與實際要做的事略有落差）已拍板不改。
 
 **偏離設計**
 

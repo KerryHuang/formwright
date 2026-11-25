@@ -10,7 +10,7 @@ import { fieldTypeRegistry } from 'src/presentation/dynamic/field-type-registry'
 import type { ApiError } from 'src/services/api/http';
 import SelectNoOption from 'src/components/framework/SelectNoOption.vue';
 
-// 試算的輸入：發起人、參考記錄、欄位值。舊的流程對話框（FlowTrialPanel）與流程圖設計頁（DesignerTrialPanel）共用；
+// 試算的輸入：發起人、參考記錄、欄位值。流程圖設計頁的試算面板（DesignerTrialPanel）使用；
 // 狀態留在這裡，外層用 ref 讀 `initiator`、`recordId`、`sentValues`，任何一項改動發 `change`（外層據此清掉過期的結果）。
 const props = defineProps<{ module: ModuleDetail; fieldIds: number[] }>();
 const emit = defineEmits<{ change: [] }>();

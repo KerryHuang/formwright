@@ -12,7 +12,7 @@ import ApproverSourceEditor from './ApproverSourceEditor.vue';
 import { ALL_SOURCE_KINDS } from './approver-source';
 import type { FlowLimits } from './use-approval-limits';
 
-/** The fields one approval step carries, shared by a stage card (sequence) and an approval node (graph); the code is not here, each editor places it. */
+/** The fields one approval step carries, used by the approval node panel of the flow graph designer; the code is not here, each editor places it. */
 export interface StageFields {
   name: I18nText;
   when?: ConditionNode;
