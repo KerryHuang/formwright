@@ -46,15 +46,13 @@ public class ApprovalFlowValidateTests : ApprovalTestBase
         [E("e0", "start", "s1"), .. Enumerable.Range(1, n - 1).Select(i => E($"e{i}", $"s{i}", $"s{i + 1}")), E($"e{n}", $"s{n}", "end")]);
 
     [Fact]
-    public async Task Validate_DesignExample_OnlyNotifyNotYetError()
+    public async Task Validate_DesignExample_NoErrors_NotifyAccepted()
     {
         var r = await Rig();
 
         var got = await Validate(r, Draft("po-g", r.Confirmed, 1, DesignExample(r)));
 
-        got.Errors.Keys.Should().Equal("definition.nodes.tell-hr");
-        got.Errors["definition.nodes.tell-hr"].Should().Equal(ApprovalMessages.NotifyNodeNotYet);
-        got.Warnings.Should().BeEmpty("有錯誤時不算警告");
+        got.Errors.Should().BeEmpty();
     }
 
     [Fact]

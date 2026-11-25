@@ -40,8 +40,6 @@ public sealed partial class ApprovalDefinitionValidator
                     x.StageErrors(n.AsStage(), p, before is { Kind: ApprovalNodeKinds.Approval } ? before.AsStage() : null);
                     break;
                 case ApprovalNodeKinds.Notify:
-                    // 引擎到 fg5 才會推進通知節點：存檔先拒收（U2，fg5 刪這一行）
-                    x.Err(p, ApprovalMessages.NotifyNodeNotYet);
                     NotifyErrors(x, n, p, before is { Kind: ApprovalNodeKinds.Notify } ? before : null);
                     break;
                 default:
@@ -67,7 +65,7 @@ public sealed partial class ApprovalDefinitionValidator
         }
     }
 
-    /// <summary>通知節點（G10）：名稱必填、收件人 1 到 20 項且參數合法、範本標題與內文語法正確並只引用本模組啟用中的欄位。</summary>
+    /// <summary>通知節點（G10）：名稱必填、收件人 1 到 20 項且參數合法、範本標題必填、內文選填、語法正確並只引用本模組啟用中的欄位。</summary>
     private static void NotifyErrors(Run x, ApprovalNodeDef n, string p, ApprovalNodeDef? before)
     {
         if (x.Text(n.Name, before?.Name, ApprovalMessages.NodeName) is { } nameError) x.Err($"{p}.name", nameError);
@@ -81,7 +79,7 @@ public sealed partial class ApprovalDefinitionValidator
             if (RecipientError(x, r, oldLevel) is { } re) x.Err($"{p}.recipients", re);
 
         TemplateText(x, n.Template?.Title, before?.Template?.Title, ApprovalGraphLimits.MaxTemplateTitleLength, $"{p}.template.title");
-        TemplateText(x, n.Template?.Body, before?.Template?.Body, ApprovalGraphLimits.MaxTemplateBodyLength, $"{p}.template.body");
+        TemplateText(x, n.Template?.Body, before?.Template?.Body, ApprovalGraphLimits.MaxTemplateBodyLength, $"{p}.template.body", required: false);
     }
 
     private static string? RecipientError(Run x, NotifyRecipientDef? r, int oldLevel)
@@ -109,10 +107,12 @@ public sealed partial class ApprovalDefinitionValidator
     }
 
     /// <summary>範本一段文字（標題或內文）：必填語系（政策 locale.requiredText，沒改不重驗）、每個語系不超過上限、佔位符語法正確（U8）、{f:Id} 是本模組啟用中的欄位。</summary>
-    private static void TemplateText(Run x, Domain.ValueObjects.I18nText? text, Domain.ValueObjects.I18nText? stored, int max, string key)
+    private static void TemplateText(Run x, Domain.ValueObjects.I18nText? text, Domain.ValueObjects.I18nText? stored, int max, string key, bool required = true)
     {
-        if (x.Text(text, stored, ApprovalMessages.TemplateSubject) is { } required) { x.Err(key, required); return; }
-        foreach (var s in text!.Values.Values.Select(v => v ?? ""))
+        // 內文選填（U-d）：沒填就不驗；有填的語系照樣驗長度與語法
+        if (required && x.Text(text, stored, ApprovalMessages.TemplateSubject) is { } missing) { x.Err(key, missing); return; }
+        if (text is null) return;
+        foreach (var s in text.Values.Values.Select(v => v ?? ""))
         {
             if (s.Length > max) { x.Err(key, ApprovalMessages.TemplateTooLong(max)); return; }
             var (_, error) = ApprovalNotifyTemplate.Parse(s);

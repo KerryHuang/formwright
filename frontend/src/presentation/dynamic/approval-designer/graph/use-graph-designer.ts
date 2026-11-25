@@ -5,7 +5,7 @@ import type { ApprovalFlow, ApprovalFlowLayout, ApproverSource, GraphDefinition 
 import { moveNode, type EditOptions, type GraphState, type Position } from 'src/domain/dynamic/approval-graph-edit';
 import { canRedo, canUndo, clear, createHistory, push, redo, undo, type History } from 'src/domain/dynamic/approval-graph-history';
 import type { I18nText } from 'src/domain/dynamic/types';
-import { FLOW_SELECTION, approvalNames, conditionLabels, initialState, newFlowState, sourceOf, type Selection } from './designer-graph';
+import { FLOW_SELECTION, approvalNames, conditionLabels, initialState, notifyDefaults, newFlowState, sourceOf, type Selection } from './designer-graph';
 
 // 設計頁的編輯狀態（J71）：持有一份工作副本，所有修改走 approval-graph-edit 的純函式並進復原堆疊。
 // 伺服器狀態（TanStack Query）與工作副本分開；這裡不 import Vue Flow（平移、fitView 由 DesignerCanvas 提供）。
@@ -27,16 +27,18 @@ export interface ServerInfo {
   reserved: string[];
   /** 已發布版本裡各簽核節點的簽核人（「沿用舊值」的主管層級判斷用）。 */
   publishedApprovers: Record<string, ApproverSource>;
+  /** 已發布版本裡各通知節點收件人的最大主管層數（同上：超過現行政策但不比它大的層數仍可選）。 */
+  publishedNotifyLevels: Record<string, number>;
   /** 被用過的流程不能換目標狀態。 */
   used: boolean;
   priority: number;
   toOptionId: number | null;
 }
 
-const blank = (): ServerInfo => ({ isNew: true, key: '', hasDraft: false, published: false, versionId: null, draftRev: null, reserved: [], publishedApprovers: {}, used: false, priority: 1, toOptionId: null });
+const blank = (): ServerInfo => ({ isNew: true, key: '', hasDraft: false, published: false, versionId: null, draftRev: null, reserved: [], publishedApprovers: {}, publishedNotifyLevels: {}, used: false, priority: 1, toOptionId: null });
 
 /** 新節點的預設名稱（U51、U49）：四語各一份。 */
-export const editOptions = (reserved: string[]): EditOptions => ({ reserved, names: { approval: approvalNames, conditionLabel: conditionLabels } });
+export const editOptions = (reserved: string[]): EditOptions => ({ reserved, names: { approval: approvalNames, conditionLabel: conditionLabels }, notifyDefaults });
 
 export function useGraphDesigner(canEdit: () => boolean) {
   const history = shallowRef<History<Snapshot> | null>(null);
@@ -60,8 +62,11 @@ export function useGraphDesigner(canEdit: () => boolean) {
     const pub = flow.definition ? (flow.definition.shape === 'graph' ? flow.definition : flow.graph ?? null) : null;
     const reserved = pub ? pub.nodes.map((n) => n.id) : flow.version != null ? server.value.reserved : [];
     const publishedApprovers: Record<string, ApproverSource> = pub ? Object.fromEntries(pub.nodes.filter((n) => n.approvers).map((n) => [n.id, n.approvers!])) : flow.version != null ? server.value.publishedApprovers : {};
+    const publishedNotifyLevels: Record<string, number> = pub
+      ? Object.fromEntries(pub.nodes.filter((n) => n.kind === 'notify').map((n) => [n.id, Math.max(0, ...(n.recipients ?? []).filter((r) => r.kind === 'initiatorManager').map((r) => r.level ?? 1))]))
+      : flow.version != null ? server.value.publishedNotifyLevels : {};
     server.value = {
-      isNew: false, used: flow.used, publishedApprovers, key: flow.key, hasDraft: flow.draft != null, published: flow.version != null, versionId: flow.versionId ?? null,
+      isNew: false, used: flow.used, publishedApprovers, publishedNotifyLevels, key: flow.key, hasDraft: flow.draft != null, published: flow.version != null, versionId: flow.versionId ?? null,
       draftRev: flow.draftRev ?? null, reserved, priority: flow.priority, toOptionId: flow.toOptionId,
     };
   }

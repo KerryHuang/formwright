@@ -3,12 +3,12 @@ import { i18n } from 'src/boot/i18n';
 import { BUILTIN_LOCALES } from 'src/i18n/locale';
 import { setLocaleInfos } from 'src/i18n/locale-settings';
 import { hasUiMessages, installUiMessages } from 'src/i18n/ui-messages';
-import type { ApprovalFlow, GraphDefinition } from 'src/domain/dynamic/approval-flow-types';
+import type { ApprovalFlow, ApprovalNodeDef, GraphDefinition } from 'src/domain/dynamic/approval-flow-types';
 import { edgeBendX, layoutLeftToRight, NODE_H, NODE_W } from 'src/domain/dynamic/approval-graph-layout';
 import { mapGraphIssues } from 'src/domain/dynamic/approval-graph-errors';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import type { TrialOverlay } from './designer-trial';
-import { addable, addedNode, approvalNames, conditionLabels, dropPosition, edgeAt, freeSpot, initialState, newFlowState, sourceOf, toVueFlow, FLOW_SELECTION, type GraphContext } from './designer-graph';
+import { addable, addedNode, approvalNames, notifyDefaults, recipientText, conditionLabels, dropPosition, edgeAt, freeSpot, initialState, newFlowState, sourceOf, toVueFlow, FLOW_SELECTION, type GraphContext } from './designer-graph';
 
 const msg = (k: string, p?: Record<string, unknown>) => {
   const v = k.split('.').reduce<unknown>((o, s) => (o as Record<string, unknown> | undefined)?.[s], zhTW as unknown);
@@ -181,14 +181,14 @@ describe('structure editing helpers (fg3e)', () => {
   const lim = (over: Partial<Parameters<typeof addable>[1]> = {}) => ({ ready: true, maxStages: 5, maxBranches: 5, ...over });
 
   it('addable: before the effective values are back only the end node can be added', () => {
-    expect(addable(def(), lim({ ready: false }), 0)).toEqual({ approval: false, condition: false, fork: false, end: true });
+    expect(addable(def(), lim({ ready: false }), 0)).toEqual({ approval: false, condition: false, notify: true, fork: false, end: true });
   });
 
   it('addable: counts the approval nodes each kind brings (condition one, fork two) against the policy', () => {
     // def() 有 1 個簽核節點
-    expect(addable(def(), lim({ maxStages: 3 }), 0)).toEqual({ approval: true, condition: true, fork: true, end: true });
-    expect(addable(def(), lim({ maxStages: 2 }), 0)).toEqual({ approval: true, condition: true, fork: false, end: true });
-    expect(addable(def(), lim({ maxStages: 1 }), 0)).toEqual({ approval: false, condition: false, fork: false, end: true });
+    expect(addable(def(), lim({ maxStages: 3 }), 0)).toEqual({ approval: true, condition: true, notify: true, fork: true, end: true });
+    expect(addable(def(), lim({ maxStages: 2 }), 0)).toEqual({ approval: true, condition: true, notify: true, fork: false, end: true });
+    expect(addable(def(), lim({ maxStages: 1 }), 0)).toEqual({ approval: false, condition: false, notify: true, fork: false, end: true });
   });
 
   it('addable: a stricter policy only limits what comes after — the published count is the floor', () => {
@@ -238,5 +238,34 @@ describe('structure editing helpers (fg3e)', () => {
     const after = { ...before, nodes: [...before.nodes, { id: 'fork-1', kind: 'fork' as const }, { id: 'approval-1', kind: 'approval' as const }] };
     expect(addedNode(before, after)).toBe('fork-1');
     expect(addedNode(before, before)).toBeNull();
+  });
+});
+
+describe('fg5d notify node in the designer', () => {
+  const t = (k: string, p?: Record<string, unknown>) => `${k}${p ? JSON.stringify(p) : ''}`;
+  const withRecipients = (recipients: ApprovalNodeDef['recipients']): GraphDefinition => ({
+    shape: 'graph', stages: [], nodes: [{ id: 's', kind: 'start' }, { id: 'n', kind: 'notify', name: { 'zh-TW': '知會' }, recipients }, { id: 'e', kind: 'end' }],
+    edges: [{ id: 'e1', from: 's', to: 'n' }, { id: 'e2', from: 'n', to: 'e' }],
+  });
+  const summary = (d: GraphDefinition) => toVueFlow(initialState(d, null), { locale: 'zh-TW', t, fields: [], issues: null, selection: FLOW_SELECTION } as never, { draggable: true }).nodes.find((n) => n.id === 'n')!.data!.summary;
+
+  it('summary lists up to two recipients, three or more say "and others n"', () => {
+    expect(summary(withRecipients([{ kind: 'initiator' }]))).toBe('approval.designer.graph.notify.kind.initiator');
+    expect(summary(withRecipients([{ kind: 'initiator' }, { kind: 'group', groupIds: [1, 2] }]))).toContain('notify.kind.initiator');
+    expect(summary(withRecipients([{ kind: 'initiator' }, { kind: 'group', groupIds: [1] }, { kind: 'users', userIds: ['a'] }]))).toContain('summaryMore');
+    expect(summary(withRecipients([]))).toBe('');
+  });
+
+  it('recipientText adds the people count, group count and manager level', () => {
+    expect(recipientText({ kind: 'users', userIds: ['a', 'b'] }, t)).toContain('"n":2');
+    expect(recipientText({ kind: 'group', groupIds: [1, 2, 3] }, t)).toContain('· 3');
+    expect(recipientText({ kind: 'initiatorManager' }, t)).toContain('"n":1');
+  });
+
+  it('notifyDefaults: name per loaded locale, title is the same {title} for each', () => {
+    const d = notifyDefaults(2);
+    expect(Object.values(d.title).every((v) => v === '{title}')).toBe(true);
+    expect(Object.keys(d.title)).toEqual(Object.keys(d.name));
+    expect(Object.keys(d.name).length).toBeGreaterThan(0);
   });
 });

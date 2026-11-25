@@ -94,4 +94,15 @@ describe('I18nTextInput', () => {
     expect(w.get('[data-testid="i18n-en-US"]').text()).toContain('*');
     expect(w.find('[data-testid="i18n-th"]').exists()).toBe(false);
   });
+
+  it('fg5d multiline: textarea 自動長高；不傳 multiline 時維持單行 text（既有呼叫端不變）', () => {
+    const plain = mountInput({ 'zh-TW': '名稱' });
+    expect(plain.get('[data-testid="i18n-zh-TW"] input').attributes('type')).toBe('text');
+    expect(plain.find('[data-testid="i18n-zh-TW"] textarea').exists()).toBe(false);
+    expect(plain.find('.q-textarea').exists()).toBe(false);
+    const multi = mountInput({ 'zh-TW': '第一行\n第二行' }, { multiline: true });
+    expect((multi.get('[data-testid="i18n-zh-TW"] textarea').element as HTMLTextAreaElement).value).toBe('第一行\n第二行');
+    expect(multi.find('[data-testid="i18n-zh-TW"] input').exists()).toBe(false);
+    expect(multi.find('.q-textarea').exists()).toBe(true);
+  });
 });

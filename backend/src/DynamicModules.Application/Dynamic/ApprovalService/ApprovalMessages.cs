@@ -19,8 +19,6 @@ public static class ApprovalMessages
     public const string DefinitionMissing = "缺少流程定義";
     public const string FlowKeyReserved = "流程代碼 order 是保留字，請改用其他代碼";
     public const string FlowNotPublished = "這條流程還沒有發布的版本，請先發布";
-    /// <summary>通知節點在 fg5 之前存檔拒收（U2）；執行期另由能力守門擋。fg5 刪除。</summary>
-    public const string NotifyNodeNotYet = "通知節點尚未開放";
     /// <summary>目前版本已是流程圖格式的流程，存檔時不能換回關卡格式（U4）。</summary>
     public const string GraphCannotRevert = "這條流程已是流程圖格式，不能改回關卡格式";
     // ── 設計器草稿、發布與乾跑驗證（fg3a，J64–J67） ──

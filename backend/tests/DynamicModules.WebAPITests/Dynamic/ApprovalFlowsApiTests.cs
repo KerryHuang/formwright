@@ -385,7 +385,7 @@ public class ApprovalFlowsApiTests
 
     [Fact]
     [Trait("Category", "Postgres")]
-    public async Task Create_GraphWithNotifyNode_400()
+    public async Task Create_GraphWithNotifyNode_201()
     {
         using var app = new TestApp();
         var c = app.AsUser();
@@ -399,8 +399,7 @@ public class ApprovalFlowsApiTests
 
         var res = await c.PostAsync($"{Flows}?module={s.Key}", new StringContent(body.ToJsonString(), System.Text.Encoding.UTF8, "application/json"));
 
-        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, await res.Content.ReadAsStringAsync());
-        (await JsonOf(res)).GetProperty("errors").GetProperty("definition.nodes.tell")[0].GetString().Should().Be("通知節點尚未開放");
+        res.StatusCode.Should().Be(HttpStatusCode.Created, await res.Content.ReadAsStringAsync());
     }
 
     [Fact]

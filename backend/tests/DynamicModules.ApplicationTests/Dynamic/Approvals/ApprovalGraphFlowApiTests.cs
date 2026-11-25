@@ -85,18 +85,34 @@ public class ApprovalGraphFlowApiTests : ApprovalTestBase
     }
 
     [Fact]
-    public async Task Create_GraphWithNotifyNode_400()
+    public async Task Create_GraphWithNotifyNode_201_ThenSubmit_WritesNotice()
     {
-        // U2：通知節點在 fg5 之前存檔拒收
+        // fg5d 起 API 收通知節點（原 NotifyNodeNotYet 拒收已刪）；發布後可送出，通知節點寫通知
         var r = await Rig();
-        var def = G([Start(), Approval("a", Users("fin1")), Notify("tell"), End()],
+        var def = G([Start(), Notify("tell"), Approval("a", Users("fin1")), End()],
+            [E("e0", "start", "tell"), E("e1", "tell", "a"), E("e2", "a", "end")]);
+
+        var res = await Send(new CreateApprovalFlowRequest(r.Module, Input("po-g", r.Confirmed, 1, def)));
+
+        res.IsSuccess.Should().BeTrue(Dump(res));
+        await RequireApproval(r);
+        As("buyer1");
+        var po = await NewPo(r);
+        (await MustSubmit(po.Id, r.Confirmed)).Outcome.Should().Be(ApprovalOutcomes.Submitted);
+        Notices("buyer1", NotificationKinds.ApprovalNotify).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Create_GraphWithNotifyNode_NoRecipients_400_OnRecipientsKey()
+    {
+        var r = await Rig();
+        var def = G([Start(), Approval("a", Users("fin1")), Notify("tell") with { Recipients = [] }, End()],
             [E("e0", "start", "a"), E("e1", "a", "tell"), E("e2", "tell", "end")]);
 
         var res = await Send(new CreateApprovalFlowRequest(r.Module, Input("po-g", r.Confirmed, 1, def)));
 
         res.IsInvalid.Should().BeTrue(Dump(res));
-        res.Errors["definition.nodes.tell"].Should().Equal(ApprovalMessages.NotifyNodeNotYet);
-        res.Errors.Keys.Should().Equal("definition.nodes.tell");
+        res.Errors.Keys.Should().Equal("definition.nodes.tell.recipients");
     }
 
     [Fact]
@@ -224,16 +240,18 @@ public class ApprovalGraphFlowApiTests : ApprovalTestBase
     }
 
     [Fact]
-    public async Task DraftPreview_GraphWithNotifyNode_400()
+    public async Task DraftPreview_GraphWithNotifyNode_Flow_AndG10ErrorKey()
     {
         var r = await Rig();
         var def = G([Start(), Approval("a", Users("fin1")), Notify("tell"), End()],
             [E("e0", "start", "a"), E("e1", "a", "tell"), E("e2", "tell", "end")]);
 
-        var res = await Send(new PreviewApprovalDraftRequest(r.Module, Input("po-g", r.Confirmed, 1, def), null, null, "buyer1"));
+        var ok = await Send(new PreviewApprovalDraftRequest(r.Module, Input("po-g", r.Confirmed, 1, def), null, null, "buyer1"));
+        ok.IsSuccess.Should().BeTrue(Dump(ok));
 
-        res.IsInvalid.Should().BeTrue(Dump(res));
-        res.Errors.Keys.Should().Contain("definition.nodes.tell");
+        var bad = await Send(new PreviewApprovalDraftRequest(r.Module, Input("po-g", r.Confirmed, 1, def with { Nodes = [.. def.Nodes!.Select(n => n.Id == "tell" ? n with { Recipients = [] } : n)] }), null, null, "buyer1"));
+        bad.IsInvalid.Should().BeTrue(Dump(bad));
+        bad.Errors.Keys.Should().Contain("definition.nodes.tell.recipients");
     }
 
     // ───────── 存檔後直接送出、同意（正式組態，沒有開關） ─────────
