@@ -1,0 +1,8 @@
+{
+  "AppDeleteMasterKept": {
+    "zh-TW": "共用主檔「{0}」已沒有應用程式使用，仍有 {1} 筆資料，已保留",
+    "en-US": "Shared master \"{0}\" is no longer used by any app; {1} records remain and were kept",
+    "th": "มาสเตอร์ที่ใช้ร่วมกัน「{0}」ไม่มีแอปพลิเคชันใช้งานแล้ว ยังมีข้อมูล {1} รายการ จึงเก็บไว้",
+    "vi": "Danh mục dùng chung「{0}」không còn ứng dụng nào sử dụng, vẫn còn {1} bản ghi và đã được giữ lại"
+  }
+}
