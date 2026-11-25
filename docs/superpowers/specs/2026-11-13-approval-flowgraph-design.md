@@ -1101,3 +1101,29 @@
 **未驗證**
 
 - 瀏覽器走查（四種寬度、關卡格式流程在設計頁的實際畫面）由主控另派；Demo 種子沒有「有草稿」或「只有草稿」的流程（補它要在 Demo 情境加存草稿步驟，會動到 `DemoData` 斷言與套件更新示範，另開票較穩妥），Demo 站上只看得到「n 關」與「n 個簽核節點」（發布後）兩種徽章，「尚未發布」「有未發布的變更」「含分支」要在設計頁存草稿或發布後才看得到。
+
+## 23. fg3g 實作決定（2026-11-25）
+
+範圍：單據頁進度圖讀設計器的手排版面（J84、U58、U59、J74）。後端 `ApprovalProgressGraph` 多 `Layout`，前端只改 `progress-graph.ts` 與型別；`ApprovalProgressGraph.vue`、`ProgressGraphCanvas.vue`、`ProgressGraphNode.vue`、`ProgressNodeDetail.vue` 一行未動。不需要 migration（`LayoutJson` 為 fg3a 既有欄位）、新 i18n 字串、DI 與 DbContext 變更。
+
+**技術類**
+
+1. 後端：`ApprovalViews.LayoutsAsync` 對可見實例一次 `IApprovalFlowRepository.ListVersionsAsync`（只收 `RouteKind = flow` 且綁定版本的定義是 graph 的實例；多實例仍是一次查詢，不 N+1），以既有 `ApprovalFlowLayout.Parse` 解析；空、壞 JSON、沒有任何座標都回 null，不讓整個回應失敗。`GetRecordApprovalHandler` 多注入 `IApprovalFlowRepository`（已註冊，DI 不改）；`ApprovalViews.Instance` 多選用參數 `layout`，在 `ProgressGraph()` 之後以 `graph with { Layout = layout }` 補上，所以只看得到自己關卡的讀者重建的圖物件也有版面。
+2. 前端採用條件：每個非加簽節點都有有限數字的座標、每個加簽節點的主節點在版面內；否則整張退回自動排版（輸出與沒有版面時相同）。
+3. 手排座標平移到「最左上角 = (0, 0)」再交給既有視角函式（`initialViewport`、縮圖都假設圖從原點起算）；相對位置不變。
+4. 手排的轉折點與標籤寬度和設計頁同一套：`edgeBendX` 吃座標、`manualGapAfter` 取起點右側欄距、標籤上限 `min(MANUAL_LABEL_MAX_PX, max(COL_GAP, 欄距) − 8)`。`MANUAL_LABEL_MAX_PX`（160）從 `designer-graph.ts` 移到 `approval-graph-layout.ts` 單一來源，`designer-graph.ts` 仍 re-export。加簽小節點在手排時以左緣當欄位框（不套用自動排版時的「欄內置中」換算），所以進出小節點的線轉折在欄距正中。
+5. 自動排版傳 `labeledEdgeIds`（U59）：只有至少一條線有標籤時才傳，沒有標籤的圖輸出與 fg4 逐點相同（既有測試斷言未改）。標籤截斷寬度：分支線（兩條以上出線）用加寬後的欄距 − 8，單一出線仍是 `COL_GAP − 8`，避免標籤以轉折點為中心蓋到終點節點。
+6. U58 的「右側」定義：左緣在主節點右緣之後的節點（同欄、上下並排的節點不挪）；每個主節點貢獻「小節點寬＋欄距」×小節點數，多個主節點的位移累加。
+
+**使用者行為類**
+
+- 手排版面涵蓋全部節點才採用，版面缺任何節點即整張自動排版（設計已定，非偏離）；缺節點的實際情境例如設計者發布後該版本被舊資料補節點，罕見。
+- 自動排版下，有條件標籤的進度圖看起來比 fg4 寬（條件出線後的間距加寬到 136px）；沒有標籤的圖不變。
+
+**未驗證**
+
+- 瀏覽器走查（四種寬度、手排版面與加簽小節點的實際畫面、Demo 站上有手排版面的流程）未做；Demo 種子目前是否有帶 `LayoutJson` 的 graph 流程未查。
+
+**主控裁決待確認**
+
+- 無。
