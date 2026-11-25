@@ -8,3 +8,6 @@ ticket:
     in-review: "stage:in-review"
     done: closed
     canceled: "closed: not planned"
+qa:
+  environments:
+    - {name: local, url: "http://127.0.0.1:9180/", writable: true}
