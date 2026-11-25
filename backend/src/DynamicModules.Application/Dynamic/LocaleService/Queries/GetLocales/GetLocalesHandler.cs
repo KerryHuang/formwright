@@ -1,7 +1,7 @@
 using DynamicModules.Application.Common;
 using DynamicModules.Application.Dynamic.LocaleService.Packs;
-using DynamicModules.Application.Dynamic.PolicyService;
 using DynamicModules.Application.Dynamic.LocaleService.Queries.GetLocaleTemplate;
+using DynamicModules.Application.Dynamic.PolicyService;
 using DynamicModules.Domain.Localization;
 using DynamicModules.Domain.Policies;
 using DynamicModules.Domain.Repositories.Dynamic;
