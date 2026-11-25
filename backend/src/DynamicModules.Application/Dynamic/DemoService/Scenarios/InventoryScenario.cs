@@ -6,7 +6,11 @@ using DynamicModules.Application.Dynamic.ConversionService.Commands.ConvertRecor
 using DynamicModules.Application.Dynamic.ConversionService.Data;
 using DynamicModules.Application.Dynamic.RecordService.Commands.CreateRecord;
 using DynamicModules.Application.Dynamic.RecordService.Commands.UpdateRecord;
+using DynamicModules.Application.Dynamic.WorkflowService.Commands.SaveWorkflow;
+using DynamicModules.Application.Dynamic.WorkflowService.Data;
+using DynamicModules.Application.Dynamic.WorkflowService.Queries.GetWorkflow;
 using DynamicModules.Domain.Approvals;
+using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.ValueObjects;
 
 namespace DynamicModules.Application.Dynamic.DemoService.Scenarios;
@@ -41,6 +45,9 @@ public sealed class InventoryScenario : IDemoScenario
         ("標準襯套", "part", "pcs", 150, 50), ("定位銷組", "part", "set", 640, 20), ("潤滑油", "consumable", "L", 260, 30),
         ("拋光砂紙", "consumable", "pack", 95, 40), ("成品外殼", "finished", "pcs", 5200, 5)
     ];
+
+    /// <summary>通知節點示範流程（啟用中）：出貨單進入「已取消」的轉移需簽核，流程只有兩個通知節點、沒有簽核人，送出後通知完就取消。</summary>
+    public const string NoticeFlowKey = "inv-shipment-cancel-notice";
 
     private static readonly string[] Warehouses = ["主倉", "成品倉"];
 
@@ -237,7 +244,33 @@ public sealed class InventoryScenario : IDemoScenario
             at = After(at, 2);
             plan.Refresh(shipment, at, Manager, $"{label} 取消前重讀");
             at = After(at, 0);
-            plan.Update(shipment, at, Manager, $"{label} 取消（沖回庫存）", Status("shipment", "cancelled"));
+            // 進入「已取消」的轉移都需簽核（見 CreateNoticeFlow），走作廢通知流程後取消，庫存照樣沖回
+            plan.Run(at, Manager, $"{label} 取消（沖回庫存）", (ctx, ct) =>
+                DemoApprovalSteps.Submit(ctx, shipment, ctx.Inventory!.Ids.OptionIds["shipment.cancelled"], "客戶取消出貨", ct));
+            plan.Run(After(at, 0), Executive, $"{label} 上層主管核准取消", (ctx, ct) => DemoApprovalSteps.Approve(ctx, shipment, "同意取消", ct));
+        }
+
+        // ---- 通知節點示範（流程圖設計 §24 U-g）：出貨單作廢前通知，兩張草稿出貨單送出作廢 ----
+        plan.Run(plan.At(today.AddDays(-84)), Admin, "進銷存 出貨單作廢通知流程 建立並啟用", CreateNoticeFlow);
+        var noticeShipments = new (int DaysAgo, string Submitter, int Customer, int Qty)[] { (5, Keeper, 0, 12), (3, Manager, 1, 4) };
+        for (var i = 0; i < noticeShipments.Length; i++)
+        {
+            var s = noticeShipments[i];
+            var date = today.AddDays(-s.DaysAgo);
+            var label = $"作廢通知示範出貨單第 {i + 1} 張";
+            var customer = customers[s.Customer];
+            var at = plan.At(date);
+            var draft = plan.Create("inv-shipment", at, Keeper, $"{label} 建立", ctx => new CreateRecordRequest(
+                ctx.Inventory!.Ids.ModuleKeys["shipment"],
+                ctx.Inventory.Values("shipment", ("customer", customer.Id), ("warehouse", warehouses[0].Id), ("shipDate", Iso(date)),
+                    ("status", ctx.Inventory.Opt("shipment", "draft"))),
+                Details: new()
+                {
+                    [ctx.Inventory.Ids.ModuleKeys["shipment-line"]] = [new DetailRowInput(null, ctx.Inventory.Values("shipment-line", ("item", items[2].Id), ("qty", (decimal)s.Qty)), null)]
+                }));
+            plan.Run(After(at, 0), s.Submitter, $"{label} 送出作廢", (ctx, ct) =>
+                DemoApprovalSteps.Submit(ctx, draft, ctx.Inventory!.Ids.OptionIds["shipment.cancelled"], "客戶取消訂單", ct));
+            plan.Run(After(at, 1), s.Submitter == Keeper ? Manager : Executive, $"{label} 主管核准作廢", (ctx, ct) => DemoApprovalSteps.Approve(ctx, draft, "同意作廢", ct));
         }
 
         // ---- 盤點差異調整：主倉的潤滑油盤少 3 L，拋光砂紙盤多 2 包 ----
@@ -304,6 +337,60 @@ public sealed class InventoryScenario : IDemoScenario
         if (!created.IsSuccess) return created;
         var draft = (ApprovalFlowResponse)created.Data!;
         return await demo.Sender.Send(new PublishApprovalFlowRequest(GraphExampleKey, input with { BaseRev = draft.DraftRev, BaseVersionId = draft.VersionId }), ct);
+    }
+
+    /// <summary>
+    /// 通知節點示範流程：先建流程並啟用（工作流程要求需簽核的狀態已有流程），再把出貨單所有進入「已取消」的轉移（草稿、已出貨 → 已取消）設成需簽核（沒有流程符合時直接轉移；進入簽核狀態的轉移必須全部需簽核）。流程：
+    /// 開始 → 通知（申請人、申請人的主管第 1 層、品保組）→ 主管核准（流程圖至少要有一個簽核節點）→ 通知（申請人的主管第 2 層）→ 結束。
+    /// 品保組成員沒有進銷存的讀取權，只看得到「（無權限）」；第 2 層主管在組織最上層的人送出時不存在，核准後歷程寫沒有收件人。
+    /// </summary>
+    private static async Task<ServiceResult> CreateNoticeFlow(DemoContext demo, CancellationToken ct)
+    {
+        var ctx = demo.Inventory!;
+        var moduleKey = ctx.Ids.ModuleKeys["shipment"];
+        var to = ctx.Ids.OptionIds["shipment.cancelled"];
+        static I18nText Text(string zh, string en, string th, string vi) => new([new("zh-TW", zh), new("en-US", en), new("th", th), new("vi", vi)]);
+        static I18nText Same(string s) => Text(s, s, s, s);
+        var customer = ctx.Ids.FieldIds["shipment.customer"];
+        var shipDate = ctx.Ids.FieldIds["shipment.shipDate"];
+        var nodes = new List<ApprovalNodeDef>
+        {
+            new("start", ApprovalNodeKinds.Start),
+            new("tell", ApprovalNodeKinds.Notify, Text("通知相關人員", "Notify those involved", "แจ้งผู้เกี่ยวข้อง", "Thông báo người liên quan"),
+                Recipients:
+                [
+                    new NotifyRecipientDef(ApprovalNotifyRecipientKinds.Initiator),
+                    new NotifyRecipientDef(ApprovalNotifyRecipientKinds.InitiatorManager, Level: 1),
+                    new NotifyRecipientDef(ApprovalNotifyRecipientKinds.Group, GroupIds: [demo.GroupIds["qa"]])
+                ],
+                Template: new NotifyTemplateDef(
+                    Text("{title} 申請作廢", "{title} requested to be voided", "{title} ขอยกเลิก", "{title} đề nghị hủy"),
+                    Text($"客戶：{{f:{customer}}}\n出貨日：{{f:{shipDate}}}\n申請人：{{initiator}}",
+                        $"Customer: {{f:{customer}}}\nShip date: {{f:{shipDate}}}\nRequester: {{initiator}}",
+                        $"ลูกค้า: {{f:{customer}}}\nวันที่ส่ง: {{f:{shipDate}}}\nผู้ขอ: {{initiator}}",
+                        $"Khách hàng: {{f:{customer}}}\nNgày xuất: {{f:{shipDate}}}\nNgười yêu cầu: {{initiator}}"))),
+            new("review", ApprovalNodeKinds.Approval, Text("主管核准", "Manager approval", "หัวหน้าอนุมัติ", "Quản lý phê duyệt"),
+                Approvers: new ApproverSource(ApprovalSources.Manager, Level: 1), Mode: ApprovalModes.Any, EditableFields: [], DueHours: 24, OnEmpty: ApprovalOnEmpty.Fallback),
+            new("tell-top", ApprovalNodeKinds.Notify, Text("通知上層主管", "Notify senior manager", "แจ้งหัวหน้าระดับสูง", "Thông báo quản lý cấp cao"),
+                Recipients: [new NotifyRecipientDef(ApprovalNotifyRecipientKinds.InitiatorManager, Level: 2)],
+                Template: new NotifyTemplateDef(Same("{title}"), new I18nText())),
+            new("end", ApprovalNodeKinds.End)
+        };
+        var edges = new List<ApprovalEdgeDef> { new("e1", "start", "tell"), new("e2", "tell", "review"), new("e3", "review", "tell-top"), new("e4", "tell-top", "end") };
+        var definition = new ApprovalDefinition(ApprovalShapes.Graph, null, null, new ApproverSource(ApprovalSources.Group, GroupIds: [demo.GroupIds["ops-manager"]]), [], nodes, edges);
+        var input = new ApprovalFlowDraftInput(NoticeFlowKey,
+            Text("出貨單作廢通知", "Shipment void notice", "แจ้งการยกเลิกใบส่งสินค้า", "Thông báo hủy phiếu xuất"), to, 1, definition);
+        var created = await demo.Sender.Send(new CreateApprovalFlowRequest(moduleKey, input.ToFlowInput(true)), ct);
+        if (!created.IsSuccess) return created;
+
+        var current = await demo.Sender.Send(new GetWorkflowRequest(moduleKey), ct);
+        if (!current.IsSuccess) return current;
+        var wf = (WorkflowResponse)current.Data!;
+        var transitions = wf.Transitions.Select(t => t.To == to ? t with { Approval = new TransitionApproval(true, ApprovalNoMatch.Direct) } : t).ToList();
+        var saved = await demo.Sender.Send(new SaveWorkflowRequest(moduleKey, new WorkflowInput(wf.StatusFieldId, wf.InitialOptionId, wf.States, transitions)), ct);
+        if (!saved.IsSuccess) return saved;
+
+        return saved;
     }
 
     private static CreateRecordRequest Create(DemoContext ctx, string module, params (string Code, object? Value)[] items) =>
