@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DynamicModules.Domain.Approvals;
 using DynamicModules.Domain.ValueObjects;
 
 using DynamicModules.Application.Common;
@@ -88,7 +89,7 @@ public sealed record ApprovalInstanceView(long Id, string Status, string RouteKi
 /// Kind 是定義的七種加只供顯示的 addSign；RunIds 只給 approval 與 addSign（指向同實例 stages[].id，Seq 升冪）；JoinMode 只給 join；HostId 只給 addSign。
 /// State 見 <see cref="Domain.Approvals.ApprovalProgressStates"/>。
 /// </summary>
-public sealed record ApprovalProgressGraph(IReadOnlyList<ApprovalProgressNode> Nodes, IReadOnlyList<ApprovalProgressEdge> Edges);
+public sealed record ApprovalProgressGraph(IReadOnlyList<ApprovalProgressNode> Nodes, IReadOnlyList<ApprovalProgressEdge> Edges, ApprovalFlowLayout? Layout = null);
 
 public sealed record ApprovalProgressNode(string Id, string Kind, I18nText? Name, string State, IReadOnlyList<long>? RunIds = null, string? JoinMode = null,
     string? HostId = null);

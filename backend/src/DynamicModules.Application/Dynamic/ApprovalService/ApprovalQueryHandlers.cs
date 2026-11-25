@@ -150,7 +150,7 @@ public sealed class ApprovalReader(IApprovalInstanceRepository repo, IDynamicAcc
 public class GetRecordApprovalHandler(
     IRecordRepository records, IModuleRepository modules, IApprovalInstanceRepository repo, IDynamicAccessGuard guard,
     IPermissionRepository permissions, ApprovalReader reader, ApprovalReadGrant grant, ICurrentUser user, ApprovalPolicies policies,
-    IMessageCatalog messages, IRequestChannel channel)
+    IMessageCatalog messages, IRequestChannel channel, IApprovalFlowRepository flows)
     : IRequestHandler<GetRecordApprovalRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(GetRecordApprovalRequest request, CancellationToken ct)
@@ -205,8 +205,9 @@ public class GetRecordApprovalHandler(
         var unwritable = await grant.UnwritableFieldIdsAsync(module, read, granted, ct);
         var addSignLimit = await policies.MaxAddSignStagesAsync(module.Id, ct);
         var fallbackStageName = ApprovalMessages.FallbackStageName(messages);
+        var layouts = await ApprovalViews.LayoutsAsync(flows, visible, ct);
         var views = visible.Select(i => ApprovalViews.Instance(i, runs, tasks, actions, names, me, writable, manager, hidden, unwritable, module.Workflow, ShowTitle(i), addSignLimit,
-            allRuns, allActions, rejectedRunIds, ownStages.GetValueOrDefault(i.Id), fallbackStageName)).ToList();
+            allRuns, allActions, rejectedRunIds, ownStages.GetValueOrDefault(i.Id), fallbackStageName, layouts.GetValueOrDefault(i.Id))).ToList();
         var pending = instances.Any(i => i.Status == ApprovalInstanceStatus.Pending);
         var targets = canRead ? await reader.SubmitTargetsAsync(module, record, pending, ct) : [];
         return ServiceResult.Success(new RecordApprovalResponse(
@@ -401,7 +402,7 @@ internal static class ApprovalViews
         IReadOnlyList<ApprovalAction> allActions, IReadOnlyDictionary<string, string> names, string me, bool writable, bool manager,
         IReadOnlySet<long>? hiddenFieldIds, IReadOnlySet<long>? unwritableFieldIds, Workflow? workflow, bool showTitle, int addSignLimit,
         IReadOnlyList<ApprovalStageRun> unfilteredRuns, IReadOnlyList<ApprovalAction> unfilteredActions,
-        IReadOnlySet<long> rejectedRunIds, IReadOnlySet<long>? ownRunIds, I18nText fallbackStageName)
+        IReadOnlySet<long> rejectedRunIds, IReadOnlySet<long>? ownRunIds, I18nText fallbackStageName, ApprovalFlowLayout? layout = null)
     {
         string Name(string id) => names.GetValueOrDefault(id) ?? id;
         var pending = i.Status == ApprovalInstanceStatus.Pending;
@@ -446,7 +447,26 @@ internal static class ApprovalViews
         var flowName = i.FlowSetSnapshot.FirstOrDefault(e => e.FlowId == i.FlowId)?.Name;
         return new ApprovalInstanceView(i.Id, i.Status, i.RouteKind, flowName, i.FromOptionId, i.ToOptionId, i.InitiatorUserId, i.SubmittedTime, i.CompletedTime,
             i.RowVersion, stages, actions, canWithdraw, pending && writable && manager, showTitle ? i.TitleSnapshot : "",
-            ProgressGraph(i, def, pathRuns, rejectedRunIds, ownRunIds, fallbackStageName));
+            ProgressGraph(i, def, pathRuns, rejectedRunIds, ownRunIds, fallbackStageName) is { } progress ? progress with { Layout = layout } : null);
+    }
+
+    /// <summary>
+    /// 進度圖的手排版面（J84）：只有路線是 flow 的實例，從綁定版本的 LayoutJson 一次批次讀；沒有版面、讀不懂、沒有任何座標都是 null
+    /// （LayoutJson 非語意、可缺，壞掉不影響回應）。呼叫端再依定義形狀決定要不要採用（sequence 與備援不帶）。
+    /// </summary>
+    public static async Task<Dictionary<long, ApprovalFlowLayout>> LayoutsAsync(IApprovalFlowRepository flows, IReadOnlyList<ApprovalInstance> instances, CancellationToken ct)
+    {
+        var bound = instances.Where(i => i.RouteKind == ApprovalRouteKind.Flow && i.FlowVersionId is not null).ToList();
+        if (bound.Count == 0) return [];
+        var versions = (await flows.ListVersionsAsync(bound.Select(i => i.FlowVersionId!.Value).Distinct().ToList(), ct)).ToDictionary(v => v.Id);
+        var result = new Dictionary<long, ApprovalFlowLayout>();
+        foreach (var i in bound)
+        {
+            if (!versions.TryGetValue(i.FlowVersionId!.Value, out var v) || v.Definition.Shape != ApprovalShapes.Graph) continue;
+            var layout = ApprovalFlowLayout.Parse(v.LayoutJson);
+            if (layout.Nodes.Count > 0) result[i.Id] = layout;
+        }
+        return result;
     }
 
     /// <summary>備援實例的進度圖定義（U8）：開始 → 備援簽核 → 結束；節點實例以 StageCode = <see cref="ApprovalEngine.FallbackStageCode"/> 對應。</summary>

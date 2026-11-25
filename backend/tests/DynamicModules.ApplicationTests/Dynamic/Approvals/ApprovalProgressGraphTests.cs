@@ -689,6 +689,101 @@ public class ApprovalProgressGraphTests : ApprovalTestBase
             [E("e0", "start", "x"), E("xa", "x", "y", Cond(r.Total, "gte", 1), order: 1), E("xd", "x", "end", isDefault: true), E("ye", "y", "end")]));
     }
 
+    // ───────── 版面（fg3g、J84）：flow 實例帶設計器的手排座標 ─────────
+
+    private const string ForkJoinLayout = """{"nodes":{"start":{"x":0,"y":40},"f":{"x":200,"y":40},"a":{"x":400,"y":0},"b":{"x":400,"y":120}}}""";
+
+    /// <summary>把資料庫裡所有流程版本的 LayoutJson 設成指定值（null＝沒有版面）。</summary>
+    private async Task SetAllLayouts(string? layoutJson)
+    {
+        foreach (var v in Db.Context.Set<ApprovalFlowVersion>().ToList()) v.LayoutJson = layoutJson;
+        await Db.Context.SaveChangesAsync();
+        Db.Context.ChangeTracker.Clear();
+    }
+
+    [Fact]
+    public async Task Layout_FlowInstance_WithLayoutJson_HasLayout()
+    {
+        var (_, id) = await Boot(ForkJoin());
+        await SetAllLayouts(ForkJoinLayout);
+
+        var view = await ViewAs(id, "buyer1");
+
+        view.Graph!.Layout.Should().NotBeNull();
+        view.Graph.Layout!.Nodes.Keys.Should().BeEquivalentTo("start", "f", "a", "b");
+        view.Graph.Layout.Nodes["a"].Should().Be(new LayoutPoint(400, 0));
+        JsonSerializer.Serialize(view.Graph, Web).Should().Contain("\"layout\":{\"nodes\":{");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("{\"nodes\":{}}")]
+    [InlineData("not json {{{")]
+    [InlineData("[1,2,3]")]
+    public async Task Layout_EmptyOrBadLayoutJson_NullLayout_ResponseStillWorks(string? layoutJson)
+    {
+        var (_, id) = await Boot(ForkJoin());
+        await SetAllLayouts(layoutJson);
+
+        var view = await ViewAs(id, "buyer1");
+
+        view.Graph.Should().NotBeNull();
+        view.Graph!.Layout.Should().BeNull();
+        JsonSerializer.Serialize(view.Graph, Web).Should().NotContain("layout");
+        view.Graph.Nodes.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public async Task Layout_SequenceInstance_Null()
+    {
+        var (_, id) = await BootSequence();
+        await SetAllLayouts(ForkJoinLayout);
+
+        (await ViewAs(id, "buyer1")).Graph!.Layout.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Layout_FallbackInstance_Null()
+    {
+        var fresh = await FallbackInstance();
+        await SetAllLayouts(ForkJoinLayout);
+
+        (await ViewAs(fresh.Id, "buyer1")).Graph!.Layout.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Layout_OwnStageReader_StillGetsLayout()
+    {
+        // 座標不是進度：只看得到自己關卡的讀者照樣拿到版面（J84）
+        var (r, id) = await Boot(ForkJoin());
+        await SetAllLayouts(ForkJoinLayout);
+        await RevokeRead(r);
+
+        var view = await ViewAs(id, "fin1");
+
+        view.Graph!.Nodes.Where(n => n.Id != "a").Should().OnlyContain(n => n.State == ApprovalProgressStates.Hidden);
+        view.Graph.Layout.Should().NotBeNull();
+        view.Graph.Layout!.Nodes.Keys.Should().BeEquivalentTo("start", "f", "a", "b");
+    }
+
+    [Fact]
+    public async Task Layout_CurrentAndPreviousInstances_EachReadsItsOwnVersion()
+    {
+        var (r, id) = await Boot(ForkJoin());
+        var recordId = Inst(id).RecordId;
+        await MustReject(id, "fin1", RejectTaskHandler.ToInitiator);
+        As("buyer1");
+        var again = (await MustSubmit(recordId, r.Confirmed)).InstanceId!.Value;
+        await SetAllLayouts(ForkJoinLayout);
+
+        var all = await RecordView(recordId, "buyer1");
+
+        all.Current!.Id.Should().Be(again);
+        all.Current.Graph!.Layout.Should().NotBeNull();
+        all.Previous.Single().Graph!.Layout.Should().NotBeNull();
+    }
+
     // ───────── 歷程的 stageRunId（J6） ─────────
 
     [Fact]
