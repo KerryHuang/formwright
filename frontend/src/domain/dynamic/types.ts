@@ -618,6 +618,10 @@ export interface DeleteBlocker {
   id?: number | null;
   name: string;
   count?: number | null;
+  /** moduleKey 對應模組的顯示名稱（依請求語系）；舊後端沒帶時用 moduleKey。 */
+  moduleName?: string | null;
+  /** 應用程式的報表還在儀表板上時的報表名稱；沒帶時退回不含報表名的文案。 */
+  reportName?: string | null;
 }
 
 /** 刪除預檢；purge 是刪除會永久清除的軟刪除記錄與其索引、歷程筆數。 */

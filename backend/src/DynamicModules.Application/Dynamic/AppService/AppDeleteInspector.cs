@@ -70,9 +70,14 @@ public sealed class AppDeleteInspector(
         // 應用程式自己的報表若還在任何儀表板（指派版、自己的、個人版）的卡片上，刪掉會留下「報表已不存在」的卡片：
         // 不論卡片有沒有指到欄位（SortKey）一律擋下，要先把卡片移掉
         foreach (var reportId in ownReportIds)
-            foreach (var reference in await dashboards.ListReferencesAsync(reportId, ct))
+        {
+            var references = await dashboards.ListReferencesAsync(reportId, ct);
+            if (references.Count == 0) continue;
+            var reportName = (await reports.GetAsync(reportId, ct))?.Name;
+            foreach (var reference in references)
                 blockers.Add(new(reference.IsPersonalVersion ? DeleteBlockerKind.PersonalDashboard : DeleteBlockerKind.Dashboard,
-                    null, reference.DashboardId, reference.DashboardName));
+                    null, reference.DashboardId, reference.DashboardName, ReportName: reportName));
+        }
         foreach (var dependent in (await dependencies.DependentsOfAsync(app, ct)).Apps)
             blockers.Add(new(DeleteAppHandler.DependentKind, null, null, dependent.Key));
         blockers.AddRange(await planner.ContributionBlockersAsync(scope.ExemptFieldIds, ownReportIds, keys, scope, ct));
@@ -86,7 +91,7 @@ public sealed class AppDeleteInspector(
         var cleared = contributions.Where(c => c.Fate == ContributionFate.Purge).Sum(c => c.Values);
         List<ClearedField> List(IEnumerable<AppDeleteContribution> xs) =>
             xs.Select(c => new ClearedField(c.Module.Key, c.Field.LabelI18n.Resolve(requestLocale.Current), c.Values)).ToList();
-        var check = new DeleteAppCheck(blockers.Count == 0, blockers.DistinctBy(b => (b.Kind, b.ModuleKey, b.Id, b.Name)).ToList(), purge,
+        var check = new DeleteAppCheck(blockers.Count == 0, blockers.DistinctBy(b => (b.Kind, b.ModuleKey, b.Id, b.Name, b.ReportName)).ToList(), purge,
             cleared, records + cleared, List(contributions.Where(c => c.Fate == ContributionFate.Purge)),
             List(contributions.Where(c => c.Fate == ContributionFate.Orphan)), ownReports);
         return new AppDeleteInventory(check, members, bindings, masterModules, uses) { Contributions = contributions };

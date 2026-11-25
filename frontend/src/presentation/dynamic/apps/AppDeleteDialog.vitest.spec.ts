@@ -70,6 +70,23 @@ describe('AppDeleteDialog', () => {
     expect(api.deleteApp).not.toHaveBeenCalled();
   });
 
+  it('uses module display name and report name when the backend sends them', async () => {
+    api.getAppDeleteCheck.mockResolvedValue({
+      ...blocked,
+      blockers: [
+        { kind: 'referenceField', moduleKey: 'order', moduleName: '訂單', id: 9, name: '檢驗單' },
+        { kind: 'dashboard', id: 3, name: '品質看板', reportName: '不良率報表' },
+        { kind: 'personalDashboard', id: 4, name: '品質看板', reportName: '不良率報表' },
+      ],
+    });
+    await mountDialog();
+    const text = q('app-delete-blockers')!.textContent!;
+    expect(text).toContain('模組『訂單』的欄位『檢驗單』參照它');
+    expect(text).not.toContain('order');
+    expect(text).toContain('報表『不良率報表』還在儀表板『品質看板』上，請先移除卡片');
+    expect(text).toContain('報表『不良率報表』還在儀表板『品質看板』的個人版上，請先移除卡片');
+  });
+
   it('unknown blocker kind falls back to the backend name', async () => {
     api.getAppDeleteCheck.mockResolvedValue({ ...blocked, blockers: [{ kind: 'someNewKind' as never, name: 'X' }] });
     await mountDialog();

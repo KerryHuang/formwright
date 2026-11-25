@@ -78,7 +78,7 @@ async function submit() {
 }
 
 const blockerLine = (b: DeleteCheck['blockers'][number]) =>
-  [t(`designer.delete.kind.${b.kind}`), b.moduleKey, b.name, b.count != null ? t('designer.delete.count', { n: b.count }) : null]
+  [t(`designer.delete.kind.${b.kind}`), b.moduleName ?? b.moduleKey, b.name, b.count != null ? t('designer.delete.count', { n: b.count }) : null]
     .filter((x) => x != null && x !== '').join(' · ');
 </script>
 

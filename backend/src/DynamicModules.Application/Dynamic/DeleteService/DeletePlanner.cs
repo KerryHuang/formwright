@@ -336,7 +336,7 @@ public class DeletePlanner(IDeletionRepository data, IApprovalFlowRepository app
     }
 
     private DeleteBlocker FieldBlocker(string kind, Module m, Field f) =>
-        new(kind, m.Key, f.Id, Name(f.LabelI18n, f.Key));
+        new(kind, m.Key, f.Id, Name(f.LabelI18n, f.Key), ModuleName: Name(m.NameI18n, m.Key));
 
     private string Name(I18nText? text, string fallback)
     {

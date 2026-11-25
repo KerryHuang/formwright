@@ -202,6 +202,7 @@ public class SafeDeleteTests : DesignerTestBase
         b.ModuleKey.Should().Be("ord");
         b.Id.Should().Be(link.Id);
         b.Name.Should().Be("客戶");
+        b.ModuleName.Should().Be("ord", "帶出所屬模組的顯示名稱，前端不必顯示代碼");
         (await ModuleExists("cust")).Should().BeTrue();
 
         (await Deactivate(link.Id)).IsSuccess.Should().BeTrue();
