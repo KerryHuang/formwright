@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DynamicModules.Application.Common;
 using DynamicModules.Application.Dynamic.AppService.Data;
 using DynamicModules.Application.Dynamic.TemplateService.Data;
 using DynamicModules.Domain.Entities.Dynamic;
@@ -35,7 +36,8 @@ public static partial class AppPackageValidator
         if (p.Integrations.Count > 0 && p.FormatVersion < 5) errors.Add("integrations: formatVersion 5 才支援 integrations");
     }
 
-    private static void V5References(AppPackageData p, Dictionary<string, TemplateField> fields, MasterScope scope, List<string> errors)
+    private static void V5References(AppPackageData p, Dictionary<string, TemplateField> fields, MasterScope scope, List<string> errors,
+        IReadOnlySet<string>? templateIds, Dictionary<string, MessageRef> refs)
     {
         if (p.Integrations.Count == 0) return;
         var modules = p.Modules.ToDictionary(m => m.Code, m => m);
@@ -63,6 +65,7 @@ public static partial class AppPackageValidator
             {
                 if (w is null || !AppId().IsMatch(w.Id ?? "")) { errors.Add($"{at}.with: 夥伴 id 格式錯誤"); continue; }
                 if (w.Id == p.Manifest.Id) errors.Add($"{at}.with: 不能以自己為夥伴");
+                if (templateIds?.Contains(w.Id!) == true) Keyed(errors, refs, MessageText.AppPartnerIsTemplate, i, w.Id!);
                 if (w.Modules.Count == 0 || w.Modules.Any(m => !AppId().IsMatch(m ?? ""))) errors.Add($"{at}.with[{w.Id}].modules: 至少要有一個模組代號，且格式正確");
                 if (!partners.TryAdd(w.Id!, [.. w.Modules])) errors.Add($"{at}.with: 夥伴 {w.Id} 重複");
             }

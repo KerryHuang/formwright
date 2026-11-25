@@ -19,7 +19,8 @@ public sealed class AppUpgradePreviewer(
     IAppRepository apps, AppPackageSource packages, AppExporter exporter, IPermissionRepository permissions,
     IModuleRepository modules, ISharedMasterRepository shared, AppDependencyChecker dependencies, PackageLimitReader limits,
     RequestLocale requestLocale, FieldService.FieldChangeImpact impact, UpgradeFlowGuards flowGuards, UpgradeCodedGuards codedGuards,
-    Integrations.IntegrationReconciler integrations, IApprovalFlowRepository approvalFlows)
+    Integrations.IntegrationReconciler integrations, IApprovalFlowRepository approvalFlows,
+    Common.Localization.IMessageCatalog messages)
 {
     /// <summary>套用要用到的比對中間結果：三份比對項目、兩份套件、群組對應（套件代號 → 客戶群組；負數是這次將新建的）。</summary>
     public sealed record CompareContext(
@@ -363,7 +364,8 @@ public sealed class AppUpgradePreviewer(
         foreach (var master in (await apps.ListAsync(ct)).Where(a => a.Kind == AppKind.Master))
             if (await MasterCandidateAsync(master, ct) is { } c && PackageVersion.Compare(c.Package.Manifest.Version, master.PackageVersion) >= 0)
                 knownMasters[master.Key] = c.Package;
-        var list = AppPackageValidator.Validate(n, knownMasters).Errors.Concat(await limits.ErrorsAsync(n, ct))
+        var list = AppPackageValidator.Validate(n, knownMasters, await packages.TemplateIdsAsync(ct)).ErrorRefs
+            .Select(r => r.Resolve(messages, requestLocale.Current)).Concat(await limits.ErrorsAsync(n, ct))
             .Select(e => new UpgradeBlocker("invalidPackage", e)).ToList();
         var requirement = await dependencies.CheckRequirementsAsync(AppOpenPlanner.RequiresOf(n), ct);
         // 需要的是別的應用程式新版才有的模組：請先更新它（不自動連帶更新，套件設計決策 5）

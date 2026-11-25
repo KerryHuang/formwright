@@ -169,4 +169,33 @@ public class AppUpgradePreviewApiTests : IDisposable
         res.StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await res.Content.ReadAsStringAsync()).Should().Contain("共用主檔");
     }
+    /// <summary>新版（直接改資料庫造出，匯入會被 V4 擋）requires 一個範本：預覽的 invalidPackage 擋下原因依請求語系回應（TP-23）。</summary>
+    [Theory]
+    [InlineData(null, "是範本，不能被其他套件依賴")]
+    [InlineData("en-US", "is a template and cannot be required by other packages")]
+    public async Task NewVersionRequiringATemplate_IsInvalidPackage_TP23(string? locale, string expected)
+    {
+        async Task<HttpResponseMessage> PostAsync(string path, string json) =>
+            await _admin.PostAsync($"{Apps}/{path}", new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
+        (await PostAsync("packages/import", AppTestPackagesTemplate.TplA)).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await PostAsync("packages/import", AppTestPackagesTemplate.App("app-u"))).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await _admin.PostAsJsonAsync($"{Apps}/packages/app-u/open", new { })).StatusCode.Should().Be(HttpStatusCode.Created);
+        using (var scope = _app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<DynamicDbContext>();
+            var row = db.Set<AppPackage>().Single(r => r.Key == "app-u");
+            row.Version = "1.1.0";
+            row.Json = AppTestPackagesTemplate.App("app-u", "1.1.0", requiresApp: "tpl-a");
+            db.SaveChanges();
+        }
+
+        var req = new HttpRequestMessage(HttpMethod.Post, $"{Apps}/app-u/upgrade/preview") { Content = JsonContent.Create(new { }) };
+        if (locale is not null) req.Headers.Add("X-Locale", locale);
+        var res = await _admin.SendAsync(req);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        var blockers = (await JsonOf(res)).GetProperty("blockers").EnumerateArray().ToList();
+        var invalid = blockers.Single(b => b.GetProperty("code").GetString() == "invalidPackage");
+        invalid.GetProperty("detail").GetString().Should().Contain(expected);
+        if (locale is not null) invalid.GetProperty("detail").GetString().Should().NotMatchRegex("[一-鿿]");
+    }
 }

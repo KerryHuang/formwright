@@ -37,12 +37,13 @@ public sealed class AppCatalog(IReadOnlyList<AppPackageData> builtIns, IReadOnly
         // 目錄層對帳（共用主檔 §4.6）：內建套件引用的主檔欄位與選項都要在內建主檔裡，貢獻代號不得與基本代號相同
         var masters = parsedFiles.Where(x => x.Package.Manifest.IsMaster)
             .GroupBy(x => x.Package.Manifest.Id).ToDictionary(g => g.Key, g => g.First().Package);
+        var templateIds = parsedFiles.Where(x => x.Package.Manifest.IsTemplate).Select(x => x.Package.Manifest.Id).ToHashSet(StringComparer.Ordinal);
         var packages = new List<AppPackageData>();
         var ids = new Dictionary<string, string>();
         var originals = new Dictionary<string, string>();
         foreach (var (file, package, original) in parsedFiles)
         {
-            var validation = AppPackageValidator.Validate(package, masters);
+            var validation = AppPackageValidator.Validate(package, masters, templateIds);
             errors.AddRange(validation.Errors.Select(e => $"{file}: {e}"));
             foreach (var missing in package.Manifest.Requires.Masters.Where(r => !masters.ContainsKey(r.Id)))
                 errors.Add($"{file}: requires.masters 的主檔 {missing.Id} 不在內建套件裡");

@@ -40,7 +40,7 @@ public class ImportAppPackageHandler(
         var known = await packages.ListAsync(ct);
         var masters = known.Where(k => k.Package.Manifest.IsMaster)
             .GroupBy(k => k.Package.Manifest.Id).ToDictionary(g => g.Key, g => g.First().Package);
-        var validation = AppPackageValidator.Validate(package, masters);
+        var validation = AppPackageValidator.Validate(package, masters, await packages.TemplateIdsAsync(ct));
         if (validation.Errors.Count > 0)
             return ServiceResult.Invalid(new Dictionary<string, MessageRef[]> { ["package"] = [.. validation.ErrorRefs] });
         // 驗證過才補稽核目標：缺名稱的本文（例如 v1 的 {"formatVersion":1}）要回 400，不能在這裡遇到 null

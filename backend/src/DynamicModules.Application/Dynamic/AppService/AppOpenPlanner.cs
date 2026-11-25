@@ -18,7 +18,8 @@ public sealed partial class AppOpenPlanner(
     AppPackageSource packages, IAppRepository apps, IModuleRepository modules, IPermissionRepository permissions,
     IAccountRepository accounts, AppDependencyChecker dependencies, IConversionRepository conversions,
     IEventRepository events, ICheckRepository checks, SharedMasters.MasterSymbols symbols, SharedMasters.ContributionOrphans orphans,
-    IApprovalFlowRepository approvalFlows, PackageLimitReader limits, Common.RequestLocale requestLocale)
+    IApprovalFlowRepository approvalFlows, PackageLimitReader limits, Common.RequestLocale requestLocale,
+    Common.Localization.IMessageCatalog messages)
 {
     [GeneratedRegex(ModuleRules.ModuleKeyPattern)]
     private static partial Regex ModuleKey();
@@ -54,9 +55,9 @@ public sealed partial class AppOpenPlanner(
             .GroupBy(k => k.Package.Manifest.Id).ToDictionary(g => g.Key, g => g.First().Package);
         // 套件本身的錯誤（不看主檔）直接擋；對不上主檔（套件定義或資料庫裡現在的樣子）的引用算 unbound（§4.6、§9 最後一點），
         // 這樣「匯出的主檔少了被刪的基本欄位」和「已開啟的主檔被客戶改過」都回同一種 409
-        var validation = AppPackageValidator.Validate(package, new Dictionary<string, AppPackageData>());
+        var validation = AppPackageValidator.Validate(package, new Dictionary<string, AppPackageData>(), await packages.TemplateIdsAsync(ct));
         var warnings = new List<string>(AppPackageValidator.Validate(package, knownMasters).Warnings);
-        var errors = new List<string>(validation.Errors);
+        var errors = validation.ErrorRefs.Select(r => r.Resolve(messages, requestLocale.Current)).ToList();
         // 規則總數（A2）、每條任務數（A1 全系統值）、簽核上限的系統層生效值（J5）、設計上限（A16）：匯入後上限可能被調低，開啟時再檢查一次；
         // 簽核的模組層覆寫值在開啟時由 CreateApprovalFlowRequest 檢查
         errors.AddRange(await limits.ErrorsAsync(package, ct));

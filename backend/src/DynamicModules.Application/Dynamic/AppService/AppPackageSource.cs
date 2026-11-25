@@ -78,6 +78,10 @@ public sealed class AppPackageSource(AppCatalog catalog, TemplateCatalog templat
         return list;
     }
 
+    /// <summary>已知的範本套件 id（內建與匯入的）：V4、V5 用。已開啟應用程式的 Kind 不算，那是開啟時的防線。</summary>
+    public async Task<IReadOnlySet<string>> TemplateIdsAsync(CancellationToken ct) =>
+        (await ListAsync(ct)).Where(k => k.Package.Manifest.IsTemplate).Select(k => k.Package.Manifest.Id).ToHashSet(StringComparer.Ordinal);
+
     /// <summary>讀套件原文成 v2；v1 經升級器，「其他已知套件」取內建與匯入的 v2 套件，加上內建範本。</summary>
     public async Task<(AppPackageData? Package, IReadOnlyList<string> Errors)> ReadAsync(string json, CancellationToken ct) =>
         await ReadAsync(AppJson.Parse(json), ct);

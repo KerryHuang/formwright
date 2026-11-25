@@ -58,13 +58,14 @@ public static partial class AppPackageValidator
 
     /// <param name="masters">已知的主檔套件（id → 套件），給了才做主檔欄位層級的檢查（目錄層、匯入）；
     /// 沒給時主檔符號只檢查前綴（主檔 id 與模組在 requires.masters）。</param>
-    public static AppValidation Validate(AppPackageData p, IReadOnlyDictionary<string, AppPackageData>? masters = null)
+    /// <param name="templateIds">已知的範本套件 id，給了才檢查 requires.apps 與整合夥伴不得是範本（V4、V5）。</param>
+    public static AppValidation Validate(AppPackageData p, IReadOnlyDictionary<string, AppPackageData>? masters = null, IReadOnlySet<string>? templateIds = null)
     {
         var warnings = new List<string>();
         var refs = new Dictionary<string, MessageRef>(StringComparer.Ordinal);
         var errors = Structure(p, refs);
         if (errors.Count > 0) return new AppValidation(errors, warnings) { ErrorRefs = RefsOf(errors, refs) };
-        errors = References(p, warnings, masters);
+        errors = References(p, warnings, masters, templateIds, refs);
         return new AppValidation(errors, warnings) { ErrorRefs = RefsOf(errors, refs) };
     }
 
@@ -250,7 +251,8 @@ public static partial class AppPackageValidator
 
     // ---- 引用層 ----
 
-    private static List<string> References(AppPackageData p, List<string> warnings, IReadOnlyDictionary<string, AppPackageData>? masters)
+    private static List<string> References(AppPackageData p, List<string> warnings, IReadOnlyDictionary<string, AppPackageData>? masters,
+        IReadOnlySet<string>? templateIds, Dictionary<string, MessageRef> refs)
     {
         var scope = new MasterScope(p, masters);
         var errors = new List<string>(TemplateValidator.Validate(AppPackageAdapter.ToTemplate(p)));
@@ -328,6 +330,10 @@ public static partial class AppPackageValidator
             for (var i = 0; i < requiredApps.Count; i++)
                 if (requiredApps[i] is { } r && masters.ContainsKey(r.Id ?? ""))
                     errors.Add($"manifest.requires.apps[{i}]: {r.Id} 是共用主檔，要列在 requires.masters");
+        if (templateIds is not null)
+            for (var i = 0; i < requiredApps.Count; i++)
+                if (requiredApps[i] is { } t && templateIds.Contains(t.Id ?? ""))
+                    Keyed(errors, refs, MessageText.AppRequiresTemplate, i, t.Id!);
         foreach (var e in requiresEntities.Where(e => !usedEntities.Contains(e)))
             warnings.Add($"requires.entities: 宣告了 {e}，但套件裡沒有使用它");
 
@@ -365,7 +371,7 @@ public static partial class AppPackageValidator
         }
         V3References(p, fieldNames, groupCodes, scope, errors);
         V4References(p, fieldNames, scope, errors);
-        V5References(p, fieldNames, scope, errors);
+        V5References(p, fieldNames, scope, errors, templateIds, refs);
         V6References(p, groupCodes, scope, errors);
         TaskRuleReferences(p, fieldNames, scope, errors);
         ApprovalFlowReferences(p, fieldNames, groupCodes, errors, warnings);

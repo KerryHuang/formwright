@@ -37,6 +37,26 @@ public class AppCatalogChecksTests : IDisposable
         return act.Should().Throw<InvalidOperationException>().Which.Message;
     }
 
+    private static string TemplatePackage(string id) => $$"""
+        {
+          "format": "formwright-app", "formatVersion": 8,
+          "manifest": { "id": "{{id}}", "kind": "template", "version": "1.0.0", "name": { "zh-TW": "{{id}}" } },
+          "modules": [ { "code": "alpha", "key": "{{id}}-alpha", "name": { "zh-TW": "alpha" }, "kind": "standalone", "titleField": "name",
+            "blocks": [ { "code": "main", "label": { "zh-TW": "基本" }, "collapsed": false, "columns": 2, "fields": [
+              { "code": "name", "type": "text", "label": { "zh-TW": "name" }, "config": { "required": true } } ] } ] } ]
+        }
+        """;
+
+    [Fact]
+    public void BuiltInRequiringATemplate_RefusesStartup_TP10()
+    {
+        Write("tpl-x", TemplatePackage("tpl-x"));
+        Write("app-d", Package("app-d", "beta").Replace("\"version\": \"1.0.0\",",
+            "\"version\": \"1.0.0\", \"requires\": { \"apps\": [ { \"id\": \"tpl-x\", \"modules\": [\"alpha\"] } ] },"));
+
+        LoadError().Should().Contain("是範本，不能被其他套件依賴");
+    }
+
     [Fact]
     public void OriginalOf_IsTheFileTextWithoutTheBom()
     {
