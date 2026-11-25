@@ -73,6 +73,7 @@
 | mcp4 | MCP OAuth 2.1（Claude.ai、ChatGPT 連接器；可視雲端版第一個客戶的需求提前） | 未開始 | [MCP server](superpowers/specs/2026-11-11-mcp-server-design.md) §12 |
 | s2d-1g | Demo 公司跨應用程式共用、移除模擬客戶與全部內建模擬實體 | ✅ 已上線（2026-11-14，8719cc5b） | [共用主檔](superpowers/specs/2026-11-10-shared-master-design.md) |
 | tp1 | 範本套件開啟機制：應用程式套件加「範本」種類（使用者 11-25 裁決），開啟後屬於客戶、不升級、不被依賴、不參與整合；tp1a 後端格式與排除、tp1b 應用程式頁範本分區與內建「品質檢驗」範本、tp1c 應用程式頁刪除入口（所有種類通用，使用者 11-25 裁決）；固定資產登記範本改等 eq1（使用者 11-23 裁決提前到 s2d-1h 之前） | 已上線（tp1a–c，2026-11-25） | [範本套件](superpowers/specs/2026-11-25-template-package-design.md) |
+| tp2 | 活動報名範本：內建第二個範本，活動與報名明細、名額規則、統計報表；Demo 預設開啟（使用者 11-25 裁決，招募維持第二版） | 🚧 實作中 | [活動報名範本](superpowers/specs/2026-11-25-event-registration-template-design.md) |
 | s2d-1h | 主檔收尾：參照挑選器守衛、CRM 補測試等 | 未開始 | [共用主檔](superpowers/specs/2026-11-10-shared-master-design.md) |
 | rf1 | 參照挑選器依上層欄位過濾：參照欄位可宣告依本單另一個參照過濾候選；s2d-2 多送貨地址、s2g 批號、客服工單選設備都用（主控判斷位置，待確認） | 未開始（設計待寫） | [ERP 模組藍圖](superpowers/specs/2026-11-23-erp-module-blueprint-design.md) §6 |
 | s2d-2 | 品項共用主檔；併入品項實物／服務類型、預留所屬款式參照、往來對象多送貨地址（使用者 11-17 裁決，開工前先更新共用主檔設計） | 未開始 | [共用主檔](superpowers/specs/2026-11-10-shared-master-design.md) |
