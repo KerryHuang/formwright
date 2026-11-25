@@ -85,12 +85,15 @@ function submit() {
 
 const SENTENCE_KINDS = ['liveRecords', 'appDependent', 'referenceField', 'dashboard', 'personalDashboard', 'appNotClosed', 'masterInUse'];
 // 有專句的種類用專句；其他種類沿用設計器的種類名稱加後端給的名稱，沒有翻譯就顯示 kind 原字，不吞掉
+// 後端帶了模組顯示名稱、報表名稱就用（不顯示代碼）；舊版後端沒帶時退回原本的文案
 function blockerLine(b: DeleteBlocker): string {
   if (SENTENCE_KINDS.includes(b.kind)) {
-    return t(`apps.delete.blocker.${b.kind}`, { module: b.kind === 'liveRecords' ? b.name : (b.moduleKey ?? ''), field: b.name, name: b.name, n: b.count ?? 0 });
+    const key = b.reportName && (b.kind === 'dashboard' || b.kind === 'personalDashboard') ? `${b.kind}Report` : b.kind;
+    const module = b.kind === 'liveRecords' ? b.name : (b.moduleName ?? b.moduleKey ?? '');
+    return t(`apps.delete.blocker.${key}`, { module, field: b.name, name: b.name, report: b.reportName ?? '', n: b.count ?? 0 });
   }
   const kind = te(`designer.delete.kind.${b.kind}`) ? t(`designer.delete.kind.${b.kind}`) : b.kind;
-  return [kind, b.moduleKey, b.name, b.count != null ? t('designer.delete.count', { n: b.count }) : null].filter((x) => x != null && x !== '').join(' · ');
+  return [kind, b.moduleName ?? b.moduleKey, b.name, b.count != null ? t('designer.delete.count', { n: b.count }) : null].filter((x) => x != null && x !== '').join(' · ');
 }
 </script>
 

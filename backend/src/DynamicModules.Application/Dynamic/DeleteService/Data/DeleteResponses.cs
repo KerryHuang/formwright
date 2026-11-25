@@ -2,8 +2,13 @@ namespace DynamicModules.Application.Dynamic.DeleteService.Data;
 
 public enum DeleteTarget { Module, Field, Block }
 
-/// <summary>擋下刪除的原因或引用來源。Kind 見 safe-delete 設計文件；Count 只用於 liveRecords 與 fieldData。</summary>
-public record DeleteBlocker(string Kind, string? ModuleKey, long? Id, string Name, int? Count = null);
+/// <summary>
+/// 擋下刪除的原因或引用來源。Kind 見 safe-delete 設計文件；Count 只用於 liveRecords 與 fieldData。
+/// ModuleName 是 ModuleKey 對應模組的顯示名稱（依請求語系，欄位類原因才帶）；ReportName 只在應用程式的報表還在儀表板上時帶。
+/// 兩者是選用欄位，舊呼叫端可忽略。
+/// </summary>
+public record DeleteBlocker(string Kind, string? ModuleKey, long? Id, string Name, int? Count = null,
+    string? ModuleName = null, string? ReportName = null);
 
 /// <summary>刪除會永久清除的軟刪除記錄與其索引、歷程筆數。</summary>
 public record PurgeCounts(int Records, int IndexRows, int HistoryRows);
