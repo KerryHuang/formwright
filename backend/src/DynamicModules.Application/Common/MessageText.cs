@@ -28,6 +28,7 @@ public static class MessageText
         // 記錄寫入、狀態轉移、刪除、唯讀鎖定
         Required = nameof(Required), RecordReadOnly = nameof(RecordReadOnly), OptionOutOfRange = nameof(OptionOutOfRange),
         UnknownDetail = nameof(UnknownDetail), DetailRowNotFound = nameof(DetailRowNotFound), TooManyDetailRows = nameof(TooManyDetailRows),
+        AppKindInvalid = nameof(AppKindInvalid), AppTemplateNoIntegrations = nameof(AppTemplateNoIntegrations),
         AppUpgradeSummary = nameof(AppUpgradeSummary),
         AppUpgradeUpToDate = nameof(AppUpgradeUpToDate), AppUpgradeNoCandidate = nameof(AppUpgradeNoCandidate), AppUpgradeDowngrade = nameof(AppUpgradeDowngrade),
         WorkflowNotInitial = nameof(WorkflowNotInitial), WorkflowNotAllowed = nameof(WorkflowNotAllowed), WorkflowNotPermitted = nameof(WorkflowNotPermitted),
@@ -242,6 +243,10 @@ public static class MessageText
         [AppUpgradeSummary] = ("{0} → {1}，套用 {2} 項，略過 {3} 項", "{0} → {1}, applied {2}, skipped {3}", "{0} → {1} ใช้ {2} รายการ ข้าม {3} รายการ", "{0} → {1}, đã áp dụng {2} mục, bỏ qua {3} mục"),
         // 沒有可套用的新版（AppMessages.UpgradeUpToDate 等，字面值照原文翻譯；走查 W3）
         [AppUpgradeUpToDate] = ("已是最新", "This app is already up to date", "แอปพลิเคชันนี้เป็นเวอร์ชันล่าสุดแล้ว", "Ứng dụng đã là phiên bản mới nhất"),
+        [AppKindInvalid] = ("manifest.kind: 必須是 app、master 或 template", "manifest.kind: must be app, master or template",
+            "manifest.kind: ต้องเป็น app, master หรือ template", "manifest.kind: phải là app, master hoặc template"),
+        [AppTemplateNoIntegrations] = ("integrations: 範本套件不收 integrations", "integrations: a template package cannot contain integrations",
+            "integrations: แพ็กเกจเทมเพลตไม่รับ integrations", "integrations: gói mẫu không nhận integrations"),
         [AppUpgradeNoCandidate] = ("沒有可用的新版", "No newer version is available", "ไม่มีเวอร์ชันใหม่ให้ใช้", "Không có phiên bản mới"),
         [AppUpgradeDowngrade] = ("新版的版號比目前的小，不支援降版", "The new version number is lower than the current one. Downgrading is not supported",
             "หมายเลขเวอร์ชันใหม่ต่ำกว่าเวอร์ชันปัจจุบัน ไม่รองรับการลดเวอร์ชัน", "Số phiên bản mới nhỏ hơn phiên bản hiện tại, không hỗ trợ hạ phiên bản"),

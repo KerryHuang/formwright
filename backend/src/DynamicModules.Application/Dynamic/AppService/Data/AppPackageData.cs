@@ -52,16 +52,25 @@ public record AppPackageData(
     }
 }
 
-/// <summary>Kind 是 app（省略時）或 master（共用主檔套件，格式 6）。</summary>
+/// <summary>Kind 是 app（省略時）、master（共用主檔套件，格式 6）或 template（範本套件，格式 6 起）。</summary>
 public record AppManifest(
     string Id, string Version, I18nText Name, I18nText? Description, string? Icon, string? Vendor, AppManifestRequires? Requires,
     string? Kind = null)
 {
-    public const string AppKindName = "app", MasterKindName = "master";
+    public const string AppKindName = "app", MasterKindName = "master", TemplateKindName = "template";
 
     public AppManifestRequires Requires { get; init; } = Requires ?? new AppManifestRequires(null, null);
 
     public bool IsMaster => Kind == MasterKindName;
+
+    public bool IsTemplate => Kind == TemplateKindName;
+
+    public static string KindNameOf(AppKind kind) => kind switch
+    {
+        AppKind.Master => MasterKindName,
+        AppKind.Template => TemplateKindName,
+        _ => AppKindName
+    };
 }
 
 /// <summary>Masters 是硬相依、自動滿足的共用主檔（格式 6）；形狀同 Apps。</summary>

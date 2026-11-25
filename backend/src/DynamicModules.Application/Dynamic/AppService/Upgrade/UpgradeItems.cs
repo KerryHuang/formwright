@@ -53,7 +53,7 @@ public static class UpgradeItems
             [nameof(AppManifest)] = Reasons(
                 ("Id", "識別"), ("Version", "版號判斷（§7.2）"), ("Description", "只在開啟前的清單顯示，開啟後不存"),
                 ("Vendor", "只顯示，不同時預覽提醒（§7.1）"), ("Requires", "前置條件，在 §8.2 檢查"), ("Kind", "開啟後不能改"),
-                ("IsMaster", "由 Kind 推導的計算屬性")),
+                ("IsMaster", "由 Kind 推導的計算屬性"), ("IsTemplate", "由 Kind 推導的計算屬性")),
             [nameof(AppManifestRequires)] = Reasons(("Apps", "前置條件，在 §8.2 檢查"), ("Entities", "前置條件，在 §8.2 檢查"), ("Masters", "前置條件，在 §8.2 檢查")),
             [nameof(AppRequirementData)] = Reasons(("Id", "前置條件，在 §8.2 檢查"), ("Modules", "前置條件，在 §8.2 檢查")),
             [nameof(AppGroup)] = Reasons(("Code", "群組段的識別（§6.2.1）"), ("Name", "只在群組段顯示；開啟後是客戶群組，名稱由客戶管")),

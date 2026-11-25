@@ -46,7 +46,7 @@
         "description": { "$ref": "#/$defs/i18n" },
         "icon": { "type": "string", "maxLength": 100 },
         "vendor": { "type": "string", "maxLength": 100 },
-        "kind": { "enum": ["app", "master"] },
+        "kind": { "enum": ["app", "master", "template"] },
         "requires": {
           "type": "object",
           "additionalProperties": false,

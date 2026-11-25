@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DynamicModules.Application.Common;
 using DynamicModules.Application.Dynamic.AppService.Data;
 using DynamicModules.Application.Dynamic.AppService.SharedMasters;
 using DynamicModules.Application.Dynamic.FieldService.Data;
@@ -21,7 +22,7 @@ public static partial class AppPackageValidator
 
     // ---- 結構層 ----
 
-    private static void Format6Structure(AppPackageData p, List<string> errors)
+    private static void Format6Structure(AppPackageData p, List<string> errors, Dictionary<string, MessageRef> refs)
     {
         var m = p.Manifest;
         var masters = m.Requires.Masters;
@@ -43,8 +44,9 @@ public static partial class AppPackageValidator
             return;
         }
 
-        if (m.Kind is not (null or AppManifest.AppKindName or AppManifest.MasterKindName))
-            errors.Add("manifest.kind: 必須是 app 或 master");
+        if (m.Kind is not (null or AppManifest.AppKindName or AppManifest.MasterKindName or AppManifest.TemplateKindName))
+            Keyed(errors, refs, MessageText.AppKindInvalid);
+        if (m.IsTemplate && p.Integrations.Count > 0) Keyed(errors, refs, MessageText.AppTemplateNoIntegrations);
 
         if (masters.Count > MaxMasters) errors.Add($"manifest.requires.masters: 最多 {MaxMasters} 個");
         var seen = new HashSet<string>();

@@ -40,4 +40,9 @@ public class AppSchemaTests
         Keys(manifest).Should().Contain(Properties(typeof(AppManifest)));
         Keys(manifest.GetProperty("requires").GetProperty("properties")).Should().Contain(Properties(typeof(AppManifestRequires)));
     }
+
+    [Fact]
+    public void AppSchema_ManifestKind_ListsAppMasterTemplate() =>
+        Schema().GetProperty("$defs").GetProperty("manifest").GetProperty("properties").GetProperty("kind").GetProperty("enum")
+            .EnumerateArray().Select(v => v.GetString()).Should().Equal("app", "master", "template");
 }

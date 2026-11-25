@@ -1,6 +1,11 @@
+using System.Net;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using DynamicModules.Application.Dynamic.AppService;
 using DynamicModules.Application.Dynamic.AppService.Data;
 using FluentAssertions;
+using static DynamicModules.WebAPITests.Dynamic.ApiTestKit;
 
 namespace DynamicModules.WebAPITests.Dynamic;
 
@@ -91,7 +96,75 @@ public class AppFormat6Tests
 
     [Fact]
     public void UnknownKind_IsRejected() =>
-        AloneErrors(Master("\"kind\": \"master\"", "\"kind\": \"shared\"")).Should().Contain("manifest.kind: 必須是 app 或 master");
+        AloneErrors(Master("\"kind\": \"master\"", "\"kind\": \"shared\"")).Should().Contain("manifest.kind: 必須是 app、master 或 template");
+
+    // ---- 範本套件（kind: template，範本套件設計 §5.3 V1–V3） ----
+
+    private const string KindInvalid = "manifest.kind: 必須是 app、master 或 template";
+
+    [Fact]
+    public void TemplateKind_Format8_IsValid() => AloneErrors(AppTestPackagesTemplate.TplA).Should().BeEmpty();
+
+    [Fact]
+    public void UnknownKind_ListsThreeValues_TP02() =>
+        AloneErrors(AppTestPackagesTemplate.Template("tpl-a", kind: "tmpl")).Should().Contain(KindInvalid);
+
+    [Fact]
+    public void TemplateKind_BeforeFormat6_IsRejected_TP03() =>
+        AloneErrors(AppTestPackagesTemplate.Template("tpl-a", formatVersion: 5)).Should().Contain("manifest.kind: formatVersion 6 才支援 kind");
+
+    [Fact]
+    public async Task Template_WithIntegrations_IsRejected_TP04()
+    {
+        var json = AppTestPackagesTemplate.Template("tpl-a", withApp: "app-b");
+        AloneErrors(json).Should().Contain("integrations: 範本套件不收 integrations");
+
+        using var app = new TestApp();
+        var res = await app.AsUser().PostAsync($"{Base}/apps/packages/import", new StringContent(json, Encoding.UTF8, "application/json"));
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync()).Should().Contain("integrations: 範本套件不收 integrations");
+    }
+
+    [Fact]
+    public void Template_ExtensibleOrActive_IsRejected_V3()
+    {
+        var json = AppTestPackagesTemplate.TplA
+            .Replace("\"titleField\": \"name\",", "\"titleField\": \"name\", \"extensible\": true,")
+            .Replace("\"config\": { \"required\": true } }", "\"config\": { \"required\": true }, \"active\": false }");
+        AloneErrors(json).Should().Contain("item.extensible: 只有主檔套件的模組可以設 extensible")
+            .And.Contain("item.name.active: 只有主檔套件的模組與 contributions 的欄位可以設 active");
+    }
+
+    [Theory]
+    [InlineData("Template")]
+    [InlineData("TEMPLATE")]
+    [InlineData("")]
+    [InlineData(" template")]
+    public void Kind_NearMisses_AreRejected(string kind) =>
+        AloneErrors(AppTestPackagesTemplate.Template("tpl-a", kind: kind)).Should().Contain(KindInvalid);
+
+    /// <summary>V1、V2 經匯入端點依 X-Locale 回應：英文、泰文、越南文都不得是繁中。</summary>
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("th")]
+    [InlineData("vi")]
+    public async Task KindAndIntegrationErrors_AreLocalized(string locale)
+    {
+        using var app = new TestApp();
+        var admin = app.AsUser();
+        foreach (var json in new[] { AppTestPackagesTemplate.Template("tpl-a", kind: "tmpl"), AppTestPackagesTemplate.Template("tpl-a", withApp: "app-b") })
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, $"{Base}/apps/packages/import") { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+            req.Headers.Add("X-Locale", locale);
+            var res = await admin.SendAsync(req);
+            res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            var package = JsonDocument.Parse(await res.Content.ReadAsStringAsync()).RootElement.GetProperty("errors").GetProperty("package")
+                .EnumerateArray().Select(e => e.GetString()!).ToList();
+            package.Should().NotBeEmpty().And.OnlyContain(m => !Regex.IsMatch(m, "[一-鿿]"));
+            if (locale == "en-US")
+                package.Should().Contain(m => m == "manifest.kind: must be app, master or template" || m == "integrations: a template package cannot contain integrations");
+        }
+    }
 
     // ---- 主檔套件的限制（§4.1） ----
 

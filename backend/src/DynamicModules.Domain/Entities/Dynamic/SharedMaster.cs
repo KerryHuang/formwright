@@ -3,7 +3,7 @@ namespace DynamicModules.Domain.Entities.Dynamic;
 // 共用主檔（設計 2026-11-10-shared-master-design §8）的資料表。
 
 /// <summary>應用程式或主檔（manifest.kind）。</summary>
-public enum AppKind { App, Master }
+public enum AppKind { App, Master, Template }
 
 /// <summary>權限來源：貢獻者應用程式、主檔自己（steward）、管理員手動。</summary>
 public enum GrantSource { App, Master, Manual }

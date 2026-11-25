@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using DynamicModules.Application.Common;
 using DynamicModules.Application.Dynamic.AppService.Data;
 using DynamicModules.Application.Dynamic.ModuleService.Data;
 using DynamicModules.Application.Dynamic.TemplateService;
@@ -10,7 +11,13 @@ using static DynamicModules.Application.Dynamic.TemplateService.TemplateGraph;
 
 namespace DynamicModules.Application.Dynamic.AppService;
 
-public record AppValidation(IReadOnlyList<string> Errors, IReadOnlyList<string> Warnings);
+/// <summary>
+/// <see cref="ErrorRefs"/> 與 <see cref="Errors"/> 同序同長：有鍵的錯誤是 <see cref="MessageRef.Of"/>（回給使用者時依請求語系解析），其餘是字面值。
+/// </summary>
+public record AppValidation(IReadOnlyList<string> Errors, IReadOnlyList<string> Warnings)
+{
+    public IReadOnlyList<MessageRef> ErrorRefs { get; init; } = Errors.Select(MessageRef.Literal).ToList();
+}
 
 /// <summary>設計上限（政策 A16）的全系統生效值；<see cref="MaxModules"/> 也管 workflows 數。</summary>
 public sealed record DesignLimits(int MaxGroups, int MaxModules, int MaxFieldsPerModule, int MaxOptionsPerField,
@@ -54,11 +61,24 @@ public static partial class AppPackageValidator
     public static AppValidation Validate(AppPackageData p, IReadOnlyDictionary<string, AppPackageData>? masters = null)
     {
         var warnings = new List<string>();
-        var errors = Structure(p);
-        if (errors.Count > 0) return new AppValidation(errors, warnings);
+        var refs = new Dictionary<string, MessageRef>(StringComparer.Ordinal);
+        var errors = Structure(p, refs);
+        if (errors.Count > 0) return new AppValidation(errors, warnings) { ErrorRefs = RefsOf(errors, refs) };
         errors = References(p, warnings, masters);
-        return new AppValidation(errors, warnings);
+        return new AppValidation(errors, warnings) { ErrorRefs = RefsOf(errors, refs) };
     }
+
+    /// <summary>有鍵的錯誤：<paramref name="errors"/> 放繁中（log、例外與既有斷言用），<paramref name="refs"/> 記同一句對應的鍵與參數。</summary>
+    private static void Keyed(List<string> errors, Dictionary<string, MessageRef> refs, string key, params object[] args)
+    {
+        var r = MessageRef.Of(key, args);
+        var text = r.Resolve(I18nText.FallbackLocale);
+        errors.Add(text);
+        refs[text] = r;
+    }
+
+    private static List<MessageRef> RefsOf(IReadOnlyList<string> errors, Dictionary<string, MessageRef> refs) =>
+        errors.Select(e => refs.TryGetValue(e, out var r) ? r : MessageRef.Literal(e)).ToList();
 
     /// <summary>
     /// 設計上限（政策 A16）的套件數量檢查：上限由呼叫端從政策讀出後傳入（靜態的 Validate 在啟動時也會跑，那時不能讀資料庫），
@@ -93,7 +113,7 @@ public static partial class AppPackageValidator
 
     // ---- 結構層 ----
 
-    private static List<string> Structure(AppPackageData p)
+    private static List<string> Structure(AppPackageData p, Dictionary<string, MessageRef> refs)
     {
         var errors = new List<string>();
         if (p.Format != AppPackageData.FormatName) errors.Add($"format: 必須是 \"{AppPackageData.FormatName}\"");
@@ -115,7 +135,7 @@ public static partial class AppPackageValidator
             if (p.Ledgers.Count > 0) errors.Add("ledgers: formatVersion 4 才支援 ledgers");
         }
         IntegrationStructure(p, errors);
-        Format6Structure(p, errors);
+        Format6Structure(p, errors, refs);
         Format7Structure(p, errors);
         Format8Structure(p, errors);
         if (p.Events.Count > MaxEvents) errors.Add($"events: 最多 {MaxEvents} 個");
