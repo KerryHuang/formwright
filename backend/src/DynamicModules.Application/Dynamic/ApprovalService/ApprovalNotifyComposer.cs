@@ -42,6 +42,7 @@ public sealed class ApprovalNotifyComposer(
         var link = $"/dynamic/{module.Key}/{inst.RecordId}";
         var asRecord = new Record { Id = record.Id, ModuleId = record.ModuleId, OwnerUserId = record.OwnerUserId, ValuesJson = RecordValueProcessor.Serialize(values) };
 
+        await audience.PrepareAsync(module, record, userIds, ct);
         var cache = new Dictionary<string, string>(StringComparer.Ordinal);
         var result = new List<NotifyMessage>(userIds.Count);
         foreach (var userId in userIds)

@@ -7,6 +7,17 @@ public interface IPermissionRepository
     /// <summary>載入該模組、該使用者所屬群組的權限列；使用者不存在回 null。</summary>
     Task<PermissionInputs?> LoadInputsAsync(string userId, Module module, CancellationToken ct);
 
+    /// <summary>
+    /// 一次載入多位使用者在該模組的權限輸入（通知節點收件人用）；結果與逐人 <see cref="LoadInputsAsync"/> 相同，使用者不存在的鍵回 null。
+    /// 預設實作逐人呼叫；資料庫實作改成固定次數的批次查詢。
+    /// </summary>
+    async Task<IReadOnlyDictionary<string, PermissionInputs?>> LoadInputsBatchAsync(IReadOnlyCollection<string> userIds, Module module, CancellationToken ct)
+    {
+        var result = new Dictionary<string, PermissionInputs?>(StringComparer.Ordinal);
+        foreach (var id in userIds.Distinct(StringComparer.Ordinal)) result[id] = await LoadInputsAsync(id, module, ct);
+        return result;
+    }
+
     /// <summary>只載入單一 ProgramCode 的動作軸權限（設計器 DYN00000 用）；使用者不存在回 null。</summary>
     Task<PermissionInputs?> LoadProgramInputsAsync(string userId, string programCode, CancellationToken ct);
 

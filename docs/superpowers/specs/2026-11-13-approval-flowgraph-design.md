@@ -1163,7 +1163,12 @@
 - **參照欄位的可見性**：`ReferenceResolver` 加一個「被參照模組的讀取權由呼叫端判斷」的多載，原本的呼叫端行為不變；通知以收件人的 userId 判斷（不經 guard）。
 - **寫入通知的入口**：`ApprovalNotifier.NotifyPrepared`（計畫 fg5b 的二擇一），不經 `NotifyAsync` 的排除邏輯（U10）。
 - **歷程 comment** 固定繁中：「已通知 n 人」「沒有收件人，未發送」「收件人 N 人超過上限，只通知前 n 人」；`data` 只有 `count`、`total`、`truncated`、`none`。
-- **T10 量測**：SQLite、本機開發機，201 人群組（解析 201、截斷 200、全部沒有模組權限）的整個送出請求約 600 ms（三次 596–609 ms），低於計畫的 1 秒門檻，不加批次載入。PostgreSQL 下這段在全庫寫入鎖內，會拉長其他寫入的等待（未量測）。
+- **T10 量測**：SQLite、本機開發機，201 人群組（解析 201、截斷 200、全部沒有模組權限）的整個送出請求約 600 ms（三次 596–609 ms），低於計畫的 1 秒門檻。PostgreSQL（Testcontainers）同一個情境逐人查詢時約 2.0 秒（2007、2006、1975 ms），且這段在全庫寫入鎖內，會拉長其他寫入的等待，所以 fg5d 前補了批次載入（第三輪）：
+  - `IPermissionRepository.LoadInputsBatchAsync` 一次載入全部收件人的權限輸入（固定次數查詢，結果與逐人 `LoadInputsAsync` 相同；介面有預設實作，MCP 通道裝飾器照樣標 `AiMasked`）。
+  - `IApprovalInstanceRepository.ListOpenActorsAsync` 一次查完這筆記錄 open 任務的可動作者，取代逐人 `IsOpenActorAsync`（判斷內容不變；沒預載的單人路徑仍用舊查詢）。
+  - `RollupSourceMasks.PrepareAsync` 一次預載彙總來源模組、來源模組的權限輸入與使用者清單；剖析顯示逐人算彙總來源遮罩占了約 90% 的時間（約 6 ms × 200 人）。
+  - `ApprovalNotifyAudience.PrepareAsync`（Composer 組字前呼叫一次）預載 program 啟用狀態與上列三項；權限判斷語意不變，Audience 既有測試斷言照過。
+  - 結果：PostgreSQL 同一情境整個送出請求約 0.27 秒（274、274、241 ms），低於 1 秒門檻。
 - **待確認：發起人自己沒有讀取權時**，照 U-c 他收到的通知裡 `{initiator}` 也是「（無權限）」（標題照常，因為發起人一律看得到標題）。這只發生在送出後發起人的模組讀取權被收回的情況。
 
 ### fg5a、fg5b 修正輪（審查後）

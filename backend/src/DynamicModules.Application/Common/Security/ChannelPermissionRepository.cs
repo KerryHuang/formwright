@@ -20,6 +20,14 @@ public sealed class ChannelPermissionRepository(IPermissionRepository inner, IRe
         return inputs is not null && channel.Channel == RequestChannel.Mcp ? inputs with { AiMasked = true } : inputs;
     }
 
+    public async Task<IReadOnlyDictionary<string, PermissionInputs?>> LoadInputsBatchAsync(IReadOnlyCollection<string> userIds, Module module, CancellationToken ct)
+    {
+        var batch = await inner.LoadInputsBatchAsync(userIds, module, ct);
+        return channel.Channel == RequestChannel.Mcp
+            ? batch.ToDictionary(kv => kv.Key, kv => kv.Value is null ? null : kv.Value with { AiMasked = true }, StringComparer.Ordinal)
+            : batch;
+    }
+
     public Task<PermissionInputs?> LoadProgramInputsAsync(string userId, string programCode, CancellationToken ct) =>
         inner.LoadProgramInputsAsync(userId, programCode, ct);
 

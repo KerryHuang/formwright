@@ -20,6 +20,25 @@ public sealed record NotifyAccess(bool CanReadRecord, bool ShowTitle, IReadOnlyS
 public sealed class ApprovalNotifyAudience(
     IProgramRepository programs, IPermissionRepository permissions, RollupSourceMasks sources, IApprovalInstanceRepository repo)
 {
+    // 通知逐人判斷會重複用到、且與收件人無關的資料：Prepare 一次載好（program 啟用、收件人的權限輸入、這筆記錄 open 任務的可動作者）。
+    // 沒呼叫 Prepare 的路徑（單人判斷、被參照模組）照舊逐次查詢。
+    private readonly Dictionary<string, bool> _programActive = new(StringComparer.Ordinal);
+    private readonly Dictionary<(long ModuleId, string UserId), PermissionInputs?> _inputs = [];
+    private readonly Dictionary<long, HashSet<string>> _openActors = [];
+    private RollupSourceBatch? _rollupBatch;
+
+    /// <summary>為一批收件人預載本模組的權限輸入、program 啟用狀態與 open 任務可動作者，把逐人的查詢壓成固定次數。</summary>
+    public async Task PrepareAsync(Module module, Record record, IReadOnlyCollection<string> userIds, CancellationToken ct)
+    {
+        _programActive.Clear();
+        _inputs.Clear();
+        _openActors.Clear();
+        _rollupBatch = await sources.PrepareAsync(module, userIds, ct);
+        _programActive[module.ProgramCode] = await programs.GetAsync(module.ProgramCode, ct) is { Active: true };
+        foreach (var (id, inputs) in await permissions.LoadInputsBatchAsync(userIds, module, ct)) _inputs[(module.Id, id)] = inputs;
+        _openActors[record.Id] = await repo.ListOpenActorsAsync(record.Id, ct);
+    }
+
     /// <param name="tasks">這個實例目前的全部任務（判斷「在該實例有任務的人」看得到標題）；呼叫端在同一次推進先 SaveChanges 再查（計畫 T4）。</param>
     public async Task<NotifyAccess> ForAsync(Module module, Record record, ApprovalInstance inst, IReadOnlyList<ApprovalTask> tasks, string userId,
         CancellationToken ct)
@@ -38,10 +57,10 @@ public sealed class ApprovalNotifyAudience(
             return new NotifyAccess(true, participant || module.TitleVisibleTo(read) || IsManager(module, inputs, mask, record), read.HiddenFieldIds, read);
 
         // 簽核臨時讀取權（ApprovalReadGrant.ForRecordAsync）：這筆記錄 open 任務的可動作者，含代理任務的本人、轉交出去的不算
-        if (await repo.IsOpenActorAsync(record.Id, userId, ct))
+        if (_openActors.TryGetValue(record.Id, out var actors) ? actors.Contains(userId) : await repo.IsOpenActorAsync(record.Id, userId, ct))
         {
             var elevated = ApprovalReadGrant.Elevate(inputs, module);
-            var (ok, source) = await sources.LoadAsync(module, elevated, userId, ct);
+            var (ok, source) = await sources.LoadAsync(module, elevated, userId, ct, _rollupBatch);
             if (ok)
             {
                 var granted = ApprovalReadGrant.Grant(PermissionResolver.Resolve(module, elevated, null, source, PermissionAction.Read));
@@ -65,12 +84,12 @@ public sealed class ApprovalNotifyAudience(
     private async Task<(PermissionInputs Inputs, RollupSourceMask? Mask)?> LoadAsync(Module module, string userId, CancellationToken ct)
     {
         if (!module.IsReadable()) return null;
-        if (await programs.GetAsync(module.ProgramCode, ct) is not { Active: true }) return null;
-        var inputs = await permissions.LoadInputsAsync(userId, module, ct);
+        if (!(_programActive.TryGetValue(module.ProgramCode, out var active) ? active : await programs.GetAsync(module.ProgramCode, ct) is { Active: true })) return null;
+        var inputs = _inputs.TryGetValue((module.Id, userId), out var cached) ? cached : await permissions.LoadInputsAsync(userId, module, ct);
         if (inputs is null) return null;
         // 通知是給人看的：權限輸入被 ChannelPermissionRepository 依「觸發者」的通道標 AiMasked，不能影響收件人（審查 Y1）
         inputs = inputs with { AiMasked = false };
-        var (ok, mask) = await sources.LoadAsync(module, inputs, userId, ct);
+        var (ok, mask) = await sources.LoadAsync(module, inputs, userId, ct, _rollupBatch);
         return ok ? (inputs, mask) : null;
     }
 

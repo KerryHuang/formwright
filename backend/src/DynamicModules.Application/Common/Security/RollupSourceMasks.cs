@@ -16,25 +16,54 @@ public sealed record RollupSourceMask(IReadOnlySet<long> HiddenSourceFieldIds, I
 /// 依彙總實際的來源模組算遮罩（mcp1a 第五輪審查必修 7、9）。明細來源：動作軸取表頭、欄位例外取明細；一般參照來源用來源模組自己的權限。
 /// 加總對象與彙總條件都看；畫面通道與 MCP 通道相同（#74、#75，使用者 2026-11-21 裁決，取代 mcp1a 計畫 Q3「畫面通道不改」）。
 /// </summary>
+/// <summary>一批使用者共用的彙總來源資料（來源模組、來源模組的權限輸入、使用者清單），讓逐人算遮罩不再逐人查詢；沒預載到的照舊查詢。</summary>
+public sealed class RollupSourceBatch
+{
+    internal Dictionary<long, Module?> Sources { get; } = [];
+    internal Dictionary<(long ModuleId, string UserId), PermissionInputs?> Inputs { get; } = [];
+    internal HashSet<string>? UserIds { get; set; }
+}
+
 public sealed class RollupSourceMasks(IPermissionRepository permissions, IModuleRepository modules, FieldTypeRegistry registry)
 {
+    private static List<Field> NeedingRollups(Module module) => module.Blocks.SelectMany(b => b.Fields)
+        .Where(f => f is { Type: FieldType.Rollup, Config.Rollup: { } r } && (r.AggregateFieldId is not null || r.Condition is not null))
+        .ToList();
+
+    /// <summary>為一批使用者預載該模組彙總要用的來源資料（與 <see cref="LoadAsync"/> 的判斷同一組條件）。</summary>
+    public async Task<RollupSourceBatch> PrepareAsync(Module module, IReadOnlyCollection<string> userIds, CancellationToken ct)
+    {
+        var batch = new RollupSourceBatch();
+        var loadedInputs = new HashSet<long>();
+        foreach (var f in NeedingRollups(module))
+        {
+            var cfg = f.Config.Rollup!;
+            if (!batch.Sources.TryGetValue(cfg.SourceFieldId, out var source))
+                batch.Sources[cfg.SourceFieldId] = source = await modules.GetByFieldIdAsync(cfg.SourceFieldId, ct);
+            if (source is null) continue;
+            if (loadedInputs.Add(source.Id))
+                foreach (var (id, inputs) in await permissions.LoadInputsBatchAsync(userIds, source, ct)) batch.Inputs[(source.Id, id)] = inputs;
+            if (cfg.Condition is not null) batch.UserIds ??= await modules.ListUserIdsAsync(ct);
+        }
+        return batch;
+    }
+
     /// <summary>
     /// 沒有需要看來源的彙總回 (true, null)；任一來源模組讀不到權限輸入回 (false, null)，呼叫端不放行。
     /// 畫面通道的系統管理員直接回 (true, null)：<see cref="PermissionResolver.Resolve"/> 對他提早回傳，算了也用不到。
     /// </summary>
-    public async Task<(bool Ok, RollupSourceMask? Mask)> LoadAsync(Module module, PermissionInputs inputs, string userId, CancellationToken ct)
+    public async Task<(bool Ok, RollupSourceMask? Mask)> LoadAsync(Module module, PermissionInputs inputs, string userId, CancellationToken ct,
+        RollupSourceBatch? batch = null)
     {
         if (inputs.User.IsSystemAdmin && !inputs.AiMasked) return (true, null);
-        var rollups = module.Blocks.SelectMany(b => b.Fields)
-            .Where(f => f is { Type: FieldType.Rollup, Config.Rollup: { } r } && (r.AggregateFieldId is not null || r.Condition is not null))
-            .ToList();
+        var rollups = NeedingRollups(module);
         if (rollups.Count == 0) return (true, null);
 
         var hidden = new HashSet<long>();
         var conditionRefs = new Dictionary<long, IReadOnlySet<long>?>();
-        var sources = new Dictionary<long, Module?>();
+        var sources = batch?.Sources is { } pre ? new Dictionary<long, Module?>(pre) : new Dictionary<long, Module?>();
         var resolved = new HashSet<(long, bool)>();
-        HashSet<string>? userIds = null;
+        HashSet<string>? userIds = batch?.UserIds;
         foreach (var f in rollups)
         {
             var cfg = f.Config.Rollup!;
@@ -51,7 +80,8 @@ public sealed class RollupSourceMasks(IPermissionRepository permissions, IModule
 
             if (resolved.Add((source.Id, detail)))
             {
-                var sourceInputs = await permissions.LoadInputsAsync(userId, source, ct);
+                var sourceInputs = batch is not null && batch.Inputs.TryGetValue((source.Id, userId), out var preloaded) ? preloaded
+                    : await permissions.LoadInputsAsync(userId, source, ct);
                 if (sourceInputs is null) return (false, null);
                 sourceInputs = sourceInputs with { AiMasked = inputs.AiMasked };
                 hidden.UnionWith((detail

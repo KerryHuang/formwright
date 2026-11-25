@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Text.Json;
 using DynamicModules.Application.Common;
 using DynamicModules.Application.Common.Security;
@@ -37,6 +38,33 @@ public class ApprovalGraphNotifyTests(ITestOutputHelper output) : ApprovalTestBa
         base.ConfigureServices(services);
         services.AddSingleton<IRequestChannel>(_channel);
         services.AddChannelPermissionMasking();
+        // 只在 Composer 內讓記錄「不見」（S4 的 409 路徑）：其餘呼叫照常，所以送出前的檢查與推進都正常
+        var original = services.Last(d => d.ServiceType == typeof(IRecordRepository));
+        services.Remove(original);
+        services.Add(new ServiceDescriptor(typeof(IRecordRepository), sp =>
+        {
+            var inner = (IRecordRepository)(original.ImplementationFactory?.Invoke(sp) ?? ActivatorUtilities.CreateInstance(sp, original.ImplementationType!));
+            var proxy = DispatchProxy.Create<IRecordRepository, VanishingRecords>();
+            var v = (VanishingRecords)(object)proxy;
+            (v.Inner, v.Vanish) = (inner, () => _recordVanishesInComposer);
+            return proxy;
+        }, original.Lifetime));
+    }
+
+    private bool _recordVanishesInComposer;
+
+    public class VanishingRecords : DispatchProxy
+    {
+        public IRecordRepository Inner { get; set; } = null!;
+        public Func<bool> Vanish { get; set; } = () => false;
+
+        protected override object? Invoke(MethodInfo? method, object?[]? args)
+        {
+            if (method!.Name == nameof(IRecordRepository.GetAsync) && Vanish() && new StackTrace().ToString().Contains(nameof(ApprovalNotifyComposer)))
+                return Task.FromResult<DynamicModules.Domain.Entities.Dynamic.Record?>(null);
+            try { return method.Invoke(Inner, args); }
+            catch (TargetInvocationException e) { throw e.InnerException!; }
+        }
     }
 
     private long _amount;
@@ -529,5 +557,27 @@ public class ApprovalGraphNotifyTests(ITestOutputHelper output) : ApprovalTestBa
         var v = Payload(NotifyRows("emp1").Single()).Values[ApprovalNotifyData.FieldKey(r.ExtraSum)];
         v.S.Should().BeNull();
         v.T.Should().Contain("777");
+    }
+
+    [Fact]
+    [Trait("Category", "Postgres")]   // 交易回滾：PostgreSQL 交易語意與 SQLite 不同
+    public async Task RecordMissingWhenComposing_409_AdminAlert_NothingPersisted()
+    {
+        // S4：組字時找不到記錄（資料不一致）→ 409（GraphRuntimeInvalid）＋系統管理員警示，整筆回滾，不留 approvalNotify、notify 歷程、實例
+        var r = await Rig(_ => G([Start(), Notify("n", [ToUsers("emp1")]), Approval("a", Users("fin1")), End()],
+            [E("e0", "start", "n"), E("e1", "n", "a"), E("e2", "a", "end")]));
+        As("buyer1");
+        var po = await NewPo(r, price: 5000);
+
+        _recordVanishesInComposer = true;
+        var res = await Submit(po.Id, r.Confirmed);
+        _recordVanishesInComposer = false;
+
+        res.IsConflict.Should().BeTrue(Dump(res));
+        res.Message.Should().Be(ApprovalMessages.GraphRuntimeInvalid.Resolve(null));
+        NotifyRows().Should().BeEmpty();
+        Db.Context.Set<ApprovalAction>().AsNoTracking().Count(a => a.Action == ApprovalActions.Notify).Should().Be(0);
+        Db.Context.Set<ApprovalInstance>().AsNoTracking().Count().Should().Be(0);
+        Notices("admin", NotificationKinds.ApprovalAdminAlert).Should().Be(1);
     }
 }

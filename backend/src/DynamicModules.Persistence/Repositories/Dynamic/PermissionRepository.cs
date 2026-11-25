@@ -32,6 +32,42 @@ public class PermissionRepository(DynamicDbContext db) : IPermissionRepository
             scopes, fieldPermissions, optionScopes, new HashSet<string>(mates) { userId }, actionScopes, fieldGrants);
     }
 
+    public async Task<IReadOnlyDictionary<string, PermissionInputs?>> LoadInputsBatchAsync(
+        IReadOnlyCollection<string> userIds, Module module, CancellationToken ct)
+    {
+        var ids = userIds.Distinct(StringComparer.Ordinal).ToList();
+        var result = new Dictionary<string, PermissionInputs?>(StringComparer.Ordinal);
+        if (ids.Count == 0) return result;
+
+        var users = (await db.Set<AppUser>().AsNoTracking().Where(u => ids.Contains(u.UserId)).ToListAsync(ct)).ToDictionary(u => u.UserId, StringComparer.Ordinal);
+        var memberships = await db.Set<UserGroupMapping>().AsNoTracking().Where(m => ids.Contains(m.UserId)).Select(m => new { m.UserId, m.GroupId }).ToListAsync(ct);
+        var allGroups = memberships.Select(m => m.GroupId).Distinct().ToList();
+        var privileges = await db.Set<GroupProgramPrivilege>().AsNoTracking()
+            .Where(p => p.ProgramCode == module.ProgramCode && allGroups.Contains(p.GroupId)).ToListAsync(ct);
+        var personals = (await db.Set<UserProgramPrivilege>().AsNoTracking()
+            .Where(p => ids.Contains(p.UserId) && p.ProgramCode == module.ProgramCode).ToListAsync(ct)).GroupBy(p => p.UserId).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        var scopes = await db.Set<ModuleDataScope>().AsNoTracking().Where(s => s.ModuleId == module.Id && allGroups.Contains(s.GroupId)).ToListAsync(ct);
+        var fieldIds = db.Set<Field>().Where(f => f.ModuleId == module.Id).Select(f => f.Id);
+        var fieldPermissions = await db.Set<FieldPermission>().AsNoTracking().Where(p => allGroups.Contains(p.GroupId) && fieldIds.Contains(p.FieldId)).ToListAsync(ct);
+        var optionIds = db.Set<FieldOption>().Where(o => fieldIds.Contains(o.FieldId)).Select(o => o.Id);
+        var optionScopes = await db.Set<FieldOptionScope>().AsNoTracking().Where(s => optionIds.Contains(s.OptionId)).ToListAsync(ct);
+        var groupMembers = await db.Set<UserGroupMapping>().AsNoTracking().Where(m => allGroups.Contains(m.GroupId)).Select(m => new { m.GroupId, m.UserId }).ToListAsync(ct);
+        var actionScopes = await db.Set<ModuleActionScope>().AsNoTracking().Where(s => s.ModuleId == module.Id && allGroups.Contains(s.GroupId)).ToListAsync(ct);
+        var fieldGrants = await db.Set<FieldGrant>().AsNoTracking().Where(g => allGroups.Contains(g.GroupId) && fieldIds.Contains(g.FieldId)).ToListAsync(ct);
+
+        foreach (var id in ids)
+        {
+            if (!users.TryGetValue(id, out var user)) { result[id] = null; continue; }
+            var groupIds = memberships.Where(m => m.UserId == id).Select(m => m.GroupId).ToList();
+            var mine = groupIds.ToHashSet();
+            var mates = new HashSet<string>(groupMembers.Where(m => mine.Contains(m.GroupId)).Select(m => m.UserId), StringComparer.Ordinal) { id };
+            result[id] = new PermissionInputs(user, groupIds, privileges.Where(p => mine.Contains(p.GroupId)).ToList(), personals.GetValueOrDefault(id),
+                scopes.Where(s => mine.Contains(s.GroupId)).ToList(), fieldPermissions.Where(p => mine.Contains(p.GroupId)).ToList(), optionScopes, mates,
+                actionScopes.Where(s => mine.Contains(s.GroupId)).ToList(), fieldGrants.Where(g => mine.Contains(g.GroupId)).ToList());
+        }
+        return result;
+    }
+
     public async Task<PermissionInputs?> LoadProgramInputsAsync(string userId, string programCode, CancellationToken ct)
     {
         var (user, groupIds, groupPrivileges, userPrivilege) = await LoadProgramAsync(userId, programCode, ct);
