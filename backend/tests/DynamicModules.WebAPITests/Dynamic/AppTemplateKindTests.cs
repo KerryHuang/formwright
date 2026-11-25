@@ -407,4 +407,18 @@ public class AppTemplateKindTests : IDisposable
             .Should().NotContain(w => w!.Contains("已沒有應用程式使用"));
         StatusOf("partner-lite").Should().Be(AppStatus.Open);
     }
+
+    [Fact]
+    public async Task ReimportBuiltInTemplateId_Is409_TP09a()
+    {
+        var json = AppTestPackagesTemplate.Template("quality-inspection", "2.0.0");
+        var res = await ImportAsync(json);
+        res.StatusCode.Should().Be(HttpStatusCode.Conflict, await Body(res));
+        (await Body(res)).Should().Contain("套件代碼已存在");
+
+        var list = JsonDocument.Parse(await _admin.GetStringAsync($"{Base}/apps/packages")).RootElement.EnumerateArray().ToList();
+        var entry = list.Single(x => Prop(x, "id") == "quality-inspection");
+        Prop(entry, "version").Should().Be("1.0.0");
+        Prop(entry, "source").Should().Be("builtIn");
+    }
 }

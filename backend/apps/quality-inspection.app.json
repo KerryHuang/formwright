@@ -1,0 +1,723 @@
+{
+  "format": "formwright-app",
+  "formatVersion": 8,
+  "x-translation": "th、vi 標籤為機器翻譯，待母語者校對",
+  "manifest": {
+    "id": "quality-inspection",
+    "kind": "template",
+    "version": "1.0.0",
+    "name": {
+      "zh-TW": "品質檢驗",
+      "en-US": "Quality inspection",
+      "th": "การตรวจสอบคุณภาพ",
+      "vi": "Kiểm tra chất lượng"
+    },
+    "description": {
+      "zh-TW": "檢驗項目、檢驗紀錄與明細，不合格要寫處置說明；開啟後屬於你，可自行修改",
+      "en-US": "Inspection items, records and line results; failures need a disposition note. Yours to change once opened",
+      "th": "รายการตรวจสอบ บันทึก และผลรายการ หากไม่ผ่านต้องระบุการจัดการ เปิดแล้วเป็นของคุณและแก้ไขได้",
+      "vi": "Hạng mục, hồ sơ và kết quả chi tiết kiểm tra; không đạt phải ghi xử lý. Sau khi mở thuộc về bạn và có thể tự sửa"
+    },
+    "icon": "fact_check",
+    "requires": {
+      "masters": [
+        {
+          "id": "partner",
+          "modules": [
+            "partner"
+          ]
+        }
+      ]
+    }
+  },
+  "groups": [
+    {
+      "code": "qa",
+      "name": {
+        "zh-TW": "品管",
+        "en-US": "Quality control",
+        "th": "ควบคุมคุณภาพ",
+        "vi": "Quản lý chất lượng"
+      }
+    }
+  ],
+  "modules": [
+    {
+      "code": "item",
+      "key": "qc-item",
+      "name": {
+        "zh-TW": "檢驗項目",
+        "en-US": "Inspection items",
+        "th": "รายการตรวจสอบ",
+        "vi": "Hạng mục kiểm tra"
+      },
+      "kind": "standalone",
+      "titleField": "name",
+      "icon": "fact_check",
+      "section": {
+        "zh-TW": "品管",
+        "en-US": "Quality",
+        "th": "คุณภาพ",
+        "vi": "Chất lượng"
+      },
+      "blocks": [
+        {
+          "code": "main",
+          "label": {
+            "zh-TW": "基本資料",
+            "en-US": "Details",
+            "th": "ข้อมูลพื้นฐาน",
+            "vi": "Thông tin cơ bản"
+          },
+          "collapsed": false,
+          "columns": 4,
+          "fields": [
+            {
+              "code": "name",
+              "type": "text",
+              "label": {
+                "zh-TW": "名稱",
+                "en-US": "Name",
+                "th": "ชื่อ",
+                "vi": "Tên"
+              },
+              "config": {
+                "required": true,
+                "showInList": true,
+                "isFilterable": true
+              }
+            },
+            {
+              "code": "method",
+              "type": "text",
+              "label": {
+                "zh-TW": "檢驗方法",
+                "en-US": "Method",
+                "th": "วิธีการตรวจสอบ",
+                "vi": "Phương pháp kiểm tra"
+              },
+              "config": {
+                "showInList": true
+              }
+            },
+            {
+              "code": "judgeType",
+              "type": "enum",
+              "label": {
+                "zh-TW": "判定方式",
+                "en-US": "Judgment method",
+                "th": "วิธีการตัดสิน",
+                "vi": "Phương pháp đánh giá"
+              },
+              "config": {
+                "required": true,
+                "showInList": true,
+                "isFilterable": true
+              },
+              "options": [
+                {
+                  "code": "numeric",
+                  "label": {
+                    "zh-TW": "數值",
+                    "en-US": "Numeric",
+                    "th": "ตัวเลข",
+                    "vi": "Số liệu"
+                  },
+                  "color": "blue"
+                },
+                {
+                  "code": "visual",
+                  "label": {
+                    "zh-TW": "目視",
+                    "en-US": "Visual",
+                    "th": "ตรวจด้วยสายตา",
+                    "vi": "Quan sát"
+                  },
+                  "color": "green"
+                }
+              ]
+            },
+            {
+              "code": "lower",
+              "type": "decimal",
+              "label": {
+                "zh-TW": "下限",
+                "en-US": "Lower limit",
+                "th": "ค่าต่ำสุด",
+                "vi": "Giới hạn dưới"
+              },
+              "config": {
+                "scale": 2
+              }
+            },
+            {
+              "code": "upper",
+              "type": "decimal",
+              "label": {
+                "zh-TW": "上限",
+                "en-US": "Upper limit",
+                "th": "ค่าสูงสุด",
+                "vi": "Giới hạn trên"
+              },
+              "config": {
+                "scale": 2
+              }
+            },
+            {
+              "code": "unit",
+              "type": "text",
+              "label": {
+                "zh-TW": "單位",
+                "en-US": "Unit",
+                "th": "หน่วย",
+                "vi": "Đơn vị"
+              },
+              "config": {
+                "showInList": true
+              }
+            },
+            {
+              "code": "remark",
+              "type": "textarea",
+              "label": {
+                "zh-TW": "備註",
+                "en-US": "Remark",
+                "th": "หมายเหตุ",
+                "vi": "Ghi chú"
+              },
+              "config": {}
+            }
+          ]
+        }
+      ],
+      "rules": [
+        {
+          "kind": "required",
+          "targets": [
+            "field:unit"
+          ],
+          "active": true,
+          "options": [],
+          "message": {
+            "zh-TW": "判定方式是數值時，單位必填",
+            "en-US": "Unit is required when the judgment method is numeric",
+            "th": "ต้องระบุหน่วยเมื่อวิธีการตัดสินเป็นตัวเลข",
+            "vi": "Phải nhập đơn vị khi phương pháp đánh giá là số liệu"
+          },
+          "condition": {
+            "field": "judgeType",
+            "op": "eq",
+            "value": "opt_numeric"
+          }
+        }
+      ],
+      "permissions": [
+        {
+          "group": "qa",
+          "scope": "all",
+          "privileges": {
+            "read": true,
+            "add": true,
+            "edit": true,
+            "delete": true,
+            "printExport": true,
+            "pricing": false,
+            "approve": false
+          }
+        }
+      ]
+    },
+    {
+      "code": "inspection",
+      "key": "qc-inspection",
+      "name": {
+        "zh-TW": "檢驗紀錄",
+        "en-US": "Inspection records",
+        "th": "บันทึกการตรวจสอบ",
+        "vi": "Hồ sơ kiểm tra"
+      },
+      "kind": "standalone",
+      "titleField": "no",
+      "icon": "assignment_turned_in",
+      "section": {
+        "zh-TW": "品管",
+        "en-US": "Quality",
+        "th": "คุณภาพ",
+        "vi": "Chất lượng"
+      },
+      "blocks": [
+        {
+          "code": "main",
+          "label": {
+            "zh-TW": "基本資料",
+            "en-US": "Details",
+            "th": "ข้อมูลพื้นฐาน",
+            "vi": "Thông tin cơ bản"
+          },
+          "collapsed": false,
+          "columns": 4,
+          "fields": [
+            {
+              "code": "no",
+              "type": "autonumber",
+              "label": {
+                "zh-TW": "單號",
+                "en-US": "No.",
+                "th": "เลขที่",
+                "vi": "Số phiếu"
+              },
+              "config": {
+                "format": "QC-{0000}",
+                "showInList": true,
+                "isFilterable": true
+              }
+            },
+            {
+              "code": "date",
+              "type": "date",
+              "label": {
+                "zh-TW": "檢驗日期",
+                "en-US": "Inspection date",
+                "th": "วันที่ตรวจสอบ",
+                "vi": "Ngày kiểm tra"
+              },
+              "config": {
+                "required": true,
+                "defaultToday": true,
+                "showInList": true,
+                "isFilterable": true,
+                "isSortable": true
+              }
+            },
+            {
+              "code": "type",
+              "type": "enum",
+              "label": {
+                "zh-TW": "檢驗類型",
+                "en-US": "Inspection type",
+                "th": "ประเภทการตรวจสอบ",
+                "vi": "Loại kiểm tra"
+              },
+              "config": {
+                "required": true,
+                "showInList": true,
+                "isFilterable": true
+              },
+              "options": [
+                {
+                  "code": "incoming",
+                  "label": {
+                    "zh-TW": "進料",
+                    "en-US": "Incoming",
+                    "th": "รับเข้า",
+                    "vi": "Nhập hàng"
+                  },
+                  "color": "blue"
+                },
+                {
+                  "code": "process",
+                  "label": {
+                    "zh-TW": "製程",
+                    "en-US": "In-process",
+                    "th": "ระหว่างกระบวนการ",
+                    "vi": "Trong quá trình"
+                  },
+                  "color": "orange"
+                },
+                {
+                  "code": "final",
+                  "label": {
+                    "zh-TW": "成品",
+                    "en-US": "Final",
+                    "th": "สินค้าสำเร็จรูป",
+                    "vi": "Thành phẩm"
+                  },
+                  "color": "green"
+                },
+                {
+                  "code": "other",
+                  "label": {
+                    "zh-TW": "其他",
+                    "en-US": "Other",
+                    "th": "อื่น ๆ",
+                    "vi": "Khác"
+                  },
+                  "color": "grey"
+                }
+              ]
+            },
+            {
+              "code": "partner",
+              "type": "reference",
+              "label": {
+                "zh-TW": "往來對象",
+                "en-US": "Business partner",
+                "th": "คู่ค้า",
+                "vi": "Đối tác"
+              },
+              "config": {
+                "showInList": true,
+                "isFilterable": true,
+                "refTarget": {
+                  "kind": "module",
+                  "key": "partner",
+                  "app": "partner"
+                }
+              }
+            },
+            {
+              "code": "target",
+              "type": "text",
+              "label": {
+                "zh-TW": "檢驗對象",
+                "en-US": "Inspected object",
+                "th": "สิ่งที่ตรวจสอบ",
+                "vi": "Đối tượng kiểm tra"
+              },
+              "config": {
+                "showInList": true
+              }
+            },
+            {
+              "code": "inspector",
+              "type": "user",
+              "label": {
+                "zh-TW": "檢驗人",
+                "en-US": "Inspector",
+                "th": "ผู้ตรวจสอบ",
+                "vi": "Người kiểm tra"
+              },
+              "config": {
+                "showInList": true,
+                "isFilterable": true
+              }
+            },
+            {
+              "code": "result",
+              "type": "enum",
+              "label": {
+                "zh-TW": "結果",
+                "en-US": "Result",
+                "th": "ผลลัพธ์",
+                "vi": "Kết quả"
+              },
+              "config": {
+                "required": true,
+                "showInList": true,
+                "isFilterable": true
+              },
+              "options": [
+                {
+                  "code": "pass",
+                  "label": {
+                    "zh-TW": "合格",
+                    "en-US": "Pass",
+                    "th": "ผ่าน",
+                    "vi": "Đạt"
+                  },
+                  "color": "green"
+                },
+                {
+                  "code": "fail",
+                  "label": {
+                    "zh-TW": "不合格",
+                    "en-US": "Fail",
+                    "th": "ไม่ผ่าน",
+                    "vi": "Không đạt"
+                  },
+                  "color": "red"
+                },
+                {
+                  "code": "special",
+                  "label": {
+                    "zh-TW": "特採",
+                    "en-US": "Concession",
+                    "th": "ยอมรับพิเศษ",
+                    "vi": "Chấp nhận đặc biệt"
+                  },
+                  "color": "orange"
+                }
+              ]
+            },
+            {
+              "code": "failCount",
+              "type": "rollup",
+              "label": {
+                "zh-TW": "不合格項數",
+                "en-US": "Failed items",
+                "th": "จำนวนรายการที่ไม่ผ่าน",
+                "vi": "Số hạng mục không đạt"
+              },
+              "config": {
+                "showInList": true,
+                "rollup": {
+                  "sourceField": "line.inspection",
+                  "function": "count",
+                  "condition": {
+                    "field": "judgement",
+                    "op": "eq",
+                    "value": "opt_fail"
+                  }
+                }
+              }
+            },
+            {
+              "code": "resolution",
+              "type": "textarea",
+              "label": {
+                "zh-TW": "處置說明",
+                "en-US": "Disposition",
+                "th": "คำอธิบายการจัดการ",
+                "vi": "Mô tả xử lý"
+              },
+              "config": {}
+            }
+          ]
+        }
+      ],
+      "rules": [
+        {
+          "kind": "required",
+          "targets": [
+            "field:resolution"
+          ],
+          "active": true,
+          "options": [],
+          "message": {
+            "zh-TW": "結果是不合格或特採時，處置說明必填",
+            "en-US": "Disposition is required when the result is fail or concession",
+            "th": "ต้องระบุคำอธิบายการจัดการเมื่อผลลัพธ์เป็นไม่ผ่านหรือยอมรับพิเศษ",
+            "vi": "Phải nhập mô tả xử lý khi kết quả là không đạt hoặc chấp nhận đặc biệt"
+          },
+          "condition": {
+            "any": [
+              {
+                "field": "result",
+                "op": "eq",
+                "value": "opt_fail"
+              },
+              {
+                "field": "result",
+                "op": "eq",
+                "value": "opt_special"
+              }
+            ]
+          }
+        }
+      ],
+      "permissions": [
+        {
+          "group": "qa",
+          "scope": "all",
+          "privileges": {
+            "read": true,
+            "add": true,
+            "edit": true,
+            "delete": true,
+            "printExport": true,
+            "pricing": false,
+            "approve": false
+          }
+        }
+      ]
+    },
+    {
+      "code": "line",
+      "key": "qc-inspection-line",
+      "name": {
+        "zh-TW": "檢驗明細",
+        "en-US": "Inspection lines",
+        "th": "รายการตรวจสอบย่อย",
+        "vi": "Chi tiết kiểm tra"
+      },
+      "kind": "standalone",
+      "titleField": "itemName",
+      "section": {
+        "zh-TW": "品管",
+        "en-US": "Quality",
+        "th": "คุณภาพ",
+        "vi": "Chất lượng"
+      },
+      "blocks": [
+        {
+          "code": "main",
+          "label": {
+            "zh-TW": "基本資料",
+            "en-US": "Details",
+            "th": "ข้อมูลพื้นฐาน",
+            "vi": "Thông tin cơ bản"
+          },
+          "collapsed": false,
+          "columns": 4,
+          "fields": [
+            {
+              "code": "inspection",
+              "type": "reference",
+              "label": {
+                "zh-TW": "檢驗紀錄",
+                "en-US": "Inspection record",
+                "th": "บันทึกการตรวจสอบ",
+                "vi": "Hồ sơ kiểm tra"
+              },
+              "config": {
+                "relation": "detail",
+                "refTarget": {
+                  "kind": "module",
+                  "key": "inspection"
+                }
+              }
+            },
+            {
+              "code": "item",
+              "type": "reference",
+              "label": {
+                "zh-TW": "檢驗項目",
+                "en-US": "Inspection item",
+                "th": "รายการตรวจสอบ",
+                "vi": "Hạng mục kiểm tra"
+              },
+              "config": {
+                "required": true,
+                "showInList": true,
+                "refTarget": {
+                  "kind": "module",
+                  "key": "item"
+                },
+                "fill": {
+                  "mode": "default",
+                  "map": [
+                    {
+                      "from": "item.name",
+                      "to": "itemName"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "code": "itemName",
+              "type": "text",
+              "label": {
+                "zh-TW": "項目名稱",
+                "en-US": "Item name",
+                "th": "ชื่อรายการ",
+                "vi": "Tên hạng mục"
+              },
+              "config": {
+                "showInList": true
+              }
+            },
+            {
+              "code": "measured",
+              "type": "decimal",
+              "label": {
+                "zh-TW": "實測值",
+                "en-US": "Measured value",
+                "th": "ค่าที่วัดได้",
+                "vi": "Giá trị đo"
+              },
+              "config": {
+                "scale": 2,
+                "showInList": true
+              }
+            },
+            {
+              "code": "judgement",
+              "type": "enum",
+              "label": {
+                "zh-TW": "判定",
+                "en-US": "Judgment",
+                "th": "การตัดสิน",
+                "vi": "Đánh giá"
+              },
+              "config": {
+                "required": true,
+                "showInList": true,
+                "isFilterable": true
+              },
+              "options": [
+                {
+                  "code": "pass",
+                  "label": {
+                    "zh-TW": "合格",
+                    "en-US": "Pass",
+                    "th": "ผ่าน",
+                    "vi": "Đạt"
+                  },
+                  "color": "green"
+                },
+                {
+                  "code": "fail",
+                  "label": {
+                    "zh-TW": "不合格",
+                    "en-US": "Fail",
+                    "th": "ไม่ผ่าน",
+                    "vi": "Không đạt"
+                  },
+                  "color": "red"
+                }
+              ]
+            },
+            {
+              "code": "remark",
+              "type": "textarea",
+              "label": {
+                "zh-TW": "備註",
+                "en-US": "Remark",
+                "th": "หมายเหตุ",
+                "vi": "Ghi chú"
+              },
+              "config": {}
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "reports": [
+    {
+      "code": "qcResultStats",
+      "name": "檢驗結果統計",
+      "shareWith": [
+        "qa"
+      ],
+      "definition": {
+        "version": 1,
+        "mainModule": "inspection",
+        "child": null,
+        "columns": [],
+        "groups": [
+          {
+            "field": {
+              "source": "main",
+              "field": "inspection.type",
+              "via": null
+            },
+            "bucket": null
+          },
+          {
+            "field": {
+              "source": "main",
+              "field": "inspection.result",
+              "via": null
+            },
+            "bucket": null
+          }
+        ],
+        "measures": [
+          {
+            "id": "n",
+            "kind": "countMain",
+            "field": null,
+            "condition": null
+          }
+        ],
+        "filters": [],
+        "primaryDateField": null,
+        "dateRange": null,
+        "sort": [],
+        "viz": "table"
+      }
+    }
+  ]
+}

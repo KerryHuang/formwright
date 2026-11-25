@@ -37,7 +37,7 @@ public class AppUpgradeCompareTests : IDisposable
         var catalog = _app.Services.GetRequiredService<AppCatalog>();
         var masters = catalog.BuiltIns.Where(p => p.Manifest.IsMaster).ToDictionary(p => p.Manifest.Id,
             p => p.Groups.ToDictionary(g => g.Code, g => (object)new { mode = "create" }));
-        var pending = catalog.BuiltIns.Where(p => !p.Manifest.IsMaster).ToList();
+        var pending = catalog.BuiltIns.Where(p => !p.Manifest.IsMaster && !p.Manifest.IsTemplate).ToList();   // 範本沒有基準，不做升級比對
         var opened = new HashSet<string>();
         while (pending.Count > 0)
         {

@@ -195,4 +195,127 @@ public class BuiltInAppsRuntimeTests : IDisposable
         });
         return await inv.ConfirmPoAsync(_rig.Admin, draft, _rig.Admin, "admin");
     }
+
+    // ---- 內建範本「品質檢驗」（tp1b）----
+
+    private static readonly object QaGroup = new { groupMap = new Dictionary<string, object> { ["qa"] = new { mode = "create" } } };
+
+    private async Task<(Dictionary<string, string> Item, Dictionary<string, string> Insp, Dictionary<string, string> Line)> OpenQualityAsync()
+    {
+        await _rig.OpenOkAsync("quality-inspection", QaGroup);
+        return (await QcFieldsAsync("qc-item"), await QcFieldsAsync("qc-inspection"), await QcFieldsAsync("qc-inspection-line"));
+    }
+
+    private async Task<Dictionary<string, string>> QcFieldsAsync(string moduleKey)
+    {
+        var module = await JsonOf(await _rig.Admin.GetAsync($"{Base}/modules/{moduleKey}"));
+        return module.GetProperty("blocks").EnumerateArray().SelectMany(b => b.GetProperty("fields").EnumerateArray())
+            .ToDictionary(f => f.GetProperty("label").GetProperty("zh-TW").GetString()!, f => f.GetProperty("key").GetString()!);
+    }
+
+    private async Task<string> QcOptionAsync(string moduleKey, string field, string label)
+    {
+        var module = await JsonOf(await _rig.Admin.GetAsync($"{Base}/modules/{moduleKey}"));
+        var fields = module.GetProperty("blocks").EnumerateArray().SelectMany(b => b.GetProperty("fields").EnumerateArray()).ToArray();
+        return OptionOf(fields, field, label);
+    }
+
+    private Task<HttpResponseMessage> PostQcAsync(string moduleKey, Dictionary<string, object> values, object? details = null) =>
+        _rig.Admin.PostAsJsonAsync($"{Base}/modules/{moduleKey}/records", new { values, details });
+
+    [Fact]
+    public async Task QualityInspection_OpensAlone_AsTemplate()
+    {
+        var opened = await _rig.OpenOkAsync("quality-inspection", QaGroup);
+
+        opened.GetProperty("kind").GetString().Should().Be("template");
+        _rig.StatusOf("partner").Should().Be(Domain.Entities.Dynamic.AppStatus.Open, "往來對象主檔自動開啟");
+        _rig.StatusOf("quality-inspection").Should().Be(Domain.Entities.Dynamic.AppStatus.Open);
+        var modules = opened.GetProperty("modules").EnumerateArray().Select(m => m.GetProperty("code").GetString()).ToList();
+        modules.Should().BeEquivalentTo("item", "inspection", "line");
+        _rig.Db(db => db.Set<Domain.Entities.Dynamic.AppBaseline>().Count(b => b.AppId == db.Set<Domain.Entities.Dynamic.App>().Single(a => a.Key == "quality-inspection").Id))
+            .Should().Be(0, "範本沒有基準列");
+    }
+
+    [Theory]
+    [InlineData("不合格", false)]
+    [InlineData("特採", false)]
+    [InlineData("合格", true)]
+    public async Task QualityInspection_RequiresDispositionWhenRejected(string result, bool saves)
+    {
+        var (_, insp, _) = await OpenQualityAsync();
+        var res = await PostQcAsync("qc-inspection", new()
+        {
+            [insp["檢驗類型"]] = await QcOptionAsync("qc-inspection", "檢驗類型", "進料"),
+            [insp["結果"]] = await QcOptionAsync("qc-inspection", "結果", result)
+        });
+        var text = await res.Content.ReadAsStringAsync();
+        if (saves) { res.StatusCode.Should().Be(HttpStatusCode.Created, text); return; }
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, text);
+        text.Should().Contain(insp["處置說明"], "錯誤落在處置說明欄位");
+
+        var withNote = await PostQcAsync("qc-inspection", new()
+        {
+            [insp["檢驗類型"]] = await QcOptionAsync("qc-inspection", "檢驗類型", "進料"),
+            [insp["結果"]] = await QcOptionAsync("qc-inspection", "結果", result),
+            [insp["處置說明"]] = "退回供應商"
+        });
+        withNote.StatusCode.Should().Be(HttpStatusCode.Created, await withNote.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task QualityInspection_NumericItemRequiresUnit()
+    {
+        var (item, _, _) = await OpenQualityAsync();
+        var numeric = await PostQcAsync("qc-item", new()
+        {
+            [item["名稱"]] = "外徑", [item["判定方式"]] = await QcOptionAsync("qc-item", "判定方式", "數值")
+        });
+        numeric.StatusCode.Should().Be(HttpStatusCode.BadRequest, await numeric.Content.ReadAsStringAsync());
+        (await numeric.Content.ReadAsStringAsync()).Should().Contain(item["單位"]);
+
+        var visual = await PostQcAsync("qc-item", new()
+        {
+            [item["名稱"]] = "外觀", [item["判定方式"]] = await QcOptionAsync("qc-item", "判定方式", "目視")
+        });
+        visual.StatusCode.Should().Be(HttpStatusCode.Created, await visual.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task QualityInspection_ReportCountsByTypeAndResult()
+    {
+        var (item, insp, line) = await OpenQualityAsync();
+        var visual = await JsonOf(await PostQcAsync("qc-item", new()
+        {
+            [item["名稱"]] = "外觀", [item["判定方式"]] = await QcOptionAsync("qc-item", "判定方式", "目視")
+        }));
+        var itemId = visual.GetProperty("id").GetInt64();
+        var lineFail = await QcOptionAsync("qc-inspection-line", "判定", "不合格");
+        var linePass = await QcOptionAsync("qc-inspection-line", "判定", "合格");
+        object Lines(params string[] judgements) => new Dictionary<string, object[]>
+        {
+            ["qc-inspection-line"] = judgements.Select(j => (object)new { values = new Dictionary<string, object> { [line["檢驗項目"]] = itemId, [line["判定"]] = j } }).ToArray()
+        };
+        var incoming = await QcOptionAsync("qc-inspection", "檢驗類型", "進料");
+        var failed = await PostQcAsync("qc-inspection", new()
+        {
+            [insp["檢驗類型"]] = incoming, [insp["結果"]] = await QcOptionAsync("qc-inspection", "結果", "不合格"), [insp["處置說明"]] = "退貨"
+        }, Lines(lineFail, linePass, lineFail));
+        failed.StatusCode.Should().Be(HttpStatusCode.Created, await failed.Content.ReadAsStringAsync());
+        var passed = await PostQcAsync("qc-inspection", new()
+        {
+            [insp["檢驗類型"]] = incoming, [insp["結果"]] = await QcOptionAsync("qc-inspection", "結果", "合格")
+        }, Lines(linePass));
+        passed.StatusCode.Should().Be(HttpStatusCode.Created, await passed.Content.ReadAsStringAsync());
+
+        var failedBody = await JsonOf(await _rig.Admin.GetAsync($"{Base}/records/{(await JsonOf(failed)).GetProperty("id").GetInt64()}"));
+        failedBody.GetProperty("values").GetProperty(insp["不合格項數"]).GetDecimal().Should().Be(2m, "彙總明細不合格列數");
+
+        var reports = await JsonOf(await _rig.Admin.GetAsync($"{Base}/reports"));
+        var report = reports.EnumerateArray().Single(r => r.GetProperty("name").GetString() == "檢驗結果統計");
+        var run = await JsonOf(await _rig.Admin.PostAsJsonAsync($"{Base}/reports/{report.GetProperty("id").GetInt64()}/run", new { }));
+        var groups = run.GetProperty("groups").GetRawText();
+        groups.Should().Contain("進料").And.Contain("不合格").And.Contain("合格");
+        run.GetProperty("total").GetProperty("n").GetDecimal().Should().Be(2m);
+    }
 }
