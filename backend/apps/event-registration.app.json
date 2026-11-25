@@ -1,0 +1,717 @@
+{
+  "format": "formwright-app",
+  "formatVersion": 8,
+  "x-translation": "th、vi 標籤為機器翻譯，待母語者校對",
+  "manifest": {
+    "id": "event-registration",
+    "kind": "template",
+    "version": "1.0.0",
+    "name": {
+      "zh-TW": "活動報名",
+      "en-US": "Event registration",
+      "th": "ลงทะเบียนกิจกรรม",
+      "vi": "Đăng ký sự kiện"
+    },
+    "description": {
+      "zh-TW": "活動、名額與內部報名登錄，滿額會擋下；開啟後屬於你，可自行修改",
+      "en-US": "Events, capacity and internal registrations; full events block new ones. Yours to change once opened",
+      "th": "กิจกรรม จำนวนที่รับ และการลงทะเบียนภายใน หากเต็มจะไม่ให้บันทึก เปิดแล้วเป็นของคุณและแก้ไขได้",
+      "vi": "Sự kiện, số chỗ và đăng ký nội bộ; hết chỗ sẽ bị chặn. Sau khi mở thuộc về bạn và có thể tự sửa"
+    },
+    "icon": "event",
+    "requires": {
+      "masters": [
+        {
+          "id": "contact",
+          "modules": [
+            "contact"
+          ]
+        }
+      ]
+    }
+  },
+  "groups": [
+    {
+      "code": "events",
+      "name": {
+        "zh-TW": "活動管理",
+        "en-US": "Event management",
+        "th": "การจัดการกิจกรรม",
+        "vi": "Quản lý sự kiện"
+      }
+    }
+  ],
+  "modules": [
+    {
+      "code": "event",
+      "key": "ev-event",
+      "name": {
+        "zh-TW": "活動",
+        "en-US": "Events",
+        "th": "กิจกรรม",
+        "vi": "Sự kiện"
+      },
+      "kind": "standalone",
+      "titleField": "name",
+      "icon": "event",
+      "section": {
+        "zh-TW": "活動",
+        "en-US": "Events",
+        "th": "กิจกรรม",
+        "vi": "Sự kiện"
+      },
+      "blocks": [
+        {
+          "code": "main",
+          "label": {
+            "zh-TW": "基本資料",
+            "en-US": "Details",
+            "th": "ข้อมูลพื้นฐาน",
+            "vi": "Thông tin cơ bản"
+          },
+          "collapsed": false,
+          "columns": 4,
+          "fields": [
+            {
+              "code": "no",
+              "type": "autonumber",
+              "label": {
+                "zh-TW": "活動編號",
+                "en-US": "Event no.",
+                "th": "เลขที่กิจกรรม",
+                "vi": "Mã sự kiện"
+              },
+              "config": {
+                "format": "EV-{0000}",
+                "showInList": true,
+                "isFilterable": true
+              }
+            },
+            {
+              "code": "name",
+              "type": "text",
+              "label": {
+                "zh-TW": "名稱",
+                "en-US": "Name",
+                "th": "ชื่อ",
+                "vi": "Tên"
+              },
+              "config": {
+                "required": true,
+                "showInList": true,
+                "isFilterable": true
+              }
+            },
+            {
+              "code": "type",
+              "type": "enum",
+              "label": {
+                "zh-TW": "類型",
+                "en-US": "Type",
+                "th": "ประเภท",
+                "vi": "Loại"
+              },
+              "config": {
+                "required": true,
+                "showInList": true,
+                "isFilterable": true
+              },
+              "options": [
+                {
+                  "code": "seminar",
+                  "label": {
+                    "zh-TW": "研討會",
+                    "en-US": "Seminar",
+                    "th": "สัมมนา",
+                    "vi": "Hội thảo"
+                  },
+                  "color": "blue"
+                },
+                {
+                  "code": "briefing",
+                  "label": {
+                    "zh-TW": "說明會",
+                    "en-US": "Briefing",
+                    "th": "งานแถลง",
+                    "vi": "Buổi giới thiệu"
+                  },
+                  "color": "green"
+                },
+                {
+                  "code": "training",
+                  "label": {
+                    "zh-TW": "教育訓練",
+                    "en-US": "Training",
+                    "th": "การฝึกอบรม",
+                    "vi": "Đào tạo"
+                  },
+                  "color": "orange"
+                },
+                {
+                  "code": "gathering",
+                  "label": {
+                    "zh-TW": "聚會",
+                    "en-US": "Gathering",
+                    "th": "งานรวมตัว",
+                    "vi": "Gặp mặt"
+                  },
+                  "color": "purple"
+                },
+                {
+                  "code": "other",
+                  "label": {
+                    "zh-TW": "其他",
+                    "en-US": "Other",
+                    "th": "อื่น ๆ",
+                    "vi": "Khác"
+                  },
+                  "color": "grey"
+                }
+              ]
+            },
+            {
+              "code": "startDate",
+              "type": "date",
+              "label": {
+                "zh-TW": "開始日期",
+                "en-US": "Start date",
+                "th": "วันที่เริ่ม",
+                "vi": "Ngày bắt đầu"
+              },
+              "config": {
+                "required": true,
+                "showInList": true,
+                "isFilterable": true,
+                "isSortable": true
+              }
+            },
+            {
+              "code": "endDate",
+              "type": "date",
+              "label": {
+                "zh-TW": "結束日期",
+                "en-US": "End date",
+                "th": "วันที่สิ้นสุด",
+                "vi": "Ngày kết thúc"
+              },
+              "config": {}
+            },
+            {
+              "code": "location",
+              "type": "text",
+              "label": {
+                "zh-TW": "地點",
+                "en-US": "Location",
+                "th": "สถานที่",
+                "vi": "Địa điểm"
+              },
+              "config": {
+                "showInList": true
+              }
+            },
+            {
+              "code": "owner",
+              "type": "user",
+              "label": {
+                "zh-TW": "負責人",
+                "en-US": "Owner",
+                "th": "ผู้รับผิดชอบ",
+                "vi": "Người phụ trách"
+              },
+              "config": {
+                "showInList": true,
+                "isFilterable": true
+              }
+            },
+            {
+              "code": "capacity",
+              "type": "integer",
+              "label": {
+                "zh-TW": "名額",
+                "en-US": "Capacity",
+                "th": "จำนวนที่รับ",
+                "vi": "Số chỗ"
+              },
+              "config": {}
+            },
+            {
+              "code": "registered",
+              "type": "rollup",
+              "label": {
+                "zh-TW": "已報名人數",
+                "en-US": "Registered",
+                "th": "จำนวนผู้ลงทะเบียน",
+                "vi": "Số người đăng ký"
+              },
+              "config": {
+                "showInList": true,
+                "rollup": {
+                  "sourceField": "registration.event",
+                  "function": "count",
+                  "condition": {
+                    "field": "status",
+                    "op": "ne",
+                    "value": "opt_cancelled"
+                  }
+                }
+              }
+            },
+            {
+              "code": "attended",
+              "type": "rollup",
+              "label": {
+                "zh-TW": "出席人數",
+                "en-US": "Attended",
+                "th": "จำนวนผู้เข้าร่วม",
+                "vi": "Số người tham dự"
+              },
+              "config": {
+                "showInList": true,
+                "rollup": {
+                  "sourceField": "registration.event",
+                  "function": "count",
+                  "condition": {
+                    "field": "status",
+                    "op": "eq",
+                    "value": "opt_attended"
+                  }
+                }
+              }
+            },
+            {
+              "code": "status",
+              "type": "enum",
+              "label": {
+                "zh-TW": "狀態",
+                "en-US": "Status",
+                "th": "สถานะ",
+                "vi": "Trạng thái"
+              },
+              "config": {
+                "required": true,
+                "showInList": true,
+                "isFilterable": true
+              },
+              "options": [
+                {
+                  "code": "planning",
+                  "label": {
+                    "zh-TW": "籌備中",
+                    "en-US": "Planning",
+                    "th": "กำลังเตรียม",
+                    "vi": "Đang chuẩn bị"
+                  },
+                  "color": "grey"
+                },
+                {
+                  "code": "open",
+                  "label": {
+                    "zh-TW": "報名中",
+                    "en-US": "Open for registration",
+                    "th": "เปิดลงทะเบียน",
+                    "vi": "Đang nhận đăng ký"
+                  },
+                  "color": "blue"
+                },
+                {
+                  "code": "done",
+                  "label": {
+                    "zh-TW": "已結束",
+                    "en-US": "Finished",
+                    "th": "สิ้นสุดแล้ว",
+                    "vi": "Đã kết thúc"
+                  },
+                  "color": "green"
+                },
+                {
+                  "code": "cancelled",
+                  "label": {
+                    "zh-TW": "已取消",
+                    "en-US": "Cancelled",
+                    "th": "ยกเลิก",
+                    "vi": "Đã hủy"
+                  },
+                  "color": "red"
+                }
+              ]
+            },
+            {
+              "code": "description",
+              "type": "textarea",
+              "label": {
+                "zh-TW": "說明",
+                "en-US": "Description",
+                "th": "คำอธิบาย",
+                "vi": "Mô tả"
+              },
+              "config": {}
+            }
+          ]
+        }
+      ],
+      "rules": [
+        {
+          "kind": "validation",
+          "targets": [
+            "field:endDate"
+          ],
+          "active": true,
+          "options": [],
+          "message": {
+            "zh-TW": "結束日期不得早於開始日期",
+            "en-US": "End date cannot be earlier than the start date",
+            "th": "วันที่สิ้นสุดต้องไม่เร็วกว่าวันที่เริ่ม",
+            "vi": "Ngày kết thúc không được sớm hơn ngày bắt đầu"
+          },
+          "condition": {
+            "any": [
+              {
+                "field": "endDate",
+                "op": "isEmpty"
+              },
+              {
+                "field": "endDate",
+                "op": "gte",
+                "value": {
+                  "fieldRef": "startDate"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "validation",
+          "targets": [
+            "field:capacity"
+          ],
+          "active": true,
+          "options": [],
+          "message": {
+            "zh-TW": "已報名人數超過名額",
+            "en-US": "Registered count exceeds capacity",
+            "th": "จำนวนผู้ลงทะเบียนเกินจำนวนที่รับ",
+            "vi": "Số người đăng ký vượt quá số chỗ"
+          },
+          "condition": {
+            "any": [
+              {
+                "field": "capacity",
+                "op": "isEmpty"
+              },
+              {
+                "field": "registered",
+                "op": "lte",
+                "value": {
+                  "fieldRef": "capacity"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "permissions": [
+        {
+          "group": "events",
+          "scope": "all",
+          "privileges": {
+            "read": true,
+            "add": true,
+            "edit": true,
+            "delete": true,
+            "printExport": true,
+            "pricing": false,
+            "approve": false
+          }
+        }
+      ]
+    },
+    {
+      "code": "registration",
+      "key": "ev-registration",
+      "name": {
+        "zh-TW": "報名",
+        "en-US": "Registrations",
+        "th": "การลงทะเบียน",
+        "vi": "Đăng ký"
+      },
+      "kind": "standalone",
+      "titleField": "name",
+      "section": {
+        "zh-TW": "活動",
+        "en-US": "Events",
+        "th": "กิจกรรม",
+        "vi": "Sự kiện"
+      },
+      "blocks": [
+        {
+          "code": "main",
+          "label": {
+            "zh-TW": "基本資料",
+            "en-US": "Details",
+            "th": "ข้อมูลพื้นฐาน",
+            "vi": "Thông tin cơ bản"
+          },
+          "collapsed": false,
+          "columns": 4,
+          "fields": [
+            {
+              "code": "event",
+              "type": "reference",
+              "label": {
+                "zh-TW": "活動",
+                "en-US": "Event",
+                "th": "กิจกรรม",
+                "vi": "Sự kiện"
+              },
+              "config": {
+                "relation": "detail",
+                "refTarget": {
+                  "kind": "module",
+                  "key": "event"
+                }
+              }
+            },
+            {
+              "code": "name",
+              "type": "text",
+              "label": {
+                "zh-TW": "姓名",
+                "en-US": "Name",
+                "th": "ชื่อ",
+                "vi": "Tên"
+              },
+              "config": {
+                "required": true,
+                "showInList": true
+              }
+            },
+            {
+              "code": "contact",
+              "type": "reference",
+              "label": {
+                "zh-TW": "聯絡人",
+                "en-US": "Contact",
+                "th": "ผู้ติดต่อ",
+                "vi": "Người liên hệ"
+              },
+              "config": {
+                "showInList": true,
+                "fill": {
+                  "mode": "default",
+                  "map": [
+                    {
+                      "from": "contact/contact.name",
+                      "to": "name"
+                    },
+                    {
+                      "from": "contact/contact.phone",
+                      "to": "phone"
+                    },
+                    {
+                      "from": "contact/contact.email",
+                      "to": "email"
+                    }
+                  ]
+                },
+                "refTarget": {
+                  "kind": "module",
+                  "key": "contact",
+                  "app": "contact"
+                }
+              }
+            },
+            {
+              "code": "company",
+              "type": "text",
+              "label": {
+                "zh-TW": "公司",
+                "en-US": "Company",
+                "th": "บริษัท",
+                "vi": "Công ty"
+              },
+              "config": {
+                "showInList": true
+              }
+            },
+            {
+              "code": "phone",
+              "type": "phone",
+              "label": {
+                "zh-TW": "電話",
+                "en-US": "Phone",
+                "th": "โทรศัพท์",
+                "vi": "Điện thoại"
+              },
+              "config": {}
+            },
+            {
+              "code": "email",
+              "type": "email",
+              "label": {
+                "zh-TW": "Email",
+                "en-US": "Email",
+                "th": "อีเมล",
+                "vi": "Email"
+              },
+              "config": {}
+            },
+            {
+              "code": "status",
+              "type": "enum",
+              "label": {
+                "zh-TW": "報名狀態",
+                "en-US": "Registration status",
+                "th": "สถานะการลงทะเบียน",
+                "vi": "Trạng thái đăng ký"
+              },
+              "config": {
+                "required": true,
+                "showInList": true,
+                "isFilterable": true,
+                "defaultValue": "opt_pending"
+              },
+              "options": [
+                {
+                  "code": "pending",
+                  "label": {
+                    "zh-TW": "待出席",
+                    "en-US": "Pending",
+                    "th": "รอเข้าร่วม",
+                    "vi": "Chờ tham dự"
+                  },
+                  "color": "blue"
+                },
+                {
+                  "code": "attended",
+                  "label": {
+                    "zh-TW": "已出席",
+                    "en-US": "Attended",
+                    "th": "เข้าร่วมแล้ว",
+                    "vi": "Đã tham dự"
+                  },
+                  "color": "green"
+                },
+                {
+                  "code": "no-show",
+                  "label": {
+                    "zh-TW": "未出席",
+                    "en-US": "No-show",
+                    "th": "ไม่มาเข้าร่วม",
+                    "vi": "Vắng mặt"
+                  },
+                  "color": "orange"
+                },
+                {
+                  "code": "cancelled",
+                  "label": {
+                    "zh-TW": "取消",
+                    "en-US": "Cancelled",
+                    "th": "ยกเลิก",
+                    "vi": "Hủy"
+                  },
+                  "color": "grey"
+                }
+              ]
+            },
+            {
+              "code": "remark",
+              "type": "text",
+              "label": {
+                "zh-TW": "備註",
+                "en-US": "Remark",
+                "th": "หมายเหตุ",
+                "vi": "Ghi chú"
+              },
+              "config": {
+                "showInList": true
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "reports": [
+    {
+      "code": "eventStats",
+      "name": "活動報名統計",
+      "shareWith": [
+        "events"
+      ],
+      "definition": {
+        "version": 1,
+        "mainModule": "event",
+        "child": {
+          "module": "registration",
+          "linkField": "registration.event"
+        },
+        "columns": [],
+        "groups": [
+          {
+            "field": {
+              "source": "main",
+              "field": "event.type",
+              "via": null
+            },
+            "bucket": null
+          }
+        ],
+        "measures": [
+          {
+            "id": "n",
+            "kind": "countMain",
+            "field": null,
+            "condition": null
+          },
+          {
+            "id": "registered",
+            "kind": "countIf",
+            "field": null,
+            "condition": {
+              "field": {
+                "source": "child",
+                "field": "registration.status",
+                "via": null
+              },
+              "op": "ne",
+              "value": "opt_cancelled"
+            }
+          },
+          {
+            "id": "attended",
+            "kind": "countIf",
+            "field": null,
+            "condition": {
+              "field": {
+                "source": "child",
+                "field": "registration.status",
+                "via": null
+              },
+              "op": "eq",
+              "value": "opt_attended"
+            }
+          }
+        ],
+        "filters": [
+          {
+            "field": {
+              "source": "main",
+              "field": "event.status",
+              "via": null
+            },
+            "op": "ne",
+            "value": "opt_cancelled"
+          }
+        ],
+        "primaryDateField": {
+          "source": "main",
+          "field": "event.startDate",
+          "via": null
+        },
+        "dateRange": null,
+        "sort": [],
+        "viz": "table"
+      }
+    }
+  ]
+}

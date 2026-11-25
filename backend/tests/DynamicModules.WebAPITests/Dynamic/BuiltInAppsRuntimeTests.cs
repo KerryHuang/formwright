@@ -320,4 +320,159 @@ public class BuiltInAppsRuntimeTests : IDisposable
         counts.Should().BeEquivalentTo(new Dictionary<string, decimal> { ["進料/合格"] = 1m, ["進料/不合格"] = 1m }, "每個（類型、結果）組合各一筆，不多不少");
         run.GetProperty("total").GetProperty("n").GetDecimal().Should().Be(2m);
     }
+
+    // ---- 內建範本「活動報名」（tp2）----
+
+    private static readonly object EventGroup = new { groupMap = new Dictionary<string, object> { ["events"] = new { mode = "create" } } };
+    private const string EvEvent = "ev-event", EvReg = "ev-registration";
+
+    private sealed record EvKit(Dictionary<string, string> Ev, Dictionary<string, string> Reg);
+
+    private async Task<EvKit> OpenEventsAsync()
+    {
+        await _rig.OpenOkAsync("event-registration", EventGroup);
+        return new EvKit(await QcFieldsAsync(EvEvent), await QcFieldsAsync(EvReg));
+    }
+
+    private async Task<HttpResponseMessage> PostEventAsync(EvKit k, int? capacity, string[] regStatuses, string? start = null, string? end = null, string status = "報名中")
+    {
+        var values = new Dictionary<string, object>
+        {
+            [k.Ev["名稱"]] = "新產品說明會", [k.Ev["類型"]] = await QcOptionAsync(EvEvent, "類型", "說明會"),
+            [k.Ev["開始日期"]] = start ?? "2026-12-01", [k.Ev["狀態"]] = await QcOptionAsync(EvEvent, "狀態", status)
+        };
+        if (capacity is { } c) values[k.Ev["名額"]] = c;
+        if (end is not null) values[k.Ev["結束日期"]] = end;
+        return await PostQcAsync(EvEvent, values, await RegsAsync(k, regStatuses));
+    }
+
+    private async Task<object> RegsAsync(EvKit k, string[] statuses)
+    {
+        var rows = new List<object>();
+        for (var i = 0; i < statuses.Length; i++)
+            rows.Add(new { values = new Dictionary<string, object> { [k.Reg["姓名"]] = $"參加者{i + 1}", [k.Reg["報名狀態"]] = await QcOptionAsync(EvReg, "報名狀態", statuses[i]) } });
+        return new Dictionary<string, object[]> { [EvReg] = rows.ToArray() };
+    }
+
+    private async Task<JsonElement> RecordOfAsync(HttpResponseMessage created) =>
+        await JsonOf(await _rig.Admin.GetAsync($"{Base}/records/{(await JsonOf(created)).GetProperty("id").GetInt64()}"));
+
+    private static decimal Num(JsonElement record, string key) => record.GetProperty("values").GetProperty(key).GetDecimal();
+
+    [Fact]
+    public async Task EventRegistration_OpensAlone_AsTemplate()   // ER-01
+    {
+        var opened = await _rig.OpenOkAsync("event-registration", EventGroup);
+
+        opened.GetProperty("kind").GetString().Should().Be("template");
+        _rig.StatusOf("contact").Should().Be(Domain.Entities.Dynamic.AppStatus.Open, "聯絡人主檔自動開啟");
+        _rig.StatusOf("partner").Should().Be(Domain.Entities.Dynamic.AppStatus.Open, "聯絡人依賴往來對象");
+        _rig.StatusOf("event-registration").Should().Be(Domain.Entities.Dynamic.AppStatus.Open);
+        opened.GetProperty("modules").EnumerateArray().Select(m => m.GetProperty("code").GetString()).Should().BeEquivalentTo("event", "registration");
+        _rig.Db(db => db.Set<Domain.Entities.Dynamic.AppBaseline>().Count(b => b.AppId == db.Set<Domain.Entities.Dynamic.App>().Single(a => a.Key == "event-registration").Id))
+            .Should().Be(0, "範本沒有基準列");
+    }
+
+    [Fact]
+    public async Task EventRegistration_WithinCapacity_Saves()   // ER-02、ER-04、ER-05、ER-08
+    {
+        var k = await OpenEventsAsync();
+
+        var within = await PostEventAsync(k, 2, ["待出席", "待出席"]);
+        within.StatusCode.Should().Be(HttpStatusCode.Created, await within.Content.ReadAsStringAsync());
+        Num(await RecordOfAsync(within), k.Ev["已報名人數"]).Should().Be(2);
+
+        var cancelled = await PostEventAsync(k, 2, ["待出席", "待出席", "取消"]);
+        cancelled.StatusCode.Should().Be(HttpStatusCode.Created, "取消不佔名額：" + await cancelled.Content.ReadAsStringAsync());
+        Num(await RecordOfAsync(cancelled), k.Ev["已報名人數"]).Should().Be(2);
+
+        var unlimited = await PostEventAsync(k, null, ["待出席", "待出席", "待出席", "待出席", "待出席"]);
+        unlimited.StatusCode.Should().Be(HttpStatusCode.Created, "名額空白代表不限：" + await unlimited.Content.ReadAsStringAsync());
+        Num(await RecordOfAsync(unlimited), k.Ev["已報名人數"]).Should().Be(5);
+
+        var attended = await RecordOfAsync(await PostEventAsync(k, null, ["已出席", "已出席", "未出席"]));
+        Num(attended, k.Ev["出席人數"]).Should().Be(2);
+        Num(attended, k.Ev["已報名人數"]).Should().Be(3);
+    }
+
+    [Fact]
+    public async Task EventRegistration_OverCapacity_Is400()   // ER-03
+    {
+        var k = await OpenEventsAsync();
+
+        var res = await PostEventAsync(k, 2, ["待出席", "待出席", "待出席"]);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, await res.Content.ReadAsStringAsync());
+        (await res.Content.ReadAsStringAsync()).Should().Contain("已報名人數超過名額");
+    }
+
+    [Fact]
+    public async Task EventRegistration_UpdateChecksCapacity()   // ER-06
+    {
+        var k = await OpenEventsAsync();
+        var created = await PostEventAsync(k, 2, ["待出席", "待出席"]);
+        created.StatusCode.Should().Be(HttpStatusCode.Created, await created.Content.ReadAsStringAsync());
+        var record = await RecordOfAsync(created);
+        var id = record.GetProperty("id").GetInt64();
+        var version = record.GetProperty("rowVersion").GetString();
+        var extra = await RegsAsync(k, ["待出席"]);
+
+        var over = await _rig.Admin.PutAsJsonAsync($"{Base}/records/{id}", new { values = new Dictionary<string, object>(), rowVersion = version, details = extra });
+        over.StatusCode.Should().Be(HttpStatusCode.BadRequest, await over.Content.ReadAsStringAsync());
+        (await over.Content.ReadAsStringAsync()).Should().Contain("已報名人數超過名額");
+
+        var raised = await _rig.Admin.PutAsJsonAsync($"{Base}/records/{id}",
+            new { values = new Dictionary<string, object> { [k.Ev["名額"]] = 3 }, rowVersion = version, details = extra });
+        raised.StatusCode.Should().Be(HttpStatusCode.OK, await raised.Content.ReadAsStringAsync());
+        Num(await JsonOf(await _rig.Admin.GetAsync($"{Base}/records/{id}")), k.Ev["已報名人數"]).Should().Be(3);
+    }
+
+    [Fact]
+    public async Task EventRegistration_EndDateMustNotPrecedeStartDate()   // ER-07
+    {
+        var k = await OpenEventsAsync();
+
+        var bad = await PostEventAsync(k, null, [], start: "2026-12-02", end: "2026-12-01");
+        bad.StatusCode.Should().Be(HttpStatusCode.BadRequest, await bad.Content.ReadAsStringAsync());
+        (await bad.Content.ReadAsStringAsync()).Should().Contain(k.Ev["結束日期"], "錯誤落在結束日期欄位");
+
+        var open = await PostEventAsync(k, null, []);
+        open.StatusCode.Should().Be(HttpStatusCode.Created, await open.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task EventRegistration_ContactFill_IsDeclaredAsDefaultMode_AndCompanyIsNotFilled()   // ER-09（API 層：驗欄位的帶值設定）
+    {
+        var k = await OpenEventsAsync();
+        var module = await JsonOf(await _rig.Admin.GetAsync($"{Base}/modules/{EvReg}"));
+        var fields = module.GetProperty("blocks").EnumerateArray().SelectMany(b => b.GetProperty("fields").EnumerateArray()).ToArray();
+        var fill = fields.Single(f => f.GetProperty("key").GetString() == k.Reg["聯絡人"]).GetProperty("config").GetProperty("fill");
+
+        fill.GetProperty("mode").GetString().Should().Be("default", "帶入後可改");
+        long IdOf(string label) => fields.Single(f => f.GetProperty("key").GetString() == k.Reg[label]).GetProperty("id").GetInt64();
+        var targets = fill.GetProperty("map").EnumerateArray().Select(m => m.GetProperty("to").GetInt64()).ToList();
+        targets.Should().BeEquivalentTo([IdOf("姓名"), IdOf("電話"), IdOf("Email")]);
+        targets.Should().NotContain(IdOf("公司"));
+
+        var noContact = await PostEventAsync(k, null, ["待出席"]);   // 不選聯絡人、只填姓名也存得進去
+        noContact.StatusCode.Should().Be(HttpStatusCode.Created, await noContact.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task EventRegistration_ReportExcludesCancelledEvents()   // ER-10
+    {
+        var k = await OpenEventsAsync();
+        (await PostEventAsync(k, null, ["待出席", "待出席", "已出席"])).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await PostEventAsync(k, null, ["待出席"], status: "已取消")).StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var reports = await JsonOf(await _rig.Admin.GetAsync($"{Base}/reports"));
+        var report = reports.EnumerateArray().Single(r => r.GetProperty("name").GetString() == "活動報名統計");
+        var run = await JsonOf(await _rig.Admin.PostAsJsonAsync($"{Base}/reports/{report.GetProperty("id").GetInt64()}/run", new { }));
+
+        run.GetProperty("groups").GetRawText().Should().Contain("說明會");
+        var total = run.GetProperty("total");
+        total.GetProperty("n").GetDecimal().Should().Be(1);
+        total.GetProperty("registered").GetDecimal().Should().Be(3);
+        total.GetProperty("attended").GetDecimal().Should().Be(1);
+    }
 }

@@ -421,4 +421,17 @@ public class AppTemplateKindTests : IDisposable
         Prop(entry, "version").Should().Be("1.0.0");
         Prop(entry, "source").Should().Be("builtIn");
     }
+
+    [Fact]
+    public async Task ReimportEventRegistrationId_Is409_ER11()
+    {
+        var res = await ImportAsync(AppTestPackagesTemplate.Template("event-registration", "2.0.0"));
+        res.StatusCode.Should().Be(HttpStatusCode.Conflict, await Body(res));
+        (await Body(res)).Should().Contain("套件代碼已存在");
+
+        var list = JsonDocument.Parse(await _admin.GetStringAsync($"{Base}/apps/packages")).RootElement.EnumerateArray().ToList();
+        var entry = list.Single(x => Prop(x, "id") == "event-registration");
+        Prop(entry, "version").Should().Be("1.0.0");
+        Prop(entry, "source").Should().Be("builtIn");
+    }
 }

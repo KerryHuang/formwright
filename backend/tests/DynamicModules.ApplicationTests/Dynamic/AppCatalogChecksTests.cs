@@ -167,7 +167,7 @@ public class AppCatalogChecksTests : IDisposable
     }
 
     [Fact]
-    public void RealBuiltInDirectory_Loads_AndHasATemplate()
+    public void RealBuiltInDirectory_Loads_AndHasTheTemplates()
     {
         string? apps = null;
         for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null && apps is null; dir = dir.Parent)
@@ -175,6 +175,6 @@ public class AppCatalogChecksTests : IDisposable
 
         var catalog = AppCatalog.Load(apps!);
 
-        catalog.BuiltIns.Where(p => p.Manifest.IsTemplate).Should().ContainSingle();
+        catalog.BuiltIns.Where(p => p.Manifest.IsTemplate).Select(p => p.Manifest.Id).Should().BeEquivalentTo("quality-inspection", "event-registration");
     }
 }
