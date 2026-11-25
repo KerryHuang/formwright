@@ -23,8 +23,15 @@ public record DeleteAppRequest(string Key, int? Purged)
 /// <param name="PurgedTotal">確認時 purged 要送的數字：軟刪除記錄筆數加上 ClearedValues。</param>
 /// <param name="Cleared">逐欄列出要清除的貢獻欄位與值筆數。</param>
 /// <param name="Orphaned">有值、改為停用保留的貢獻欄位（主檔模組 key 與欄位名稱）。</param>
+/// <param name="Reports">應用程式自己的報表（和 DELETE 一起刪），依 Id 排序。</param>
 public record DeleteAppCheck(bool CanDelete, IReadOnlyList<DeleteBlocker> Blockers, PurgeCounts Purge,
-    int ClearedValues = 0, int PurgedTotal = 0, IReadOnlyList<ClearedField>? Cleared = null, IReadOnlyList<ClearedField>? Orphaned = null);
+    int ClearedValues = 0, int PurgedTotal = 0, IReadOnlyList<ClearedField>? Cleared = null, IReadOnlyList<ClearedField>? Orphaned = null,
+    IReadOnlyList<DeleteAppReport>? Reports = null)
+{
+    public IReadOnlyList<DeleteAppReport> Reports { get; init; } = Reports ?? [];
+}
+
+public record DeleteAppReport(long Id, string Name);
 
 public record ClearedField(string ModuleKey, string Field, int Count);
 
@@ -39,8 +46,8 @@ public record DeleteAppResponse(List<string> Warnings);
 /// 貢獻欄位被外部引用就 409。主檔本身只有沒有任何使用者時才能刪。刪完重算主檔狀態與權限。
 /// </summary>
 public class DeleteAppHandler(
-    IAppRepository apps, IModuleRepository modules, DeletePlanner planner, ModuleRemover remover,
-    AppDependencyChecker dependencies, IReportRepository reports, IDashboardRepository dashboards, IUnitOfWork uow,
+    IAppRepository apps, AppDeleteInspector inspector, ModuleRemover remover,
+    IReportRepository reports, IUnitOfWork uow,
     Integrations.IntegrationReconciler integrations, ISharedMasterRepository shared, IDeletionRepository deletion,
     SharedMasters.MasterLifecycle lifecycle, ICurrentUser user, Common.Time.IBusinessTime time, ITaskRuleRepository taskRules,
     OpsService.RulePause.RulePauseCleanup rulePause, DynamicModules.Application.Common.RequestLocale requestLocale)
@@ -50,73 +57,19 @@ public class DeleteAppHandler(
     public const string NotClosedKind = "appNotClosed";
     public const string MasterInUseKind = "masterInUse";
 
-    /// <summary>一個貢獻欄位要怎麼處理。</summary>
-    private enum Fate { Purge, Orphan, Drop }
-
-    private sealed record Contribution(Module Module, Field Field, string Name, Fate Fate, int Values);
-
     public async Task<ServiceResult> Handle(DeleteAppRequest request, CancellationToken ct)
     {
         var app = await apps.GetByKeyAsync(request.Key, ct);
         if (app is null) return ServiceResult.NotFound(AppMessages.NotFound);
 
-        var blockers = new List<DeleteBlocker>();
-        if (app.Status != AppStatus.Closed)
-            blockers.Add(new(NotClosedKind, null, null, app.Key));
-
-        var members = new List<Module>();
-        foreach (var member in app.Modules)
-            if (await modules.GetByIdAsync(member.ModuleId, includeChildren: false, ct) is { } m) members.Add(m);
-        var keys = members.Select(m => m.Key).ToHashSet();
-
-        // 共用主檔：它的使用者還在就不能刪；它使用的主檔模組與它貢獻的欄位，在盤點時豁免（設計 §7 刪除第 1～4 點）
-        var uses = await shared.ListUsesAsync(ct);
-        if (app.Kind == AppKind.Master)
-            foreach (var use in uses.Where(u => u.MasterAppId == app.Id))
-                blockers.Add(new(MasterInUseKind, null, use.AppId, (await apps.ListAsync(ct)).FirstOrDefault(a => a.Id == use.AppId)?.Key ?? ""));
-        var bindings = await apps.GetBindingsAsync(app.Id, ct);
-        var masterModules = new List<Module>();
-        foreach (var use in uses.Where(u => u.AppId == app.Id))
-            if ((await apps.ListAsync(ct)).FirstOrDefault(a => a.Id == use.MasterAppId) is { } master)
-                foreach (var member in master.Modules)
-                    if (await modules.GetByIdAsync(member.ModuleId, includeChildren: true, ct) is { } mm) masterModules.Add(mm);
-        var contributions = await ContributionsAsync(bindings, masterModules, keys, ct);
-        var scope = new AppDeleteScope(masterModules.Select(m => m.Key).ToHashSet(), contributions.Select(c => c.Field.Id).ToHashSet());
-
-        // 應用程式自己的報表（AppReport）不算外部引用：它們跟著一起刪
+        var inventory = await inspector.InspectAsync(app, ct);
+        var (check, members, bindings, masterModules, uses) = inventory;
+        var contributions = inventory.Contributions;
         var ownReportIds = app.Reports.Select(r => r.ReportId).ToHashSet();
-        var records = 0;
-        var indexRows = 0;
-        var historyRows = 0;
-        foreach (var m in members)
-        {
-            var plan = await planner.PlanAsync(DeleteTarget.Module, m.Key, 0, ct, keys, scope);
-            if (plan is null) continue;
-            blockers.AddRange(plan.Check.Blockers.Where(b => !(b.Kind == DeleteBlockerKind.Report && b.Id is { } id && ownReportIds.Contains(id))));
-            records += plan.Check.Purge.Records;
-            indexRows += plan.Check.Purge.IndexRows;
-            historyRows += plan.Check.Purge.HistoryRows;
-        }
-        // 應用程式自己的報表若還在任何儀表板（指派版、自己的、個人版）的卡片上，刪掉會留下「報表已不存在」的卡片：
-        // 不論卡片有沒有指到欄位（SortKey）一律擋下，要先把卡片移掉
-        foreach (var reportId in ownReportIds)
-            foreach (var reference in await dashboards.ListReferencesAsync(reportId, ct))
-                blockers.Add(new(reference.IsPersonalVersion ? DeleteBlockerKind.PersonalDashboard : DeleteBlockerKind.Dashboard,
-                    null, reference.DashboardId, reference.DashboardName));
-        foreach (var dependent in (await dependencies.DependentsOfAsync(app, ct)).Apps)
-            blockers.Add(new(DependentKind, null, null, dependent.Key));
-        blockers.AddRange(await planner.ContributionBlockersAsync(scope.ExemptFieldIds, ownReportIds, keys, scope, ct));
-
-        var purge = new PurgeCounts(records, indexRows, historyRows);
-        var cleared = contributions.Where(c => c.Fate == Fate.Purge).Sum(c => c.Values);
-        List<ClearedField> List(IEnumerable<Contribution> xs) =>
-            xs.Select(c => new ClearedField(c.Module.Key, c.Field.LabelI18n.Resolve(requestLocale.Current), c.Values)).ToList();
-        var check = new DeleteAppCheck(blockers.Count == 0, blockers.DistinctBy(b => (b.Kind, b.ModuleKey, b.Id, b.Name)).ToList(), purge,
-            cleared, records + cleared, List(contributions.Where(c => c.Fate == Fate.Purge)), List(contributions.Where(c => c.Fate == Fate.Orphan)));
         if (!check.CanDelete) return ServiceResult.ConflictWith(DeleteMessages.Blocked, check);
         if (request.Purged is null)
             return ServiceResult.Invalid(new Dictionary<string, string[]> { ["purged"] = [DeleteMessages.PurgedRequired] });
-        if (request.Purged != records + cleared) return ServiceResult.ConflictWith(DeleteMessages.PurgedMismatch, check);
+        if (request.Purged != check.PurgedTotal) return ServiceResult.ConflictWith(DeleteMessages.PurgedMismatch, check);
 
         // 孤兒與清除要在應用程式的對照列被 cascade 刪掉之前做（設計 §15.1 實作注意）
         await SettleContributionsAsync(app, bindings, contributions, ct);
@@ -152,32 +105,13 @@ public class DeleteAppHandler(
         return ServiceResult.Success(new DeleteAppResponse(warnings));
     }
 
-    /// <summary>
-    /// 盤點它貢獻的欄位（對照列名稱含 /）：參照自己模組的列入清除（連同值）；其他有值（含軟刪除記錄）的停用保留成孤兒；沒有值的直接刪。
-    /// </summary>
-    private async Task<List<Contribution>> ContributionsAsync(
-        AppBindings bindings, IReadOnlyList<Module> masterModules, IReadOnlySet<string> ownKeys, CancellationToken ct)
-    {
-        var result = new List<Contribution>();
-        foreach (var (name, fieldId) in bindings.Fields.Where(x => x.Key.Contains('/')))
-        {
-            var module = masterModules.FirstOrDefault(m => m.Blocks.Any(b => b.Fields.Any(f => f.Id == fieldId)));
-            if (module is null) continue;
-            var field = module.Blocks.SelectMany(b => b.Fields).First(f => f.Id == fieldId);
-            var values = (await deletion.ListRecordsWithKeysAsync(module.Id, [field.Key], ct)).Count;
-            var ownRef = field is { Type: FieldType.Reference, Config.RefTarget: { Kind: ReferenceTarget.ModuleKind } t } && ownKeys.Contains(t.Key);
-            result.Add(new(module, field, name, ownRef ? Fate.Purge : values > 0 ? Fate.Orphan : Fate.Drop, values));
-        }
-        return result;
-    }
-
     /// <summary>寫孤兒列、停用孤兒欄位；清除與刪除的欄位、空了的貢獻區塊交給 FieldPurge（以系統身分，不經 ClosedDataGuard）。</summary>
-    private async Task SettleContributionsAsync(App app, AppBindings bindings, List<Contribution> contributions, CancellationToken ct)
+    private async Task SettleContributionsAsync(App app, AppBindings bindings, IReadOnlyList<AppDeleteContribution> contributions, CancellationToken ct)
     {
         if (contributions.Count == 0) return;
         var now = time.Now;
-        var gone = contributions.Where(c => c.Fate != Fate.Orphan).Select(c => c.Field.Id).ToHashSet();
-        foreach (var c in contributions.Where(c => c.Fate == Fate.Orphan))
+        var gone = contributions.Where(c => c.Fate != ContributionFate.Orphan).Select(c => c.Field.Id).ToHashSet();
+        foreach (var c in contributions.Where(c => c.Fate == ContributionFate.Orphan))
         {
             c.Field.Status = FieldStatus.Inactive;
             shared.AddOrphan(new AppOrphan { FormerAppKey = app.Key, Kind = OrphanKind.Field, Name = c.Name, FieldId = c.Field.Id });
@@ -195,7 +129,7 @@ public class DeleteAppHandler(
             }
             module.TouchVersion(user.UserId, now);
             await uow.CommitAsync(ct);
-            var ids = contributions.Where(c => c.Module.Id == module.Id && c.Fate != Fate.Orphan).Select(c => c.Field.Id).ToList();
+            var ids = contributions.Where(c => c.Module.Id == module.Id && c.Fate != ContributionFate.Orphan).Select(c => c.Field.Id).ToList();
             // 規則引用的欄位被清除：規則自動停用（讀取時顯示「引用的欄位已刪除」），不擋刪除（設計 §16 第 2 條）
             if (ids.Count > 0) await deletion.DeactivateTaskRulesReferencingAsync(module.Id, ids.ToHashSet(), ct);
             if (ids.Count > 0 || emptyBlocks.Count > 0)

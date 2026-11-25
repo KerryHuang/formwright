@@ -119,6 +119,28 @@ public class SharedMasterDeleteTests : IDisposable
         await _rig.AssertIntegrityAsync();
     }
 
+    /// <summary>刪除預檢（範本套件設計 §8）與 DELETE 的 409 預覽一致；照它的 purgedTotal 刪除成功。</summary>
+    [Fact]
+    public async Task DeleteCheck_Contributions_TP37()
+    {
+        await ConvertedThenClosedAsync(withStock: true);
+        var res = await _rig.Admin.GetAsync($"{SharedMasterRig.Apps}/crmx/delete-check");
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        var check = await JsonOf(res);
+        check.GetProperty("canDelete").GetBoolean().Should().BeTrue(check.ToString());
+        check.GetProperty("cleared").EnumerateArray().Select(c => (c.GetProperty("field").GetString(), c.GetProperty("count").GetInt32()))
+            .Should().Equal(("來源潛在客戶", 0));
+        check.GetProperty("orphaned").EnumerateArray().Select(c => (c.GetProperty("field").GetString(), c.GetProperty("count").GetInt32()))
+            .Should().Contain(("產業", 1));
+        check.GetProperty("purgedTotal").GetInt32().Should().Be(
+            check.GetProperty("purge").GetProperty("records").GetInt32() + check.GetProperty("clearedValues").GetInt32());
+        (await PreviewAsync("crmx")).GetProperty("purgedTotal").GetInt32().Should().Be(check.GetProperty("purgedTotal").GetInt32());
+
+        var done = await _rig.Admin.DeleteAsync($"{SharedMasterRig.Apps}/crmx?purged={check.GetProperty("purgedTotal").GetInt32()}");
+        done.StatusCode.Should().Be(HttpStatusCode.OK, await done.Content.ReadAsStringAsync());
+        (await JsonOf(done)).GetProperty("warnings").GetArrayLength().Should().BeGreaterThan(0);
+    }
+
     [Fact]
     public async Task DeletingTheLastUser_KeepsTheMasterClosed_WithAWarning_EvenThoughThePurgeTouchesAClosedModule()
     {

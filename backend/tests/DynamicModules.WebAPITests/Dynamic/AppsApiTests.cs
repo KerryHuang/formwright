@@ -723,6 +723,164 @@ public class AppsApiTests : IDisposable
         (await _admin.DeleteAsync($"{Base}/modules/pl-po?purged=0")).StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
+    // ---- 刪除預檢（範本套件設計 §8、TP-32–38） ----
+
+    private async Task<JsonElement> DeleteCheckOk(string key)
+    {
+        var res = await _admin.GetAsync($"{Apps}/{key}/delete-check");
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        return await JsonOf(res);
+    }
+
+    private static List<JsonElement> BlockersOf(JsonElement check) => check.GetProperty("blockers").EnumerateArray().ToList();
+
+    private async Task OpenTplAOk()
+    {
+        await ImportOk(AppTestPackagesV6.Master);
+        await ImportOk(AppTestPackagesTemplate.TplA);
+        await OpenOk("tpl-a", TplAOpenBody);
+    }
+
+    private async Task<long> AddTplAItem(string name)
+    {
+        var res = await _admin.PostAsJsonAsync($"{Base}/modules/tpl-a-item/records",
+            new { values = new Dictionary<string, object> { [await TitleKey(_admin, "tpl-a-item")] = name } });
+        res.StatusCode.Should().Be(HttpStatusCode.Created, await res.Content.ReadAsStringAsync());
+        return (await JsonOf(res)).GetProperty("id").GetInt64();
+    }
+
+    private async Task SoftDelete(long id)
+    {
+        var fresh = await JsonOf(await _admin.GetAsync($"{Base}/records/{id}"));
+        var res = await _admin.DeleteAsync($"{Base}/records/{id}?rowVersion={fresh.GetProperty("rowVersion").GetString()}");
+        res.IsSuccessStatusCode.Should().BeTrue(await res.Content.ReadAsStringAsync());
+    }
+
+    private async Task Close(string key) =>
+        (await _admin.PostAsJsonAsync($"{Apps}/{key}/close", new { cascade = false })).EnsureSuccessStatusCode();
+
+    [Fact]
+    public async Task DeleteCheck_OpenApp_IsAppNotClosed_TP32()
+    {
+        await OpenTplAOk();
+        var check = await DeleteCheckOk("tpl-a");
+        check.GetProperty("canDelete").GetBoolean().Should().BeFalse();
+        BlockersOf(check).Should().Contain(b => b.GetProperty("kind").GetString() == "appNotClosed");
+    }
+
+    [Fact]
+    public async Task DeleteCheck_Dependent_TP33()
+    {
+        await ImportOk(AppTestPackagesTemplate.TplR);
+        await OpenOk("crm-sales");
+        await OpenOk("tpl-r", new { groupMap = new Dictionary<string, object> { ["staff"] = new { mode = "create" } } });
+        // 關 CRM 會連帶關 tpl-r；直接改狀態造出「CRM 已關、tpl-r 仍開」
+        Db(db => { db.Set<App>().Single(a => a.Key == "crm-sales").Status = AppStatus.Closed; db.SaveForTests(); return 0; });
+
+        var check = await DeleteCheckOk("crm-sales");
+        check.GetProperty("canDelete").GetBoolean().Should().BeFalse();
+        BlockersOf(check).Should().Contain(b => b.GetProperty("kind").GetString() == "appDependent" && b.GetProperty("name").GetString() == "tpl-r");
+    }
+
+    [Fact]
+    public async Task DeleteCheck_ReferencedBySelfBuiltModule_TP34()
+    {
+        await OpenTplAOk();
+        var own = await CreateModule(_admin);
+        await AddField(_admin, own, "reference", new { refTarget = new { kind = "module", key = "tpl-a-item" } });
+        await Close("tpl-a");
+
+        var check = await DeleteCheckOk("tpl-a");
+        check.GetProperty("canDelete").GetBoolean().Should().BeFalse();
+        BlockersOf(check).Should().Contain(b => b.GetProperty("kind").GetString() == "referenceField"
+            && b.GetProperty("moduleKey").GetString() == own && b.GetProperty("name").GetString() == "欄位");
+    }
+
+    [Fact]
+    public async Task DeleteCheck_ListsOwnReports()
+    {
+        await OpenOk("crm-sales");
+        await Close("crm-sales");
+        var expected = Db(db =>
+        {
+            var appId = db.Set<App>().Single(a => a.Key == "crm-sales").Id;
+            return db.Set<AppReport>().Where(r => r.AppId == appId)
+                .Join(db.Set<Report>(), ar => ar.ReportId, r => r.Id, (_, r) => new { r.Id, r.Name }).OrderBy(r => r.Id).ToList();
+        });
+        expected.Should().NotBeEmpty();
+
+        var reports = (await DeleteCheckOk("crm-sales")).GetProperty("reports").EnumerateArray()
+            .Select(r => new { Id = r.GetProperty("id").GetInt64(), Name = r.GetProperty("name").GetString()! }).ToList();
+        reports.Should().Equal(expected);
+
+        await OpenTplAOk();
+        await Close("tpl-a");
+        (await DeleteCheckOk("tpl-a")).GetProperty("reports").GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task DeleteCheck_OnlySoftDeleted_TP35()
+    {
+        await OpenTplAOk();
+        foreach (var name in new[] { "甲", "乙", "丙" }) await SoftDelete(await AddTplAItem(name));
+        await Close("tpl-a");
+
+        var check = await DeleteCheckOk("tpl-a");
+        check.GetProperty("canDelete").GetBoolean().Should().BeTrue(check.ToString());
+        check.GetProperty("purge").GetProperty("records").GetInt32().Should().Be(3);
+        check.GetProperty("purgedTotal").GetInt32().Should().Be(3);
+        // 預檢不寫入
+        Db(db => db.Set<DynamicModules.Domain.Entities.Dynamic.Record>().Count(r => r.DeleteFlag)).Should().Be(3);
+
+        var done = await _admin.DeleteAsync($"{Apps}/tpl-a?purged=3");
+        done.StatusCode.Should().Be(HttpStatusCode.OK, await done.Content.ReadAsStringAsync());
+        var item = (await JsonOf(await _admin.GetAsync($"{Apps}/packages"))).EnumerateArray().Single(p => p.GetProperty("id").GetString() == "tpl-a");
+        (!item.TryGetProperty("status", out var st) || st.ValueKind == JsonValueKind.Null).Should().BeTrue();
+        // 開啟時建的群組沒刪，再開一次略過同名群組
+        var again = await Open("tpl-a", new { groupMap = new Dictionary<string, object> { ["staff"] = new { mode = "skip" } } });
+        again.StatusCode.Should().Be(HttpStatusCode.Created, await again.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task DeleteCheck_PurgedMismatch_TP36()
+    {
+        await OpenTplAOk();
+        foreach (var name in new[] { "甲", "乙", "丙" }) await SoftDelete(await AddTplAItem(name));
+        var fourth = await AddTplAItem("丁");
+        await Close("tpl-a");
+        (await DeleteCheckOk("tpl-a")).GetProperty("purge").GetProperty("records").GetInt32().Should().Be(3);
+
+        // 預檢之後另一個管理員又軟刪一筆（應用程式已關閉，直接改資料庫模擬）
+        Db(db => { db.Set<DynamicModules.Domain.Entities.Dynamic.Record>().Single(r => r.Id == fourth).DeleteFlag = true; db.SaveForTests(); return 0; });
+        var stale = await _admin.DeleteAsync($"{Apps}/tpl-a?purged=3");
+        stale.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await JsonOf(stale)).GetProperty("purgedTotal").GetInt32().Should().Be(4);
+        (await DeleteCheckOk("tpl-a")).GetProperty("purgedTotal").GetInt32().Should().Be(4);
+    }
+
+    [Fact]
+    public async Task DeleteCheck_NonAdmin_Is403_TP38()
+    {
+        await ImportOk(AppTestPackages.Procure);
+        await OpenOk("procure-lite");
+        Db(db => { db.Set<UserProgramPrivilege>().Add(new UserProgramPrivilege { UserId = "planner01", ProgramCode = "DYN00000", CanRead = true }); db.SaveForTests(); return 0; });
+        (await _app.AsUser("planner01").GetAsync($"{Apps}/procure-lite/delete-check")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await _admin.GetAsync($"{Apps}/procure-lite/delete-check")).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task DeleteCheck_UnknownKey_Is404() =>
+        (await _admin.GetAsync($"{Apps}/nope/delete-check")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+    [Fact]
+    public async Task DeleteCheck_MasterInUse_ListsUsers()
+    {
+        await OpenOk("crm-sales");
+        var check = await DeleteCheckOk("partner");
+        check.GetProperty("canDelete").GetBoolean().Should().BeFalse();
+        BlockersOf(check).Should().Contain(b => b.GetProperty("kind").GetString() == "masterInUse");
+    }
+
     // ---- 鐵則：程式裡沒有寫死的應用程式 ----
 
     [Fact]

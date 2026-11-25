@@ -70,6 +70,11 @@ public class AppsController(IMediator mediator) : ControllerBase
     public async Task<IActionResult> SetIntegrationEnabled(string key, string code, IntegrationEnabledBody body) =>
         (await mediator.Send(new SetIntegrationEnabledRequest(key, code, body.Enabled))).ToActionResult(this);
 
+    /// <summary>刪除前的唯讀預檢：能刪、不能刪都回 200 與 DeleteAppCheck（判斷同 DELETE）。</summary>
+    [HttpGet("apps/{key}/delete-check")]
+    public async Task<IActionResult> DeleteCheck(string key) =>
+        (await mediator.Send(new GetAppDeleteCheckRequest(key))).ToActionResult(this);
+
     [HttpDelete("apps/{key}")]
     public async Task<IActionResult> Delete(string key, [FromQuery] int? purged) =>
         (await mediator.Send(new DeleteAppRequest(key, purged))).ToActionResult(this);
