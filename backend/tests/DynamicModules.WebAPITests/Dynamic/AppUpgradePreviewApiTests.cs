@@ -125,6 +125,8 @@ public class AppUpgradePreviewApiTests : IDisposable
     {
         await OpenTplAWithNewerVersionAsync();
         SetOpenedVersion("partner-lite", "0.9.0"); // 範本用到的主檔出了新版
+        // 前提：主檔確實有新版可升（否則下一行「範本卡片沒有提示」會空過）
+        (await JsonOf(await _admin.GetAsync($"{Apps}/partner-lite"))).GetProperty("upgrade").GetProperty("toVersion").GetString().Should().NotBeNullOrEmpty();
         HasUpgrade(await JsonOf(await _admin.GetAsync($"{Apps}/tpl-a"))).Should().BeFalse();
 
         // CRM 與範本的主檔管理員群組同名，先把範本開出來的那個改名

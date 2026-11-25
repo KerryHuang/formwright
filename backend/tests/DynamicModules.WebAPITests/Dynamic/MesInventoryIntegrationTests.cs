@@ -680,12 +680,12 @@ public class MesInventoryIntegrationTests : IDisposable
     // ---- 夥伴是範本（範本套件設計 §7.5，TP-24、24a、24b）：一律等待，不安裝、不連動、不擋來源寫入 ----
 
     /// <summary>直接寫資料庫把應用程式的種類改成範本（正常匯入進不來，V5、V6；這是防線）。</summary>
-    private async Task MarkAsTemplate(string appKey)
+    private async Task MarkAsTemplate(string appKey, AppKind kind = AppKind.Template)
     {
         using var scope = _app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<DynamicDbContext>();
         var app = await db.Set<App>().SingleAsync(a => a.Key == appKey);
-        app.Kind = AppKind.Template;
+        app.Kind = kind;
         await db.SaveChangesAsync();
     }
 
@@ -782,6 +782,38 @@ public class MesInventoryIntegrationTests : IDisposable
         var res = await TryMove(shipment, "shipment", "已出貨");
         res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
         (await _inv!.BalanceAsync(stock.Item, stock.Warehouse)).Should().Be(100);
+    }
+
+    /// <summary>範本改回一般應用程式（直接寫資料庫；匯入不能改種類）：下一次調和就恢復啟用，保留的欄位與連動回來。</summary>
+    [Fact]
+    public async Task PartnerTemplateBecomesApp_ReconcileResumes_ActiveAgain()
+    {
+        await OpenMes();
+        await OpenInventory();
+        (await StatusOfIntegration()).Should().Be(IntegrationStatus.Active);
+        var stock = await Stocked(100);
+        var wo = await DoneWorkOrder(100);
+
+        await MarkAsTemplate("inventory");
+        await ReconcileStockOut();
+        (await StatusOfIntegration()).Should().Be(IntegrationStatus.Waiting);
+
+        await MarkAsTemplate("inventory", AppKind.App);
+        await ReconcileStockOut();
+
+        var integration = await Integration();
+        integration.Status.Should().Be(IntegrationStatus.Active, integration.Reason);
+        var items = IntegrationItems.Parse(integration.ItemsJson);
+        items.Events.Should().NotBeEmpty();
+        items.Checks.Should().NotBeEmpty();
+        var (events, checks) = await ItemActiveFlags(items);
+        events.Should().HaveCount(items.Events.Count).And.OnlyContain(a => a);
+        checks.Should().HaveCount(items.Checks.Count).And.OnlyContain(a => a);
+        (await ShipmentHasStockFields()).Should().BeTrue();
+
+        var shipment = await Shipment(wo, 20, stock);
+        await Move(shipment, "shipment", "已出貨");
+        (await _inv!.BalanceAsync(stock.Item, stock.Warehouse)).Should().Be(80);   // 連動恢復
     }
 
     [Fact]
