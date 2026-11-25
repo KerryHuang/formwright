@@ -84,7 +84,9 @@ const PREVIEW_LINES = 2;
 function label(n: NotificationItem) {
   const known = (NOTIFICATION_KINDS as readonly string[]).includes(n.kind);
   const title = composed(n)?.title ?? (n.titleKey ? incidentTitle(t, te, n.titleKey, n.titleParams) : n.title);
-  return known ? `${t(`notifications.kind.${n.kind}`)} ${title}` : title;
+  // 標題被遮蔽時快照是空字串（只有通知節點會），用替代字，不只顯示種類標籤。
+  const shown = title || (n.kind === 'approvalNotify' ? t('notifications.notify.noTitle') : title);
+  return known ? `${t(`notifications.kind.${n.kind}`)} ${shown}` : shown;
 }
 
 const timeText = (n: NotificationItem) => (n.createdTime ? date.formatDate(new Date(n.createdTime), 'YYYY-MM-DD HH:mm') : '');
@@ -95,13 +97,14 @@ async function open(n: NotificationItem) {
   const view = composed(n);
   // 通知節點：標已讀並開詳情，由詳情的「開啟單據」前往（U-a）；沒有讀取權時沒有連結（U-h）。
   if (view) detail.value = { title: view.title, body: view.body, canOpen: view.canOpen, link };
+  // 詳情不離開頁面，先開再標已讀（標已讀慢或失敗都不影響開啟）；連結要等已讀落定再前往。
+  if (view) detailOpen.value = true;
   try {
     await markRead.mutateAsync(n.id);
   } catch {
     // Still follow the link: failing to mark it read must not make the notification unreachable.
   }
-  if (view) detailOpen.value = true;
-  else follow(link);
+  if (!view) follow(link);
 }
 
 const detail = ref<{ title: string; body: string; canOpen: boolean; link: string } | null>(null);

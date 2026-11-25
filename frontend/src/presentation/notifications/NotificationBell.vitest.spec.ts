@@ -36,6 +36,12 @@ async function mountBell(list: unknown, locale = 'zh-TW') {
 
 const body = (sel: string) => document.body.querySelector<HTMLElement>(sel);
 
+beforeEach(() => {
+  document.body.innerHTML = '';
+  setLocaleInfos(['zh-TW', 'en-US', 'th', 'vi'].map((code) => ({ code, nativeName: code, quasarLang: null, fallbackCode: null, uiHash: '' })) as never);
+  setLocaleSettings({ defaultLocale: 'zh-TW' });
+});
+
 const notifyData = (o: Record<string, unknown> = {}) => ({
   v: 1, node: 'n1', read: true,
   template: { title: { 'zh-TW': '{title} 已過主管核准', 'en-US': '{title} approved' }, body: { 'zh-TW': '第一行\n第二行\n第三行 {f:21}', 'en-US': 'Line one' } },
@@ -44,12 +50,6 @@ const notifyData = (o: Record<string, unknown> = {}) => ({
 });
 
 describe('NotificationBell', () => {
-  beforeEach(() => {
-    document.body.innerHTML = '';
-    setLocaleInfos(['zh-TW', 'en-US', 'th', 'vi'].map((code) => ({ code, nativeName: code, quasarLang: null, fallbackCode: null, uiHash: '' })) as never);
-    setLocaleSettings({ defaultLocale: 'zh-TW' });
-  });
-
   it('未讀數 3 時 badge 顯示 3，0 時沒有 badge', async () => {
     const a = await mountBell({ items: [note(9)], unreadCount: 3 });
     expect(a.w.get('[data-testid="notification-badge"]').text()).toBe('3');
@@ -238,6 +238,24 @@ describe('approvalNotify 通知', () => {
     body('[data-testid="notification-item-1"]')!.click();
     await flushPromises();
     expect(body('[data-testid="notification-detail-open"]')).toBeNull();
+    w.unmount();
+  });
+
+  it('詳情先開，標已讀卡住或失敗也不影響開啟', async () => {
+    const { w } = await mountBell({ items: [approvalNote(1, notifyData())], unreadCount: 1 });
+    calls.length = 0;
+    mockHttp((c) => (c.url === '/notifications' ? { items: [approvalNote(1, notifyData())], unreadCount: 1 } : new Promise(() => {})));
+    await openBell(w);
+    body('[data-testid="notification-item-1"]')!.click();
+    await flushPromises();
+    expect(body('[data-testid="notification-detail"]')).not.toBeNull();
+    w.unmount();
+  });
+
+  it('退回路徑標題被遮蔽（空字串）時用替代字，不只顯示種類標籤', async () => {
+    const { w } = await mountBell({ items: [approvalNote(1, null, { title: '' })], unreadCount: 1 });
+    await openBell(w);
+    expect(body('[data-testid="notification-item-1"]')!.textContent).toContain('簽核通知： （未顯示標題）');
     w.unmount();
   });
 

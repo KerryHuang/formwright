@@ -85,7 +85,7 @@ describe('ApprovalActionLog', () => {
       const w = render([notify({ count: 3, total: 3, truncated: false, none: false })]);
       expect(w.get('[data-testid="log-notify-note"]').text()).toBe('已通知 3 人');
       expect(w.find('[data-testid="log-comment"]').exists()).toBe(false);
-      expect(render([notify({ count: 3, total: 3, truncated: false, none: false })], 'en-US').get('[data-testid="log-notify-note"]').text()).toBe('Notified 3 people');
+      expect(render([notify({ count: 3, total: 3, truncated: false, none: false })], 'en-US').get('[data-testid="log-notify-note"]').text()).toBe('Recipients notified: 3');
     });
 
     it('沒有收件人：沒有收件人，未發送', () => {

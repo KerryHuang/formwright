@@ -17,6 +17,7 @@ export interface ApprovalNotifyData {
 /** 組字時的系統字（i18n 提供）：無權限、空值、標題被遮蔽的替代字。 */
 export interface NotifyTexts { denied: string; empty: string; noTitle: string }
 
+const MAX_LONG = 9223372036854775807n;
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** 後端已解析並重組成白名單；這裡只確認形狀，不對就回 null（鈴鐺退回 title）。 */
@@ -39,7 +40,8 @@ function tokens(text: string): { text?: string; key?: string; field?: boolean }[
       if (j < text.length && text[j] === '}') {
         const name = text.slice(i + 1, j);
         if (['title', 'flow', 'initiator', 'node'].includes(name)) { flush(); out.push({ key: name }); i = j + 1; continue; }
-        if (/^f:[0-9]+$/.test(name)) { flush(); out.push({ key: name, field: true }); i = j + 1; continue; }
+        // 與後端一樣把數字解成數值再組鍵（{f:021} 與 {f:21} 同一欄）；超過 long 範圍的數字照字面（後端 TryParse 失敗）。
+        if (/^f:[0-9]+$/.test(name) && BigInt(name.slice(2)) <= MAX_LONG) { flush(); out.push({ key: `f:${BigInt(name.slice(2))}`, field: true }); i = j + 1; continue; }
         lit += text.slice(i, j + 1);
         i = j + 1;
         continue;

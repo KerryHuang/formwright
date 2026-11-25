@@ -128,6 +128,17 @@
       "expected": { "title": "採購單 通知", "body": "" }
     },
     {
+      "name": "欄位佔位符的數字照數值解讀：前導零 {f:021} 與 {f:21} 同一個欄位；超過 long 範圍的數字照字面",
+      "locale": "zh-TW",
+      "fallbacks": ["zh-TW"],
+      "data": {
+        "v": 1, "node": "n1", "read": true,
+        "template": { "title": { "zh-TW": "{title}" }, "body": { "zh-TW": "金額 {f:021}／{f:21}／{f:99999999999999999999}" } },
+        "values": { "title": { "t": "PO-0008" }, "flow": { "i18n": { "zh-TW": "採購單" } }, "node": { "i18n": { "zh-TW": "n1" } }, "initiator": { "t": "王小明" }, "f:21": { "t": "10" } }
+      },
+      "expected": { "title": "PO-0008", "body": "金額 10／10／{f:99999999999999999999}" }
+    },
+    {
       "name": "不認得的 s 值當無權限",
       "locale": "zh-TW",
       "fallbacks": ["zh-TW"],
