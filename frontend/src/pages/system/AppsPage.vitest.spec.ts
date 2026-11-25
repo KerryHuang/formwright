@@ -13,7 +13,7 @@ import AppsPage from './AppsPage.vue';
 vi.mock('src/services/api/dynamic-api', () => ({
   dynamicApi: {
     getMe: vi.fn(), getAppPackages: vi.fn(), getApps: vi.fn(), importAppPackage: vi.fn(),
-    previewOpenApp: vi.fn(), openApp: vi.fn(), closeApp: vi.fn(), reopenApp: vi.fn(),
+    previewOpenApp: vi.fn(), openApp: vi.fn(), closeApp: vi.fn(), reopenApp: vi.fn(), getAppDeleteCheck: vi.fn(), deleteApp: vi.fn(),
   },
 }));
 const api = vi.mocked(dynamicApi);
@@ -31,8 +31,8 @@ const okPreview: OpenPreview = {
 };
 
 let mounted: ReturnType<typeof mount> | undefined;
-async function mountPage(packages: AppPackageSummary[], apps: AppInfo[], designer = { read: true, add: true, edit: true, delete: true }, isSystemAdmin = true, loc: 'zh-TW' | 'en-US' = 'zh-TW') {
-  api.getMe.mockResolvedValue({ isSystemAdmin, designer } as never);
+async function mountPage(packages: AppPackageSummary[], apps: AppInfo[], designer = { read: true, add: true, edit: true, delete: true }, isSystemAdmin = true, loc: 'zh-TW' | 'en-US' = 'zh-TW', permissionAdmin = true) {
+  api.getMe.mockResolvedValue({ isSystemAdmin, designer, permissionAdmin } as never);
   api.getAppPackages.mockResolvedValue(packages);
   api.getApps.mockResolvedValue(apps);
   const i18n = createI18n({ legacy: false, locale: loc, messages: { 'zh-TW': zhTW, 'en-US': enUS } });
@@ -266,5 +266,48 @@ describe('AppsPage', () => {
     expect(q('app-version')!.textContent).toBe('v1.0.0');
     expect(q('app-upgrade-badge')).toBeNull();
     expect(q('app-upgrade')).toBeNull();
+  });
+
+  it('delete button only on closed rows for system admins', async () => {
+    const rows = [pkg('a', null), pkg('b', 'Open'), pkg('c', 'Closed')];
+    const apps = [app('b', 'Open'), app('c', 'Closed')];
+    await mountPage(rows, apps);
+    const r = all('app-row');
+    expect(r.map((x) => !!x.querySelector('[data-testid="app-delete"]'))).toEqual([false, false, true]);
+    for (const args of [[undefined, false], [{ read: true, add: true, edit: true, delete: false }, true]] as const) {
+      mounted?.unmount(); document.body.innerHTML = '';
+      await mountPage(rows, apps, args[0], args[1]);
+      expect(q('app-delete')).toBeNull();
+    }
+    mounted?.unmount(); document.body.innerHTML = '';
+    await mountPage(rows, apps, undefined, true, 'zh-TW', false);
+    expect(q('app-delete')).toBeNull();
+  });
+
+  it('delete button follows the delete permissions, not canWrite', async () => {
+    await mountPage([pkg('c', 'Closed')], [app('c', 'Closed')], { read: true, add: false, edit: false, delete: true }, true, 'zh-TW', true);
+    expect(q('app-delete')).not.toBeNull();
+    expect(q('app-open')).toBeNull();
+    expect(q('app-close')).toBeNull();
+    expect(q('app-reopen')).toBeNull();
+  });
+
+  it('after delete the row is back to not opened', async () => {
+    api.getAppDeleteCheck.mockResolvedValue({ canDelete: true, blockers: [], purge: { records: 0, indexRows: 0, historyRows: 0 }, clearedValues: 0, purgedTotal: 0, cleared: [], orphaned: [], reports: [] });
+    api.deleteApp.mockImplementation(async () => {
+      api.getAppPackages.mockResolvedValue([pkg('c', null)]);
+      api.getApps.mockResolvedValue([]);
+      return { warnings: [] };
+    });
+    await mountPage([pkg('c', 'Closed')], [app('c', 'Closed')]);
+    await click('app-delete');
+    expect(api.getAppDeleteCheck).toHaveBeenCalledWith('c');
+    await click('app-delete-confirm');
+    await click('app-delete-submit');
+    expect(api.deleteApp).toHaveBeenCalledWith('c', 0);
+    const row = all('app-row')[0];
+    expect(row.querySelector('[data-testid="app-status"]')!.textContent).toContain(zhTW.apps.status.none);
+    expect(row.querySelector('[data-testid="app-open"]')).not.toBeNull();
+    expect(row.querySelector('[data-testid="app-delete"]')).toBeNull();
   });
 });

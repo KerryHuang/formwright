@@ -6,6 +6,7 @@ import {
   useAppPackages, useApps, useCloseApp, useImportAppPackage, useOpenApp, usePreviewOpenApp, useReopenApp,
 } from 'src/application/dynamic/queries/apps-queries';
 import { useMe } from 'src/application/dynamic/queries/permissions-queries';
+import AppDeleteDialog from 'src/presentation/dynamic/apps/AppDeleteDialog.vue';
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import { notifyApiError } from 'src/presentation/dynamic/designer/api-error';
@@ -27,6 +28,8 @@ const reopenApp = useReopenApp();
 const forbidden = computed(() => isForbidden(packages.error.value) || isForbidden(apps.error.value));
 const canWrite = computed(() => !!me.data.value?.designer.add && !!me.data.value?.designer.edit);
 // 預覽與套用要系統管理員（後端 ISystemAdminRequest），按鈕同樣要求，免得點了才 403（套件更新設計 §11.2）
+// 刪除要的是後端 DeleteAppRequest 檢查的那組（系統管理員＋設計器 Delete＋權限設定），不是 canWrite
+const canDeleteApp = computed(() => me.data.value?.isSystemAdmin === true && !!me.data.value?.designer.delete && !!me.data.value?.permissionAdmin);
 const canUpgrade = computed(() => canWrite.value && me.data.value?.isSystemAdmin === true);
 // 分區只讀 API 的 kind（範本列沒有更新鈕是 upgrade = null 的結果，不另判斷）
 const sections = computed(() => {
@@ -124,6 +127,7 @@ function doClose(cascade: boolean) {
     onError: (e) => fail(e, t('apps.closeFailed')),
   });
 }
+const deleting = ref<AppInfo | null>(null);
 const reopen = (key: string) => reopenApp.mutate(key, {
   onSuccess: () => $q.notify({ type: 'positive', message: t('apps.reopened') }),
   onError: (e) => fail(e, t('apps.reopenFailed')),
@@ -174,6 +178,7 @@ const reopen = (key: string) => reopenApp.mutate(key, {
               <q-btn v-if="canWrite && !p.status" color="primary" dense no-caps :label="t('apps.open')" data-testid="app-open" @click="startOpen(p)" />
               <q-btn v-if="canWrite && p.status === 'Open' && appByKey.get(p.id)" outline dense no-caps :label="t('apps.close')" data-testid="app-close" @click="closing = appByKey.get(p.id)!" />
               <q-btn v-if="canWrite && p.status === 'Closed'" color="primary" dense no-caps :label="t('apps.reopen')" data-testid="app-reopen" @click="reopen(p.id)" />
+              <q-btn v-if="canDeleteApp && p.status === 'Closed' && appByKey.get(p.id)" outline color="negative" dense no-caps :label="t('apps.delete.button')" data-testid="app-delete" @click="deleting = appByKey.get(p.id)!" />
               <q-btn v-if="canUpgrade && p.status === 'Open' && p.upgrade" outline color="primary" dense no-caps :label="t('apps.upgrade.open')"
                 :to="`/system/apps/${encodeURIComponent(p.id)}/upgrade`" data-testid="app-upgrade" />
             </div>
@@ -230,6 +235,8 @@ const reopen = (key: string) => reopenApp.mutate(key, {
           </q-card-actions>
         </q-card>
       </q-dialog>
+
+      <AppDeleteDialog :model-value="!!deleting" :app="deleting" @update:model-value="deleting = null" />
     </template>
   </q-page>
 </template>

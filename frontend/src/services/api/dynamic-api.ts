@@ -226,6 +226,16 @@ export interface ApprovalSubstitution {
   kind: 'approvers' | 'candidates' | 'fallback';
   replacedBy: 'flowFallback' | 'policyDefault';
 }
+export interface ClearedField { moduleKey: string; field: string; count: number }
+/** GET apps/{key}/delete-check：刪除會動到什麼；擋下與否由後端判斷，前端只呈現。 */
+export interface AppDeleteCheck extends DeleteCheck {
+  clearedValues: number;
+  /** DELETE 要帶回的 purged：軟刪除記錄筆數加共用主檔上清除的欄位值筆數。 */
+  purgedTotal: number;
+  cleared: ClearedField[];
+  orphaned: ClearedField[];
+  reports: { id: number; name: string }[];
+}
 export interface CloseAppResult { app: AppInfo; closed: string[]; warnings: string[] }
 export interface MissingDependency { kind: string; appId?: string; moduleCode?: string; entity?: string; reason: string }
 export interface OpenPreview {
@@ -651,6 +661,9 @@ export const dynamicApi = {
   },
   closeApp: (key: string, cascade: boolean) =>
     http.post<CloseAppResult>(`/apps/${encodeURIComponent(key)}/close`, { cascade }).then(data),
+  getAppDeleteCheck: (key: string) => http.get<AppDeleteCheck>(`/apps/${encodeURIComponent(key)}/delete-check`).then(data),
+  deleteApp: (key: string, purged: number) =>
+    http.delete<{ warnings: string[] }>(`/apps/${encodeURIComponent(key)}`, { params: { purged } }).then(data),
   reopenApp: (key: string) => http.post<AppInfo>(`/apps/${encodeURIComponent(key)}/reopen`).then(data),
   getTemplates: () => http.get<TemplateSummary[]>('/templates').then(data),
   instantiateTemplate: (key: string, body: InstantiateBody) =>

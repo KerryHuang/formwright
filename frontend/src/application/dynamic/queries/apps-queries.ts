@@ -68,3 +68,11 @@ export function useReopenApp() {
     onSuccess: () => invalidateAll(qc),
   });
 }
+
+export function useDeleteApp() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { key: string; purged: number }) => dynamicApi.deleteApp(v.key, v.purged),
+    onSuccess: () => invalidateAll(qc),
+  });
+}
