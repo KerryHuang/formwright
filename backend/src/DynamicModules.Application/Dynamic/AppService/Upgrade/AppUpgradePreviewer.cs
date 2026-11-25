@@ -69,6 +69,7 @@ public sealed class AppUpgradePreviewer(
         if (app is null) return Fail(ServiceResult.NotFound(AppMessages.NotFound));
         // 主檔的新版從使用它的應用程式更新頁看（Q10），直接預覽主檔與開啟、關閉主檔一樣回 409
         if (app.Kind == AppKind.Master) return Fail(ServiceResult.Conflict(AppMessages.MasterManaged));
+        if (app.Kind == AppKind.Template) return Fail(ServiceResult.Conflict(MessageRef.Of(MessageText.AppTemplateNoUpgrade), AppMessages.UpgradeUnavailableCode));
         var candidate = await packages.CandidateForAsync(app, ct);
         var masters = await MasterCandidatesAsync(app, ct);
         if (candidate is not null && PackageVersion.Compare(candidate.Package.Manifest.Version, app.PackageVersion) < 0)
@@ -317,7 +318,6 @@ public sealed class AppUpgradePreviewer(
     /// </summary>
     public async Task<AppUpgradeHint?> HintAsync(App app, CancellationToken ct)
     {
-        if (app.Kind == AppKind.Template) return null; // 範本開啟後屬於使用者，不提供更新（範本套件設計 V9）
         var candidate = await packages.CandidateForAsync(app, ct);
         var own = candidate is not null && PackageVersion.IsNewer(candidate.Package.Manifest.Version, app.PackageVersion)
             ? candidate.Package.Manifest.Version : null;
@@ -336,7 +336,7 @@ public sealed class AppUpgradePreviewer(
     private async Task<List<(App Master, SourcedPackage Source)>> MasterCandidatesAsync(App app, CancellationToken ct)
     {
         var result = new List<(App, SourcedPackage)>();
-        if (app.Kind == AppKind.Master) return result;
+        if (app.Kind is AppKind.Master or AppKind.Template) return result;
         var all = await apps.ListAsync(ct);
         foreach (var use in (await shared.ListUsesAsync(ct)).Where(u => u.AppId == app.Id))
             if (all.FirstOrDefault(a => a.Id == use.MasterAppId) is { } master && await MasterCandidateAsync(master, ct) is { } source

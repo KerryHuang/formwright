@@ -48,6 +48,96 @@ public class AppUpgradePreviewApiTests : IDisposable
         return crm.TryGetProperty("upgrade", out var u) && u.ValueKind != JsonValueKind.Null ? u : null;
     }
 
+    private const string TplNoUpgrade = "範本開啟後屬於你，不提供更新";
+
+    private async Task<HttpResponseMessage> ImportJsonAsync(string json, string? locale = null)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Post, $"{Apps}/packages/import") { Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json") };
+        if (locale is not null) req.Headers.Add("X-Locale", locale);
+        return await _admin.SendAsync(req);
+    }
+
+    /// <summary>匯入範本 1.0.0 並開啟，再匯入 1.1.0（目錄上有比已開啟新的版本）。</summary>
+    private async Task OpenTplAWithNewerVersionAsync()
+    {
+        (await ImportJsonAsync(AppTestPackagesV6.Master)).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await ImportJsonAsync(AppTestPackagesTemplate.TplA)).StatusCode.Should().Be(HttpStatusCode.Created);
+        var open = await _admin.PostAsJsonAsync($"{Apps}/packages/tpl-a/open", new
+        {
+            groupMap = new Dictionary<string, object> { ["staff"] = new { mode = "create" } },
+            masters = new Dictionary<string, object> { ["partner-lite"] = new Dictionary<string, object> { ["steward"] = new { mode = "create" } } }
+        });
+        open.StatusCode.Should().Be(HttpStatusCode.Created, await open.Content.ReadAsStringAsync());
+        (await ImportJsonAsync(AppTestPackagesTemplate.TplA.Replace("\"version\": \"1.0.0\"", "\"version\": \"1.1.0\"")))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    private async Task AssertTemplateUpgradeIs409Async(string? locale = null, string message = TplNoUpgrade)
+    {
+        foreach (var (path, body) in new[] { ("upgrade/preview", new { }), ("upgrade", new { }) })
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, $"{Apps}/tpl-a/{path}") { Content = JsonContent.Create(body) };
+            if (locale is not null) req.Headers.Add("X-Locale", locale);
+            var res = await _admin.SendAsync(req);
+            res.StatusCode.Should().Be(HttpStatusCode.Conflict, path);
+            var json = await JsonOf(res);
+            json.GetProperty("message").GetString().Should().Be(message, path);
+            json.GetProperty("code").GetString().Should().Be("upgradeUnavailable", path);
+        }
+    }
+
+    private static bool HasUpgrade(JsonElement e) => e.TryGetProperty("upgrade", out var u) && u.ValueKind != JsonValueKind.Null;
+
+    [Fact]
+    public async Task Template_HasNoUpgradeHint_TP20()
+    {
+        await OpenTplAWithNewerVersionAsync();
+
+        var list = await JsonOf(await _admin.GetAsync($"{Apps}/packages"));
+        HasUpgrade(list.EnumerateArray().Single(p => p.GetProperty("id").GetString() == "tpl-a")).Should().BeFalse();
+        HasUpgrade(await JsonOf(await _admin.GetAsync($"{Apps}/tpl-a"))).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Template_UpgradePreviewAndApply_Are409_TP21()
+    {
+        await OpenTplAWithNewerVersionAsync();
+        await AssertTemplateUpgradeIs409Async();
+    }
+
+    [Fact]
+    public async Task ClosedTemplate_UpgradeIs409TemplateNoUpgrade()
+    {
+        await OpenTplAWithNewerVersionAsync();
+        (await _admin.PostAsJsonAsync($"{Apps}/tpl-a/close", new { cascade = false })).StatusCode.Should().Be(HttpStatusCode.OK);
+        await AssertTemplateUpgradeIs409Async();
+    }
+
+    [Fact]
+    public async Task TemplateNoUpgrade_IsLocalized()
+    {
+        await OpenTplAWithNewerVersionAsync();
+        await AssertTemplateUpgradeIs409Async("en-US", "A template belongs to you once opened and gets no updates");
+    }
+
+    [Fact]
+    public async Task OnlyTemplate_MasterUpdateHasNoEntry_TP22()
+    {
+        await OpenTplAWithNewerVersionAsync();
+        SetOpenedVersion("partner-lite", "0.9.0"); // 範本用到的主檔出了新版
+        HasUpgrade(await JsonOf(await _admin.GetAsync($"{Apps}/tpl-a"))).Should().BeFalse();
+
+        // CRM 與範本的主檔管理員群組同名，先把範本開出來的那個改名
+        var groups = await JsonOf(await _admin.GetAsync($"{Base}/admin/groups"));
+        var steward = groups.EnumerateArray().Single(g => g.GetRawText().Contains("往來對象管理員"));
+        (await _admin.PutAsJsonAsync($"{Base}/admin/groups/{steward.GetProperty("id").GetInt64()}", new { name = "範本主檔管理員", locale = "zh-TW" }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        await OpenCrmAsync();
+        SetOpenedVersion("partner", "0.9.0");
+        var crm = await JsonOf(await _admin.GetAsync($"{Apps}/crm-sales"));
+        crm.GetProperty("upgrade").GetProperty("masters").EnumerateArray().Select(m => m.GetProperty("id").GetString()).Should().Contain("partner");
+    }
+
     [Fact]
     public async Task SameVersion_IsUpToDate_AndNoHint_A14()
     {

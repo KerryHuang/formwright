@@ -41,6 +41,7 @@ public sealed class AppPackageSource(AppCatalog catalog, TemplateCatalog templat
     /// </summary>
     public async Task<SourcedPackage?> CandidateForAsync(App app, CancellationToken ct)
     {
+        if (app.Kind == AppKind.Template) return null; // 範本開啟後屬於使用者，沒有候選新版（範本套件設計 V9）
         if (app.Kind == AppKind.Master)
         {
             var builtIn = catalog.BuiltIns.FirstOrDefault(p => p.Manifest.Id == app.Key) is { Manifest.IsMaster: true } mb ? BuiltInOf(mb) : null;
