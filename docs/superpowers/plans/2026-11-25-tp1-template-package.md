@@ -21,7 +21,7 @@
 - 不加 migration（T2）：`dotnet ef migrations has-pending-model-changes` 對 SQLite 與 PostgreSQL 兩個 Persistence 專案都要回「沒有待產生的變更」，結果寫進交付說明。
 - 程式不得出現 `quality-inspection` 等套件 id（鐵則 1、`AppsApiTests` 的掃描）；`DemoCatalog` 是 Demo 專用碼，例外。前端分區只讀 API 的 `kind`，不寫套件 id，範本列沒有更新鈕是 `upgrade = null` 的結果，不另寫範本判斷（T8）。
 - 擋下的判斷只在後端（V1–V9、刪除擋下原因）；前端只呈現。
-- 後端使用者看得到的固定句子：照 `MessageText` 現行寫法（例 `AppUpgradeUpToDate`）加鍵與四語，繁中與 `AppMessages` 字面值逐字相同；帶參數的用 `MessageRef.Of(key, args)`。
+- **後端新訊息一律四語**（設計 §9.5；V1–V9、取代訊息、匯出 warning 全部）：每句在 `MessageText` 加鍵與四語，繁中與設計逐字相同；回給使用者時經 `IMessageCatalog` 依請求語系解析。三條路徑：(a) `ServiceResult` 的訊息用 `MessageRef.Of(key, args)`；(b) 驗證器錯誤現在是 `List<string>`、欄位錯誤不做字面值翻譯（`ServiceResult.ErrorsIn` 不帶 `translateLiteral`），所以 Task 1 先讓 `AppValidation` 多帶 `ErrorRefs`，呼叫端用它組回應；(c) 放進回應資料的字串（`Warnings`、`OpenPreview.Errors`、`UpgradeBlocker.Detail`、`X-Export-Warnings`）在產生處用注入的 `IMessageCatalog` 以 `requestLocale.Current` 解析。不直接呼叫 `MessageText.Get`。每句至少一條英文語系（`X-Locale: en-US`）斷言。
 - 驗證器的錯誤訊息逐字（設計 §5.3）：V1 `manifest.kind: 必須是 app、master 或 template`；V2 `integrations: 範本套件不收 integrations`；V4 `manifest.requires.apps[{i}]: {id} 是範本，不能被其他套件依賴`；V5 `integrations[{i}].with[{id}]: {id} 是範本，不能當整合對象`；V6 `{id} 已被 {清單} 列為相依或整合對象，不能以範本匯入`；V7 `套件 {id} 已經是{舊種類}，再匯入不能改成{新種類}`（種類名「應用程式」「範本」）；V8 原因代碼 `isTemplate`；V9 409 `範本開啟後屬於你，不提供更新`、代碼 `upgradeUnavailable`。
 - 再匯入範本取代原文的訊息：`已匯入新版；已開啟的範本不會更新`；匯出 warning：`「{欄位}」指向範本「{範本 id}」的模組，範本不能被依賴，未匯出`。
 - 新增介面文字四語（`shared/i18n/{zh-TW,en-US,th,vi}/ui.json`）鍵集合一致、單行 JSON 格式；訊息含 `@ { } |` 用字面量寫法。
@@ -54,11 +54,14 @@
 - Modify: `AppService/Upgrade/UpgradeItems.cs:55-56`（覆蓋率登記）
 - Modify: `backend/apps/app.schema.json`（`manifest.kind` enum）
 - Modify: `backend/src/DynamicModules.Application/Common/MessageText.cs`（V1、V2 鍵與四語）
+- Modify: `AppService/AppPackageValidator.cs:13`（`AppValidation` 加 `ErrorRefs`）、`:54-60`（`Validate` 組 `ErrorRefs`）
+- Modify: `AppService/Commands/ImportAppPackage.cs:44`、`:155-156`（驗證錯誤改用 `ErrorRefs` 組 400）
 - Create: `WebAPITests/Dynamic/AppTestPackagesTemplate.cs`
 - Test: `WebAPITests/Dynamic/AppFormat6Tests.cs`、`ApplicationTests/Dynamic/AppSchemaTests.cs`、`ApplicationTests/Dynamic/Apps/UpgradeClassifierTests.cs`
 
 **Interfaces:**
 - Produces: `AppManifest.TemplateKindName = "template"`；`bool AppManifest.IsTemplate => Kind == TemplateKindName`；`static string AppManifest.KindNameOf(AppKind kind)`（`app`／`master`／`template`，Task 3 起用）。
+- Produces: `public record AppValidation(IReadOnlyList<string> Errors, IReadOnlyList<string> Warnings)` 加 `public IReadOnlyList<MessageRef> ErrorRefs { get; init; }`，與 `Errors` 同序同長；有鍵的錯誤是 `MessageRef.Of(key, args)`，其餘是 `MessageRef.Literal(text)`（既有句不動）。驗證器內部加一個 helper `static void Keyed(List<string> errors, Dictionary<string, MessageRef> refs, string key, params object[] args)`：`errors` 放繁中（`MessageRef.Of(key, args).Resolve(I18nText.FallbackLocale)`，給 log、`AppCatalog` 例外與既有繁中斷言），`refs` 記同一句對應的 ref；`Validate` 結尾依 `Errors` 組 `ErrorRefs`。Task 2、Task 4 的 V4、V5 也走這個 helper，呼叫端（匯入、開啟預覽、更新預檢）用 `ErrorRefs` 而不是 `Errors` 回給使用者。
 - Produces: `internal static class AppTestPackagesTemplate`：`string TplA`（格式 8、`kind: template`、`requires.masters` partner、兩個模組 `item`、`record`，`record` 參照 `item`）、`string TplR`（`requires.apps` crm-sales，有欄位參照 CRM 的 `opportunity`）、`string Template(string id, string version = "1.0.0", string? requiresApp = null, string? withApp = null, int formatVersion = 8, string kind = "template")`、`string App(string id, string version = "1.0.0", string? requiresApp = null, string? withApp = null)`。照 `AppTestPackagesV6.cs` 的 raw string 寫法。
 
 - [ ] **Step 1: 寫失敗測試**（`AppFormat6Tests`，沿用該類的 `AloneErrors(...)` 與匯入 helper）
@@ -68,6 +71,7 @@
   - `Template_WithIntegrations_IsRejected_TP04`：範本帶一個 `integrations` → 含 `integrations: 範本套件不收 integrations`；匯入 API 回 400。
   - `Template_ExtensibleOrActive_IsRejected_V3`：範本模組 `extensible: true` → 含 `只有主檔套件的模組可以設 extensible`；欄位 `active` → 含 `只有主檔套件的模組與 contributions 的欄位可以設 active`。
   - `Kind_NearMisses_AreRejected`（Review Focus 1）：`[Theory]` 資料 `"Template"`、`"TEMPLATE"`、`""`、`" template"` → 都含 V1 句子。
+  - `KindAndIntegrationErrors_AreLocalized`：`X-Locale: en-US` 匯入 `kind: "tmpl"` 與帶 `integrations` 的範本 → 400 的 `errors.package` 是 `MessageText` 的英文句、不含中文字元（用 `[一-鿿]` 檢查）；`th`、`vi` 各一筆非繁中。
   - `AppSchemaTests`：`manifest.kind` 的 enum 等於 `["app", "master", "template"]`。
   - `UpgradeClassifierTests` 的覆蓋率測試不改，加 `IsTemplate` 後會失敗（下一步驗）。
 - [ ] **Step 2: 跑測試確認失敗**
@@ -75,14 +79,15 @@
   Expected: FAIL（訊息仍是「必須是 app 或 master」、TP-04 沒錯誤、schema enum 少一值）。
 - [ ] **Step 3: 實作**
   - `AppManifest` 加常數 `TemplateKindName`、`IsTemplate`、`KindNameOf`。
-  - V6 第 46 行條件加 `AppManifest.TemplateKindName`、訊息換成 V1；`if (m.IsTemplate && p.Integrations.Count > 0)` 報 V2。V3 不改（範本不是主檔，既有規則照擋）。
+  - `AppValidation.ErrorRefs` 與 `Keyed` helper；`ImportAppPackage` 的 `Invalid(validation.Errors)` 改成 `ServiceResult.Invalid(new Dictionary<string, MessageRef[]> { ["package"] = [.. validation.ErrorRefs] })`（`readErrors`、`limitErrors` 照舊字串）。
+  - V6 第 46 行條件加 `AppManifest.TemplateKindName`、以 `Keyed(..., MessageText.AppKindInvalid)` 報 V1；`if (m.IsTemplate && p.Integrations.Count > 0)` 以 `Keyed(..., MessageText.AppTemplateNoIntegrations)` 報 V2。V3 不改（範本不是主檔，既有規則照擋）。
   - `UpgradeItems` 的 `AppManifest` 列加 `("IsTemplate", "由 Kind 推導的計算屬性")`。
   - `app.schema.json` enum 加 `"template"`。
   - `MessageText` 加 `AppKindInvalid`、`AppTemplateNoIntegrations` 兩鍵（無參數，繁中與驗證器字面值逐字相同，英泰越各一句）。
 - [ ] **Step 4: 跑測試確認通過**（同 Step 2 指令）Expected: PASS。
 - [ ] **Step 5: Commit**
   ```bash
-  git add backend/src/DynamicModules.Application/Dynamic/AppService/Data/AppPackageData.cs backend/src/DynamicModules.Application/Dynamic/AppService/AppPackageValidator.V6.cs backend/src/DynamicModules.Application/Dynamic/AppService/Upgrade/UpgradeItems.cs backend/apps/app.schema.json backend/src/DynamicModules.Application/Common/MessageText.cs backend/tests/DynamicModules.WebAPITests/Dynamic/AppTestPackagesTemplate.cs backend/tests/DynamicModules.WebAPITests/Dynamic/AppFormat6Tests.cs backend/tests/DynamicModules.ApplicationTests/Dynamic/AppSchemaTests.cs
+  git add backend/src/DynamicModules.Application/Dynamic/AppService/Data/AppPackageData.cs backend/src/DynamicModules.Application/Dynamic/AppService/AppPackageValidator.cs backend/src/DynamicModules.Application/Dynamic/AppService/Commands/ImportAppPackage.cs backend/src/DynamicModules.Application/Dynamic/AppService/AppPackageValidator.V6.cs backend/src/DynamicModules.Application/Dynamic/AppService/Upgrade/UpgradeItems.cs backend/apps/app.schema.json backend/src/DynamicModules.Application/Common/MessageText.cs backend/tests/DynamicModules.WebAPITests/Dynamic/AppTestPackagesTemplate.cs backend/tests/DynamicModules.WebAPITests/Dynamic/AppFormat6Tests.cs backend/tests/DynamicModules.ApplicationTests/Dynamic/AppSchemaTests.cs
   git commit -m "feat(tp1a): 套件 manifest.kind 加 template 與驗證規則 V1–V3"   # 結尾附 Global Constraints 的兩行
   ```
 
@@ -92,25 +97,29 @@
 - Modify: `AppService/AppPackageValidator.cs:54`（`Validate` 簽章）、`:306-310` 旁加 V4
 - Modify: `AppService/AppPackageValidator.V5.cs:59-67`（`with` 迴圈加 V5；需要把 `templateIds` 傳進 V5 的檢查方法）
 - Modify: `AppService/AppPackageSource.cs`（加 `TemplateIdsAsync`）
-- Modify: `AppService/AppCatalog.cs:38-46`、`AppService/Commands/ImportAppPackage.cs:40-43`、`AppService/AppOpenPlanner.cs:53-58`、`AppService/Upgrade/AppUpgradePreviewer.cs:359-366`（四個呼叫端）
+- Modify: `AppService/AppCatalog.cs:38-46`、`AppService/Commands/ImportAppPackage.cs:40-43`、`AppService/AppOpenPlanner.cs:53-64`、`AppService/Upgrade/AppUpgradePreviewer.cs:359-367`（四個呼叫端）
+- Modify: `backend/src/DynamicModules.Application/Common/MessageText.cs`（V4、V5 鍵與四語）
 - Test: `WebAPITests/Dynamic/AppTemplateKindTests.cs`（新）、`ApplicationTests/Dynamic/AppCatalogChecksTests.cs`、`WebAPITests/Dynamic/AppUpgradePreviewApiTests.cs`
 
 **Interfaces:**
 - Consumes: Task 1 的 `AppManifest.IsTemplate`、`AppTestPackagesTemplate`。
 - Produces: `public static AppValidation AppPackageValidator.Validate(AppPackageData p, IReadOnlyDictionary<string, AppPackageData>? masters = null, IReadOnlySet<string>? templateIds = null)`；`public async Task<IReadOnlySet<string>> AppPackageSource.TemplateIdsAsync(CancellationToken ct)`（目錄加匯入、`IsTemplate` 的 id；不含已開啟應用程式的 `Kind`，那是 V8 的防線，見 Task 6）。
+- Produces: `MessageText` 鍵 `AppRequiresTemplate`（`manifest.requires.apps[{0}]: {1} 是範本，不能被其他套件依賴`）、`AppPartnerIsTemplate`（`integrations[{0}].with[{1}]: {1} 是範本，不能當整合對象`），四語。`AppOpenPlanner`（`OpenPreview.Errors`）與 `AppUpgradePreviewer.PrecheckAsync`（`UpgradeBlocker.Detail`）注入 `IMessageCatalog`，把 `validation.ErrorRefs` 以 `requestLocale.Current` 解析成字串（`ref.Resolve(messages, lc)`）後放進回應。
 
 - [ ] **Step 1: 寫失敗測試**
   - `AppTemplateKindTests`（新類，`[Trait("Category", "Postgres")]`，用 `TestApp`）：
     - `RequiringATemplate_IsRejected_TP05`：匯入 `TplA` 後匯入 `App("app-b", requiresApp: "tpl-a")` → 400，錯誤含 `tpl-a 是範本，不能被其他套件依賴`。
     - `TemplateAsIntegrationPartner_IsRejected_TP06`：匯入 `TplA` 後匯入 `App("app-c", withApp: "tpl-a")` → 400，含 `不能當整合對象`。
     - `TemplateRequiringTemplate_IsRejected`（Review Focus 2）：匯入 `TplA` 後匯入 `Template("tpl-r2", requiresApp: "tpl-a")` → 400，含 `tpl-a 是範本，不能被其他套件依賴`。
+    - `DependencyErrors_AreLocalized`：`X-Locale: en-US` 重跑 TP-05、TP-06 → 錯誤是英文句、含 `tpl-a`、不含中文字元；TP-23 的預覽在 `en-US` 下 `detail` 也是英文。
   - `AppCatalogChecksTests`：`BuiltInRequiringATemplate_RefusesStartup_TP10`：暫存目錄放一份範本與一份 `requires.apps` 它的套件 → `AppCatalog.Load` 丟 `InvalidOperationException`，訊息含 `是範本，不能被其他套件依賴`。
   - `AppUpgradePreviewApiTests`：`NewVersionRequiringATemplate_IsInvalidPackage_TP23`：匯入 `TplA`、匯入並開啟 `App("app-u")` 1.0.0，再匯入 1.1.0（`requires.apps` 改成 `tpl-a`；匯入本身會被 V4 擋，所以 1.1.0 改由直接改 `Dynamic_AppPackage.Json` 造出）→ 預覽 `blockers` 含 `kind = "invalidPackage"`、`detail` 含 `是範本，不能被其他套件依賴`。
 - [ ] **Step 2: 跑測試確認失敗**
   Run: `dotnet test tests/DynamicModules.WebAPITests --filter "FullyQualifiedName~AppTemplateKindTests|FullyQualifiedName~AppUpgradePreviewApiTests"`；`dotnet test tests/DynamicModules.ApplicationTests --filter "FullyQualifiedName~AppCatalogChecksTests"`
   Expected: FAIL（匯入 201、啟動不丟例外）。
 - [ ] **Step 3: 實作**
-  - `Validate` 加 `templateIds`，給了才檢查：`requires.apps[i].Id` 在集合裡報 V4（寫法照第 306–310 行的主檔檢查）；`integrations[i].with[]` 的 id 在集合裡報 V5。
+  - `Validate` 加 `templateIds`，給了才檢查：`requires.apps[i].Id` 在集合裡以 `Keyed(..., AppRequiresTemplate, i, id)` 報 V4（位置照第 306–310 行的主檔檢查）；`integrations[i].with[]` 的 id 在集合裡以 `Keyed(..., AppPartnerIsTemplate, i, id)` 報 V5。
+  - `AppOpenPlanner`、`AppUpgradePreviewer.PrecheckAsync` 改用 `ErrorRefs` 解析後的字串（見 Interfaces）。
   - `AppCatalog.Load`：`parsedFiles` 裡 `IsTemplate` 的 id 集合傳進 `Validate`。
   - 其餘三個呼叫端用 `packages.TemplateIdsAsync(ct)`。`AppOpenPlanner` 只把它傳給第一個 `Validate`（套件本身的錯誤那次）。
 - [ ] **Step 4: 跑測試確認通過**（同 Step 2；`AppTemplateKindTests` 另以 `FORMWRIGHT_TEST_DB=postgres` 跑一次）Expected: PASS。
@@ -149,17 +158,18 @@
 
 **Files:**
 - Modify: `AppService/Commands/ImportAppPackage.cs:50-70`、`:80-91`（取代分支）
-- Modify: `AppService/Data/AppResponses.cs`（`AppMessages` 加句）、`backend/src/DynamicModules.Application/Common/MessageText.cs`
+- Modify: `backend/src/DynamicModules.Application/Common/MessageText.cs`
 - Test: `WebAPITests/Dynamic/AppTemplateKindTests.cs`
 
 **Interfaces:**
 - Consumes: `IsTemplate`、`AppTestPackagesTemplate.Template/App`、`IntegrationDeclarations.Parse(string?)`、`App.Requires.Apps`。
-- Produces: `AppMessages.TemplateReimported = "已匯入新版；已開啟的範本不會更新"`；`MessageText` 鍵 `AppTemplateReimported`、`AppImportTemplateDepended`（`{0} 已被 {1} 列為相依或整合對象，不能以範本匯入`）、`AppImportKindToTemplate`（`套件 {0} 已經是應用程式，再匯入不能改成範本`）、`AppImportKindToApp`（`套件 {0} 已經是範本，再匯入不能改成應用程式`）。`ImportAppPackageHandler` 多注入 `IMessageCatalog`（解析放進 `Warnings` 的取代訊息，用 `requestLocale.Current`）。
+- Produces: `MessageText` 鍵 `AppTemplateReimported`（`已匯入新版；已開啟的範本不會更新`）、`AppImportTemplateDepended`（`{0} 已被 {1} 列為相依或整合對象，不能以範本匯入`）、`AppImportKindToTemplate`（`套件 {0} 已經是應用程式，再匯入不能改成範本`）、`AppImportKindToApp`（`套件 {0} 已經是範本，再匯入不能改成應用程式`）。`ImportAppPackageHandler` 多注入 `IMessageCatalog`（解析放進 `Warnings` 的取代訊息，用 `requestLocale.Current`）。
 
 - [ ] **Step 1: 寫失敗測試**（`AppTemplateKindTests`）
   - `TemplateImport_AfterADependentPackage_IsRejected_TP07`：先匯入 `App("app-b", requiresApp: "tpl-x")`、再匯入 `Template("tpl-x")` → 400，含 `tpl-x 已被 app-b 列為相依或整合對象，不能以範本匯入`。
   - `OpenedAppIntegrationNamingTheId_BlocksTemplateImport`（Review Focus 3）：開啟 MES 後直接改 MES 的 `Dynamic_App.IntegrationsJson`，讓 `with[]` 多一個 `tpl-y` → 匯入 `Template("tpl-y")` → 400 V6，清單含 `mes`。
   - `ReimportChangingKind_Is409_TP08`：匯入 `App("app-d")` 1.0.0，再匯入 `Template("app-d", "2.0.0")` → 409 `套件 app-d 已經是應用程式，再匯入不能改成範本`；反向（先範本後 app）→ 409 `已經是範本，再匯入不能改成應用程式`。
+  - `ImportErrors_AreLocalized`：`X-Locale: en-US` 重跑 TP-07、TP-08 與 TP-09 的取代 → V6、V7 訊息與 `warnings` 的取代訊息都是英文、不含中文字元。
   - `ReimportNewerTemplate_ReplacesTheOriginalOnly_TP09`：匯入並開啟 `TplA` 1.0.0；匯入 1.1.0 → 200、`warnings` 含 `已匯入新版；已開啟的範本不會更新`；`GET apps/tpl-a` 的 `packageVersion = "1.0.0"`；`GET apps/packages` 該項 `upgrade = null`；再匯入 1.1.0 → 409，訊息含 `目前版號 1.1.0`。
 - [ ] **Step 2: 跑測試確認失敗**
   Run: `dotnet test tests/DynamicModules.WebAPITests --filter "FullyQualifiedName~AppTemplateKindTests"`
@@ -175,21 +185,22 @@
 **Files:**
 - Modify: `AppService/AppPackageSource.cs:42-54`（`CandidateForAsync`）
 - Modify: `AppService/Upgrade/AppUpgradePreviewer.cs:70`（`BuildAsync`）、`:337`（`MasterCandidatesAsync`）
-- Modify: `AppService/Data/AppResponses.cs`、`Common/MessageText.cs`
+- Modify: `backend/src/DynamicModules.Application/Common/MessageText.cs`
 - Test: `WebAPITests/Dynamic/AppUpgradePreviewApiTests.cs`
 
 **Interfaces:**
-- Produces: `AppMessages.TemplateNoUpgrade = "範本開啟後屬於你，不提供更新"`；`MessageText.AppTemplateNoUpgrade`（四語）。
+- Produces: `MessageText.AppTemplateNoUpgrade`（繁中 `範本開啟後屬於你，不提供更新`，四語）。
 
 - [ ] **Step 1: 寫失敗測試**（`AppUpgradePreviewApiTests`）
   - `Template_HasNoUpgradeHint_TP20`：開啟 `TplA` 1.0.0、匯入 1.1.0 → `GET apps/packages` 與 `GET apps/tpl-a` 的 `upgrade` 都是 `null`。
   - `Template_UpgradePreviewAndApply_Are409_TP21`：`POST apps/tpl-a/upgrade/preview` → 409、`message = "範本開啟後屬於你，不提供更新"`、`code = "upgradeUnavailable"`；`POST apps/tpl-a/upgrade`（帶任意 body）→ 同樣 409。
   - `ClosedTemplate_UpgradeIs409TemplateNoUpgrade`（Review Focus 4）：關閉 `tpl-a` 後同上兩支 → 409 V9。
+  - `TemplateNoUpgrade_IsLocalized`：`X-Locale: en-US` 打預覽 → `message` 是英文句、`code` 不變。
   - `OnlyTemplate_MasterUpdateHasNoEntry_TP22`：只開 `tpl-a`，讓 `partner` 出新版（照 `AppUpgradeMasterTests` 造主檔新版的寫法）→ `tpl-a` 的 `upgrade = null`；再開 CRM → CRM 的 `upgrade.masters` 含 `partner`。
 - [ ] **Step 2: 跑測試確認失敗**
   Run: `dotnet test tests/DynamicModules.WebAPITests --filter "FullyQualifiedName~AppUpgradePreviewApiTests"`
   Expected: FAIL（有 `upgrade` 提示、預覽 200）。
-- [ ] **Step 3: 實作**：`CandidateForAsync` 開頭 `app.Kind == AppKind.Template` 回 `null`；`BuildAsync` 在 `MasterManaged` 判斷旁回 `Conflict(AppMessages.TemplateNoUpgrade, AppMessages.UpgradeUnavailableCode)`；`MasterCandidatesAsync` 對範本回空。
+- [ ] **Step 3: 實作**：`CandidateForAsync` 開頭 `app.Kind == AppKind.Template` 回 `null`；`BuildAsync` 在 `MasterManaged` 判斷旁回 `Conflict(MessageRef.Of(MessageText.AppTemplateNoUpgrade), AppMessages.UpgradeUnavailableCode)`；`MasterCandidatesAsync` 對範本回空。
 - [ ] **Step 4: 跑測試確認通過**（同 Step 2）Expected: PASS。
 - [ ] **Step 5: Commit** `feat(tp1a): 範本不出現在更新提示與更新頁（V9）`
 
@@ -224,40 +235,50 @@
 ### Task 7: 整合夥伴是範本一律等待（T6）
 
 **Files:**
-- Modify: `AppService/Integrations/IntegrationReconciler.cs:58-61`
+- Modify: `AppService/Integrations/IntegrationReconciler.cs:58-61`（調和分流）、加 `TemplatePartner`、`TemplatePartnerItemsAsync`
 - Modify: `AppService/Integrations/IntegrationGuardStage.cs:44-46`
+- Modify: `backend/src/DynamicModules.Application/Dynamic/EventService/EventStage.cs:53-54`（選事件處排除）
+- Modify: `backend/src/DynamicModules.Application/Dynamic/CheckService/CheckStage.cs:37`（選檢查處排除）
+- Modify: `backend/src/DynamicModules.Application/Common/MessageText.cs`（`IntegrationPartnerIsTemplate` 四語，原因字串用）
+- Modify: `AppService/AppResponseBuilder.cs:27-33`（整合原因依請求語系）
 - Test: `WebAPITests/Dynamic/MesInventoryIntegrationTests.cs`
 
 **Interfaces:**
 - Produces: `internal static string? IntegrationReconciler.TemplatePartner(AppIntegrationDecl decl, IReadOnlyList<App> appList)`：`with[]` 裡第一個 `Kind == AppKind.Template` 的應用程式 id，沒有回 `null`。`PartnersAsync` 語意不變。
+- Produces: `public async Task<(IReadOnlySet<string> Events, IReadOnlySet<string> Checks)> IntegrationReconciler.TemplatePartnerItemsAsync(CancellationToken ct)`：已安裝、且 `TemplatePartner(...)` 有值的整合登記在 `ItemsJson` 的事件鍵與檢查鍵（一次讀 `ListIntegrationsAsync`＋`ListAsync`，迴圈內不再發查詢）。`EventStage`、`CheckStage` 在同一個寫入裡各呼叫一次（結果依 stage 執行快取在區域變數），把 `ListActiveBySourceAsync`／`ListActiveByModuleAsync` 的結果濾掉這些鍵——夥伴種類已變、還沒調和時（例如直接改資料庫後馬上寫來源單據），連動也不會執行。
 
 - [ ] **Step 1: 寫失敗測試**（`MesInventoryIntegrationTests`；MES 的整合 `stockOut` 夥伴是 inventory、`onPartnerClosed: skip`；觸發調和用該類既有寫法或 `IntegrationReconciler.ReconcileAsync`）
-  - `PartnerIsTemplate_NotInstalled_Waits_TP24`：先開 inventory、把它的 `Dynamic_App.Kind` 改成 `Template`，再開 MES → `stockOut` `status = "Waiting"`、`reason` 含 `是範本`；`ItemsJson` 沒有欄位、事件、檢查；inventory 模組上沒有整合欄位。
+  - `PartnerIsTemplate_NotInstalled_Waits_TP24`：先開 inventory、把它的 `Dynamic_App.Kind` 改成 `Template`，再開 MES → `stockOut` `status = "Waiting"`、`reason` 含 `是範本`；`Installed = false`、`ItemsJson` 沒有欄位、事件、檢查；inventory 模組上沒有整合欄位。
   - `PartnerIsTemplate_Block_StillWaits_TP24a`：同上，但先把 MES `IntegrationsJson` 的 `onPartnerClosed` 改成 `block` → `Waiting`（不是 `Held`）；MES 新增一張出貨單成功（201）。
-  - `InstalledThenPartnerBecomesTemplate_Waits_TP24b`：`[Theory]` 資料 `"skip"`、`"block"`；兩者都開、`Active` 後把 inventory 的 `Kind` 改成 `Template`、觸發調和 → `Waiting`；整合建立的事件、檢查都停用（`Active = false`）、整合欄位停用；MES 新增並出貨一張出貨單不被 409 擋。
+  - `InstalledThenPartnerBecomesTemplate_Waits_TP24b`：`[Theory]` 資料 `"skip"`、`"block"`；兩者都開、`Active` 後把 inventory 的 `Kind` 改成 `Template`、觸發調和 → `Waiting`；整合登記的事件、檢查都 `Active = false`，`ItemsJson.SuspendedActive` 記下原本啟用的鍵（與 `ClosingInventory_IsNotBlockedByTheIntegration_AndSuspendsIt_ThenReopenResumes` 的暫停狀態相同；`SuspendAsync` 不動整合欄位，欄位照暫停時一樣保留，見文末疑點 2）；MES 出貨一張單不被 409 擋、庫存餘額不變。
+  - `PartnerBecomesTemplate_BeforeReconcile_DoesNotRunTheLink`：兩者都開、`Active`，備好庫存 100；直接把 inventory 的 `Kind` 改成 `Template`、**不觸發調和**，馬上建出貨單並移到「已出貨」→ 成功、庫存餘額仍是 100（事件沒執行）；沒有庫存品項的出貨也不被整合的檢查擋（對照 `Active_ShippingWithoutAStockItem_IsRejected`）。
+  - `TemplatePartnerReason_IsLocalized`：`X-Locale: en-US` 讀 `GET apps/mes` 的整合 `reason` 是英文句、含 `inventory`。
 - [ ] **Step 2: 跑測試確認失敗**
   Run: `dotnet test tests/DynamicModules.WebAPITests --filter "FullyQualifiedName~MesInventoryIntegrationTests"`
-  Expected: FAIL（安裝成 `Active`、block 時 `Held`）。
+  Expected: FAIL（安裝成 `Active`、block 時 `Held`、未調和時庫存被扣）。
 - [ ] **Step 3: 實作**
-  - `ReconcileOneAsync`：在 `Derive` 前，`row.Enabled` 且 `TemplatePartner(...)` 有值時：已安裝就 `SuspendAsync(row, items, decl, retry, ct)`，再 `SetStatusAsync(row, IntegrationStatus.Waiting, $"waiting: 夥伴 {id} 是範本", previous, decl, ct)` 回傳。停用的整合照舊走 `Disabled`。
-  - `IntegrationGuardStage`：`TemplatePartner(...)` 有值時 `continue`（不擋、不執行），擁有者的來源單據照常寫入（設計 §7.5「不進 Held」）。見文末疑點 1。
-- [ ] **Step 4: 跑測試確認通過**（同 Step 2）Expected: PASS。
-- [ ] **Step 5: Commit** `feat(tp1a): 整合夥伴是範本時一律等待，不進 Held`
+  - `ReconcileOneAsync`：在 `Derive` 前，`row.Enabled` 且 `TemplatePartner(...)` 有值時：已安裝就 `SuspendAsync(row, items, decl, retry, ct)`（設計 §7.5「照暫停的做法」），再 `SetStatusAsync(row, IntegrationStatus.Waiting, <原因>, previous, decl, ct)` 回傳。原因字串照 `row.Reason` 現行「代碼: 說明」格式存 `waiting: 夥伴 {id} 是範本`（寫進資料的系統文字用系統預設語系，`.claude/rules/backend.md`），`AppResponseBuilder` 組 `IntegrationResponse.Reason` 時若是這一種，改用 `MessageText.IntegrationPartnerIsTemplate` 依請求語系解析。停用的整合照舊走 `Disabled`。
+  - `IntegrationGuardStage`：`TemplatePartner(...)` 有值時 `continue`（不擋），擁有者的來源單據照常寫入（設計 §7.5「不進 Held」）。
+  - `EventStage`、`CheckStage`：照 Interfaces 濾掉 `TemplatePartnerItemsAsync` 的鍵。
+- [ ] **Step 4: 跑測試確認通過**（同 Step 2；另跑 `dotnet test tests/DynamicModules.ApplicationTests --filter "FullyQualifiedName~RuleFailureStageTests"`，確認沒有範本夥伴時兩個 stage 行為不變）Expected: PASS。
+- [ ] **Step 5: Commit** `feat(tp1a): 整合夥伴是範本時一律等待，連動與檢查都不執行`
 
 ### Task 8: 匯出寫 kind、指向範本的參照略過（T5、T10）
 
 **Files:**
 - Modify: `AppService/AppExporter.cs:58-79`（`external` 與 `Target`）、`:242`（manifest kind）
-- Modify: `backend/src/DynamicModules.Application/Dynamic/TemplateService/TemplateExporter.cs:40-44`（`ExportMembersAsync` 參數）、`:195-200`（`WhyOmit`）
+- Modify: `backend/src/DynamicModules.Application/Dynamic/TemplateService/TemplateExporter.cs:40-44`（`ExportMembersAsync` 參數）、`:195-200`（`WhyOmit`）、建構子（注入 `IMessageCatalog`）
+- Modify: `backend/src/DynamicModules.Application/Common/MessageText.cs`（`ExportRefToTemplate` 四語）
 - Test: `WebAPITests/Dynamic/AppsApiTests.cs`
 
 **Interfaces:**
 - Consumes: `AppManifest.KindNameOf`。
-- Produces: `ExportMembersAsync(..., AppReportCodec.Names? external = null, Func<string, string?>? templateOf = null)`：模組 Key → 範本 id（不是範本回 `null`）；`WhyOmit` 在 `_refTargets` 回 `null` 且 `templateOf` 有值時改回 `「{Label(f)}」指向範本「{id}」的模組，範本不能被依賴，未匯出`。`external` 的值型別改成 `(string Code, string App, AppKind Kind)`。
+- Produces: `ExportMembersAsync(..., AppReportCodec.Names? external = null, Func<string, string?>? templateOf = null)`：模組 Key → 範本 id（不是範本回 `null`）；`WhyOmit` 在 `_refTargets` 回 `null` 且 `templateOf` 有值時改回 `messages.Get(lc, MessageText.ExportRefToTemplate, Label(f), id)`（繁中 `「{0}」指向範本「{1}」的模組，範本不能被依賴，未匯出`；`lc` 是 `Context` 已有的請求語系），`Context` 多收 `IMessageCatalog`。`external` 的值型別改成 `(string Code, string App, AppKind Kind)`。
 
 - [ ] **Step 1: 寫失敗測試**（`AppsApiTests`）
   - `ExportTemplate_KeepsKind_RoundTrips_TP25`：開 `tpl-a` 後 `GET apps/tpl-a/export` → `manifest.kind = "template"`；拿檔案到另一個 `TestApp` 匯入 → 201、`kind = "template"`。
   - `ExportApp_ReferenceToTemplateIsOmitted_TP25a`：開 CRM 與 `tpl-a`；在 CRM 的 `opportunity` 加參照欄位「檢驗紀錄」指向 `tpl-a` 的 `record` 模組，再加公式欄位引用它 → 匯出 CRM：檔案沒有這兩欄、`manifest.requires.apps` 不含 `tpl-a`；`X-Export-Warnings` 含 `指向範本「tpl-a」的模組，範本不能被依賴，未匯出` 與公式欄位的略過句（`引用了停用或未匯出的欄位`）；檔案 id 改成 `crm-copy`、模組 key 加前綴後匯入全新 `TestApp` → 201。
+  - `ExportWarning_IsLocalized`：`X-Locale: en-US` 重跑 TP-25a 的匯出 → `X-Export-Warnings`（照既有 header 解碼方式）裡指向範本那條是英文句、含 `tpl-a`、不含中文字元。
   - `ExportTemplate_ReferenceToAppIsKept_TP25b`：開 CRM 與 `tpl-r` → 匯出 `tpl-r`：`requires.apps` 含 `crm-sales`，參照 CRM 的欄位在檔案裡。
 - [ ] **Step 2: 跑測試確認失敗**
   Run: `dotnet test tests/DynamicModules.WebAPITests --filter "FullyQualifiedName~AppsApiTests"`
@@ -330,18 +351,19 @@
 
 **Interfaces:**
 - Consumes: API `kind`（Task 3）、`upgrade = null`（Task 5）。
-- Produces: `AppPackageSummary.kind: 'app' | 'template'`；`AppInfo.kind: 'app' | 'master' | 'template'`；i18n 鍵 `apps.sections.apps`「應用程式」、`apps.sections.templates`「範本套件」、`apps.sections.templatesHint`（設計 §9.1 原句）、`apps.template.openHint`（設計 §9.2 tp1b 版句尾「不想用了可以關閉，資料保留唯讀」）。
+- Produces: `AppPackageSummary.kind: 'app' | 'template'`；`AppInfo.kind: 'app' | 'master' | 'template'`；i18n 鍵 `apps.missingReason.isTemplate`「{app} 是範本，不能被依賴」（V8 的畫面句，設計 §5.3）、`apps.sections.apps`「應用程式」、`apps.sections.templates`「範本套件」、`apps.sections.templatesHint`（設計 §9.1 原句）、`apps.template.openHint`（設計 §9.2 tp1b 版句尾「不想用了可以關閉，資料保留唯讀」）。
 
 - [ ] **Step 1: 寫失敗元件測試**（`AppsPage.vitest.spec.ts`，沿用 `mountPage`）
   - `two sections when there are apps and templates`（TP-26）：一個 `kind: 'app'`、一個 `kind: 'template'` → 兩個 `data-testid="apps-section-apps"`／`"apps-section-templates"`，順序應用程式在上；範本區有 `apps-templates-hint`；範本列在範本區內。
   - `no template section without templates`（TP-26）：只有 app → 沒有 `apps-section-templates`；`packages = []` → 只有 `apps-empty`、兩區都沒有。
   - `template open dialog adds the template hint`（TP-27）：開啟範本的對話框有 `open-template-hint`；開啟一般應用程式的沒有。
+  - `isTemplate missing dependency shows a sentence, not the code`（V8、TP-14 的畫面）：預覽回 `missingDependencies: [{ kind: 'app', appId: 'tpl-x', reason: 'isTemplate' }]` → `open-blockers` 含 `tpl-x 是範本，不能被依賴`、不含 `isTemplate`；以 en-US 訊息掛載再驗一次是英文句。其他原因照現行 `apps.missing` 顯示（不改）。
   - `template row shows the opened version and no upgrade`（TP-09、TP-20）：範本套件 `version: '1.1.0'`、`upgrade: null`，`AppInfo.packageVersion: '1.0.0'` → `app-version` 是 `v1.0.0`；沒有 `app-upgrade-badge`、`app-upgrade`。
   - `locales.vitest.spec.ts` 不改，四語鍵集合不一致時會失敗（TP-29 自動部分）。
 - [ ] **Step 2: 跑測試確認失敗**
   Run: `bunx vitest run src/pages/system/AppsPage.vitest.spec.ts --maxWorkers=2`
   Expected: FAIL（找不到分區）。
-- [ ] **Step 3: 實作**：`packages` 依 `kind` 分成兩個 computed，各自一個標題與 `q-list`，沒有項目的區整區不渲染；列的內容與按鈕抽成同一段模板兩區共用（不複製兩份）；開啟對話框在 `apps.openHint` 下方依 `opening.kind === 'template'` 加 `apps.template.openHint`。390 寬：若現行 `q-item` 已不橫捲就沿用，分區標題與說明可換行（不加 `nowrap`）；`open-dialog` 的 `min-width: 380px` 在 390 寬會擠出 gutter，改成 `width: 100%; max-width: 560px` 之類不超出視窗的寫法。四語文字：en-US、th、vi 各給完整翻譯，不留中文。
+- [ ] **Step 3: 實作**：`packages` 依 `kind` 分成兩個 computed，各自一個標題與 `q-list`，沒有項目的區整區不渲染；列的內容與按鈕抽成同一段模板兩區共用（不複製兩份）；開啟對話框在 `apps.openHint` 下方依 `opening.kind === 'template'` 加 `apps.template.openHint`。`AppsPage.vue:90` 的缺少相依那行：`te('apps.missingReason.' + m.reason)` 有譯文就用它（帶 `app`），否則照現行 `apps.missing`。390 寬：若現行 `q-item` 已不橫捲就沿用，分區標題與說明可換行（不加 `nowrap`）；`open-dialog` 的 `min-width: 380px` 在 390 寬會擠出 gutter，改成 `width: 100%; max-width: 560px` 之類不超出視窗的寫法。四語文字：en-US、th、vi 各給完整翻譯，不留中文。
 - [ ] **Step 4: 手冊**（`.claude/rules/docs.md`，文案以畫面實際文字為準）：§18 加「範本套件」小節（開啟後屬於你、不更新、不能被依賴、不含整合、分區位置、開啟說明、版本欄的意思、內建「品質檢驗」）；已知限制三條：只開範本時共用主檔沒有更新入口（B4）、匯出應用程式時指向範本模組的參照欄位會略過並列在警告、範本與其他應用程式的單據不連動；§2.8 與已知限制把「內建範本有四個」更正成「目前沒有內建模組範本，可匯入」，並註明與 §18「範本套件」的差別。
 - [ ] **Step 5: 跑測試確認通過**
   Run: `bunx vitest run src/pages/system/AppsPage.vitest.spec.ts src/i18n/locales.vitest.spec.ts --maxWorkers=2`；`bun run typecheck`；`bun run build`
@@ -358,18 +380,20 @@
 **Files:**
 - Create: `AppService/AppDeleteInspector.cs`
 - Create: `AppService/Queries/GetAppDeleteCheck.cs`
-- Modify: `AppService/Commands/DeleteApp.cs:58-119`（盤點改呼叫 inspector；`Fate`、`Contribution`、`ContributionsAsync` 搬進 inspector）
+- Modify: `AppService/Commands/DeleteApp.cs:26-27`（`DeleteAppCheck` 加 `Reports`、新 record `DeleteAppReport`）、`:58-119`（盤點改呼叫 inspector；`Fate`、`Contribution`、`ContributionsAsync` 搬進 inspector）
 - Modify: `backend/src/DynamicModules.Application/DependencyInjection.cs`（註冊 inspector，照第 159 行 `AppExporter`）
 - Modify: `backend/src/DynamicModules.WebAPI/Controllers/v3/Dynamic/AppsController.cs:73-76` 旁加路由
 - Test: `WebAPITests/Dynamic/AppsApiTests.cs`、`WebAPITests/Dynamic/SharedMasterDeleteTests.cs`
 
 **Interfaces:**
+- Produces: `DeleteAppCheck` 多一個參數 `IReadOnlyList<DeleteAppReport>? Reports = null`（init 成空清單），`public record DeleteAppReport(long Id, string Name)`：應用程式自己的報表（`app.Reports` 的 `ReportId` 經 `IReportRepository.GetAsync` 取 `Report.Name`，依 `Id` 排序；找不到的略過），和 `DELETE` 一起刪的就是這些（`DeleteApp.cs:127-128`）。
 - Produces: `public sealed class AppDeleteInspector`，`public async Task<AppDeleteInventory> InspectAsync(App app, CancellationToken ct)`；`public sealed record AppDeleteInventory(DeleteAppCheck Check, IReadOnlyList<Module> Members, AppBindings Bindings, IReadOnlyList<Module> MasterModules, IReadOnlyList<AppMasterUse> Uses)`，另帶 `DeleteAppHandler` 需要的貢獻清單（`internal` 型別，留在同一檔）。`public record GetAppDeleteCheckRequest(string Key) : IRequest<ServiceResult>, IDesignerRequest, ISystemAdminRequest`（`RequiredDesignerAction => PermissionAction.Read`，不是 `ITransactionalRequest`）；能刪、不能刪都回 200 與 `DeleteAppCheck`，key 不存在 404。`DELETE` 行為不變（含沒帶 `purged` 回 400）。
 
 - [ ] **Step 1: 寫失敗測試**（`AppsApiTests`，可用 Task 1 的測試套件；CRM 用內建）
   - `DeleteCheck_OpenApp_IsAppNotClosed_TP32`：開 `tpl-a` → `GET apps/tpl-a/delete-check` 200、`canDelete = false`、`blockers` 含 `kind = "appNotClosed"`。
   - `DeleteCheck_Dependent_TP33`：`tpl-r` 依賴 CRM，CRM 關閉、`tpl-r` 開著 → CRM 的 delete-check `blockers` 含 `kind = "appDependent"`、`name = "tpl-r"`。
   - `DeleteCheck_ReferencedBySelfBuiltModule_TP34`：自建模組加欄位參照 `tpl-a` 的 `item`，`tpl-a` 關閉 → `blockers` 含 `kind = "referenceField"`，帶自建模組 key 與欄位名稱。
+  - `DeleteCheck_ListsOwnReports`：CRM 開過、關閉、無記錄、報表沒放在儀表板 → `reports` 等於 CRM 套件開啟時建的報表（`Id`、`Name` 與 `Dynamic_AppReport` 對得上，數量一致）；沒有報表的 `tpl-a` → `reports` 是空陣列。
   - `DeleteCheck_OnlySoftDeleted_TP35`：`tpl-a` 關閉、3 筆記錄全軟刪除 → `canDelete = true`、`purge.records = 3`、`purgedTotal = 3`；`DELETE apps/tpl-a?purged=3` → 200；之後 `GET apps/packages` 該項 `status = null`，再開啟 → 201。
   - `DeleteCheck_PurgedMismatch_TP36`：同上但 delete-check 後再軟刪除一筆 → `DELETE ?purged=3` 409，回應 `purgedTotal = 4`；再打 delete-check 得 `purgedTotal = 4`。
   - `DeleteCheck_Contributions_TP37`：放在 `SharedMasterDeleteTests`（照該類造貢獻欄位的 rig）：CRM 關閉、無記錄、在往來對象有貢獻欄位 → delete-check 的 `cleared`、`orphaned` 列出欄位與筆數，`purgedTotal = records + clearedValues`；刪除後回應 `warnings` 非空。
@@ -397,22 +421,23 @@
 
 **Interfaces:**
 - Consumes: `GET apps/{key}/delete-check`、`DELETE apps/{key}?purged=`（Task 12）。
-- Produces: `interface AppDeleteCheck extends DeleteCheck { clearedValues: number; purgedTotal: number; cleared: ClearedField[]; orphaned: ClearedField[] }`、`interface ClearedField { moduleKey: string; field: string; count: number }`；`dynamicApi.getAppDeleteCheck(key: string): Promise<AppDeleteCheck>`；`dynamicApi.deleteApp(key: string, purged: number): Promise<{ warnings: string[] }>`；元件 props `{ modelValue: boolean; app: AppInfo | null }`，emits `update:modelValue`、`deleted`。i18n 鍵 `apps.delete.{button,title,checking,blockedIntro,blocker.liveRecords,blocker.appDependent,blocker.referenceField,blocker.dashboard,blocker.personalDashboard,blocker.appNotClosed,blocker.masterInUse,willDelete,members,reports,purge,cleared,orphaned,groupsKept,confirm,submit,done,stale,failed}`，句子照設計 §9.4（例 `模組『{module}』還有 {n} 筆記錄，請先刪除記錄`、`『{name}』依賴它，請先處理`、`模組『{module}』的欄位『{field}』參照它`、`報表『{report}』還在儀表板『{name}』上`、`將永久清除 {n} 筆已刪除的記錄`、`開啟時建立的群組不會刪除`、`我了解這些資料會永久刪除，無法復原`、`資料已變更，請重新檢查`）；沒有專句的種類用 `designer.delete.kind.{kind}`（`te()` 找不到就顯示 kind 原字）加後端的 `name`。`apps.template.openHint` 句尾改成「不想用了可以關閉後刪除。」（設計 §9.2）。
+- Produces: `interface AppDeleteCheck extends DeleteCheck { clearedValues: number; purgedTotal: number; cleared: ClearedField[]; orphaned: ClearedField[]; reports: { id: number; name: string }[] }`、`interface ClearedField { moduleKey: string; field: string; count: number }`；`dynamicApi.getAppDeleteCheck(key: string): Promise<AppDeleteCheck>`；`dynamicApi.deleteApp(key: string, purged: number): Promise<{ warnings: string[] }>`；元件 props `{ modelValue: boolean; app: AppInfo | null }`，emits `update:modelValue`、`deleted`。i18n 鍵 `apps.delete.{button,title,checking,blockedIntro,blocker.liveRecords,blocker.appDependent,blocker.referenceField,blocker.dashboard,blocker.personalDashboard,blocker.appNotClosed,blocker.masterInUse,willDelete,members,reports,purge,cleared,orphaned,groupsKept,confirm,submit,done,stale,failed}`，句子照設計 §9.4（例 `模組『{module}』還有 {n} 筆記錄，請先刪除記錄`、`『{name}』依賴它，請先處理`、`模組『{module}』的欄位『{field}』參照它`、`報表『{report}』還在儀表板『{name}』上`、`將永久清除 {n} 筆已刪除的記錄`、`開啟時建立的群組不會刪除`、`我了解這些資料會永久刪除，無法復原`、`資料已變更，請重新檢查`）；沒有專句的種類用 `designer.delete.kind.{kind}`（`te()` 找不到就顯示 kind 原字）加後端的 `name`。`apps.template.openHint` 句尾改成「不想用了可以關閉後刪除。」（設計 §9.2）。
 
 - [ ] **Step 1: 寫失敗元件測試**
   - `AppDeleteDialog.vitest.spec.ts`（mock `dynamicApi`，照 `DeleteDialog.vitest.spec.ts`）：
     - `blocked lists the reasons and never deletes`（TP-31、33、34）：`canDelete: false`、`blockers` 為 `liveRecords`（模組「檢驗紀錄」、count 4）、`appDependent`（tpl-r）、`referenceField` → 顯示 `目前無法刪除：` 與三條專句；確認鈕 disabled；`deleteApp` 沒被呼叫。
     - `unknown blocker kind falls back to the backend name`：kind `someNewKind`、name `X` → 該列含 `X`。
-    - `deletable lists what goes and needs the acknowledgement`（TP-35、37）：`canDelete: true`、`purge.records: 3`、`purgedTotal: 3`、`cleared`／`orphaned` 各一欄 → 顯示成員模組名稱、`將永久清除 3 筆已刪除的記錄`、cleared 與 orphaned 欄位與筆數、`開啟時建立的群組不會刪除`；未勾選時「刪除」disabled；勾選後按下 → `deleteApp('tpl-a', 3)`；回應 `warnings` 以 `timeout: 0` 的提示列出；emit `deleted`。
+    - `deletable lists what goes and needs the acknowledgement`（TP-35、37）：`canDelete: true`、`purge.records: 3`、`purgedTotal: 3`、`cleared`／`orphaned` 各一欄 → 顯示成員模組名稱、`將永久清除 3 筆已刪除的記錄`、cleared 與 orphaned 欄位與筆數、`apps.delete.reports` 標題下逐一列出 `reports` 的名稱（`data-testid="app-delete-reports"`，給兩份報表就兩列；`reports: []` 時整段不顯示）、`開啟時建立的群組不會刪除`；未勾選時「刪除」disabled；勾選後按下 → `deleteApp('tpl-a', 3)`；回應 `warnings` 以 `timeout: 0` 的提示列出；emit `deleted`。
     - `409 mismatch reloads the check`（TP-36）：`deleteApp` reject 409 → 顯示 `資料已變更，請重新檢查`，`getAppDeleteCheck` 第二次被呼叫，畫面顯示新的 4 筆，勾選被清掉。
     - `delete-check failure shows the error and never deletes`（Review Focus 5）：`getAppDeleteCheck` reject（403 一次、一般錯誤一次）→ 顯示錯誤、確認鈕 disabled、`deleteApp` 沒被呼叫。
   - `AppsPage.vitest.spec.ts`：
     - `delete button only on closed rows for system admins`（TP-32、38）：`status: 'Closed'` 列有 `app-delete`；`'Open'` 列沒有；`isSystemAdmin: false` 或 `designer.delete: false` 或 `permissionAdmin: false` 時沒有。
+    - `delete button follows the delete permissions, not canWrite`：`designer = { read: true, add: false, edit: false, delete: true }`、`isSystemAdmin: true`、`permissionAdmin: true` → 已關閉的列有 `app-delete`（沒有開啟、關閉、重新開啟鈕）。`mountPage` 加一個 `permissionAdmin` 參數（預設 `true`）。
     - `after delete the row is back to not opened`（TP-35）：刪除成功後重新抓清單，該列狀態 `none`、有 `app-open`。
 - [ ] **Step 2: 跑測試確認失敗**
   Run: `bunx vitest run src/presentation/dynamic/apps/AppDeleteDialog.vitest.spec.ts src/pages/system/AppsPage.vitest.spec.ts --maxWorkers=2`
   Expected: FAIL（元件不存在）。
-- [ ] **Step 3: 實作**：對話框打開時呼叫 `getAppDeleteCheck`；擋下時只列原因；可刪時列內容並要勾選；送出 `deleteApp(key, check.purgedTotal)`；409 時重新 `load()`。刪除鈕條件 `canWrite && me.designer.delete && me.isSystemAdmin && me.permissionAdmin && p.status === 'Closed'`（後端 `DeleteAppRequest` 要求的權限，前端只在一定會被擋時才藏，`.claude/rules/frontend.md`）。390 寬：原因清單與勾選框各自換行、按鈕在 `q-card-actions` 底部、長模組名稱 `word-break`，卡片寬度不超出視窗（不寫 `min-width` 大於 360px）。
+- [ ] **Step 3: 實作**：對話框打開時呼叫 `getAppDeleteCheck`；擋下時只列原因；可刪時列內容並要勾選；送出 `deleteApp(key, check.purgedTotal)`；409 時重新 `load()`。刪除鈕用獨立的 `canDeleteApp = computed(() => me.isSystemAdmin && me.designer.delete && me.permissionAdmin)`，不沿用 `canWrite`：條件就是後端 `DeleteAppRequest` 檢查的那組（`ISystemAdminRequest`、`IDesignerRequest` 的 `PermissionAction.Delete`、`IPermissionAdminRequest`，`DeleteApp.cs:15-19`）；列上 `canDeleteApp && p.status === 'Closed'` 才顯示（前端只在一定會被擋時才藏，`.claude/rules/frontend.md`）。390 寬：原因清單與勾選框各自換行、按鈕在 `q-card-actions` 底部、長模組名稱 `word-break`，卡片寬度不超出視窗（不寫 `min-width` 大於 360px）。
 - [ ] **Step 4: 手冊 §18 加「刪除」一節**：先關閉、擋下原因、清除筆數與要勾的確認、群組不刪、刪完回到未開啟可再開；文案照畫面實際文字。
 - [ ] **Step 5: 跑測試確認通過**
   Run: `bunx vitest run src/presentation/dynamic/apps/AppDeleteDialog.vitest.spec.ts src/pages/system/AppsPage.vitest.spec.ts src/i18n/locales.vitest.spec.ts --maxWorkers=2`；`bun run typecheck`；`bun run build`
@@ -424,24 +449,21 @@
 
 ### Task 14: 後段——對照驗收與回填
 
-照 `~/.claude/plugins/cache/plugharbor/lifecycle/4.3.5/skills/implement/references/after.md` 做。Task 1–13 都完成、相關測試全綠才開始。
+照 `~/.claude/plugins/cache/plugharbor/lifecycle/4.3.5/skills/implement/references/after.md` 做，唯一例外是第 1 步的轉檔（主控裁決，見下）。Task 1–13 都完成、相關測試全綠才開始。
 
 **Files:**
-- Create（不進 git）：`.tmp/implement/tp1-template-package/cases.md`、`.tmp/implement/tp1-template-package/acceptance-trace.md`
+- Create（不進 git）：`.tmp/implement/tp1/acceptance-trace.md`
 - Modify: `docs/feature.md`（第 85、374、375 行）
 
-- [ ] **Step 1: 轉驗收案例**
-  Run: `python3 ~/.claude/plugins/cache/plugharbor/lifecycle/4.3.5/skills/qa-verify/scripts/spec_to_cases.py docs/superpowers/specs/2026-11-25-template-package-design.md .tmp/implement/tp1-template-package/cases.md`
-  Expected: exit 0。非 0 就回報 stderr、本 task 不算完成、停下。
-- [ ] **Step 2: 逐案對證據**：TP-01–39（含 09a、24a、24b、25a、25b）逐條寫進 `acceptance-trace.md`，每條對到測試名（本計畫各 task 的測試）或指令輸出；`[ui]` 案例（TP-28、29、30 畫面部分、31、39）標「走查待主控」並建議收尾後跑 `lifecycle:qa-verify`。有案例沒證據 → 本 task 不算完成，回報主控補做後重跑本 task。
-- [ ] **Step 3: 回填功能清單**：照 lifecycle plugin 的 `references/feature-checklist.md`，第 375 行「範本套件開啟機制（段 tp1）」、第 374 行「品質檢驗範本」、第 85 行「刪除應用程式（畫面）」改 `[x]`，行尾加 `` `2026/MM/DD` ``（合併當天）；跑 `python3 ~/.claude/plugins/cache/plugharbor/lifecycle/4.3.5/scripts/feature_checklist.py docs/feature.md --write` 重算統計，不手改統計行。第 376 行固定資產登記已寫「等 eq1」，不改。
-- [ ] **Step 4: 同步票**：`ticket.tool` 是 `github`，照 `feature-checklist.md` 的「同步票」叫 `tickets:ticket-ops`（tp1 相關票改階段、留言 commit SHA）；沒有對應票就回報一行。
-- [ ] **Step 5: Commit**
+- [ ] **Step 1: 人工逐案對照**（主控裁決：`spec_to_cases.py` 只認「## 驗收」或「### 2.3」一節，本設計是「## 17. 可驗收案例」的條列格式，轉檔不相容；不改設計格式、不跑腳本）：讀設計 §17，TP-01–39（含 09a、24a、24b、25a、25b，共 44 條）逐條寫進 `.tmp/implement/tp1/acceptance-trace.md`，一列一條：TP 編號 → 證據（本計畫各 task 的測試名與通過的指令輸出，或主控走查紀錄）。畫面案例（TP-28、29、30 畫面部分、31、39）證據是主控的走查紀錄，還沒走查的標「走查待主控」，並建議收尾後跑 `lifecycle:qa-verify`。有案例沒證據 → 本 task 不算完成，回報主控補做後重跑本 task。
+- [ ] **Step 2: 回填功能清單**：照 lifecycle plugin 的 `references/feature-checklist.md`，第 375 行「範本套件開啟機制（段 tp1）」、第 374 行「品質檢驗範本」、第 85 行「刪除應用程式（畫面）」改 `[x]`，行尾加 `` `2026/MM/DD` ``（合併當天）；跑 `python3 ~/.claude/plugins/cache/plugharbor/lifecycle/4.3.5/scripts/feature_checklist.py docs/feature.md --write` 重算統計，不手改統計行。第 376 行固定資產登記已寫「等 eq1」，不改。
+- [ ] **Step 3: 同步票**：`ticket.tool` 是 `github`，照 `feature-checklist.md` 的「同步票」叫 `tickets:ticket-ops`（tp1 相關票改階段、留言 commit SHA）；沒有對應票就回報一行。
+- [ ] **Step 4: Commit**
   ```bash
   git add docs/feature.md
   git commit -m "docs(tp1): 對照驗收並回填功能清單"   # 結尾附兩行
   ```
-  `.tmp/` 不進 git。回報時驗收對照、清單、同步票分開宣稱，沒跑到的標「未驗證」；push、roadmap 狀態欄、官網判斷（設計 §16：官網本段不必改）交給 `formwright-ship` 段收尾，不自動 merge。
+  `.tmp/` 不進 git。回報時驗收對照、清單、同步票分開宣稱，驗收對照標「轉檔腳本格式不相容，人工對照」，沒跑到的標「未驗證」；push、roadmap 狀態欄、官網判斷（設計 §16：官網本段不必改）交給 `formwright-ship` 段收尾，不自動 merge。
 
 ---
 
@@ -452,13 +474,13 @@
 3. **Type consistency**：`TemplateIdsAsync`、`KindNameOf`、`TemplatePartner`、`AppDeleteInspector.InspectAsync`、`AppDeleteCheck.purgedTotal` 各處名稱一致；`AppInfo.kind` 含 `master`（`GET apps` 會回主檔），`AppPackageSummary.kind` 只有兩值（清單不列主檔）。
 4. **Review Focus**：五條都落到 owning task 的測試（1→Task 1、2→Task 2、3→Task 4、4→Task 5／12、5→Task 13）。
 5. **Proportion**：計畫只寫簽章、測試名與斷言，沒有函式本體。
+6. **審查修正（codex 第 1 輪）**：Task 14 改人工對照；Task 7 TP-24b 斷言照 `SuspendAsync` 實際行為、補 `EventStage`／`CheckStage` 防線與「未調和就寫入」測試；Task 1、2、4、5、7、8、11 補四語機制（`AppValidation.ErrorRefs`、`IMessageCatalog` 解析）與 en-US 斷言，V8 畫面句；Task 12、13 刪除預檢帶 `reports`；Task 13 刪除鈕改依刪除權限獨立判斷。
 
 ## 對設計的疑點
 
-1. **整合防線漏了 `IntegrationGuardStage`**：設計 §7.5 只改 `IntegrationReconciler`，但 `IntegrationGuardStage.cs:44-46` 寫入時也呼叫 `Derive`；夥伴是範本、整合已安裝時它會判成 `Run` 並執行連動。計畫在 Task 7 讓它遇到範本夥伴就略過（照設計「不進 Held、來源單據照常寫入」的意思），請主控確認。
-2. **四語範圍**：設計 §9.5 說 V1–V9 與匯出 warning 都進四語表，但驗證器錯誤是 `List<string>`，帶參數的句子（V4、V5）只能是字面值，`MessageText.KeyOfZh` 不翻譯含 `{` 的句子；同類既有句（「是共用主檔，要列在 requires.masters」）和匯出 warning 現在也都只有繁中。計畫：無參數的 V1、V2、V9 與取代訊息進 `MessageText`；V6、V7 在 handler 用 `MessageRef.Of` 帶參數四語；V4、V5、匯出 warning 照同類現況只有繁中。要全部四語得先改驗證器的錯誤型別，屬另一段，請裁決。
-3. **V8 的畫面文字**：設計寫畫面顯示「○○ 是範本，不能被依賴」，但 `AppsPage.vue:90` 對所有 `missingDependencies` 原因都直接顯示原因代碼（`notInstalled` 等也沒翻譯）。V8 只在直接寫資料庫時出現，計畫不為它單獨加譯文，請確認。
-4. **TP-09 的「版本仍是 1.0.0」**：`GET apps/packages` 的 `version` 是套件版號（取代後是 1.1.0），1.0.0 來自 `GET apps` 的 `packageVersion`，畫面把兩者合起來顯示。計畫以 API 的 `packageVersion` 與元件測試的版本欄驗，不改 `apps/packages` 的 `version` 語意。
-5. **取代成功訊息放哪**：TP-09 要回 200 帶「已匯入新版；已開啟的範本不會更新」，但匯入成功回的是套件摘要、沒有 `message`。計畫放進既有的 `warnings`（畫面已用不自動消失的提示列出）；範本還沒開啟時也一樣顯示這句。
-6. **刪除鈕的權限條件**：設計 §9.4 寫「同其他按鈕的 `canWrite`」，但 `canWrite` 是設計器新增＋修改，`DELETE apps/{key}` 要系統管理員＋設計器刪除＋權限設定。計畫照後端條件藏鈕（只在一定會被擋時才藏），請確認。
-7. **停用的整合遇到範本夥伴**：設計說「不論 `onPartnerClosed` 直接定成 Waiting」，沒提整合本身被管理員停用的情況。計畫讓 `Disabled` 優先（停用是管理員的選擇，和夥伴無關）。
+1. **整合防線不只 `IntegrationReconciler`**：設計 §7.5 只寫調和；但寫入時 `IntegrationGuardStage.cs:44-46` 也呼叫 `Derive`，`EventStage.cs:54`、`CheckStage.cs:37` 只看事件與檢查的 `Active`。夥伴種類已變、還沒調和時，連動與檢查都會照常執行。計畫在 Task 7 補三處（guard 略過、事件與檢查濾掉範本夥伴的整合項目），屬設計意圖「不安裝、不連動、來源單據照常寫入」的延伸。請主控確認不需寫回設計。
+2. **TP-24b「整合的欄位、事件、檢查全部停用」和 §7.5「照暫停的做法停用（`SuspendAsync`）」不一致**：`SuspendAsync`（`IntegrationReconciler.cs:134-152`）只停事件與檢查、記 `SuspendedActive`，不動整合建立的欄位；既有的暫停狀態（夥伴關閉）欄位也保留。計畫照 §7.5（主控指示），TP-24b 的斷言改成「事件、檢查停用，欄位照暫停時保留」。若要連欄位一起停用，是新的停用路徑，影響恢復時要還原哪些欄位，請裁決並更正 TP-24b 字句。
+3. **TP-09 的「版本仍是 1.0.0」**：`GET apps/packages` 的 `version` 是套件版號（取代後是 1.1.0），1.0.0 來自 `GET apps` 的 `packageVersion`，畫面把兩者合起來顯示。計畫以 API 的 `packageVersion` 與元件測試的版本欄驗，不改 `apps/packages` 的 `version` 語意。
+4. **取代成功訊息放哪**：TP-09 要回 200 帶「已匯入新版；已開啟的範本不會更新」，但匯入成功回的是套件摘要、沒有 `message`。計畫放進既有的 `warnings`（畫面已用不自動消失的提示列出）；範本還沒開啟時也一樣顯示這句。
+5. **停用的整合遇到範本夥伴**：設計說「不論 `onPartnerClosed` 直接定成 Waiting」，沒提整合本身被管理員停用的情況。計畫讓 `Disabled` 優先（停用是管理員的選擇，和夥伴無關）。
+6. **四語的落法**（不是縮減，技術上做得到）：驗證器錯誤現在是 `List<string>`，而且 `ServiceResult.ErrorsIn` 不翻欄位錯誤的字面值，所以連無參數的 V1、V2 現在也翻不到。計畫在 Task 1 讓 `AppValidation` 多帶 `ErrorRefs`；只有本段新增的句子改成帶鍵，驗證器既有句（例「是共用主檔，要列在 requires.masters」）不動，仍只有繁中。整合原因 `row.Reason` 存的是系統預設語系文字，計畫只在回應時把「夥伴是範本」那一種依請求語系重組，其他既有原因不動。
