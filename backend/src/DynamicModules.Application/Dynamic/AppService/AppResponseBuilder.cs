@@ -37,7 +37,7 @@ public sealed class AppResponseBuilder(IModuleRepository modules, AppDependencyC
         return new AppResponse(app.Key, app.NameI18n, app.Icon, app.PackageVersion, app.FormatVersion, app.Source,
             AppMapper.StatusName(app.Status), app.RowVersion, app.Requires, members, dependents, referrers, [.. warnings ?? []], integrations)
         {
-            Kind = app.Kind == AppKind.Master ? AppManifest.MasterKindName : AppManifest.AppKindName
+            Kind = AppManifest.KindNameOf(app.Kind)
         };
     }
 
@@ -46,6 +46,9 @@ public sealed class AppResponseBuilder(IModuleRepository modules, AppDependencyC
         var p = source.Package;
         var template = GetTemplatesHandler.Summarize(AppPackageAdapter.ToTemplate(p), source.Source);
         return new AppPackageSummary(p.Manifest.Id, p.Manifest.Version, p.Manifest.Name, p.Manifest.Description, p.Manifest.Icon,
-            p.Manifest.Vendor, source.Source, p.Manifest.Requires, p.Groups, template.Modules, status);
+            p.Manifest.Vendor, source.Source, p.Manifest.Requires, p.Groups, template.Modules, status)
+        {
+            Kind = p.Manifest.IsTemplate ? AppManifest.TemplateKindName : AppManifest.AppKindName
+        };
     }
 }

@@ -142,7 +142,7 @@ public class DeleteAppHandler(
         var warnings = new List<string>();
         // 直接或經其他主檔間接用到、而剩下的應用程式（不論開關）都不再用到的主檔
         var all = await apps.ListAsync(ct);
-        var stillUsed = SharedMasters.MasterLifecycle.Reachable(all.Where(a => a.Kind == AppKind.App).Select(a => a.Id), await shared.ListUsesAsync(ct));
+        var stillUsed = SharedMasters.MasterLifecycle.Reachable(all.Where(a => a.Kind is AppKind.App or AppKind.Template).Select(a => a.Id), await shared.ListUsesAsync(ct));
         foreach (var master in all.Where(a => usedMasters.Contains(a.Id) && !stillUsed.Contains(a.Id)))
         {
             var count = 0;

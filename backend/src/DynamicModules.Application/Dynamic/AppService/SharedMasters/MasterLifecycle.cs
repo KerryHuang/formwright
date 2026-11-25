@@ -7,7 +7,7 @@ using DynamicModules.Domain.Repositories.Dynamic;
 namespace DynamicModules.Application.Dynamic.AppService.SharedMasters;
 
 /// <summary>
-/// 共用主檔的狀態只能推得（設計 §7）：主檔 M 是 Open ⇔ 至少一個 Open 的應用程式（Kind = App）直接或經其他主檔使用 M。
+/// 共用主檔的狀態只能推得（設計 §7）：主檔 M 是 Open ⇔ 至少一個 Open 的應用程式（Kind = App 或 Template，範本開啟後也用主檔）直接或經其他主檔使用 M。
 /// 每次應用程式開啟、關閉、重開、刪除之後，在同一個交易內呼叫 <see cref="RecomputeAsync"/>；用閉包判斷，與判斷順序無關。
 /// </summary>
 public sealed class MasterLifecycle(
@@ -16,7 +16,7 @@ public sealed class MasterLifecycle(
 {
     /// <summary>使用者閉包：從 Open 的應用程式沿「使用」的邊往上找到的主檔。主檔本身不算使用者。</summary>
     public static HashSet<long> ShouldBeOpen(IEnumerable<App> all, IEnumerable<AppMasterUse> uses) =>
-        Reachable(all.Where(a => a is { Kind: AppKind.App, Status: AppStatus.Open }).Select(a => a.Id), uses);
+        Reachable(all.Where(a => a is { Kind: AppKind.App or AppKind.Template, Status: AppStatus.Open }).Select(a => a.Id), uses);
 
     /// <summary>從這些應用程式（或主檔）沿「使用」的邊直接或間接用到的主檔。</summary>
     public static HashSet<long> Reachable(IEnumerable<long> from, IEnumerable<AppMasterUse> uses)

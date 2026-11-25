@@ -154,7 +154,7 @@ public class AppOpener(
 
         var app = new App
         {
-            Key = package.Manifest.Id, Kind = package.Manifest.IsMaster ? AppKind.Master : AppKind.App,
+            Key = package.Manifest.Id, Kind = package.Manifest.IsMaster ? AppKind.Master : package.Manifest.IsTemplate ? AppKind.Template : AppKind.App,
             NameI18n = package.Manifest.Name, Icon = package.Manifest.Icon,
             PackageVersion = package.Manifest.Version, FormatVersion = package.FormatVersion, Source = plan.Source.Source,
             Status = AppStatus.Open, Requires = AppOpenPlanner.RequiresOf(package),
@@ -183,7 +183,8 @@ public class AppOpener(
             });
         foreach (var r in package.Manifest.Requires.Masters)
             shared.AddUse(new AppMasterUse { AppId = app.Id, MasterAppId = masters[r.Id].Id });
-        apps.AddBaseline(BaselineOf(app.Id, plan.Source, groupIds, body.ExcludeFields));
+        // 範本開啟後屬於客戶，不提供更新，所以不寫升級基準
+        if (app.Kind != AppKind.Template) apps.AddBaseline(BaselineOf(app.Id, plan.Source, groupIds, body.ExcludeFields));
         await uow.CommitAsync(ct);
 
         await RecordGrantsAsync(package, app, result, contributions, ids2, groupIds, ct);

@@ -14,6 +14,8 @@ public record AppPackageSummary(
 {
     public bool Merged { get; init; }
     public List<string> Warnings { get; init; } = [];
+    /// <summary>app 或 template（範本套件，開啟後屬於客戶、不提供更新）；共用主檔套件不在目錄列表分區，仍是 app。</summary>
+    public string Kind { get; init; } = AppManifest.AppKindName;
     /// <summary>已開啟或已關閉、且它自己或用到的共用主檔有候選新版時有值（套件更新設計 §8.5）。</summary>
     public AppUpgradeHint? Upgrade { get; init; }
 }
@@ -28,7 +30,7 @@ public record AppResponse(
     List<IntegrationResponse>? Integrations = null)
 {
     public List<IntegrationResponse> Integrations { get; init; } = Integrations ?? [];
-    /// <summary>app 或 master（共用主檔，由使用它的應用程式管理，不能直接開關）。</summary>
+    /// <summary>app、master（共用主檔，由使用它的應用程式管理，不能直接開關）或 template（範本，開啟後屬於客戶）。</summary>
     public string Kind { get; init; } = AppManifest.AppKindName;
     /// <summary>只在開啟回應有：開啟時被略過的群組由備援頂替的每一個來源（簽核設計 §14.4）；同樣的內容也逐條列在 Warnings。</summary>
     public IReadOnlyList<AppApprovalFlowCodec.Substitution> ApprovalSubstitutions { get; init; } = [];
