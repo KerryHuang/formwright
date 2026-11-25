@@ -50,6 +50,21 @@ public class DemoStructureTests(DemoGeneratedFixture fx)
     }
 
     [Fact]
+    public async Task Generate_OpensTheQualityInspectionTemplate_WithItsGroupMappedToTheDemoQaGroup()
+    {
+        fx.Generated();
+
+        var db = fx.Host.Db.Context;
+        var app = await db.Set<App>().AsNoTracking().SingleAsync(a => a.Key == DemoCatalog.QualityInspectionAppId);
+        app.Kind.Should().Be(AppKind.Template);
+        DemoCatalog.AppIds.Last().Should().Be(DemoCatalog.QualityInspectionAppId, "排在 MES、CRM、進銷存之後");
+        var groups = await GroupIds();
+        foreach (var key in new[] { "qc-item", "qc-inspection" })
+            (await Permissions(key)).Groups.Single(g => g.GroupId == groups["qa"]).Privileges.Add.Should().BeTrue($"{key}：套件的 qa 群組對應到 Demo 的 qa");
+        (await db.Set<AppBaseline>().AsNoTracking().AnyAsync(x => x.AppId == app.Id)).Should().BeFalse("範本開啟後屬於客戶，不留升級基準");
+    }
+
+    [Fact]
     public async Task Generate_WritesABaseline_ForEveryOpenedApp_IncludingAutoOpenedMasters()
     {
         fx.Generated();
@@ -60,7 +75,7 @@ public class DemoStructureTests(DemoGeneratedFixture fx)
         var apps = await db.Set<App>().AsNoTracking().ToListAsync();
         var baselines = await db.Set<AppBaseline>().AsNoTracking().ToDictionaryAsync(b => b.AppId);
         apps.Select(a => a.Key).Should().Contain(DemoCatalog.AppIds).And.Contain(["partner", "contact"]);
-        foreach (var app in apps)
+        foreach (var app in apps.Where(a => a.Kind != AppKind.Template)) // 範本開啟後屬於客戶，不留基準
             baselines.Should().ContainKey(app.Id, app.Key).WhoseValue.PackageJson.Should().Be(
                 app.Key == DemoCatalog.CrmAppId ? DemoOldCrm.Derive(catalog.OriginalOf(app.Key)!)
                 : app.Key == DemoOldCrm.PartnerId ? DemoOldCrm.DerivePartner(catalog.OriginalOf(app.Key)!) : catalog.OriginalOf(app.Key), app.Key);

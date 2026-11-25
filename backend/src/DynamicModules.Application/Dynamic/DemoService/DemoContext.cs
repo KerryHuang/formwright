@@ -24,6 +24,9 @@ public sealed class DemoContext(DateOnly today, ISender sender, TemplateIdMap id
     /// <summary>「進銷存」應用程式的對照（模組代碼 customer、shipment 等與 MES 重名，所以另放一份）；沒有開啟時是 null。</summary>
     public DemoContext? Inventory { get; set; }
 
+    /// <summary>「品質檢驗」範本的對照（模組代號 item、line 等與其他應用程式重名，所以另放一份）；沒有開啟時是 null。</summary>
+    public DemoContext? QualityInspection { get; set; }
+
     /// <summary>限定名 &lt;模組代號&gt;.&lt;欄位代號&gt; → Field.Key。</summary>
     public string Key(string qualified) => Ids.FieldKeys[qualified];
 
