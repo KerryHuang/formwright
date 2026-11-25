@@ -17,7 +17,7 @@ namespace DynamicModules.Application.Dynamic.CheckService;
 /// </summary>
 public class CheckStage(
     IWriteJournal journal, IModuleRepository modules, ICheckRepository checks, IUnitOfWork uow, CheckEvaluator evaluator, RuleFailureNote notes,
-    IPolicyReader policies, RequestLocale requestLocale)
+    IPolicyReader policies, RequestLocale requestLocale, AppService.Integrations.IntegrationReconciler integrations)
     : IWriteStage
 {
     public const string TooBig = "數值太大，無法精確加總（此欄位被跨記錄驗證引用）";
@@ -32,10 +32,18 @@ public class CheckStage(
         var violations = new List<string>();
         var flushed = false;
         var groupCount = 0;
+        IReadOnlySet<string>? templatePartnerChecks = null;   // 有候選檢查時才讀，整個 stage 只讀一次
         foreach (var byModule in merged.GroupBy(e => e.ModuleId))
         {
             var active = await checks.ListActiveByModuleAsync(byModule.Key, ct);
             if (active.Count == 0) continue;
+            // 夥伴是範本的整合登記的檢查不執行，即使調和還沒把它停用（範本套件設計 §7.5）
+            templatePartnerChecks ??= (await integrations.TemplatePartnerItemsAsync(ct)).Checks;
+            if (templatePartnerChecks.Count > 0)
+            {
+                active = active.Where(c => !templatePartnerChecks.Contains(c.Key)).ToList();
+                if (active.Count == 0) continue;
+            }
             if (!flushed)
             {
                 await uow.CommitAsync(ct);   // 先把本次請求的變更刷進資料庫，聚合才看得到

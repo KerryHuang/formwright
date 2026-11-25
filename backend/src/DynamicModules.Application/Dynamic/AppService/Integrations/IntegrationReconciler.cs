@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using DynamicModules.Application.Common;
+using DynamicModules.Application.Common.Localization;
 using DynamicModules.Application.Common.Security;
 using DynamicModules.Application.Common.Time;
 using DynamicModules.Application.Dynamic.AppService.Data;
@@ -23,7 +24,8 @@ namespace DynamicModules.Application.Dynamic.AppService.Integrations;
 /// </summary>
 public class IntegrationReconciler(
     IAppRepository apps, IModuleRepository modules, IEventRepository events, ICheckRepository checks, ISender sender,
-    IUnitOfWork uow, IWorkSavepoints savepoints, ICurrentUser user, IBusinessTime time, RequestLocale requestLocale)
+    IUnitOfWork uow, IWorkSavepoints savepoints, ICurrentUser user, IBusinessTime time, RequestLocale requestLocale,
+    IMessageCatalog messages)
 {
     /// <summary>調和全部整合；<paramref name="only"/> 指定時只調和那一個；<paramref name="retry"/> 為真時缺的項目補建（管理員確認過）。回傳要給使用者看的警告。</summary>
     public virtual async Task<List<string>> ReconcileAsync(CancellationToken ct, (string AppKey, string Code)? only = null, bool retry = false)
@@ -56,8 +58,14 @@ public class IntegrationReconciler(
             return null;
         }
         var previous = row.Status;
-        var partners = await PartnersAsync(decl, appList, ct);
         var items = IntegrationItems.Parse(row.ItemsJson);
+        // 夥伴是範本（範本套件設計 §7.5）：在 Derive 之前分流，一律等待、不論 onPartnerClosed；已安裝的照暫停的做法停用。停用的整合照舊 Disabled
+        if (row.Enabled && TemplatePartner(decl, appList) is { } template)
+        {
+            if (row.Installed) await SuspendAsync(row, items, decl, retry, ct);
+            return await SetStatusAsync(row, IntegrationStatus.Waiting, TemplatePartnerReason(template, requestLocale.SystemDefault), previous, decl, ct);
+        }
+        var partners = await PartnersAsync(decl, appList, ct);
         var target = IntegrationState.Derive(row.Enabled, row.Installed, owner.Status == AppStatus.Open, partners.Present, decl.OnPartnerClosed == "block");
 
         // 上一次已判定被阻擋（含客戶單獨停用某項）：調和不自動啟用項目、不解除阻擋，只有 retry（管理員）能修復；停用整合照常
@@ -107,6 +115,36 @@ public class IntegrationReconciler(
         return status == IntegrationStatus.Suspended && previous is IntegrationStatus.Active or IntegrationStatus.Held
             ? $"整合「{decl.Name.Resolve(requestLocale.Current)}」已暫停，暫停期間的來源記錄不會補入"
             : null;
+    }
+
+    /// <summary>整合宣告的夥伴（<c>with[]</c>）裡第一個是範本的應用程式 id；沒有回 null。範本不能當夥伴（V5、V6），這是直接寫資料庫造出來時的防線。</summary>
+    internal static string? TemplatePartner(AppIntegrationDecl decl, IReadOnlyList<App> appList) =>
+        decl.With.FirstOrDefault(w => appList.Any(a => a.Key == w.Id && a.Kind == AppKind.Template))?.Id;
+
+    /// <summary>「夥伴是範本」的原因字串（沿用 row.Reason 的「代碼: 說明」格式）；存進資料用系統預設語系，回應時依請求語系重組。</summary>
+    internal string TemplatePartnerReason(string partner, LocaleContext locale) =>
+        $"waiting: {messages.Get(locale, MessageText.IntegrationPartnerIsTemplate, partner)}";
+
+    /// <summary>
+    /// 已安裝、且夥伴是範本的整合登記的事件鍵與檢查鍵：寫入管線（<see cref="EventStage"/>、<see cref="CheckStage"/>）濾掉它們，
+    /// 夥伴種類已變、還沒調和時連動與檢查也不執行。一次讀整合與應用程式清單，沒有已安裝的整合時只有一次查詢。
+    /// </summary>
+    public async Task<(IReadOnlySet<string> Events, IReadOnlySet<string> Checks)> TemplatePartnerItemsAsync(CancellationToken ct)
+    {
+        var eventKeys = new HashSet<string>();
+        var checkKeys = new HashSet<string>();
+        var rows = (await apps.ListIntegrationsAsync(ct)).Where(r => r.Installed).ToList();
+        if (rows.Count == 0) return (eventKeys, checkKeys);
+        var appList = await apps.ListAsync(ct);
+        foreach (var row in rows)
+        {
+            var owner = appList.FirstOrDefault(a => a.Id == row.AppId);
+            if (owner is null || IntegrationDeclarations.Find(owner, row.Code) is not { } decl || TemplatePartner(decl, appList) is null) continue;
+            var items = IntegrationItems.Parse(row.ItemsJson);
+            eventKeys.UnionWith(items.Events);
+            checkKeys.UnionWith(items.Checks);
+        }
+        return (eventKeys, checkKeys);
     }
 
     /// <summary>夥伴都在：應用程式 Open，且用到的模組都是 Active。Missing 列出不在的。</summary>

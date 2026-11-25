@@ -676,4 +676,149 @@ public class MesInventoryIntegrationTests : IDisposable
         await Move(draft, "shipment", "已出貨");
         await Move(shipped, "shipment", "已取消");
     }
+
+    // ---- 夥伴是範本（範本套件設計 §7.5，TP-24、24a、24b）：一律等待，不安裝、不連動、不擋來源寫入 ----
+
+    /// <summary>直接寫資料庫把應用程式的種類改成範本（正常匯入進不來，V5、V6；這是防線）。</summary>
+    private async Task MarkAsTemplate(string appKey)
+    {
+        using var scope = _app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DynamicDbContext>();
+        var app = await db.Set<App>().SingleAsync(a => a.Key == appKey);
+        app.Kind = AppKind.Template;
+        await db.SaveChangesAsync();
+    }
+
+    private async Task SetOnPartnerClosed(string value)
+    {
+        using var scope = _app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DynamicDbContext>();
+        var mes = await db.Set<App>().SingleAsync(a => a.Key == "mes");
+        var decls = JsonNode.Parse(mes.IntegrationsJson!)!.AsArray();
+        decls[0]!["onPartnerClosed"] = value;
+        mes.IntegrationsJson = decls.ToJsonString();
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>觸發這個整合的調和（啟用中的整合再設一次啟用，不改狀態只調和）。</summary>
+    private async Task ReconcileStockOut()
+    {
+        var res = await _admin.PutAsJsonAsync($"{Apps}/mes/integrations/stockOut", new { enabled = true });
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+    }
+
+    private async Task<(List<bool> Events, List<bool> Checks)> ItemActiveFlags(IntegrationItems items)
+    {
+        using var scope = _app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DynamicDbContext>();
+        var events = await db.Set<ModuleEvent>().AsNoTracking().Where(e => items.Events.Contains(e.Key)).Select(e => e.Active).ToListAsync();
+        var checks = await db.Set<ModuleCheck>().AsNoTracking().Where(c => items.Checks.Contains(c.Key)).Select(c => c.Active).ToListAsync();
+        return (events, checks);
+    }
+
+    [Fact]
+    public async Task PartnerIsTemplate_NotInstalled_Waits_TP24()
+    {
+        await OpenInventory();
+        await MarkAsTemplate("inventory");
+        await OpenMes();
+
+        var integration = await Integration();
+        integration.Status.Should().Be(IntegrationStatus.Waiting, integration.Reason);
+        integration.Reason.Should().Contain("inventory").And.Contain("是範本");
+        integration.Installed.Should().BeFalse();
+        var items = IntegrationItems.Parse(integration.ItemsJson);
+        items.Fields.Should().BeEmpty();
+        items.Events.Should().BeEmpty();
+        items.Checks.Should().BeEmpty();
+        (await ShipmentHasStockFields()).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task PartnerIsTemplate_Block_StillWaits_TP24a()
+    {
+        await OpenInventory();
+        await MarkAsTemplate("inventory");
+        await OpenMes();
+        await SetOnPartnerClosed("block");
+        await ReconcileStockOut();
+
+        var integration = await Integration();
+        integration.Status.Should().Be(IntegrationStatus.Waiting, integration.Reason);
+        integration.Installed.Should().BeFalse();
+        await Shipment(await DoneWorkOrder(), 10);   // 201：不進 Held，來源單據照常寫入
+    }
+
+    [Theory]
+    [InlineData("skip")]
+    [InlineData("block")]
+    public async Task InstalledThenPartnerBecomesTemplate_Waits_TP24b(string onPartnerClosed)
+    {
+        await OpenMes();
+        await OpenInventory();
+        if (onPartnerClosed == "block") await SetOnPartnerClosed("block");
+        (await StatusOfIntegration()).Should().Be(IntegrationStatus.Active);
+        var stock = await Stocked(100);
+        var wo = await DoneWorkOrder(100);
+
+        await MarkAsTemplate("inventory");
+        await ReconcileStockOut();
+
+        var integration = await Integration();
+        integration.Status.Should().Be(IntegrationStatus.Waiting, integration.Reason);
+        integration.Reason.Should().Contain("是範本");
+        var items = IntegrationItems.Parse(integration.ItemsJson);
+        items.Events.Should().NotBeEmpty();
+        items.Checks.Should().NotBeEmpty();
+        var (events, checks) = await ItemActiveFlags(items);
+        events.Should().HaveCount(items.Events.Count).And.OnlyContain(a => !a);
+        checks.Should().HaveCount(items.Checks.Count).And.OnlyContain(a => !a);
+        // 照暫停的做法：記下原本啟用的項目，整合欄位保留（SuspendAsync 不動欄位）
+        items.SuspendedActive!.Events.Should().BeEquivalentTo(items.Events);
+        items.SuspendedActive.Checks.Should().BeEquivalentTo(items.Checks);
+        (await ShipmentHasStockFields()).Should().BeTrue();
+
+        var shipment = await Shipment(wo, 10, stock);
+        var res = await TryMove(shipment, "shipment", "已出貨");
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        (await _inv!.BalanceAsync(stock.Item, stock.Warehouse)).Should().Be(100);
+    }
+
+    [Fact]
+    public async Task PartnerBecomesTemplate_BeforeReconcile_DoesNotRunTheLink()
+    {
+        await OpenMes();
+        await OpenInventory();
+        (await StatusOfIntegration()).Should().Be(IntegrationStatus.Active);
+        var stock = await Stocked(100);
+        var wo = await DoneWorkOrder(100);
+
+        await MarkAsTemplate("inventory");   // 不觸發調和：整合仍記 Active、事件與檢查仍啟用
+
+        var shipment = await Shipment(wo, 10, stock);
+        var res = await TryMove(shipment, "shipment", "已出貨");
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        (await _inv!.BalanceAsync(stock.Item, stock.Warehouse)).Should().Be(100);
+
+        // 沒有庫存品項的出貨也不被整合的事件或檢查擋（對照 Active_ShippingWithoutAStockItem_IsRejected）
+        var bare = await Shipment(wo, 10);
+        var bareRes = await TryMove(bare, "shipment", "已出貨");
+        bareRes.StatusCode.Should().Be(HttpStatusCode.OK, await bareRes.Content.ReadAsStringAsync());
+        (await StatusOfIntegration()).Should().Be(IntegrationStatus.Active);
+    }
+
+    [Fact]
+    public async Task TemplatePartnerReason_IsLocalized()
+    {
+        await OpenInventory();
+        await MarkAsTemplate("inventory");
+        await OpenMes();
+
+        var req = new HttpRequestMessage(HttpMethod.Get, $"{Apps}/mes");
+        req.Headers.Add("X-Locale", "en-US");
+        var app = await JsonOf(await _admin.SendAsync(req));
+        var reason = app.GetProperty("integrations").EnumerateArray().Single(i => i.GetProperty("code").GetString() == "stockOut")
+            .GetProperty("reason").GetString();
+        reason.Should().Contain("inventory").And.Contain("template").And.NotContain("範本");
+    }
 }

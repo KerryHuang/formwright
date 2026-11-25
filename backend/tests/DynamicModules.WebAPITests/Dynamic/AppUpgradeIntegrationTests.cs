@@ -364,8 +364,9 @@ public class AppUpgradeIntegrationTests : IDisposable
 
     private sealed class FailingReconciler(
         IAppRepository apps, IModuleRepository modules, IEventRepository events, ICheckRepository checks, ISender sender,
-        IUnitOfWork uow, IWorkSavepoints savepoints, ICurrentUser user, IBusinessTime time, RequestLocale requestLocale)
-        : IntegrationReconciler(apps, modules, events, checks, sender, uow, savepoints, user, time, requestLocale)
+        IUnitOfWork uow, IWorkSavepoints savepoints, ICurrentUser user, IBusinessTime time, RequestLocale requestLocale,
+        DynamicModules.Application.Common.Localization.IMessageCatalog messages)
+        : IntegrationReconciler(apps, modules, events, checks, sender, uow, savepoints, user, time, requestLocale, messages)
     {
         public static volatile bool Armed;
         public const string HalfDone = "half-done";

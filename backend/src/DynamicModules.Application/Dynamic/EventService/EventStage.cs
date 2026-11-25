@@ -23,7 +23,7 @@ namespace DynamicModules.Application.Dynamic.EventService;
 public class EventStage(
     IWriteJournal journal, IEventRepository events, IModuleRepository modules, FieldTypeRegistry registry, IBusinessTime time,
     EffectApplier applier, AppService.Integrations.IntegrationGuardStage integrationGuard, RuleFailureNote notes,
-    IPolicyReader policies) : IWriteStage
+    IPolicyReader policies, AppService.Integrations.IntegrationReconciler integrations) : IWriteStage
 {
     public const string Loop = "連動事件形成循環";
 
@@ -36,6 +36,7 @@ public class EventStage(
         var visited = new HashSet<string>();
         var eventsByModule = new Dictionary<long, List<ModuleEvent>>();
         var modulesById = new Dictionary<long, Module?>();
+        IReadOnlySet<string>? templatePartnerEvents = null;   // 有候選事件時才讀，整個 stage 只讀一次
         var maxDepth = await policies.IntAsync(PolicyCatalog.EventMaxDepth, null, ct);
 
         while (journal.Entries.Count > cursor)
@@ -51,7 +52,16 @@ public class EventStage(
             {
                 if (entry.Silent || entry.AfterDeleted) continue;
                 if (!eventsByModule.TryGetValue(entry.ModuleId, out var list))
-                    eventsByModule[entry.ModuleId] = list = await events.ListActiveBySourceAsync(entry.ModuleId, ct);
+                {
+                    list = await events.ListActiveBySourceAsync(entry.ModuleId, ct);
+                    if (list.Count > 0)
+                    {
+                        // 夥伴是範本的整合登記的事件不執行，即使調和還沒把它停用（範本套件設計 §7.5）
+                        templatePartnerEvents ??= (await integrations.TemplatePartnerItemsAsync(ct)).Events;
+                        if (templatePartnerEvents.Count > 0) list = list.Where(e => !templatePartnerEvents.Contains(e.Key)).ToList();
+                    }
+                    eventsByModule[entry.ModuleId] = list;
+                }
                 if (list.Count == 0) continue;
                 if (!modulesById.TryGetValue(entry.ModuleId, out var module))
                     modulesById[entry.ModuleId] = module = await modules.GetByIdAsync(entry.ModuleId, includeChildren: true, ct);

@@ -38,6 +38,8 @@ public class IntegrationGuardStage(
             var owner = appList.First(a => a.Id == row.AppId);
             var decl = IntegrationDeclarations.Find(owner, row.Code);
             if (decl is null) continue;
+            // 夥伴是範本：整合一律等待、不連動，擁有者的來源單據照常寫入（範本套件設計 §7.5「不進 Held」）
+            if (IntegrationReconciler.TemplatePartner(decl, appList) is not null) continue;
             var (forward, reverse) = await TriggeredAsync(owner, row, decl, entries, ct);
             if (!forward && !reverse) continue;
 
