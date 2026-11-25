@@ -5,6 +5,7 @@ import * as quasar from 'quasar';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { h } from 'vue';
 import { createI18n } from 'vue-i18n';
+import enUS from 'shared/i18n/en-US/ui.json';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import { dynamicApi, type AppInfo, type AppPackageSummary, type OpenPreview } from 'src/services/api/dynamic-api';
 import AppsPage from './AppsPage.vue';
@@ -18,10 +19,10 @@ vi.mock('src/services/api/dynamic-api', () => ({
 const api = vi.mocked(dynamicApi);
 
 const pkg = (id: string, status: AppPackageSummary['status'], extra: Partial<AppPackageSummary> = {}): AppPackageSummary => ({
-  id, version: '1.0.0', name: { 'zh-TW': `套件-${id}` }, source: 'imported', requires: { apps: [] }, groups: [], modules: [], status, ...extra,
+  id, version: '1.0.0', name: { 'zh-TW': `套件-${id}` }, source: 'imported', kind: 'app', requires: { apps: [] }, groups: [], modules: [], status, ...extra,
 });
 const app = (key: string, status: AppInfo['status'], extra: Partial<AppInfo> = {}): AppInfo => ({
-  key, name: { 'zh-TW': key }, packageVersion: '1.0.0', status, rowVersion: 'r', modules: [], dependents: [], unaffiliatedReferrers: [], warnings: [], ...extra,
+  key, name: { 'zh-TW': key }, kind: 'app', packageVersion: '1.0.0', status, rowVersion: 'r', modules: [], dependents: [], unaffiliatedReferrers: [], warnings: [], ...extra,
 });
 const okPreview: OpenPreview = {
   errors: [], keyConflicts: [], hostEntityConflicts: [], missingDependencies: [],
@@ -30,11 +31,11 @@ const okPreview: OpenPreview = {
 };
 
 let mounted: ReturnType<typeof mount> | undefined;
-async function mountPage(packages: AppPackageSummary[], apps: AppInfo[], designer = { read: true, add: true, edit: true, delete: true }, isSystemAdmin = true) {
+async function mountPage(packages: AppPackageSummary[], apps: AppInfo[], designer = { read: true, add: true, edit: true, delete: true }, isSystemAdmin = true, loc: 'zh-TW' | 'en-US' = 'zh-TW') {
   api.getMe.mockResolvedValue({ isSystemAdmin, designer } as never);
   api.getAppPackages.mockResolvedValue(packages);
   api.getApps.mockResolvedValue(apps);
-  const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
+  const i18n = createI18n({ legacy: false, locale: loc, messages: { 'zh-TW': zhTW, 'en-US': enUS } });
   const Host = { render: () => h(quasar.QLayout, null, () => h(quasar.QPageContainer, null, () => h(AppsPage))) };
   mounted = mount(Host, {
     attachTo: document.body,
@@ -207,5 +208,63 @@ describe('AppsPage', () => {
     await flushPromises();
     expect(q('forbidden')).not.toBeNull();
     expect(all('app-reopen')).toHaveLength(0);
+  });
+  it('two sections when there are apps and templates', async () => {
+    await mountPage([pkg('t1', null, { kind: 'template' }), pkg('a1', null, { kind: 'app' })], []);
+    const sections = [...document.body.querySelectorAll('[data-testid^="apps-section-"]')].map((e) => e.getAttribute('data-testid'));
+    expect(sections).toEqual(['apps-section-apps', 'apps-section-templates']);
+    expect(q('apps-templates-hint')!.textContent).toBe(zhTW.apps.sections.templatesHint);
+    expect(q('apps-section-apps')!.textContent).toContain('套件-a1');
+    expect(q('apps-section-apps')!.textContent).not.toContain('套件-t1');
+    expect(q('apps-section-templates')!.textContent).toContain('套件-t1');
+  });
+
+  it('no template section without templates', async () => {
+    await mountPage([pkg('a1', null, { kind: 'app' })], []);
+    expect(q('apps-section-apps')).not.toBeNull();
+    expect(q('apps-section-templates')).toBeNull();
+    mounted?.unmount(); document.body.innerHTML = '';
+    await mountPage([], []);
+    expect(q('apps-empty')).not.toBeNull();
+    expect(q('apps-section-apps')).toBeNull();
+    expect(q('apps-section-templates')).toBeNull();
+  });
+
+  it('template open dialog adds the template hint', async () => {
+    api.previewOpenApp.mockResolvedValue(okPreview);
+    await mountPage([pkg('t1', null, { kind: 'template' }), pkg('a1', null, { kind: 'app' })], []);
+    await click('app-open'); // first row: the app
+    expect(q('open-template-hint')).toBeNull();
+    mounted?.unmount(); document.body.innerHTML = '';
+    await mountPage([pkg('t1', null, { kind: 'template' })], []);
+    await click('app-open');
+    expect(q('open-template-hint')!.textContent).toBe(zhTW.apps.template.openHint);
+  });
+
+  it('isTemplate missing dependency shows a sentence, not the code', async () => {
+    api.previewOpenApp.mockResolvedValue({ ...okPreview, canOpen: false, missingDependencies: [{ kind: 'app', appId: 'tpl-x', reason: 'isTemplate' }] });
+    await mountPage([pkg('a1', null)], []);
+    await click('app-open');
+    expect(q('open-blockers')!.textContent).toContain('tpl-x 是範本，不能被依賴');
+    expect(q('open-blockers')!.textContent).not.toContain('isTemplate');
+    mounted?.unmount(); document.body.innerHTML = '';
+    await mountPage([pkg('a1', null)], [], undefined, true, 'en-US');
+    await click('app-open');
+    expect(q('open-blockers')!.textContent).toContain(enUS.apps.missingReason.isTemplate.replace('{app}', 'tpl-x'));
+    expect(q('open-blockers')!.textContent).not.toMatch(/[\u4e00-\u9fff]|isTemplate/);
+  });
+
+  it('other missing reasons keep the generic sentence', async () => {
+    api.previewOpenApp.mockResolvedValue({ ...okPreview, canOpen: false, missingDependencies: [{ kind: 'app', appId: 'app-z', reason: 'notOpen' }] });
+    await mountPage([pkg('a1', null)], []);
+    await click('app-open');
+    expect(q('open-blockers')!.textContent).toContain('缺少依賴 app-z');
+  });
+
+  it('template row shows the opened version and no upgrade', async () => {
+    await mountPage([pkg('t1', 'Open', { kind: 'template', version: '1.1.0', upgrade: null })], [app('t1', 'Open', { kind: 'template', packageVersion: '1.0.0' })]);
+    expect(q('app-version')!.textContent).toBe('v1.0.0');
+    expect(q('app-upgrade-badge')).toBeNull();
+    expect(q('app-upgrade')).toBeNull();
   });
 });

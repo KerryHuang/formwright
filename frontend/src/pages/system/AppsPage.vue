@@ -13,7 +13,7 @@ import type { AppInfo, AppPackageSummary, OpenAppBody, OpenPreview } from 'src/s
 import { isForbidden, type ApiError } from 'src/services/api/http';
 import { joinList } from 'src/i18n/translate';
 
-const { t, locale } = useI18n();
+const { t, te, locale } = useI18n();
 const $q = useQuasar();
 const me = useMe();
 const packages = useAppPackages();
@@ -28,6 +28,14 @@ const forbidden = computed(() => isForbidden(packages.error.value) || isForbidde
 const canWrite = computed(() => !!me.data.value?.designer.add && !!me.data.value?.designer.edit);
 // 預覽與套用要系統管理員（後端 ISystemAdminRequest），按鈕同樣要求，免得點了才 403（套件更新設計 §11.2）
 const canUpgrade = computed(() => canWrite.value && me.data.value?.isSystemAdmin === true);
+// 分區只讀 API 的 kind（範本列沒有更新鈕是 upgrade = null 的結果，不另判斷）
+const sections = computed(() => {
+  const list = packages.data.value ?? [];
+  return [
+    { id: 'apps', items: list.filter((p) => p.kind !== 'template') },
+    { id: 'templates', items: list.filter((p) => p.kind === 'template') },
+  ].filter((x) => x.items.length);
+});
 const appByKey = computed(() => new Map((apps.data.value ?? []).map((a) => [a.key, a])));
 const name = (n: Parameters<typeof resolveI18n>[0]) => resolveI18n(n, locale.value);
 const statusColor = (s: AppPackageSummary['status']) => (s === 'Open' ? 'positive' : 'secondary');
@@ -87,7 +95,9 @@ const blockers = computed(() => {
     ...r.errors,
     ...r.keyConflicts.map((c) => t('apps.keyConflict', { module: c.moduleCode, key: c.key })),
     ...r.hostEntityConflicts,
-    ...r.missingDependencies.map((m) => t('apps.missing', { app: m.appId ?? '', detail: m.moduleCode ?? m.entity ?? '', reason: m.reason })),
+    ...r.missingDependencies.map((m) => (te(`apps.missingReason.${m.reason}`)
+      ? t(`apps.missingReason.${m.reason}`, { app: m.appId ?? '' })
+      : t('apps.missing', { app: m.appId ?? '', detail: m.moduleCode ?? m.entity ?? '', reason: m.reason }))),
     ...(r.unbound ?? []).map((u) => t('apps.unbound', { detail: u })),
   ];
 });
@@ -133,8 +143,11 @@ const reopen = (key: string) => reopenApp.mutate(key, {
       <p class="text-muted">{{ t('apps.description') }}</p>
       <div v-if="packages.data.value && !packages.data.value.length" class="text-muted" data-testid="apps-empty">{{ t('apps.empty') }}</div>
 
+      <section v-for="sec in sections" :key="sec.id" class="q-mb-lg" :data-testid="`apps-section-${sec.id}`">
+        <div class="text-subtitle1 text-weight-medium">{{ t(`apps.sections.${sec.id}`) }}</div>
+        <p v-if="sec.id === 'templates'" class="text-muted" data-testid="apps-templates-hint">{{ t('apps.sections.templatesHint') }}</p>
       <q-list bordered separator>
-        <q-item v-for="p in packages.data.value" :key="p.id" data-testid="app-row">
+        <q-item v-for="p in sec.items" :key="p.id" data-testid="app-row">
           <q-item-section avatar><q-icon :name="p.icon || 'inventory_2'" /></q-item-section>
           <q-item-section>
             <q-item-label>
@@ -167,9 +180,10 @@ const reopen = (key: string) => reopenApp.mutate(key, {
           </q-item-section>
         </q-item>
       </q-list>
+      </section>
 
       <q-dialog :model-value="!!opening" @update:model-value="opening = null">
-        <q-card style="min-width: 380px" data-testid="open-dialog">
+        <q-card class="dialog-card" data-testid="open-dialog">
           <q-card-section class="text-subtitle1">{{ t('apps.openTitle', { name: opening ? name(opening.name) : '' }) }}</q-card-section>
           <q-card-section v-if="!result"><q-spinner /></q-card-section>
           <q-card-section v-else>
@@ -179,6 +193,7 @@ const reopen = (key: string) => reopenApp.mutate(key, {
             </div>
             <template v-else>
               <p>{{ t('apps.openHint') }}</p>
+              <p v-if="opening?.kind === 'template'" data-testid="open-template-hint">{{ t('apps.template.openHint') }}</p>
               <ul v-if="result.groups.length" data-testid="open-groups">
                 <li v-for="g in result.groups" :key="g.code">{{ name(g.name) }}：{{ t(`apps.group.${g.suggestion}`) }}</li>
               </ul>
@@ -197,7 +212,7 @@ const reopen = (key: string) => reopenApp.mutate(key, {
       </q-dialog>
 
       <q-dialog :model-value="!!closing" @update:model-value="closing = null">
-        <q-card style="min-width: 380px" data-testid="close-dialog">
+        <q-card class="dialog-card" data-testid="close-dialog">
           <q-card-section class="text-subtitle1">{{ t('apps.closeTitle', { name: closing ? name(closing.name) : '' }) }}</q-card-section>
           <q-card-section>
             <p>{{ t('apps.closeHint') }}</p>
@@ -218,3 +233,7 @@ const reopen = (key: string) => reopenApp.mutate(key, {
     </template>
   </q-page>
 </template>
+
+<style scoped>
+.dialog-card { width: 100%; max-width: 560px; }
+</style>

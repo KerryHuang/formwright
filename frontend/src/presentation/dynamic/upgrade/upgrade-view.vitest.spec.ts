@@ -39,7 +39,7 @@ describe('upgrade view', () => {
 
   it('module names come from the opened app, the new module item, or the master for contributions', () => {
     const app = (key: string, modules: [string, string][]): AppInfo => ({
-      key, name: { 'zh-TW': key }, packageVersion: '1.0.0', status: 'Open', rowVersion: 'r', dependents: [], unaffiliatedReferrers: [], warnings: [],
+      key, name: { 'zh-TW': key }, kind: 'app', packageVersion: '1.0.0', status: 'Open', rowVersion: 'r', dependents: [], unaffiliatedReferrers: [], warnings: [],
       modules: modules.map(([code, name], id) => ({ code, key: `k-${code}`, id, name: { 'zh-TW': name }, status: 'Active' })),
     });
     const names = moduleNames([app('crm', [['lead', '潛在客戶']]), app('partner', [['partner', '往來對象']])], 'crm', [

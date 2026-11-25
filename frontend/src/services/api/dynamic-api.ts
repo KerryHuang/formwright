@@ -91,6 +91,8 @@ export interface AppPackageSummary {
   icon?: string;
   vendor?: string;
   source: 'builtIn' | 'imported';
+  /** Package kind from the API; templates are listed in their own section and never get an update hint. */
+  kind: 'app' | 'template';
   requires: { apps: AppRequirement[] };
   groups: { code: string; name: I18nText }[];
   modules: TemplateModuleSummary[];
@@ -199,6 +201,7 @@ export interface AppInfo {
   key: string;
   name: I18nText;
   icon?: string;
+  kind: 'app' | 'master' | 'template';
   packageVersion: string;
   status: 'Open' | 'Closed';
   rowVersion: string;
