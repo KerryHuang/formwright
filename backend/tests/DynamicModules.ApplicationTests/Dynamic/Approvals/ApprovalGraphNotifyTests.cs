@@ -497,4 +497,37 @@ public class ApprovalGraphNotifyTests(ITestOutputHelper output) : ApprovalTestBa
         foreach (var user in new[] { "emp1", "buyer2" })
             Payload(NotifyRows(user).Single()).Values[ApprovalNotifyData.FieldKey(r.Memo)].T.Should().Be("請盡快");
     }
+
+    [Fact]
+    public async Task McpChannelTrigger_RollupFromAiExcludedSourceField_HumanRecipientStillSeesValue()
+    {
+        // M1：彙總來源（參照來源模組）的遮罩也不能吃觸發者的通道；來源欄位「不提供給 AI」，人類收件人照常看得到彙總值
+        var r = await Rig(rr => G([Start(), Notify("n", [ToUsers("emp1")], "{title}", $"{{f:{rr.ExtraSum}}}"), Approval("a", Users("fin1")), End()],
+            [E("e0", "start", "n"), E("e1", "n", "a"), E("e2", "a", "end")]), restricted: true);
+        await GrantEveryone(r.Extra);
+        (await Db.Context.Set<Field>().SingleAsync(f => f.Id == r.ExtraAmount)).ExcludeFromAi = true;
+        await Db.Context.SaveForTestsAsync();
+        Db.Context.ChangeTracker.Clear();
+        As("buyer1");
+        var po = await NewPo(r, price: 5000, title: "PO-0001");
+        (await Send(new CreateRecordRequest(r.Extra, V((TitleId(r.Extra), "追加"), (r.ExtraRef, po.Id), (r.ExtraAmount, 777m))))).IsCreated.Should().BeTrue();
+
+        using (var scope = NewScope())
+        {
+            var sp = scope.ServiceProvider;
+            _channel.Channel = RequestChannel.Mcp;
+            try
+            {
+                var res = await sp.GetRequiredService<MediatR.IRequestHandler<SubmitApprovalRequest, ServiceResult>>()
+                    .Handle(new SubmitApprovalRequest(po.Id, r.Confirmed, Rec(po.Id).Row.RowVersion, null, null), CancellationToken.None);
+                res.IsSuccess.Should().BeTrue(Dump(res));
+                await sp.GetRequiredService<IUnitOfWork>().CommitAsync(CancellationToken.None);
+            }
+            finally { _channel.Channel = RequestChannel.Ui; }
+        }
+
+        var v = Payload(NotifyRows("emp1").Single()).Values[ApprovalNotifyData.FieldKey(r.ExtraSum)];
+        v.S.Should().BeNull();
+        v.T.Should().Contain("777");
+    }
 }

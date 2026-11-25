@@ -53,6 +53,7 @@ public sealed class RollupSourceMasks(IPermissionRepository permissions, IModule
             {
                 var sourceInputs = await permissions.LoadInputsAsync(userId, source, ct);
                 if (sourceInputs is null) return (false, null);
+                sourceInputs = sourceInputs with { AiMasked = inputs.AiMasked };
                 hidden.UnionWith((detail
                     ? PermissionResolver.ResolveDetail(module, source, inputs, sourceInputs)
                     : PermissionResolver.Resolve(source, sourceInputs)).HiddenFieldIds);
