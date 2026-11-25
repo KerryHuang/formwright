@@ -45,7 +45,7 @@ const nodeErrors = computed(() => (node.value ? fieldErrors(props.designer.issue
           <ConditionNodePanel v-else-if="node.kind === 'condition'" :designer="designer" :node="node" :module="module" />
           <ForkNodePanel v-else-if="node.kind === 'fork'" :designer="designer" :node="node" />
           <JoinNodePanel v-else-if="node.kind === 'join'" :designer="designer" :node="node" />
-          <NotifyNodePanel v-else-if="node.kind === 'notify'" />
+          <NotifyNodePanel v-else-if="node.kind === 'notify'" :designer="designer" :node="node" :module="module" />
           <div v-else class="text-muted" data-testid="no-props">{{ t('approval.graph.kind.' + node.kind) }}</div>
           <NodeAdvancedFields class="q-mt-md" :designer="designer" :node="node" />
         </template>

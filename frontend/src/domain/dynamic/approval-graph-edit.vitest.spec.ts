@@ -284,6 +284,20 @@ describe('removeNode', () => {
     expect(pairs(removeNode(s, 'n'))).toEqual(['a>end', 'start>a']);
   });
 
+  it('fg5d: a new notify node (addNode and insertOnEdge) gets the U-b defaults: name, one initiator recipient, title {title}, empty body', () => {
+    const o: EditOptions = { names, notifyDefaults: (n) => ({ name: { 'zh-TW': `通知 ${n}` }, title: { 'zh-TW': '{title}' } }) };
+    const added = nodeOf(addNode(line(), 'notify', { x: 0, y: 0 }, o), 'notify-1');
+    expect(added).toEqual({ id: 'notify-1', kind: 'notify', name: { 'zh-TW': '通知 1' }, recipients: [{ kind: 'initiator' }], template: { title: { 'zh-TW': '{title}' }, body: {} } });
+    const ins = insertOnEdge(line(), 'e2', 'notify', o);
+    expect(pairs(ins)).toEqual(['ceo>end', 'fin>ceo', 'mgr>notify-1', 'notify-1>fin', 'start>mgr']);
+    expect(nodeOf(ins, 'notify-1').name).toEqual({ 'zh-TW': '通知 1' });
+    expect(localInvariants(ins)).toEqual([]);
+    // 第二個通知取下一個流水號；預設值各節點各自一份，不共用物件
+    const two = addNode(addNode(line(), 'notify', { x: 0, y: 0 }, o), 'notify', { x: 0, y: 200 }, o);
+    expect(nodeOf(two, 'notify-2').name).toEqual({ 'zh-TW': '通知 2' });
+    expect(nodeOf(two, 'notify-2').recipients).not.toBe(nodeOf(two, 'notify-1').recipients);
+  });
+
   it('removing a condition does not bridge', () => {
     const t = removeNode(cond(), 'c');
     expect(ids(t)).not.toContain('c');

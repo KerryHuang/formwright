@@ -20,6 +20,8 @@ export interface EditOptions {
     /** 插在線上的條件節點，條件線的標籤（U49「條件 n」）。 */
     conditionLabel?: (n: number) => I18nText;
   };
+  /** 新通知節點的預設（U-b）：名稱「通知 n」與標題 `{title}`（各語系同一段文字）；收件人固定一項「申請人」、內文空白。 */
+  notifyDefaults?: (n: number) => { name: I18nText; title: I18nText };
 }
 
 export type ConnectRefusal = 'missing' | 'selfLoop' | 'intoStart' | 'outOfEnd' | 'duplicate' | 'outLimit';
@@ -58,6 +60,12 @@ function newApproval(a: Alloc, opts: EditOptions): ApprovalNodeDef {
   };
 }
 
+function newNotify(a: Alloc, opts: EditOptions): ApprovalNodeDef {
+  const { id, n } = a.node('notify');
+  const d = opts.notifyDefaults?.(n);
+  return { id, kind: 'notify', name: d?.name ?? {}, recipients: [{ kind: 'initiator' }], template: { title: d?.title ?? {}, body: {} } };
+}
+
 /** 分支、配對匯合、兩條各含一個新簽核節點的分支（U49、U63）；回傳新節點、新線與兩端。 */
 function forkBlock(a: Alloc, opts: EditOptions) {
   const fork: ApprovalNodeDef = { id: a.node('fork').id, kind: 'fork' };
@@ -72,7 +80,7 @@ const spread = (p: Position, i: number, n: number): Position => ({ x: p.x, y: p.
 
 /** U49：在線 A→B 上插入節點，線上原有的標籤與條件留在前一段（A→新節點）。 */
 export function insertOnEdge(state: GraphState, edgeId: string, kind: ApprovalNodeKind, opts: EditOptions = {}): GraphState {
-  if (kind !== 'approval' && kind !== 'condition' && kind !== 'fork') return state;
+  if (kind !== 'approval' && kind !== 'condition' && kind !== 'fork' && kind !== 'notify') return state;
   const s = clone(state);
   const edge = s.definition.edges.find((e) => e.id === edgeId);
   if (!edge) return state;
@@ -82,8 +90,8 @@ export function insertOnEdge(state: GraphState, edgeId: string, kind: ApprovalNo
   const pb = s.positions[oldTo];
   const mid: Position = pa && pb ? { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 } : (pa ?? pb ?? { x: 0, y: 0 });
   const add = (n: ApprovalNodeDef[], at: Position[]) => n.forEach((x, i) => { s.definition.nodes.push(x); s.positions[x.id] = at[i]; });
-  if (kind === 'approval') {
-    const n = newApproval(a, opts);
+  if (kind === 'approval' || kind === 'notify') {
+    const n = kind === 'approval' ? newApproval(a, opts) : newNotify(a, opts);
     edge.to = n.id;
     s.definition.edges.push({ id: a.edge(), from: n.id, to: oldTo });
     add([n], [mid]);
@@ -106,7 +114,7 @@ export function insertOnEdge(state: GraphState, edgeId: string, kind: ApprovalNo
   return s;
 }
 
-/** U63：從面板放到空白處；分支帶配對匯合與兩條分支（不接外面的線），匯合與開始不提供。面板只列四種節點（簽核、條件、分支、結束）：通知節點這裡接受，但後端在 fg5 之前一律回「通知節點尚未開放」，由 UI 負責不提供。 */
+/** U63：從面板放到空白處；分支帶配對匯合與兩條分支（不接外面的線），匯合與開始不提供。面板列簽核、條件、通知、分支、結束；通知節點帶 U-b 預設值。 */
 export function addNode(state: GraphState, kind: ApprovalNodeKind, at: Position, opts: EditOptions = {}): GraphState {
   if (kind === 'join' || kind === 'start') return state;
   const s = clone(state);
@@ -119,7 +127,7 @@ export function addNode(state: GraphState, kind: ApprovalNodeKind, at: Position,
     b.nodes.forEach((n, i) => { s.positions[n.id] = at4[i]; });
     return s;
   }
-  const n: ApprovalNodeDef = kind === 'approval' ? newApproval(a, opts) : { id: a.node(kind).id, kind };
+  const n: ApprovalNodeDef = kind === 'approval' ? newApproval(a, opts) : kind === 'notify' ? newNotify(a, opts) : { id: a.node(kind).id, kind };
   s.definition.nodes.push(n);
   s.positions[n.id] = { ...at };
   return s;

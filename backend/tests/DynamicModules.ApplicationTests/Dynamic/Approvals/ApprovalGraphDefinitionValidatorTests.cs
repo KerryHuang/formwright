@@ -74,12 +74,20 @@ public class ApprovalGraphDefinitionValidatorTests : ApprovalTestBase
     private static ApprovalNodeDef Notify(ApprovalNodeDef n, Func<NotifyTemplateDef, NotifyTemplateDef> f) => n with { Template = f(n.Template!) };
 
     [Fact]
-    public async Task Graph_DesignExample_OnlyNotifyNotYetError()
+    public async Task Graph_DesignExample_NoErrors_NotifyAccepted()
     {
-        // 設計範例含通知節點 tell-hr：fg5 之前只有這一則暫時錯誤（U2）
-        var errors = await Validate(await DesignAsync());
-        errors.Keys.Should().Equal("nodes.tell-hr");
-        errors["nodes.tell-hr"][0].Should().Be(ApprovalMessages.NotifyNodeNotYet);
+        // 設計範例含通知節點 tell-hr：fg5d 起存檔不再拒收（刪 NotifyNodeNotYet）
+        (await Validate(await DesignAsync())).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Graph_NotifyTemplate_BodyOptional_TitleRequired()
+    {
+        // U-d：內文選填、標題必填
+        var d = await DesignAsync();
+        (await Validate(Mod(d, "tell-hr", n => Notify(n, t => t with { Body = new I18nText([]) })))).Should().BeEmpty();
+        (await Validate(Mod(d, "tell-hr", n => Notify(n, t => t with { Body = Text("") })))).Should().BeEmpty();
+        E(await Validate(Mod(d, "tell-hr", n => Notify(n, t => t with { Title = new I18nText([]) }))), "nodes.tell-hr.template.title").Should().Be(ApprovalMessages.TemplateRequired);
     }
 
     [Fact]
@@ -168,7 +176,7 @@ public class ApprovalGraphDefinitionValidatorTests : ApprovalTestBase
         E(await Validate(Mod(d, "tell-hr", n => n with { Recipients = [.. Enumerable.Range(0, max + 1).Select(_ => new NotifyRecipientDef(ApprovalNotifyRecipientKinds.Initiator))] })),
             "nodes.tell-hr.recipients").Should().Be(ApprovalMessages.NotifyRecipientsCount(max));
         (await Validate(Mod(d, "tell-hr", n => n with { Recipients = [.. Enumerable.Range(0, max).Select(_ => new NotifyRecipientDef(ApprovalNotifyRecipientKinds.Initiator))] })))
-            .Keys.Should().Equal("nodes.tell-hr");
+            .Should().BeEmpty();
     }
 
     [Fact]
@@ -179,7 +187,7 @@ public class ApprovalGraphDefinitionValidatorTests : ApprovalTestBase
 
         // 單獨的大括號照字面，不是錯誤（U8）
         d = Mod(d, "tell-hr", n => Notify(n, t => t with { Body = Text("收到 :-}") }));
-        (await Validate(d)).Keys.Should().Equal("nodes.tell-hr");
+        (await Validate(d)).Should().BeEmpty();
     }
 
     [Fact]
@@ -202,7 +210,7 @@ public class ApprovalGraphDefinitionValidatorTests : ApprovalTestBase
         var title = ApprovalGraphLimits.MaxTemplateTitleLength;
         E(await Validate(Mod(d, "tell-hr", n => Notify(n, t => t with { Title = Text(new string('字', title + 1)) }))),
             "nodes.tell-hr.template.title").Should().Be(ApprovalMessages.TemplateTooLong(title));
-        (await Validate(Mod(d, "tell-hr", n => Notify(n, t => t with { Title = Text(new string('字', title)) })))).Keys.Should().Equal("nodes.tell-hr");
+        (await Validate(Mod(d, "tell-hr", n => Notify(n, t => t with { Title = Text(new string('字', title)) })))).Should().BeEmpty();
         E(await Validate(Mod(d, "tell-hr", n => Notify(n, t => t with { Body = Text(new string('字', ApprovalGraphLimits.MaxTemplateBodyLength + 1)) }))),
             "nodes.tell-hr.template.body").Should().Be(ApprovalMessages.TemplateTooLong(ApprovalGraphLimits.MaxTemplateBodyLength));
     }
@@ -213,9 +221,9 @@ public class ApprovalGraphDefinitionValidatorTests : ApprovalTestBase
         var d = await DesignAsync();
         var errors = await Validate(Mod(d, "tell-hr", n => n with { Template = null }));
         E(errors, "nodes.tell-hr.template.title").Should().Be(ApprovalMessages.TemplateRequired);
-        E(errors, "nodes.tell-hr.template.body").Should().Be(ApprovalMessages.TemplateRequired);
-        E(await Validate(Mod(d, "tell-hr", n => Notify(n, t => t with { Body = new I18nText([KeyValuePair.Create("en-US", "x")]) }))),
-            "nodes.tell-hr.template.body").Should().Be(ApprovalMessages.TemplateRequired);
+        errors.Should().NotContainKey("nodes.tell-hr.template.body"); // 內文選填（U-d）
+        E(await Validate(Mod(d, "tell-hr", n => Notify(n, t => t with { Title = new I18nText([KeyValuePair.Create("en-US", "x")]) }))),
+            "nodes.tell-hr.template.title").Should().Be(ApprovalMessages.TemplateRequired);
     }
 
     [Fact]
@@ -225,8 +233,8 @@ public class ApprovalGraphDefinitionValidatorTests : ApprovalTestBase
         E(await Validate(Mod(d, "tell-hr", n => n with { Recipients = [new(ApprovalNotifyRecipientKinds.InitiatorManager, Level: 6)] })),
             "nodes.tell-hr.recipients").Should().Be(ApprovalMessages.ManagerLevel(5));
         // 沒填層數照設計 §12.1 預設第 1 層（再驗政策上限）
-        (await Validate(Mod(d, "tell-hr", n => n with { Recipients = [new(ApprovalNotifyRecipientKinds.InitiatorManager)] }))).Keys.Should().Equal("nodes.tell-hr");
-        (await Validate(Mod(d, "tell-hr", n => n with { Recipients = [new(ApprovalNotifyRecipientKinds.InitiatorManager, Level: 5)] }))).Keys.Should().Equal("nodes.tell-hr");
+        (await Validate(Mod(d, "tell-hr", n => n with { Recipients = [new(ApprovalNotifyRecipientKinds.InitiatorManager)] }))).Should().BeEmpty();
+        (await Validate(Mod(d, "tell-hr", n => n with { Recipients = [new(ApprovalNotifyRecipientKinds.InitiatorManager, Level: 5)] }))).Should().BeEmpty();
     }
 
     [Fact]
@@ -234,7 +242,7 @@ public class ApprovalGraphDefinitionValidatorTests : ApprovalTestBase
     {
         var d = await DesignAsync();
         var old = Mod(d, "tell-hr", n => n with { Recipients = [new(ApprovalNotifyRecipientKinds.InitiatorManager, Level: 6)] });
-        (await Validate(old, old)).Keys.Should().Equal("nodes.tell-hr");
+        (await Validate(old, old)).Should().BeEmpty();
         var higher = Mod(d, "tell-hr", n => n with { Recipients = [new(ApprovalNotifyRecipientKinds.InitiatorManager, Level: 7)] });
         E(await Validate(higher, old), "nodes.tell-hr.recipients").Should().Contain("沿用原本的數字");
     }
@@ -245,7 +253,7 @@ public class ApprovalGraphDefinitionValidatorTests : ApprovalTestBase
         var d = await DesignAsync();
         // 分支、條件、匯合名稱可以省略（U6）
         var noOptional = Mod(Mod(Mod(d, "split", n => n with { Name = null }), "amount", n => n with { Name = null }), "merge", n => n with { Name = null });
-        (await Validate(noOptional)).Keys.Should().Equal("nodes.tell-hr");
+        (await Validate(noOptional)).Should().BeEmpty();
 
         var errors = await Validate(Mod(Mod(Mod(d, "mgr", n => n with { Name = null }), "tell-hr", n => n with { Name = null }),
             "split", n => n with { Name = new I18nText([KeyValuePair.Create("en-US", "x")]) }));
@@ -311,7 +319,7 @@ public class ApprovalGraphDefinitionValidatorTests : ApprovalTestBase
             Nodes = [.. d.Nodes!, Approval("ops", Group(BoardGroup), "營運")],
             Edges = [.. d.Edges!, new("e11", "split", "ops"), new("e12", "ops", "merge")]
         };
-        (await Validate(d)).Keys.Should().Equal("nodes.tell-hr");   // 三條分支，出廠上限 5
+        (await Validate(d)).Should().BeEmpty();   // 三條分支，出廠上限 5
 
         Db.Context.Add(new ModulePolicy { ModuleId = _r.ModuleId, Code = PolicyCatalog.ApprovalMaxBranches.Code, Value = "2", ModifiedUserId = "admin" });
         await Db.Context.SaveChangesAsync();

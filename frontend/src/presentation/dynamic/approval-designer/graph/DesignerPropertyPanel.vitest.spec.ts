@@ -173,10 +173,13 @@ describe('DesignerPropertyPanel', () => {
     w.unmount();
   });
 
-  it('a notify node only says it is not open yet', async () => {
+  it('a notify node shows its name, recipients and template (fg5d), and tolerates a node without them', async () => {
     const { w } = mountPanel({ kind: 'node', id: 'n' });
     await flushPromises();
-    expect(w.get('[data-testid="notify-panel"]').text()).toBe('通知節點尚未開放');
+    expect(w.find('[data-testid="notify-panel"]').exists()).toBe(true);
+    expect(w.text()).not.toContain('通知節點尚未開放');
+    expect(w.find('[data-testid="notify-no-recipients"]').exists()).toBe(true);
+    expect(w.find('[data-testid="notify-add"]').exists()).toBe(true);
     w.unmount();
   });
 

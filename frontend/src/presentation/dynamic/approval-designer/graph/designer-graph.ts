@@ -1,5 +1,5 @@
 import type { Edge, Node } from '@vue-flow/core';
-import type { ApprovalEdgeDef, ApprovalFlow, ApprovalFlowLayout, ApprovalNodeDef, ApprovalNodeKind, ApproverSource, GraphDefinition } from 'src/domain/dynamic/approval-flow-types';
+import type { ApprovalEdgeDef, ApprovalFlow, ApprovalFlowLayout, ApprovalNodeDef, ApprovalNodeKind, ApproverSource, GraphDefinition, NotifyRecipientDef } from 'src/domain/dynamic/approval-flow-types';
 import { relayout, type GraphState, type Position } from 'src/domain/dynamic/approval-graph-edit';
 import type { GraphIssue, GraphIssueMap } from 'src/domain/dynamic/approval-graph-errors';
 import { COL_GAP, MANUAL_LABEL_MAX_PX, NODE_H, NODE_W, edgeBendX, manualGapAfter } from 'src/domain/dynamic/approval-graph-layout';
@@ -74,6 +74,11 @@ export const kindIcon = (k: ApprovalNodeKind) => KIND_ICON[k] ?? 'help_outline';
  */
 const nameLocales = () => installedLocales().filter((l) => hasUiMessages(i18n, l));
 export const approvalNames = (n: number) => Object.fromEntries(nameLocales().map((l) => [l, tFor(l)('approval.designer.graph.newApproval', { n })]));
+/** 新通知節點的預設（U-b）：名稱「通知 n」、標題 `{title}`（每個語系同一段）。 */
+export const notifyDefaults = (n: number) => ({
+  name: Object.fromEntries(nameLocales().map((l) => [l, tFor(l)('approval.designer.graph.newNotify', { n })])),
+  title: Object.fromEntries(nameLocales().map((l) => [l, '{title}'])),
+});
 export const conditionLabels = (n: number) => Object.fromEntries(nameLocales().map((l) => [l, tFor(l)('approval.designer.graph.newCondition', { n })]));
 
 /** 載入：座標取版面，沒有座標的節點用由左到右的自動排版補（J71）。 */
@@ -132,12 +137,27 @@ function trialAria(tr: NodeTrial | null, locale: string, t: Translate): string {
   ].filter(Boolean).join(' · ');
 }
 
+/** 收件人摘要：每項一段（「申請人」「群組 · 2」…），超過兩項寫「…等 n 項」。 */
+export function recipientText(r: NotifyRecipientDef, t: Translate): string {
+  const kind = t(`approval.designer.graph.notify.kind.${r.kind}`);
+  if (r.kind === 'users') return r.userIds?.length ? `${kind} · ${t('approval.designer.graph.people', { n: r.userIds.length })}` : kind;
+  if (r.kind === 'group') return r.groupIds?.length ? `${kind} · ${r.groupIds.length}` : kind;
+  if (r.kind === 'initiatorManager') return `${kind} · ${t('approval.designer.source.levelOption', { n: r.level ?? 1 })}`;
+  return kind;
+}
+
+function notifySummary(n: ApprovalNodeDef, t: Translate): string {
+  const list = n.recipients ?? [];
+  const shown = list.slice(0, 2).map((r) => recipientText(r, t)).join(t('common.listSeparator'));
+  return list.length > 2 ? t('approval.designer.graph.notify.summaryMore', { list: shown, n: list.length }) : shown;
+}
+
 function summaryOf(n: ApprovalNodeDef, def: GraphDefinition, t: Translate): string {
   switch (n.kind) {
     case 'approval': return [approverText(n.approvers, t), n.mode ? t(n.mode === 'all' ? 'approval.designer.graph.modeAllShort' : 'approval.designer.graph.modeAnyShort') : ''].filter(Boolean).join(' · ');
     case 'join': return n.mode ? t(`approval.graph.joinMode.${n.mode}`) : '';
     case 'condition': return t('approval.designer.graph.outCount', { n: def.edges.filter((e) => e.from === n.id).length });
-    case 'notify': return t('approval.designer.graph.notifyNotYet');
+    case 'notify': return notifySummary(n, t);
     default: return '';
   }
 }
@@ -240,12 +260,12 @@ export function issueRows(issues: GraphIssueMap | null, def: GraphDefinition, ct
 
 // ---- 結構編輯（fg3e）：節點面板、線上「＋」、拖放落點 ----
 
-/** 節點面板只列這四種（U63）；線上「＋」不提供結束（插在線中間會切斷後半段）。 */
-export type AddKind = 'approval' | 'condition' | 'fork' | 'end';
-export const PALETTE_KINDS: AddKind[] = ['approval', 'condition', 'fork', 'end'];
-export const INSERT_KINDS: AddKind[] = ['approval', 'condition', 'fork'];
+/** 節點面板列這五種（U63、fg5d 加通知，排在條件之後、分支之前）；線上「＋」不提供結束（插在線中間會切斷後半段）。 */
+export type AddKind = 'approval' | 'condition' | 'notify' | 'fork' | 'end';
+export const PALETTE_KINDS: AddKind[] = ['approval', 'condition', 'notify', 'fork', 'end'];
+export const INSERT_KINDS: AddKind[] = ['approval', 'condition', 'notify', 'fork'];
 /** 放一個這種節點會多出幾個簽核節點（條件帶一個、分支帶兩個，U49、U63）。 */
-const ADDED_APPROVALS: Record<AddKind, number> = { approval: 1, condition: 1, fork: 2, end: 0 };
+const ADDED_APPROVALS: Record<AddKind, number> = { approval: 1, condition: 1, notify: 0, fork: 2, end: 0 };
 
 export interface AddLimits { ready: boolean; maxStages?: number; maxBranches?: number }
 
@@ -261,7 +281,7 @@ export function addable(def: GraphDefinition, limits: AddLimits, publishedApprov
     if (k === 'fork' && limits.maxBranches !== undefined && limits.maxBranches < 2) return false;
     return limits.maxStages === undefined || approvals + ADDED_APPROVALS[k] <= Math.max(limits.maxStages, publishedApprovals);
   };
-  return { approval: ok('approval'), condition: ok('condition'), fork: ok('fork'), end: ok('end') };
+  return { approval: ok('approval'), condition: ok('condition'), notify: ok('notify'), fork: ok('fork'), end: ok('end') };
 }
 
 const GRID = 8;

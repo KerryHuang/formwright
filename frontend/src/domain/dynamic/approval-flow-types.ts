@@ -49,8 +49,24 @@ export interface ApprovalNodeDef {
   dueHours?: number | null;
   onEmpty?: 'fallback' | 'skip' | null;
   forkId?: string | null;
-  recipients?: unknown[] | null;
-  template?: unknown | null;
+  recipients?: NotifyRecipientDef[] | null;
+  template?: NotifyTemplateDef | null;
+}
+
+export type NotifyRecipientKind = 'users' | 'group' | 'initiator' | 'initiatorManager';
+
+/** A notify node's recipient (backend `NotifyRecipientDef`); only the parameter of its `kind` is set (`initiator` has none). */
+export interface NotifyRecipientDef {
+  kind: NotifyRecipientKind;
+  userIds?: string[] | null;
+  groupIds?: number[] | null;
+  level?: number | null;
+}
+
+/** Subject is required, body optional (U-d); placeholders `{title}` `{flow}` `{initiator}` `{node}` `{f:<fieldId>}`. */
+export interface NotifyTemplateDef {
+  title: I18nText;
+  body?: I18nText | null;
 }
 
 /** `when`, `order` and `default` only apply to out edges of a condition node. */

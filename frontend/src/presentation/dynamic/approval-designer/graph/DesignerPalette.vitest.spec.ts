@@ -18,9 +18,9 @@ const pointer = (type: string, x: number, y: number) => {
 };
 
 describe('DesignerPalette', () => {
-  it('lists approval, condition, fork and end only (U63), with names', () => {
+  it('lists approval, condition, notify, fork and end (U63, fg5d), with names', () => {
     const w = mountPalette();
-    expect(w.findAll('button').map((b) => b.attributes('aria-label'))).toEqual(['簽核', '條件', '分支', '結束']);
+    expect(w.findAll('button').map((b) => b.attributes('aria-label'))).toEqual(['簽核', '條件', '通知', '分支', '結束']);
     expect(w.text()).toContain('拖到畫布或線上');
   });
 
