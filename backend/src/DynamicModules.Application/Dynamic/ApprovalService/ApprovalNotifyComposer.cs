@@ -25,12 +25,12 @@ public sealed class ApprovalNotifyComposer(
     ApprovalNotifyAudience audience, IApprovalInstanceRepository repo, IRecordRepository records, IPermissionRepository permissions,
     ReferenceResolver references, CachedSystemPolicy policy, IMessageCatalog messages)
 {
-    public async Task<IReadOnlyList<NotifyMessage>> ComposeAsync(ApprovalInstance inst, Module module, IReadOnlyDictionary<string, JsonElement?> values,
+    /// <summary>記錄不見（資料不一致）回 null，呼叫端走引擎的 RuntimeInvalid（409＋異常通知）。</summary>
+    public async Task<IReadOnlyList<NotifyMessage>?> ComposeAsync(ApprovalInstance inst, Module module, IReadOnlyDictionary<string, JsonElement?> values,
         ApprovalNodeDef node, IReadOnlyList<string> userIds, CancellationToken ct)
     {
         if (userIds.Count == 0) return [];
-        var record = await records.GetAsync(inst.RecordId, ct)
-            ?? throw new InvalidOperationException($"簽核實例 {inst.Id} 的記錄 {inst.RecordId} 不存在");
+        if (await records.GetAsync(inst.RecordId, ct) is not { } record) return null;
         var tasks = await repo.ListTasksAsync(inst.Id, ct);
         var names = (await permissions.ListUsersAsync(ct)).ToDictionary(u => u.UserId, u => u.DisplayName, StringComparer.Ordinal);
         var template = node.Template ?? new NotifyTemplateDef(new I18nText(), new I18nText());

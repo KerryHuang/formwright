@@ -73,11 +73,12 @@ public sealed record ApprovalNotifyData(
             foreach (var p in values.EnumerateObject())
             {
                 if (Value(p.Value) is not { } value) return null;
+                if (!read.GetBoolean() && p.Name.StartsWith("f:", StringComparison.Ordinal)) continue;   // 沒有讀取權不該有任何欄位值，剔除（深度防禦）
                 map[p.Name] = value;
             }
             return new ApprovalNotifyData(version, node.GetString()!, read.GetBoolean(), new NotifyTemplateData(titleText, body), map);
         }
-        catch (JsonException)
+        catch (Exception e) when (e is JsonException or ArgumentException)
         {
             return null;
         }
@@ -86,11 +87,11 @@ public sealed record ApprovalNotifyData(
     private static I18nText? Texts(JsonElement e)
     {
         if (e.ValueKind != JsonValueKind.Object) return null;
-        var pairs = new List<KeyValuePair<string, string>>();
+        var pairs = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var p in e.EnumerateObject())
         {
             if (p.Value.ValueKind != JsonValueKind.String) return null;
-            pairs.Add(KeyValuePair.Create(p.Name, p.Value.GetString()!));
+            pairs[p.Name] = p.Value.GetString()!;   // 重複的語系鍵後者蓋前者，不丟例外（JsonDocument 允許重複屬性）
         }
         return new I18nText(pairs);
     }
@@ -100,7 +101,9 @@ public sealed record ApprovalNotifyData(
         if (e.ValueKind != JsonValueKind.Object) return null;
         if (e.TryGetProperty("t", out var t)) return t.ValueKind == JsonValueKind.String ? NotifyValue.Text(t.GetString()!) : null;
         if (e.TryGetProperty("i18n", out var i)) return Texts(i) is { } text ? NotifyValue.Of(text) : null;
-        if (e.TryGetProperty("s", out var s)) return s.ValueKind == JsonValueKind.String ? new NotifyValue(S: s.GetString()) : null;
+        // s 只認 denied／empty；其他字串當 denied（fail closed），不原樣輸出
+        if (e.TryGetProperty("s", out var s)) return s.ValueKind == JsonValueKind.String
+            ? (s.GetString() == NotifyValue.EmptyCode ? NotifyValue.Empty : NotifyValue.Denied) : null;
         return null;
     }
 

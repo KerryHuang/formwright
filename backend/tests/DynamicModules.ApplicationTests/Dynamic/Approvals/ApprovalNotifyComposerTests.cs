@@ -88,7 +88,7 @@ public class ApprovalNotifyComposerTests : ApprovalTestBase
         using var scope = NewScope();
         var sp = scope.ServiceProvider;
         var module = (await sp.GetRequiredService<IModuleRepository>().GetByIdAsync(_r.ModuleId, includeChildren: true, CancellationToken.None))!;
-        return await sp.GetRequiredService<ApprovalNotifyComposer>().ComposeAsync(Inst(instanceId), module, Rec(recordId).Values, node, users, CancellationToken.None);
+        return (await sp.GetRequiredService<ApprovalNotifyComposer>().ComposeAsync(Inst(instanceId), module, Rec(recordId).Values, node, users, CancellationToken.None))!;
     }
 
     private static ApprovalNotifyData Data(NotifyMessage m) => ApprovalNotifyData.Parse(m.DataJson)!;
@@ -234,6 +234,52 @@ public class ApprovalNotifyComposerTests : ApprovalTestBase
         var sp = scope.ServiceProvider;
         var module = (await sp.GetRequiredService<IModuleRepository>().GetByIdAsync(_r.ModuleId, includeChildren: true, CancellationToken.None))!;
         var m = await sp.GetRequiredService<ApprovalNotifyComposer>().ComposeAsync(Inst(id), module, values, Node(), ["buyer2"], CancellationToken.None);
-        F(Data(m[0]), _amount).S.Should().Be(NotifyValue.EmptyCode);
+        F(Data(m![0]), _amount).S.Should().Be(NotifyValue.EmptyCode);
+    }
+
+    [Fact]
+    public async Task SameModulePermission_OnlyVendorReadDiffers_DataJsonNotShared()
+    {
+        // Y2：快取鍵要含參照的解析結果；本模組權限相同、只差被參照模組讀取權的兩人不能共用同一份
+        var (po, id) = await Rig();
+        var peers = await NewGroup("peers", "emp2");
+        As("admin");
+        (await Send(new SaveModulePermissionsRequest(_r.Module, new ModulePermissionsDto(
+        [
+            new GroupPermissionDto(_buyers, new PrivilegesDto(true, true, true, true, true, true, false), DataScope.All),
+            new GroupPermissionDto(peers, new PrivilegesDto(true, true, true, true, true, true, false), DataScope.All)
+        ], [], [], [])))).IsSuccess.Should().BeTrue();
+
+        var m = await Compose(po, id, "buyer2", "emp2");
+
+        F(Data(m[0]), _r.Supplier).T.Should().Be(VendorTitle);
+        F(Data(m[1]), _r.Supplier).S.Should().Be(NotifyValue.DeniedCode);
+        m[1].DataJson.Should().NotBe(m[0].DataJson).And.NotContain(VendorTitle);
+    }
+
+    [Fact]
+    public async Task Reference_VendorTitleFieldNotVisibleToRecipient_Denied()
+    {
+        var (po, id) = await Rig();
+        var titleId = Db.Context.Set<Module>().AsNoTracking().Single(m => m.Key == _r.Vendor).TitleFieldId!.Value;
+        var title = await Db.Context.Set<Field>().SingleAsync(f => f.Id == titleId);
+        title.VisibilityRestricted = true;   // 沒有可見列：buyers 看不到被參照模組的標題欄位（TitleVisibleTo 為 false）
+        await Db.Context.SaveForTestsAsync();
+        Db.Context.ChangeTracker.Clear();
+
+        F(Data((await Compose(po, id, "buyer2"))[0]), _r.Supplier).S.Should().Be(NotifyValue.DeniedCode);
+    }
+
+    [Fact]
+    public async Task RecordMissing_ReturnsNull_NoThrow()
+    {
+        var (_, id) = await Rig();
+        using var scope = NewScope();
+        var sp = scope.ServiceProvider;
+        var module = (await sp.GetRequiredService<IModuleRepository>().GetByIdAsync(_r.ModuleId, includeChildren: true, CancellationToken.None))!;
+        var inst = Inst(id);
+        inst.RecordId = 999999;
+        (await sp.GetRequiredService<ApprovalNotifyComposer>().ComposeAsync(inst, module, new Dictionary<string, JsonElement?>(), Node(), ["buyer2"], CancellationToken.None))
+            .Should().BeNull();
     }
 }

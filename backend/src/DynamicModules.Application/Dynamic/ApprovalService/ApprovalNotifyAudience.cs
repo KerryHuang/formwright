@@ -24,7 +24,11 @@ public sealed class ApprovalNotifyAudience(
     public async Task<NotifyAccess> ForAsync(Module module, Record record, ApprovalInstance inst, IReadOnlyList<ApprovalTask> tasks, string userId,
         CancellationToken ct)
     {
-        var participant = inst.InitiatorUserId == userId || tasks.Any(t => t.InstanceId == inst.Id && (t.AssigneeUserId == userId || t.OriginalUserId == userId));
+        // 在該實例「有任務」的人看得到標題；從沒動作就被關閉的任務不算（同 ApprovalReader.OwnStages：被任一到齊取消的分支負責人看不到這筆）
+        var participant = inst.InitiatorUserId == userId || tasks.Any(t => t.InstanceId == inst.Id && (t.AssigneeUserId == userId || t.OriginalUserId == userId)
+            && (t.Status == ApprovalTaskStatus.Open || t.ActedTime is not null));
+        // 模組不是可讀狀態（Draft／Inactive）：連發起人也不給標題（#92，同 GetRecordApprovalHandler）
+        if (!module.IsReadable()) return Denied(module, false);
         var loaded = await LoadAsync(module, userId, ct);
         if (loaded is not var (inputs, mask)) return Denied(module, participant);
 
@@ -64,6 +68,8 @@ public sealed class ApprovalNotifyAudience(
         if (await programs.GetAsync(module.ProgramCode, ct) is not { Active: true }) return null;
         var inputs = await permissions.LoadInputsAsync(userId, module, ct);
         if (inputs is null) return null;
+        // 通知是給人看的：權限輸入被 ChannelPermissionRepository 依「觸發者」的通道標 AiMasked，不能影響收件人（審查 Y1）
+        inputs = inputs with { AiMasked = false };
         var (ok, mask) = await sources.LoadAsync(module, inputs, userId, ct);
         return ok ? (inputs, mask) : null;
     }
@@ -71,6 +77,7 @@ public sealed class ApprovalNotifyAudience(
     /// <summary>簽核管理員（ApprovalReader.IsManagerAsync）：模組可讀、Approve 動作軸、記錄在 Approve 的資料範圍內。</summary>
     private static bool IsManager(Module module, PermissionInputs inputs, RollupSourceMask? mask, Record record)
     {
+        if (module.Status == ModuleStatus.Closed) return false;   // 已關閉的模組 guard 對 Approve 軸一律拒（ClosedBlocks）
         var approve = PermissionResolver.Resolve(module, inputs, null, mask, PermissionAction.Approve);
         return approve.Can(PermissionAction.Approve) && RecordReadGate.InScope(approve, record.OwnerUserId);
     }

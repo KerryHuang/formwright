@@ -98,4 +98,33 @@ public class ApprovalNotifyDataTests
         back.Should().NotBeNull();
         back!.ToJson().Should().NotContain("extra").And.NotContain("evil");
     }
+
+    [Fact]
+    public void Parse_DuplicateLocaleKeys_NoThrow_LastWins()
+    {
+        var back = ApprovalNotifyData.Parse(
+            "{\"v\":1,\"node\":\"n\",\"read\":true,\"template\":{\"title\":{\"zh-TW\":\"a\",\"zh-TW\":\"b\"}},\"values\":{\"flow\":{\"i18n\":{\"en-US\":\"x\",\"en-US\":\"y\"}}}}");
+        back.Should().NotBeNull();
+        back!.Template.Title.Resolve("zh-TW").Should().Be("b");
+        back.Values["flow"].I18n!.Resolve("en-US").Should().Be("y");
+    }
+
+    [Fact]
+    public void Parse_UnknownStatusCode_BecomesDenied()
+    {
+        var back = ApprovalNotifyData.Parse(
+            "{\"v\":1,\"node\":\"n\",\"read\":true,\"template\":{\"title\":{\"zh-TW\":\"a\"}},\"values\":{\"f:1\":{\"s\":\"<img>\"},\"f:2\":{\"s\":\"empty\"},\"f:3\":{\"s\":\"denied\"}}}");
+        back!.Values["f:1"].S.Should().Be(NotifyValue.DeniedCode);
+        back.Values["f:2"].S.Should().Be(NotifyValue.EmptyCode);
+        back.Values["f:3"].S.Should().Be(NotifyValue.DeniedCode);
+        back.ToJson().Should().NotContain("<img>");
+    }
+
+    [Fact]
+    public void Parse_ReadFalse_DropsFieldValues()
+    {
+        var back = ApprovalNotifyData.Parse(
+            "{\"v\":1,\"node\":\"n\",\"read\":false,\"template\":{\"title\":{\"zh-TW\":\"a\"}},\"values\":{\"title\":{\"t\":\"x\"},\"f:1\":{\"t\":\"99\"}}}");
+        back!.Values.Keys.Should().Equal("title");
+    }
 }

@@ -1,4 +1,5 @@
 using DynamicModules.Application.Common.Security;
+using DynamicModules.ApplicationTests.Dynamic.Mcp;
 using DynamicModules.Application.Dynamic.ApprovalService;
 using DynamicModules.Application.Dynamic.PermissionService.Commands.SaveModulePermissions;
 using DynamicModules.Application.Dynamic.PermissionService.Data;
@@ -9,6 +10,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using DynamicModules.TestSupport;
+using Record = DynamicModules.Domain.Entities.Dynamic.Record;
 
 namespace DynamicModules.ApplicationTests.Dynamic.Approvals;
 
@@ -20,6 +22,15 @@ namespace DynamicModules.ApplicationTests.Dynamic.Approvals;
 public class ApprovalNotifyAudienceTests : ApprovalTestBase
 {
     protected override bool ScopePerRequest => true;
+
+    private readonly TestRequestChannel _channel = new();
+
+    protected override void ConfigureServices(IServiceCollection services)
+    {
+        base.ConfigureServices(services);
+        services.AddSingleton<IRequestChannel>(_channel);
+        services.AddChannelPermissionMasking();
+    }
 
     private PurchaseRig _r = null!;
     private long _amount, _amountX2;
@@ -261,7 +272,13 @@ public class ApprovalNotifyAudienceTests : ApprovalTestBase
         var initiator = await Access(po, "buyer1", id);
         initiator.CanReadRecord.Should().BeFalse();
         initiator.ShowTitle.Should().BeTrue();
-        var closedTask = await Access(po, "fin2", id);   // 在這個實例有（已關閉的）任務
+        // 從沒動作就被關閉的任務（例如被任一到齊取消的分支）不算參與者，同 ApprovalReader.OwnStages
+        var neverActed = await Access(po, "fin2", id);
+        neverActed.CanReadRecord.Should().BeFalse();
+        neverActed.ShowTitle.Should().BeFalse();
+        await Db.Context.Set<ApprovalTask>().Where(t => t.InstanceId == id && t.AssigneeUserId == "fin2")
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.ActedTime, SeedTime));
+        var closedTask = await Access(po, "fin2", id);   // 動作過的關閉任務：參與者
         closedTask.CanReadRecord.Should().BeFalse();
         closedTask.ShowTitle.Should().BeTrue();
         (await Access(po, "emp1", id)).ShowTitle.Should().BeFalse();
@@ -321,5 +338,79 @@ public class ApprovalNotifyAudienceTests : ApprovalTestBase
         (await audience.ReadPermissionsAsync(vendor, "emp1", CancellationToken.None)).Should().BeNull();
         using (sp.GetRequiredService<ISystemIdentity>().Enter(null))
             (await audience.ReadPermissionsAsync(vendor, "emp1", CancellationToken.None)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ClosedModule_ApproveAxisManager_NoTitle()
+    {
+        // Y3：已關閉的模組 guard 對 Approve 軸一律拒；Audience 同（記錄擁有者是 gm，範圍內，但 Closed 不算管理員）
+        await Rig();
+        var po = await NewRecord("buyer1");
+        await Db.Context.Set<Record>().Where(x => x.Id == po).ExecuteUpdateAsync(s => s.SetProperty(x => x.OwnerUserId, "gm"));
+        Db.Context.ChangeTracker.Clear();
+        (await Access(po, "gm")).ShowTitle.Should().BeTrue();
+        await Db.Context.Set<Module>().Where(m => m.Id == _r.ModuleId).ExecuteUpdateAsync(s => s.SetProperty(m => m.Status, ModuleStatus.Closed));
+        Db.Context.ChangeTracker.Clear();
+        (await Access(po, "gm")).ShowTitle.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task InactiveModule_NothingReadable_NoTitleEvenForInitiator()
+    {
+        await Rig();
+        var (po, id) = await Pending();
+        await Db.Context.Set<Module>().Where(m => m.Id == _r.ModuleId).ExecuteUpdateAsync(s => s.SetProperty(m => m.Status, ModuleStatus.Inactive));
+        Db.Context.ChangeTracker.Clear();
+        foreach (var user in new[] { "buyer1", "fin1", "admin" })
+        {
+            var a = await Access(po, user, id);
+            a.CanReadRecord.Should().BeFalse(user);
+            a.ShowTitle.Should().BeFalse(user);
+        }
+    }
+
+    [Fact]
+    public async Task TemporaryRead_FieldExceptionStillApplies()
+    {
+        // Y4：臨時讀取權下，收件人自己的群組欄位例外照舊（備註對 finance 隱藏），金額（Pricing）看得到
+        await Rig();
+        await Permissions(new FieldPermissionDto(_r.Memo, FinanceGroup, FieldAccess.Hidden));
+        var (po, id) = await Pending();
+        var a = await Access(po, "fin1", id);
+        a.CanReadRecord.Should().BeTrue();
+        a.HiddenFieldIds.Should().Contain(_r.Memo);
+        a.HiddenFieldIds.Should().NotContain(_amount);
+    }
+
+    [Fact]
+    public async Task ReadScopeOwn_OthersRecord_OpenActor_ReadsViaTemporaryGrant()
+    {
+        await Rig();
+        var (po, id) = await Pending();   // buyer1 的單；emp2 的資料範圍是「本人」
+        (await Access(po, "emp2", id)).CanReadRecord.Should().BeFalse();
+        await Db.Context.Set<ApprovalTask>().Where(t => t.InstanceId == id && t.AssigneeUserId == "fin1")
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.AssigneeUserId, "emp2"));
+        var a = await Access(po, "emp2", id);
+        a.CanReadRecord.Should().BeTrue();
+        a.ReadPermissions!.OwnerUserIds.Should().BeNull();   // 臨時讀取權：範圍全部
+    }
+
+    [Fact]
+    public async Task McpChannelTrigger_DoesNotMaskRecipientInputs()
+    {
+        // Y1：權限輸入被觸發者的通道標 AiMasked 時，Audience 不能沿用（「不提供給 AI」的欄位不得因此對人類收件人隱藏）
+        await Rig();
+        (await Db.Context.Set<Field>().SingleAsync(f => f.Id == _r.Memo)).ExcludeFromAi = true;
+        await Db.Context.SaveForTestsAsync();
+        Db.Context.ChangeTracker.Clear();
+        var po = await NewRecord("buyer1");
+        _channel.Channel = RequestChannel.Mcp;
+        try
+        {
+            var a = await Access(po, "buyer2");
+            a.CanReadRecord.Should().BeTrue();
+            a.HiddenFieldIds.Should().NotContain(_r.Memo);
+        }
+        finally { _channel.Channel = RequestChannel.Ui; }
     }
 }
