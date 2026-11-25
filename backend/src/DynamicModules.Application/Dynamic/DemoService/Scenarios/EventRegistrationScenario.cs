@@ -8,7 +8,7 @@ namespace DynamicModules.Application.Dynamic.DemoService.Scenarios;
 /// <summary>
 /// 「活動報名」範本的虛構資料，日期都是相對今天的天數：已結束的「新產品說明會」（名額 30，報名 5 筆：3 出席、1 未出席、1 取消，兩筆對到既有聯絡人）、
 /// 報名中的「客戶教育訓練」（名額 3、已報名 3 筆＝滿額，Demo 上再加一筆會被擋）、籌備中的「年度客戶聚會」（名額空白、報名 1 筆）。
-/// 全部由業務 sales01 建立；報名者的公司、電話、Email 全是虛構（Email 一律 example.com）。
+/// 全部由業務 sales01 建立；對到聯絡人的報名，姓名與公司取那位聯絡人與其公司（後端不會補帶值，Demo 直接寫好）；其餘報名者的公司、Email 全是虛構（Email 一律 example.com）。
 /// </summary>
 public sealed class EventRegistrationScenario : IDemoScenario
 {
@@ -17,7 +17,7 @@ public sealed class EventRegistrationScenario : IDemoScenario
 
     private const string Owner = "sales01";
 
-    /// <param name="Contact">對到第幾位既有聯絡人（-1 是沒對到，只有姓名）。</param>
+    /// <param name="Contact">對到第幾位既有聯絡人（-1 是沒對到，只有姓名）；對到時 Name、Company 以聯絡人為準。</param>
     private sealed record Reg(string Name, string Status, string? Company, int Contact = -1);
 
     private sealed record EventSpec(string Name, string Type, string Status, int CreatedDaysAgo, int StartInDays, int? EndInDays, string Location, int? Capacity,
@@ -58,10 +58,13 @@ public sealed class EventRegistrationScenario : IDemoScenario
                 {
                     [e.Ids.ModuleKeys["registration"]] = s.Regs.Select((r, i) =>
                     {
-                        var row = e.Values("registration", ("name", r.Name), ("status", e.Opt("registration", r.Status)),
+                        var contact = r.Contact >= 0 && r.Contact < contacts.Count ? contacts[r.Contact] : null;
+                        var name = contact?.Facts.GetValueOrDefault("name") as string ?? r.Name;
+                        var company = contact is null ? r.Company : (contact.Facts.GetValueOrDefault("partner") as DemoRecord)?.Facts.GetValueOrDefault("name") as string ?? r.Company;
+                        var row = e.Values("registration", ("name", name), ("status", e.Opt("registration", r.Status)),
                             ("email", $"attendee{i + 1}@example.com"));
-                        if (r.Company is { } company) row[e.Key("registration.company")] = JsonSerializer.SerializeToElement(company);
-                        if (r.Contact >= 0 && r.Contact < contacts.Count) row[e.Key("registration.contact")] = JsonSerializer.SerializeToElement(contacts[r.Contact].Id);
+                        if (company is not null) row[e.Key("registration.company")] = JsonSerializer.SerializeToElement(company);
+                        if (contact is not null) row[e.Key("registration.contact")] = JsonSerializer.SerializeToElement(contact.Id);
                         return new DetailRowInput(null, row, null);
                     }).ToList()
                 });
