@@ -182,8 +182,9 @@ public sealed class AppUpgrader(
         foreach (var r in n.Manifest.Requires.Masters)
             if (await apps.GetByKeyAsync(r.Id, ct) is { } master)
             {
-                // 預檢已擋；交易內再守一次，不建立指向非主檔（例如範本）的使用關係（codex 審查必修 2）
-                if (master.Kind != AppKind.Master) return Stop(ServiceResult.Conflict(AppMessages.UpgradeBlocked, AppMessages.UpgradeBlockedCode));
+                // 預檢已擋；交易內再守一次，不建立指向非主檔（例如範本）的使用關係（codex 審查必修 2）。
+                // 回只帶訊息的 upgradeStale：畫面重新預覽，由預覽列出擋下原因（upgradeBlocked 會被當成附完整預覽，codex 第二輪）
+                if (master.Kind != AppKind.Master) return Stop(ServiceResult.Conflict(AppMessages.UpgradeStale, AppMessages.UpgradeStaleCode));
                 masters.Add(master);
             }
         var masterSeeds = await symbols.SeedsAsync(masters, ct);
