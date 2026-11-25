@@ -314,8 +314,10 @@ public class BuiltInAppsRuntimeTests : IDisposable
         var reports = await JsonOf(await _rig.Admin.GetAsync($"{Base}/reports"));
         var report = reports.EnumerateArray().Single(r => r.GetProperty("name").GetString() == "檢驗結果統計");
         var run = await JsonOf(await _rig.Admin.PostAsJsonAsync($"{Base}/reports/{report.GetProperty("id").GetInt64()}/run", new { }));
-        var groups = run.GetProperty("groups").GetRawText();
-        groups.Should().Contain("進料").And.Contain("不合格").And.Contain("合格");
+        var counts = run.GetProperty("groups").EnumerateArray().ToDictionary(
+            g => string.Join("/", g.GetProperty("groupLabels").EnumerateArray().Select(l => l.GetString())),
+            g => g.GetProperty("values").GetProperty("n").GetDecimal());
+        counts.Should().BeEquivalentTo(new Dictionary<string, decimal> { ["進料/合格"] = 1m, ["進料/不合格"] = 1m }, "每個（類型、結果）組合各一筆，不多不少");
         run.GetProperty("total").GetProperty("n").GetDecimal().Should().Be(2m);
     }
 }
