@@ -237,6 +237,10 @@ public static class ApprovalMessages
     public static readonly MessageRef InstanceReturned = MessageRef.Of(MessageText.ApprovalInstanceReturned);
     /// <summary>任一到齊通過、取消其他分支的歷程 comment：固定繁中、只給資料庫與稽核；畫面依 DataJson 組字（U8）。</summary>
     public static string BranchCancelledNote(string name) => $"分支「{name}」已完成，其他分支自動取消";
+    // 通知節點的歷程 comment（流程圖設計 §12.4）：同 BranchCancelledNote，固定繁中、只給資料庫與稽核；畫面依 DataJson 的 count／total／truncated／none 組字
+    public static string NotifyNote(int count) => $"已通知 {count} 人";
+    public const string NotifyNoneNote = "沒有收件人，未發送";
+    public static string NotifyTruncatedNote(int sent, int total) => $"收件人 {total} 人超過上限，只通知前 {sent} 人";
     public static readonly MessageRef RecordGone = MessageRef.Of(MessageText.ApprovalRecordGone);
     public static readonly MessageRef NoWorkflow = MessageRef.Of(MessageText.ApprovalNoWorkflow);
     public static readonly MessageRef FlowVersionMissing = MessageRef.Of(MessageText.ApprovalFlowVersionMissing);

@@ -38,6 +38,8 @@ public static class NotificationKinds
     public const string ApprovalRerouted = "approvalRerouted";
     public const string ApprovalOverdue = "approvalOverdue";
     public const string ApprovalAdminAlert = "approvalAdminAlert";
+    /// <summary>流程圖的通知節點（流程圖設計 §12.5）：DataJson 帶範本與逐人遮蔽後的佔位符值，前端依讀者語系組字。</summary>
+    public const string ApprovalNotify = "approvalNotify";
     /// <summary>維運事件（維運設計 §17.2.5）：DataJson 帶 titleKey、params、incidentId。</summary>
     public const string OpsIncident = "opsIncident";
     /// <summary>任務規則被自動暫停（o2d 寫入）。</summary>

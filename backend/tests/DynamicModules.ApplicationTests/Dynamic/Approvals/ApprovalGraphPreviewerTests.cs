@@ -305,20 +305,19 @@ public class ApprovalGraphPreviewerTests : ApprovalTestBase
     }
 
     [Fact]
-    public async Task Preview_Graph_NotifyNode_409_NoAlert()
+    public async Task Preview_Graph_NotifyNode_PassesThrough_NoAlert()
     {
-        // 通知節點在 fg5 之前引擎不支援：結構合法也一樣回預覽專用訊息
+        // fg5b 起引擎支援通知節點：預覽把它當瞬間節點走過，關卡只列簽核節點，不列收件人與範本（§15、U-i）
         var r = await WithGraph(_ => G(
             [Start(), Approval("a", Users("emp1")), Notify("tell"), End()],
             [E("e1", "start", "a"), E("e2", "a", "tell"), E("e3", "tell", "end")]));
-        As("buyer1");
-        var po = await NewPo(r);
 
-        var res = await Send(new PreviewRecordApprovalRequest(po.Id, r.Confirmed));
+        var p = await Preview(r);
 
-        res.IsConflict.Should().BeTrue(Dump(res));
-        res.Message.Should().Be(ApprovalMessages.GraphPreviewInvalid("po-g").Resolve(null));
+        p.Stages.Select(s => s.Code).Should().Equal("a");
+        p.Path!.NodeIds.Should().Equal("start", "a", "tell", "end");
         AdminAlerts().Should().Be(0);
+        Db.Context.Set<Notification>().AsNoTracking().Count(n => n.Kind == NotificationKinds.ApprovalNotify).Should().Be(0);   // 預覽不寫通知
     }
 
     [Fact]
