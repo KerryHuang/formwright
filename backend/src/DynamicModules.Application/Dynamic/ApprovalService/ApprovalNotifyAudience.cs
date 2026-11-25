@@ -39,6 +39,15 @@ public sealed class ApprovalNotifyAudience(
         _openActors[record.Id] = await repo.ListOpenActorsAsync(record.Id, ct);
     }
 
+    /// <summary>清掉 Prepare 的預載。Audience 是 scoped：組完一則通知就清，避免同一個 scope 之後沒先 Prepare 的呼叫拿到舊的可動作者與權限輸入。</summary>
+    public void Reset()
+    {
+        _programActive.Clear();
+        _inputs.Clear();
+        _openActors.Clear();
+        _rollupBatch = null;
+    }
+
     /// <param name="tasks">這個實例目前的全部任務（判斷「在該實例有任務的人」看得到標題）；呼叫端在同一次推進先 SaveChanges 再查（計畫 T4）。</param>
     public async Task<NotifyAccess> ForAsync(Module module, Record record, ApprovalInstance inst, IReadOnlyList<ApprovalTask> tasks, string userId,
         CancellationToken ct)

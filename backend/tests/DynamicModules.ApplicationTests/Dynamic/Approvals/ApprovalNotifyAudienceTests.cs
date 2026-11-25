@@ -177,6 +177,25 @@ public class ApprovalNotifyAudienceTests : ApprovalTestBase
     }
 
     [Fact]
+    public async Task Reset_DropsPreparedOpenActors_SameScopeRequeries()
+    {
+        await Rig();
+        var (po, id) = await Pending();
+        using var scope = NewScope();
+        var sp = scope.ServiceProvider;
+        var record = (await sp.GetRequiredService<IRecordRepository>().GetAsync(po, CancellationToken.None))!;
+        var module = (await sp.GetRequiredService<IModuleRepository>().GetByIdAsync(record.ModuleId, includeChildren: true, CancellationToken.None))!;
+        var audience = sp.GetRequiredService<ApprovalNotifyAudience>();
+        await audience.PrepareAsync(module, record, ["fin1"], CancellationToken.None);
+        audience.Reset();
+        // fin1 的 open 任務在預載之後被關掉：Reset 後同一個 scope 要重新查，不能沿用預載的可動作者
+        await Db.Context.Set<ApprovalTask>().Where(t => t.InstanceId == id && t.AssigneeUserId == "fin1")
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.Status, ApprovalTaskStatus.Closed));
+        var a = await audience.ForAsync(module, record, Inst(id), TasksOf(id), "fin1", CancellationToken.None);
+        a.CanReadRecord.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task OpenTaskActor_ReadsWithPricing()
     {
         await Rig();

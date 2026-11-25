@@ -43,21 +43,28 @@ public sealed class ApprovalNotifyComposer(
         var asRecord = new Record { Id = record.Id, ModuleId = record.ModuleId, OwnerUserId = record.OwnerUserId, ValuesJson = RecordValueProcessor.Serialize(values) };
 
         await audience.PrepareAsync(module, record, userIds, ct);
-        var cache = new Dictionary<string, string>(StringComparer.Ordinal);
-        var result = new List<NotifyMessage>(userIds.Count);
-        foreach (var userId in userIds)
+        try
         {
-            var access = await audience.ForAsync(module, record, inst, tasks, userId, ct);
-            var refs = access.CanReadRecord && refFields.Any(f => access.ReadPermissions!.CanSee(f!))
-                ? (await references.ResolveAsync(module, access.ReadPermissions!, [asRecord], (m, c) => audience.ReadPermissionsAsync(m, userId, c), ct))
-                    .GetValueOrDefault(record.Id) ?? new Dictionary<string, ReferenceInfo>()
-                : new Dictionary<string, ReferenceInfo>();
-            var key = Key(access, fieldIds, refs);
-            if (!cache.TryGetValue(key, out var json))
-                cache[key] = json = Data(inst, node, template, flowName, names, fields, fieldIds, values, access, refs).ToJson();
-            result.Add(new NotifyMessage(userId, access.ShowTitle ? inst.TitleSnapshot : "", access.CanReadRecord ? link : "", json));
+            var cache = new Dictionary<string, string>(StringComparer.Ordinal);
+            var result = new List<NotifyMessage>(userIds.Count);
+            foreach (var userId in userIds)
+            {
+                var access = await audience.ForAsync(module, record, inst, tasks, userId, ct);
+                var refs = access.CanReadRecord && refFields.Any(f => access.ReadPermissions!.CanSee(f!))
+                    ? (await references.ResolveAsync(module, access.ReadPermissions!, [asRecord], (m, c) => audience.ReadPermissionsAsync(m, userId, c), ct))
+                        .GetValueOrDefault(record.Id) ?? new Dictionary<string, ReferenceInfo>()
+                    : new Dictionary<string, ReferenceInfo>();
+                var key = Key(access, fieldIds, refs);
+                if (!cache.TryGetValue(key, out var json))
+                    cache[key] = json = Data(inst, node, template, flowName, names, fields, fieldIds, values, access, refs).ToJson();
+                result.Add(new NotifyMessage(userId, access.ShowTitle ? inst.TitleSnapshot : "", access.CanReadRecord ? link : "", json));
+            }
+            return result;
         }
-        return result;
+        finally
+        {
+            audience.Reset();
+        }
     }
 
     /// <summary>共用 DataJson 的鍵：可讀、標題、範本用到的欄位裡哪些隱藏、參照欄位的解析狀態（計畫 T3）。</summary>
