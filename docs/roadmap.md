@@ -72,12 +72,13 @@
 | mcp3 | MCP 設計器工具（開工前另寫設計） | 未開始 | [MCP server](superpowers/specs/2026-11-11-mcp-server-design.md) §12 |
 | mcp4 | MCP OAuth 2.1（Claude.ai、ChatGPT 連接器；可視雲端版第一個客戶的需求提前） | 未開始 | [MCP server](superpowers/specs/2026-11-11-mcp-server-design.md) §12 |
 | s2d-1g | Demo 公司跨應用程式共用、移除模擬客戶與全部內建模擬實體 | ✅ 已上線（2026-11-14，8719cc5b） | [共用主檔](superpowers/specs/2026-11-10-shared-master-design.md) |
-| tp1 | 範本套件開啟機制：範本與正式應用程式的差別與開啟流程；之後品質檢驗、固定資產登記範本可直接上線（使用者 11-23 裁決提前到 s2d-1h 之前） | 未開始（設計待寫） | [ERP 模組藍圖](superpowers/specs/2026-11-23-erp-module-blueprint-design.md) §6 |
+| tp1 | 範本套件開啟機制：應用程式套件加「範本」種類（使用者 11-25 裁決），開啟後屬於客戶、不升級、不被依賴、不參與整合；tp1a 後端格式與排除、tp1b 應用程式頁範本分區與內建「品質檢驗」範本、tp1c 應用程式頁刪除入口（所有種類通用，使用者 11-25 裁決）；固定資產登記範本改等 eq1（使用者 11-23 裁決提前到 s2d-1h 之前） | 未開始（設計已核可 2026-11-25） | [範本套件](superpowers/specs/2026-11-25-template-package-design.md) |
 | s2d-1h | 主檔收尾：參照挑選器守衛、CRM 補測試等 | 未開始 | [共用主檔](superpowers/specs/2026-11-10-shared-master-design.md) |
 | rf1 | 參照挑選器依上層欄位過濾：參照欄位可宣告依本單另一個參照過濾候選；s2d-2 多送貨地址、s2g 批號、客服工單選設備都用（主控判斷位置，待確認） | 未開始（設計待寫） | [ERP 模組藍圖](superpowers/specs/2026-11-23-erp-module-blueprint-design.md) §6 |
 | s2d-2 | 品項共用主檔；併入品項實物／服務類型、預留所屬款式參照、往來對象多送貨地址（使用者 11-17 裁決，開工前先更新共用主檔設計） | 未開始 | [共用主檔](superpowers/specs/2026-11-10-shared-master-design.md) |
 | tx1 | 稅別共用主檔：CRM、MES、進銷存的報價、訂單、採購單改參照稅別並在成立時固定稅率，三套件升版；s3c 硬前置（使用者 11-23 裁決做成共用主檔；位置主控判斷，待確認） | 未開始（設計待寫） | [ERP 模組藍圖](superpowers/specs/2026-11-23-erp-module-blueprint-design.md) §6 |
 | mg1 | MES 改為通用生產管理：應用程式改名、製程與不良原因選項通用化、完工入庫不限單一末道、專屬主檔改為通用設備主檔（mfg1 處理）、Demo 與手冊同步（使用者 11-17 裁決，排在 s2e 前避免重工；開工前先寫設計） | 未開始（設計待寫）；前置 mfg1（應用程式改名「MES 生產製造」、通用設備主檔、製程與保養選項通用化、Demo 與手冊同步）已上線（2026-11-21） | [ERP 路線](superpowers/specs/2026-11-06-erp-roadmap-design.md) 2026-11-17 一節 |
+| eq1 | 設備共用主檔：設備從 MES 自有模組升格為共用主檔，MES 改用這一份並經套件更新升版；之後固定資產登記範本替它加取得日期、取得成本、保管人（使用者 11-25 裁決；位置建議和 mg1 一起排，主控判斷，待確認；開工前先寫設計） | 未開始（設計待寫） | [範本套件](superpowers/specs/2026-11-25-template-package-design.md) §16 |
 | s2e-a | 訂單到出貨：追溯與履約核心 | 未開始 | [訂單到出貨](superpowers/specs/2026-11-11-order-workorder-shipment-design.md) |
 | s2e-b | 訂單到出貨：應用程式間整合 | 未開始 | [訂單到出貨](superpowers/specs/2026-11-11-order-workorder-shipment-design.md) |
 | s2f | 訂單變更單；併入可設定的超交容許量（使用者 11-17 裁決） | 未開始 | [訂單到出貨](superpowers/specs/2026-11-11-order-workorder-shipment-design.md) |
