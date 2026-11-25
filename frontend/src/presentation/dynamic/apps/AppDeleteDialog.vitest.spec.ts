@@ -87,6 +87,21 @@ describe('AppDeleteDialog', () => {
     expect(text).toContain('報表『不良率報表』還在儀表板『品質看板』的個人版上，請先移除卡片');
   });
 
+  it('event and report reasons are full sentences', async () => {
+    api.getAppDeleteCheck.mockResolvedValue({
+      ...blocked,
+      blockers: [
+        { kind: 'event', moduleKey: 'order', moduleName: '訂單', id: 5, name: '出貨事件' },
+        { kind: 'report', id: 7, name: '不良率報表' },
+      ],
+    });
+    await mountDialog();
+    const text = q('app-delete-blockers')!.textContent!;
+    expect(text).toContain('事件『出貨事件』（模組『訂單』）引用它，請先處理');
+    expect(text).toContain('報表『不良率報表』引用它，請先處理');
+    expect(text).not.toContain('order');
+  });
+
   it('unknown blocker kind falls back to the backend name', async () => {
     api.getAppDeleteCheck.mockResolvedValue({ ...blocked, blockers: [{ kind: 'someNewKind' as never, name: 'X' }] });
     await mountDialog();

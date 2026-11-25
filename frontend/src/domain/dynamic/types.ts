@@ -609,7 +609,7 @@ export type DeleteTargetRef = { kind: 'module'; key: string } | { kind: 'field' 
 export type DeleteBlockerKind =
   | 'moduleActive' | 'liveRecords' | 'fieldActive' | 'fieldData' | 'titleField' | 'lastBlock' | 'referenceField'
   | 'rollup' | 'formula' | 'parentDefault' | 'fill' | 'workflow' | 'conversion' | 'rule' | 'view' | 'report' | 'dashboard' | 'personalDashboard'
-  | 'appNotClosed' | 'appDependent' | 'masterInUse';
+  | 'event' | 'check' | 'ledger' | 'approvalFlow' | 'taskRule' | 'appNotClosed' | 'appDependent' | 'masterInUse';
 
 /** 擋下刪除的原因或引用來源；count 只用於 liveRecords 與 fieldData。 */
 export interface DeleteBlocker {

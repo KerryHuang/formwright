@@ -59,6 +59,26 @@ describe('DeleteDialog', () => {
     w.unmount();
   });
 
+  it('uses module display names, never raw i18n keys or module codes', async () => {
+    api.deleteCheck.mockResolvedValue({
+      canDelete: false, purge: { records: 0, indexRows: 0, historyRows: 0 },
+      blockers: [
+        { kind: 'moduleActive', moduleKey: 'cust', id: 1, name: '客戶資料' },
+        { kind: 'liveRecords', moduleKey: 'cust', id: 1, name: '客戶資料', count: 7 },
+        { kind: 'event', moduleKey: 'order', moduleName: '訂單', id: 5, name: '出貨事件' },
+        { kind: 'check', moduleKey: 'order', moduleName: '訂單', id: 6, name: '庫存檢查' },
+      ],
+    });
+    const w = await mountDialog({ kind: 'module', key: 'cust' });
+    const text = q('delete-blockers')!.textContent!;
+    expect(text).not.toContain('designer.delete.kind');
+    expect(text).not.toContain('cust');
+    expect(text).not.toContain('order');
+    expect(text).toContain('客戶資料');
+    expect(text).toContain('訂單');
+    w.unmount();
+  });
+
   it('module: warns with the purge counts and enables the button only after typing the module key', async () => {
     api.deleteCheck.mockResolvedValue(clean);
     const w = await mountDialog({ kind: 'module', key: 'cust' });

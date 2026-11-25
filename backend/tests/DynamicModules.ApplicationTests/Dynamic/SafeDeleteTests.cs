@@ -446,6 +446,7 @@ public class SafeDeleteTests : DesignerTestBase
 
         Blocker(await Send(new DeleteFieldRequest(name.Id, 0)), "view").Id.Should().Be(view.Id);
         Blocker(await Send(new DeleteFieldRequest(note.Id, 0)), "view").Id.Should().Be(view.Id);
+        Blocker(await Send(new DeleteFieldRequest(name.Id, 0)), "view").ModuleName.Should().Be("cust", "有模組代碼的原因都帶顯示名稱，前端不必顯示代碼");
     }
 
     [Fact]

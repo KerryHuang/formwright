@@ -77,9 +77,12 @@ async function submit() {
   }
 }
 
-const blockerLine = (b: DeleteCheck['blockers'][number]) =>
-  [t(`designer.delete.kind.${b.kind}`), b.moduleName ?? b.moduleKey, b.name, b.count != null ? t('designer.delete.count', { n: b.count }) : null]
+// 模組啟用中、還有記錄的 name 本身就是模組顯示名稱；其他原因有 moduleName 就用（缺時退回代碼），與 name 相同不重複列
+const blockerLine = (b: DeleteCheck['blockers'][number]) => {
+  const module = b.kind === 'moduleActive' || b.kind === 'liveRecords' ? null : (b.moduleName ?? b.moduleKey);
+  return [t(`designer.delete.kind.${b.kind}`), module !== b.name ? module : null, b.name, b.count != null ? t('designer.delete.count', { n: b.count }) : null]
     .filter((x) => x != null && x !== '').join(' · ');
+};
 </script>
 
 <template>

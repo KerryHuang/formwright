@@ -81,7 +81,10 @@ public class DeletePlanner(IDeletionRepository data, IApprovalFlowRepository app
             ? new PurgeCounts(await data.CountRecordsAsync(module.Id, deleted: true, ct),
                 await data.CountIndexRowsByModuleAsync(module.Id, ct), await data.CountHistoryRowsByModuleAsync(module.Id, ct))
             : await FieldPurgeAsync(module, fields, ct);
-        var distinct = blockers.DistinctBy(b => (b.Kind, b.ModuleKey, b.Id)).ToList();
+        // 有模組代碼的原因都帶模組顯示名稱（前端不顯示代碼）；模組啟用中、還有記錄的 Name 本身就是模組名，不重複帶
+        var distinct = blockers.DistinctBy(b => (b.Kind, b.ModuleKey, b.Id))
+            .Select(b => b.ModuleName is null && b.ModuleKey is { } mk && b.Kind is not (DeleteBlockerKind.ModuleActive or DeleteBlockerKind.LiveRecords)
+                && all.FirstOrDefault(m => m.Key == mk) is { } owner ? b with { ModuleName = Name(owner.NameI18n, owner.Key) } : b).ToList();
         return new DeletePlan(new DeleteCheckResponse(distinct.Count == 0, distinct, purge), module.Id, fieldIds,
             blocks.Select(b => b.Id).ToList());
     }
