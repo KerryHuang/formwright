@@ -218,7 +218,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 - **Ubuntu 的選項**：`--port <n>`（只在全新安裝生效）、`--skip-backup`、`--lang <zh-TW|en>`；動作 `remove`、`purge`（`curl … \| sudo bash -s -- remove`）。Windows 靜默安裝參數：`/PORT=<n>`、`/SKIPBACKUP`、`/FIREWALLSCOPE=<範圍>`；解除安裝帶 `/DELETEDATA`。
 - **Windows 防火牆**：安裝程式建一條輸入規則「Formwright」，只放行 Formwright 程式、該連接埠，來源預設只有同網段（`localsubnet`），所有網路設定檔都適用。其他網段的電腦要連，安裝時帶 `/FIREWALLSCOPE=<netsh remoteip 值>`（例 `192.0.2.0/24,198.51.100.0/24`）；之後升級或重裝不帶參數會沿用上次的範圍。每次安裝都會刪掉舊的同名規則再重建。
 - **Windows 安裝失敗時**：權限、初始化、防火牆或服務 60 秒內沒有正常回應任一步失敗，安裝程式以結束碼 20 結束，Formwright 服務會停止並設成「停用」，避免一直自動重啟；排除問題後重新執行安裝程式即可（會改回自動並啟動）。若訊息說服務沒能停用，請手動執行 `sc config Formwright start= disabled` 與 `sc stop Formwright`。
-- **資料目錄權限（Windows）**：每次安裝都會重設資料目錄（`C:\ProgramData\Formwright`）的權限，只留 SYSTEM、Administrators 與服務帳號；自己加的其他授權會被清掉。
+- **資料目錄權限（Windows）**：每次安裝都會重設資料目錄（`C:\ProgramData\Formwright`）的權限，只留 SYSTEM、Administrators 與服務帳號；自己加的其他授權會被清掉。安裝程式改權限前會先唯讀檢查整個資料目錄：有連結（junction、捷徑）、擁有者不是 SYSTEM／Administrators／TrustedInstaller／Formwright 服務帳號、這些帳號以外有人有寫入類權限，或檔案有多個硬連結，就拒絕處理並以結束碼 20 結束（原因與路徑寫在安裝 log，服務維持停用）；資料目錄的上一層 `C:\ProgramData` 若有非系統帳號能刪除或改名它，也會拒絕。只有讀取類的額外授權不擋。請勿另外把資料目錄的寫入權授給其他帳號：安裝程式無法排除「授權移除前已開啟、安裝期間仍持有」的舊檔案控制代碼。
 
 ### 預設位置
 
