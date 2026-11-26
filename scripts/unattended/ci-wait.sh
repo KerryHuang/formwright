@@ -3,8 +3,29 @@
 # 最後一行是 gate 的結論（success／failure／cancelled…）；失敗時先列出失敗的 job。
 # 任一 job 一失敗就回報 failure，不等整個 run 跑完。
 # exit 0 只代表 gate 通過；其他情況 exit 1。
+#
+# 沿用已綠的 CI（#120）：rebase 後若程式碼範圍和已綠的 commit 完全相同，就不必重跑整套 gate。
+#   bash scripts/unattended/ci-wait.sh --reuse <已綠 sha> <sha>   可沿用就印「沿用」並 exit 0，否則照常等 <sha> 的 CI
+#   bash scripts/unattended/ci-wait.sh --can-reuse <已綠 sha> <sha>  只比對 tree（離線），exit 0 可沿用、1 要重跑
+# 程式碼範圍＝下面 CODE_PATHS；rebase 帶進的 main 新 commit 碰到這些路徑時 tree 就不同，照規則重跑。
 set -u
-sha=$(git rev-parse "${1:?用法：ci-wait.sh <sha>}")
+CODE_PATHS=(backend frontend shared scripts .github Dockerfile)
+same_code() { git diff --quiet "$1" "$2" -- "${CODE_PATHS[@]}"; }
+case "${1:-}" in
+  --can-reuse) same_code "${2:?缺已綠 sha}" "${3:?缺 sha}"; exit ;;
+  --reuse)
+    green=$(git rev-parse "${2:?缺已綠 sha}"); shift 2
+    if same_code "$green" "${1:?缺 sha}"; then
+      run=$(gh run list --workflow gate.yml --commit "$green" --limit 1 --json databaseId,conclusion -q '.[0] | "\(.databaseId) \(.conclusion)"' 2>/dev/null)
+      if [ "${run#* }" = success ]; then
+        echo "沿用 $green 的 gate run ${run%% *}（程式碼範圍相同：${CODE_PATHS[*]}）"; echo success; exit 0
+      fi
+      echo "已綠 sha $green 的 gate 不是 success（${run:-找不到}），照常等 CI"
+    else
+      echo "程式碼範圍和 $green 不同，照常等 CI"
+    fi ;;
+esac
+sha=$(git rev-parse "${1:?用法：ci-wait.sh [--reuse <已綠 sha>] <sha>}")
 id=""
 for _ in $(seq 1 60); do
   id=$(gh run list --workflow gate.yml --commit "$sha" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null)

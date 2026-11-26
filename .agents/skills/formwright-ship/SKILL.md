@@ -19,6 +19,7 @@ bash scripts/unattended/ci-wait.sh <sha>
 - `ci-wait.sh` 背景跑，最後一行 `success` 才算過；之前幾行是各 job 的結論與分鐘數，失敗的 job 另列 `FAILED`。
 - 範圍依改動自動決定：只改文件不跑；只改 `frontend/` 只跑前端 test／typecheck／build；動到 `backend/`、`shared/`、Dockerfile 或 workflow 就全跑。
 - 失敗先看 log（`gh run view <id> --log-failed`）：真的壞就修、推上去重跑；逾時型、單獨重跑會過的照 `docs/ai/testing.md`「異常判讀」處理，重跑用 `gh run rerun <id> --failed`。
+- rebase 後先跑 `bash scripts/unattended/ci-wait.sh --reuse <已綠 sha> <新 sha>`：程式碼範圍（`backend frontend shared scripts .github Dockerfile`）和已綠的 commit 相同就印「沿用」直接通過，不同就照常等新 CI。離線測試：`bash scripts/unattended/ci-wait.test.sh`。
 - 本機的 `bash scripts/unattended/gate.sh <worktree>` 只在 GitHub 不能用時當備援。
 
 ## 1.5 本機走查（有畫面的改動）
