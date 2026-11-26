@@ -172,14 +172,14 @@ public class PreUpgradeBackupTests
         (await File.ReadAllTextAsync(Path.Combine(host.DataDirectory, "setup-code"))).Should().Be(codeBefore);
     }
 
-    private static void ReplaceRepository(IServiceCollection s, Func<IServiceProvider, IBackupRepository, IBackupRepository> make)
+    internal static void ReplaceRepository(IServiceCollection s, Func<IServiceProvider, IBackupRepository, IBackupRepository> make)
     {
         var original = s.Last(d => d.ServiceType == typeof(IBackupRepository));
         s.Remove(original);
         s.AddScoped<IBackupRepository>(sp => make(sp, (IBackupRepository)ActivatorUtilities.CreateInstance(sp, original.ImplementationType!)));
     }
 
-    private sealed class ThrowingRepository : IBackupRepository
+    internal sealed class ThrowingRepository : IBackupRepository
     {
         private static T Boom<T>() => throw new InvalidOperationException("schema mismatch");
         public Task AddAsync(BackupRun run, CancellationToken ct) => Boom<Task>();

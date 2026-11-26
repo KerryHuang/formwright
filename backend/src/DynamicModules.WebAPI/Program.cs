@@ -84,6 +84,9 @@ var databaseDirectory = DatabaseProviders.FileDirectory(databaseProvider, dynami
 // 聽的位址：Server:Port（安裝版）→ PORT（雲端主機如 Render，聽所有介面）→ 本機開發 127.0.0.1:5180
 builder.WebHost.UseUrls(ListenAddress.Resolve(builder.Configuration, Environment.GetEnvironmentVariable("PORT")));
 builder.Services.Configure<RouteOptions>(o => o.LowercaseUrls = true);
+// 容器升級前備份失敗時進維護模式（D-17）；背景服務與管線都看這個狀態
+var maintenance = new MaintenanceState();
+builder.Services.AddSingleton(maintenance);
 builder.Services.AddApplication();
 DynamicModules.WebAPI.Ops.TaskRuleFaultInjection.Configure(builder.Services, builder.Configuration, builder.Environment, startupWarnings);
 builder.Services.AddSingleton(new ReportOptions
@@ -115,10 +118,10 @@ builder.Services.AddSingleton<DynamicModules.Application.Dynamic.OpsService.IOps
 builder.Services.AddSingleton(sp => DynamicModules.Application.Dynamic.OpsService.OpsInstance.Create(sp.GetRequiredService<TimeProvider>()));
 // 背景排程器：工作登記在 AddApplication；Ops:Scheduler:Enabled=false 時不跑（多實例只讓其中一台跑、除錯用）
 builder.Services.AddSingleton<DynamicModules.Application.Dynamic.OpsService.Scheduling.JobRunner>();
-builder.Services.AddHostedService<SchedulerHostedService>();
+builder.Services.AddMaintenanceGatedHostedService<SchedulerHostedService>();
 // 看門狗與事件收件匣（維運設計 §17.2.3、§17.2.4）：每個實例都跑；Ops:Watchdog:Enabled=false 只停看門狗，收件匣照常 flush
-builder.Services.AddHostedService<OpsWatchdogHostedService>();
-builder.Services.AddHostedService<IncidentInboxFlusher>();
+builder.Services.AddMaintenanceGatedHostedService<OpsWatchdogHostedService>();
+builder.Services.AddMaintenanceGatedHostedService<IncidentInboxFlusher>();
 builder.Services.AddSingleton<DynamicModules.Application.Dynamic.OpsService.Health.IDiskSpace, DriveInfoDiskSpace>();
 // 寄信（維運設計 §17.2.6、帳號安全設計 §6）：MailKit 寄 SMTP、Data Protection 加密密碼。站台網址 App:PublicUrl（沒設時讀舊鍵 Ops:PublicUrl）
 // 是信件連結的網址前綴：告警信沒設就不放連結，帳號信沒設就寄不出帶連結的信（不用請求的 Host 標頭）
@@ -126,7 +129,7 @@ builder.Services.AddSingleton<DynamicModules.Application.Dynamic.MailService.IMa
 builder.Services.AddSingleton<DynamicModules.Application.Dynamic.OpsService.Alerts.IAlertSecretProtector, DataProtectionAlertSecretProtector>();
 builder.Services.AddSingleton(new DynamicModules.Application.Dynamic.OpsService.Alerts.AlertMailOptions(SitePublicUrl.Read(builder.Configuration)));
 startupWarnings.AddRange(SitePublicUrl.Warnings(builder.Configuration, builder.Environment.IsDevelopment()));
-builder.Services.AddHostedService<MailDeliveryHostedService>();
+builder.Services.AddMaintenanceGatedHostedService<MailDeliveryHostedService>();
 builder.Services.AddSingleton(new AuthSettings(builder.Configuration.GetValue<bool>("Demo:LoginEnabled")));
 // 語系包匯入（語系包 i4d1 計畫判斷 15）：沒明確設定時公開 Demo 站（Demo:LoginEnabled）關閉，只能預覽報告
 builder.Services.AddSingleton(new DynamicModules.Application.Dynamic.LocaleService.Packs.LocalePackSettings(
@@ -208,7 +211,7 @@ if (backupSettings.Root is { } backupRoot)
         startupWarnings.Add("Ops:Edition=Cloud 但備份位置是本機目錄（不是隔離儲存）；雲端隔離儲存上線前，O4–O6 不得開工");
 }
 builder.Services.AddSingleton<DynamicModules.Application.Dynamic.OpsService.Backup.BackupWorker>();
-builder.Services.AddHostedService<BackupHostedService>();
+builder.Services.AddMaintenanceGatedHostedService<BackupHostedService>();
 // storage.diskFree 要量的本機目錄：資料庫檔目錄、附件根目錄、金鑰目錄、備份位置（PostgreSQL 沒有資料庫檔目錄；§17.2.4、備份設計 §20 第 11 點）
 builder.Services.AddSingleton(new DynamicModules.Application.Dynamic.OpsService.Health.OpsStoragePaths(
     new[] { databaseDirectory, attachmentSettings.Root, keysDirectory, backupSettings.Invalid ? null : backupSettings.Root }
@@ -250,7 +253,7 @@ if (localeProblems.Count > 0)
     foreach (var problem in localeProblems) app.Logger.LogCritical("內建語系資源不齊：{Problem}", problem);
     throw new InvalidOperationException("內建語系資源不齊：" + string.Join("；", localeProblems));
 }
-await InitializeDatabaseAsync(app, databaseDirectory);
+await InitializeDatabaseAsync(app, databaseDirectory, maintenance);
 // 安裝程式升級前呼叫（D-09、TD-07）：備份完就結束，不啟動 Kestrel、不跑 hosted service；結束碼 0／1／2
 if (args.Contains("--backup-now"))
     return await PreUpgradeBackup.RunAsync(app.Services, Console.Out, CancellationToken.None);
@@ -265,19 +268,21 @@ if (args.Contains("--generate-demo-data"))
     return 1;
 }
 // Demo 站每次一般啟動用目前的金鑰把 mfa01 的固定 TOTP 金鑰加密寫回（§13.3）：排在 --generate-demo-data 之後，建置那次不寫
-if (app.Services.GetRequiredService<AuthSettings>().DemoLoginEnabled)
+if (!maintenance.Active && app.Services.GetRequiredService<AuthSettings>().DemoLoginEnabled)
 {
     using var demoScope = app.Services.CreateScope();
     await new MediatR.Mediator(demoScope.ServiceProvider).Send(
         new DynamicModules.Application.Dynamic.AccountService.TwoFactor.EnsureDemoMfaSecretRequest());
 }
 // Demo 站台（Render）啟動後在背景產生 Demo 資料；結果只記 log，不擋啟動也不擋 /api/health
-if (app.Configuration.GetValue<bool>("Demo:SeedOnStartup"))
+if (!maintenance.Active && app.Configuration.GetValue<bool>("Demo:SeedOnStartup"))
     app.Lifetime.ApplicationStarted.Register(() => app.Services.GetRequiredService<IDemoDataRunner>().TryStart(startup: true));
 
 if (app.Services.GetRequiredService<AuthSettings>().DemoLoginEnabled)
     app.Logger.LogWarning("Demo:LoginEnabled 已開啟：任何人都能不輸入密碼以示範帳號或 admin 登入，只能用在公開的 Demo 站");
 
+// 維護模式分支在最前面：比 RequestContext 還早，讀資料庫的中介層都不會跑
+app.UseMaintenanceBranch(maintenance);
 // 第一個：例外處理之前就定好 request id
 app.UseMiddleware<RequestContextMiddleware>();
 // 緊接在 RequestContext 之後：重載的 log 才帶 requestId
@@ -315,14 +320,20 @@ if (Directory.Exists(Path.Combine(app.Environment.ContentRootPath, "wwwroot")))
 app.Run();
 return 0;
 
-static async Task InitializeDatabaseAsync(WebApplication app, string? databaseDirectory)
+/// <summary>回 false 代表進了維護模式（升級前備份失敗）：沒跑 migration 與後續任何步驟。</summary>
+static async Task<bool> InitializeDatabaseAsync(WebApplication app, string? databaseDirectory, MaintenanceState maintenance)
 {
     if (databaseDirectory is not null) Directory.CreateDirectory(databaseDirectory);
+    var installDataDirectory = app.Configuration[DynamicModules.WebAPI.Setup.InstallConfig.DataDirectoryKey];
+    if (!string.IsNullOrWhiteSpace(installDataDirectory)) Directory.CreateDirectory(installDataDirectory);
 
     // 多個實例同時啟動時整段初始化依序執行（PostgreSQL 用 advisory lock；SQLite 不做事，設計 §5.8）
     await using var startupLock = await app.Services.GetRequiredService<IDatabaseStartupLock>().AcquireAsync(CancellationToken.None);
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<DynamicDbContext>();
+    var upgrade = await UpgradeGuard.DecideAsync(db, app.Configuration, BuildInfo.Version, CancellationToken.None);
+    if (upgrade == UpgradeDecision.Upgrade && !await BackupBeforeUpgradeAsync(app, maintenance, installDataDirectory!))
+        return false;
     await db.Database.MigrateAsync();
     // provider 專屬調校（SQLite 切 WAL，#20）；放在其他初始化步驟之前
     await app.Services.GetRequiredService<IDatabaseStartupTuning>().ApplyAsync(db, CancellationToken.None);
@@ -333,7 +344,6 @@ static async Task InitializeDatabaseAsync(WebApplication app, string? databaseDi
     await app.Services.GetRequiredService<CachedSystemPolicy>().EnsureFreshAsync(CancellationToken.None);
     await SeedData.EnsureSeededAsync(db);
     // 設定精靈留下的一次性檔案（D-08）：admin 密碼雜湊與網站名稱，兩步都成功才刪
-    var installDataDirectory = app.Configuration[DynamicModules.WebAPI.Setup.InstallConfig.DataDirectoryKey];
     var setupPayload = DynamicModules.WebAPI.Setup.SetupPayload.Read(installDataDirectory);
     var systemPolicy = app.Services.GetRequiredService<CachedSystemPolicy>();
     var passwordEffects = scope.ServiceProvider.GetRequiredService<DynamicModules.Application.Dynamic.AccountService.PasswordReset.PasswordChangeEffects>();
@@ -382,6 +392,29 @@ static async Task InitializeDatabaseAsync(WebApplication app, string? databaseDi
     {
         app.Logger.LogWarning(e, "共用主檔完整性檢查沒有跑完");
     }
+    // 完整啟動成功才記下這次的版本（Downgrade 也寫成目前版本）；Disabled 的部署不寫
+    if (upgrade != UpgradeDecision.Disabled) UpgradeGuard.WriteMarker(installDataDirectory!, BuildInfo.Version);
+    return true;
+}
+
+/// <summary>
+/// 升級前備份（D-17）：成功回 true；失敗進維護模式、記 Error、回 false（不跑 migration）。備份期間 Kestrel 還沒開始聽，站台不會回應，每 30 秒記一筆進度。
+/// </summary>
+static async Task<bool> BackupBeforeUpgradeAsync(WebApplication app, MaintenanceState maintenance, string dataDirectory)
+{
+    var previous = UpgradeGuard.ReadMarker(dataDirectory);
+    app.Logger.LogInformation("升級前備份中（{Previous} → {Current}），完成前站台不會回應", previous ?? "未知", BuildInfo.Version);
+    var backup = PreUpgradeBackup.ExecuteAsync(app.Services, CancellationToken.None);
+    var started = System.Diagnostics.Stopwatch.StartNew();
+    while (await Task.WhenAny(backup, Task.Delay(TimeSpan.FromSeconds(30))) != backup)
+        app.Logger.LogInformation("升級前備份仍在進行（已 {Seconds} 秒）", (int)started.Elapsed.TotalSeconds);
+    var result = await backup;
+    if (result.ExitCode == PreUpgradeBackup.Ok) return true;
+    var reason = result.ExitCode == PreUpgradeBackup.NotConfigured
+        ? MaintenanceReasons.BackupNotConfigured : MaintenanceReasons.PreUpgradeBackupFailed;
+    maintenance.Enter(reason, result.ErrorCode, previous);
+    app.Logger.LogError("升級前備份失敗（{ErrorCode}），沒有升級，進入維護模式；修好備份位置後重啟容器即可重新備份、升級", result.ErrorCode);
+    return false;
 }
 
 public partial class Program { }

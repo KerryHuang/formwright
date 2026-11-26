@@ -192,7 +192,7 @@ public class TestApp : WebApplicationFactory<Program>
         builder.ConfigureServices(s =>
         {
             s.AddSingleton<IStartupFilter>(new CountingBodyFilter(this));
-            foreach (var d in s.Where(d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(DynamicModules.WebAPI.Ops.IncidentInboxFlusher)).ToList())
+            foreach (var d in s.Where(d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(DynamicModules.WebAPI.Setup.MaintenanceGatedHostedService<DynamicModules.WebAPI.Ops.IncidentInboxFlusher>)).ToList())
                 s.Remove(d);
             s.AddTestEntities();
             if (!TwoFactorFactoryPolicy && s.LastOrDefault(d => d.ServiceType == typeof(PolicyEnvironmentDefaults))?.ImplementationInstance is PolicyEnvironmentDefaults defaults)
