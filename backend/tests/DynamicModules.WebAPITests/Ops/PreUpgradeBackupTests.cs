@@ -143,31 +143,20 @@ public class PreUpgradeBackupTests
         sw.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(30), "卡在排隊要提早失敗，不等滿 MaxWait");
     }
 
-    /// <summary>Review Focus 3：設定模式（精靈還沒跑完）下升級，備份回 0、沒有資料可備份、不碰資料庫與設定碼。</summary>
-    [Fact]
-    public async Task BackupNow_InSetupMode_ExitsZeroWithoutDatabase()
+    /// <summary>Review Focus 3：設定模式（精靈還沒跑完）下升級，備份回 0、沒有資料可備份、不碰資料庫與設定碼；旗標放前面或最後都一樣。</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task BackupNow_InSetupMode_ExitsZeroWithoutDatabase(bool flagFirst)
     {
         using var host = new SetupHostFactory();
         var codeBefore = await File.ReadAllTextAsync(Path.Combine(host.DataDirectory, "setup-code"));
-        var dll = Path.Combine(AppContext.BaseDirectory, "DynamicModules.WebAPI.dll");
-        var info = new ProcessStartInfo("dotnet")
-        {
-            WorkingDirectory = AppContext.BaseDirectory,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        info.ArgumentList.Add(dll);
-        // --backup-now 要放最後：命令列設定提供者會把「--鍵」後面的下一個參數當成它的值，放前面會吞掉 --Install:ConfigFile
-        info.ArgumentList.Add($"--Install:ConfigFile={host.ConfigFile}");
-        info.ArgumentList.Add("--backup-now");
-        using var process = Process.Start(info)!;
-        var stdout = process.StandardOutput.ReadToEndAsync();
-        var stderr = process.StandardError.ReadToEndAsync();
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-        await process.WaitForExitAsync(cts.Token);
+        var config = $"--Install:ConfigFile={host.ConfigFile}";
 
-        process.ExitCode.Should().Be(0, await stderr);
-        (await stdout).Should().Contain("FORMWRIGHT_BACKUP_SETUP_PENDING");
+        var (exit, stdout, stderr) = await StartupOrderTests.RunProgram(flagFirst ? ["--backup-now", config] : [config, "--backup-now"]);
+
+        exit.Should().Be(0, stderr);
+        stdout.Should().Contain("FORMWRIGHT_BACKUP_SETUP_PENDING");
         File.Exists(Path.Combine(host.DataDirectory, "formwright.db")).Should().BeFalse();
         (await File.ReadAllTextAsync(Path.Combine(host.DataDirectory, "setup-code"))).Should().Be(codeBefore);
     }

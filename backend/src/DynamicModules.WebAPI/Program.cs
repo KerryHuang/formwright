@@ -33,9 +33,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting.WindowsServices;
 
 // Windows 服務啟動時目前目錄是 System32、sc create 沒有工作目錄參數，content root 要明指程式目錄，wwwroot 才找得到
+// 動詞旗標（--install-init 等）不交給命令列設定提供者：它遇到「--鍵」沒有「=」會把下一個參數當值吞掉，旗標放前面就吃掉後面的 --Install:ConfigFile。
+// 判斷仍看原始 args，所以旗標放哪都行
+string[] verbFlags = ["--install-init", "--backup-now", "--generate-demo-data"];
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
-    Args = args,
+    Args = args.Where(a => !verbFlags.Contains(a)).ToArray(),
     ContentRootPath = WindowsServiceHelpers.IsWindowsService() ? AppContext.BaseDirectory : null,
 });
 // --install-init 與容器自動初始化要在載入設定檔之前（設定檔可能還不存在）
@@ -43,6 +46,10 @@ if (args.Contains("--install-init")) return InstallInitializer.Run(builder.Confi
 InstallInitializer.EnsureForContainer(builder.Configuration, Console.Out);
 // 安裝版設定檔是最高優先的來源，要在讀 Database:Provider 之前加上（安裝版設計 TD-01）
 InstallConfig.AddConfigFile(builder.Configuration);
+// 服務管理員的生命週期要在設定模式 return 之前掛上：Windows 服務回報啟動、systemd Type=notify 的 READY=1 設定模式也要有。
+// 不在服務管理員底下時兩者都不做事（dotnet run、Docker、測試不受影響）
+builder.Services.AddWindowsService(o => o.ServiceName = "Formwright");
+builder.Services.AddSystemd();
 // 設定模式（全新安裝、精靈還沒跑完）：不碰資料庫，只開精靈
 if (InstallConfig.IsPending(builder.Configuration))
 {
@@ -54,9 +61,6 @@ if (InstallConfig.IsPending(builder.Configuration))
     }
     return await SetupHost.RunAsync(builder);
 }
-// 不在服務管理員底下時兩者都不做事（dotnet run、Docker、測試不受影響）
-builder.Services.AddWindowsService(o => o.ServiceName = "Formwright");
-builder.Services.AddSystemd();
 
 // 資料庫種類由 Database:Provider 決定（預設 Sqlite，PostgreSQL provider 設計 §5.1）；只在設定有效時才往下
 var databaseProvider = DatabaseProviders.Read(builder.Configuration);
@@ -253,7 +257,9 @@ if (localeProblems.Count > 0)
     foreach (var problem in localeProblems) app.Logger.LogCritical("內建語系資源不齊：{Problem}", problem);
     throw new InvalidOperationException("內建語系資源不齊：" + string.Join("；", localeProblems));
 }
-await InitializeDatabaseAsync(app, databaseDirectory, maintenance);
+var databaseReady = await InitializeDatabaseAsync(app, databaseDirectory, maintenance);
+// 維護中（升級前備份失敗、schema 沒升級）時，備份與 Demo 資料都不能往下做：直接失敗，讓呼叫端看到非 0
+if (!databaseReady && (args.Contains("--backup-now") || args.Contains("--generate-demo-data"))) return 1;
 // 安裝程式升級前呼叫（D-09、TD-07）：備份完就結束，不啟動 Kestrel、不跑 hosted service；結束碼 0／1／2
 if (args.Contains("--backup-now"))
     return await PreUpgradeBackup.RunAsync(app.Services, Console.Out, CancellationToken.None);
@@ -357,9 +363,10 @@ static async Task<bool> InitializeDatabaseAsync(WebApplication app, string? data
     if (setupPayload is not null)
     {
         const string siteNameKey = DynamicModules.Application.Dynamic.MailService.SiteName.Key;
-        if (!await db.Set<DynamicModules.Domain.Entities.Dynamic.SystemSetting>().AnyAsync(s => s.Key == siteNameKey))
+        var settings = scope.ServiceProvider.GetRequiredService<DynamicModules.Domain.Repositories.Dynamic.ISystemSettingRepository>();
+        if (await settings.GetValueAsync(siteNameKey, CancellationToken.None) is null)
         {
-            db.Set<DynamicModules.Domain.Entities.Dynamic.SystemSetting>().Add(new() { Key = siteNameKey, Value = setupPayload.SiteName });
+            await settings.SetAsync(siteNameKey, setupPayload.SiteName, CancellationToken.None);
             await db.SaveChangesAsync();
         }
         DynamicModules.WebAPI.Setup.SetupPayload.Delete(installDataDirectory!);
