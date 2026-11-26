@@ -125,10 +125,10 @@ public class RequiredTextPolicyTests : DesignerTestBase
     public async Task CreateGroup_WritesNameIntoEveryRequiredLocale()
     {
         await SetRequired("zh-TW", "en-US");
-        var r = await Send(new CreateGroupRequest("Kho", "vi"));
+        var r = await Send(new CreateGroupRequest("Xưởng", "vi"));
         r.IsCreated.Should().BeTrue(r.Message);
-        var name = (await Db.Context.Set<PermissionGroup>().AsNoTracking().ToListAsync()).Single(g => g.NameI18n.Values.ContainsKey("vi")).NameI18n;
-        name.Values.Should().BeEquivalentTo(new Dictionary<string, string> { ["vi"] = "Kho", ["zh-TW"] = "Kho", ["en-US"] = "Kho" });
+        var name = (await Db.Context.Set<PermissionGroup>().AsNoTracking().ToListAsync()).Single(g => g.NameI18n.Values.GetValueOrDefault("vi") == "Xưởng").NameI18n;
+        name.Values.Should().BeEquivalentTo(new Dictionary<string, string> { ["vi"] = "Xưởng", ["zh-TW"] = "Xưởng", ["en-US"] = "Xưởng" });
     }
 
     [Fact]

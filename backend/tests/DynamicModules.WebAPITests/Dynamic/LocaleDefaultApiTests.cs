@@ -160,12 +160,12 @@ public sealed class LocaleDefaultApiTests : IDisposable
     public async Task CreateGroup_NoLocale_WritesDefaultLocale()
     {
         await EnglishDefault();
-        var res = await _admin.PostAsJsonAsync($"{Base}/admin/groups", new { name = "Warehouse" });
+        var res = await _admin.PostAsJsonAsync($"{Base}/admin/groups", new { name = "Loading Dock" });
         res.StatusCode.Should().Be(HttpStatusCode.Created, await res.Content.ReadAsStringAsync());
         var id = (await JsonOf(res)).GetProperty("id").GetInt64();
         using var scope = _app.Services.CreateScope();
         var group = await scope.ServiceProvider.GetRequiredService<DynamicDbContext>().Set<PermissionGroup>().AsNoTracking().SingleAsync(g => g.Id == id);
-        group.NameI18n.Values.Should().Contain("en-US", "Warehouse");
+        group.NameI18n.Values.Should().Contain("en-US", "Loading Dock");
     }
 
     [Fact]
@@ -239,10 +239,10 @@ public sealed class LocaleDefaultApiTests : IDisposable
     public async Task CreateGroup_UnknownOrDisabledLocale_WritesDefaultLocale(string locale)
     {
         await EnglishDefault();
-        var res = await _admin.PostAsJsonAsync($"{Base}/admin/groups", new { name = "Warehouse", locale });
+        var res = await _admin.PostAsJsonAsync($"{Base}/admin/groups", new { name = "Loading Dock", locale });
         res.StatusCode.Should().Be(HttpStatusCode.Created, await res.Content.ReadAsStringAsync());
         var name = await GroupName((await JsonOf(res)).GetProperty("id").GetInt64());
-        name.Values.Should().Contain("en-US", "Warehouse").And.NotContainKey(locale);
+        name.Values.Should().Contain("en-US", "Loading Dock").And.NotContainKey(locale);
     }
 
     [Theory]
