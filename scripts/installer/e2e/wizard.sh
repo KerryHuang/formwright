@@ -7,7 +7,7 @@
 #   wizard.sh backups <base-url>                 等到沒有排隊或執行中的備份，印備份清單 JSON
 set -euo pipefail
 
-ADMIN_USER=admin
+ADMIN_USER="admin"
 ADMIN_PASSWORD='Fw-test-2026'
 SITE_NAME='青禾貿易'
 API=/api/v3/dynamic
@@ -40,8 +40,8 @@ complete_body() { # complete_body <backup-dir>
 }
 
 wait_status() { # wait_status <url> <期望碼> <秒>
-  local i code
-  for i in $(seq 1 "$3"); do
+  local _ code
+  for _ in $(seq 1 "$3"); do
     code=$(http GET "$1"); [ "$code" = "$2" ] && return 0; sleep 1
   done
   return 1
@@ -72,8 +72,8 @@ cmd_complete_expect() { # complete-expect <base> <code> <status>
 
 cmd_backups() { # backups <base>
   login "$1"
-  local i code
-  for i in $(seq 1 60); do
+  local _ code
+  for _ in $(seq 1 60); do
     code=$(http GET "$1$API/system/ops/backups")
     expect "備份清單" 200 "$code"
     if jq -e '(.current == null) and ([.runs[] | select((.status|tostring|ascii_downcase) as $s | $s=="queued" or $s=="running")] | length == 0)' "$BODY" >/dev/null; then
@@ -131,8 +131,8 @@ cmd_full() { # <base> <code> <backup-dir>
   step "complete"
   c=$(setup_post "$base" "$code" complete "$(complete_body "$backup")"); expect "complete" 200 "$c"
   step "等站台以一般模式回來（最多 120 秒）"
-  local i ok=0
-  for i in $(seq 1 120); do
+  local _ ok=0
+  for _ in $(seq 1 120); do
     if [ "$(http GET "$base/api/setup/status")" = 404 ] && [ "$(http GET "$base/api/health/ready")" = 200 ]; then ok=1; break; fi
     sleep 1
   done

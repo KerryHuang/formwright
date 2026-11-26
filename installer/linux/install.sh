@@ -211,7 +211,7 @@ fetch_package() { # 設 PACKAGE_FILE、PACKAGE_VERSION
   # 精確比對檔名（text 格式「<hash>  名稱」與 binary 格式「<hash> *名稱」都認），必須剛好一筆
   local expected actual
   expected=$(awk -v n="$name" '{ f = $2; sub(/^\*/, "", f); if (f == n) print tolower($1) }' "$WORK_DIR/SHA256SUMS")
-  [ -n "$expected" ] && [ "$(printf '%s\n' "$expected" | wc -l)" -eq 1 ] || die 12 checksum_failed "$name"
+  if [ -z "$expected" ] || [ "$(printf '%s\n' "$expected" | wc -l)" -ne 1 ]; then die 12 checksum_failed "$name"; fi
   actual=$(sha256sum "$WORK_DIR/$name" | awk '{ print tolower($1) }')
   [ "$actual" = "$expected" ] || die 12 checksum_failed "$name"
   PACKAGE_FILE="$WORK_DIR/$name"
@@ -299,8 +299,8 @@ UNIT
 service_is_active() { systemctl is-active --quiet formwright; }
 
 wait_active() { # 最多 60 秒
-  local i
-  for i in $(seq 1 60); do service_is_active && return 0; sleep 1; done
+  local _
+  for _ in $(seq 1 60); do service_is_active && return 0; sleep 1; done
   return 1
 }
 

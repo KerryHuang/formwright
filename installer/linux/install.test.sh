@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# 函式替身由 install.sh 的函式間接呼叫（SC2317）；install.sh 以 shellcheck source 指令另外檢查（SC1091）
+# shellcheck disable=SC2317,SC1091
 # install.sh 的離線測試：bash installer/linux/install.test.sh
 # 不需要 root、不碰 systemd；install.sh 在 FW_TEST=1 時只定義函式、不執行 main。
 set -u
@@ -212,6 +214,7 @@ done
 check "下載：404 → exit 12" "12" "$(run_rc fetch_in notfound)"
 check "下載：中斷 → exit 12" "12" "$(run_rc fetch_in interrupt)"
 check "下載失敗不動舊版" "v-old" "$(cat "$tmp/prog/VERSION")"
+# shellcheck disable=SC2034  # FW_LANG 由子 shell 內的 msg 讀取
 case "$(FW_LANG=en; DL_MODE=badhash; ( FW_VERSION=1.2.3 FW_REPO=o/r FORMWRIGHT_PACKAGE="" fetch_package ) 2>&1)" in *"Checksum verification failed"*) ok "下載：hash 不符的訊息";; *) bad "下載：hash 不符的訊息" "";; esac
 unset -f curl
 
