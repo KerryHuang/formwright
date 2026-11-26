@@ -104,7 +104,7 @@
 - [ ] 📋 維運 agent 唯讀診斷（段 O4） — L1；Mac 開機領工、claude -p 唯讀診斷，經維運中心轉送呼叫產品 MCP 唯讀工具 ⛔ 等：O3
 - [ ] 📋 維運 agent 修正 PR（段 O5） — L3；agent 開 PR、CI gate、使用者核准合併，日後可依告警類型放行自動合併；需先建 CI ⛔ 等：O4
 - [ ] 📋 雲端版自動處置（段 O6） — L2；維運中心照 runbook 呼叫產品 MCP 維運處置工具（預演＋確認），冷卻、上限、稽核；只雲端版；L2 由維運中心 runbook 執行、agent 只能建議（使用者 11-12 裁決 C4） ⛔ 等：O3、O4
-- [ ] 📋 一鍵安裝版（段 lt1、in1） — Windows 安裝檔與 Ubuntu 一行指令裝成系統服務，Ubuntu 另附 Docker compose；首次開啟走瀏覽器設定精靈（環境檢查、資料庫、admin、公司、備份）；預設 SQLite、進階接 PostgreSQL，只管內網、第一版不簽章（使用者 11-26 裁決）；設計見 [一鍵安裝版](superpowers/specs/2026-11-26-installer-design.md)
+- [ ] 📋 一鍵安裝版（段 in1） — 前置 lt1 SQLite 50 人壓測已通過（`2026/11/26`）；Windows 安裝檔與 Ubuntu 一行指令裝成系統服務，Ubuntu 另附 Docker compose；首次開啟走瀏覽器設定精靈（環境檢查、資料庫、admin、公司、備份）；預設 SQLite、進階接 PostgreSQL，只管內網、第一版不簽章（使用者 11-26 裁決）；設計見 [一鍵安裝版](superpowers/specs/2026-11-26-installer-design.md)
 
 ## 核心平台：AI 接入（MCP）
 
