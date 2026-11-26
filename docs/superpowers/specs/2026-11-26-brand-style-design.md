@@ -1,5 +1,5 @@
 # 表匠招牌風格設計
-> 實作前檢查：✅ 2026-11-26（內容 92f1c40a）
+> 實作前檢查：✅ 2026-11-26（內容 f19b5d5c）
 
 狀態：已核准（使用者 2026-11-26）。
 
@@ -104,7 +104,7 @@
 5. `frontend/src/css/themes/tokens.css` 的 `:root` 後備值：註解寫明它等於出廠預設風格的淺色值，所以要改成表匠招牌的淺色值，註解一起更新。
 6. `frontend/index.html` 的內嵌主題 script（由 `frontend/src/boot/theme-inline-script.vitest.spec.ts` 測）：預設值 `'workbench'` 改成 `'signature'`，允許值的比對清單把 `botanical` 換成 `signature`，註解一起改。
 7. 四個語系的 `shared/i18n/*/ui.json`：移除植感活力，加表匠招牌的名稱與說明。
-8. 風格選單的範例色塊：`ThemeChooser.vue` 以 `data-style` 小樣本套用各風格的 token，新風格自動有色塊，不必另寫；只要確認小樣本看得出深藍側欄與鵝黃選取。
+8. 風格選單的範例色塊：`ThemeChooser.vue` 以 `data-style` 小樣本套用各風格的 token，新風格自動有色塊，不必另寫。小樣本的長條取側欄色、小方塊取主色，所以呈現的是深藍加品牌藍，不含鵝黃；不為此改共用的小樣本規則（主控決定 2026-11-26），鵝黃選取由 AC-06 在實際畫面驗。
 9. 測試：所有引用 `botanical` 或出廠預設 `workbench` 的測試改成新值，需要改的檔案用 `grep -rn "botanical\|'workbench'\|\"workbench\""` 全域找，不以本文清單為準。
 10. 文件：`docs/manual.md` §19 的風格表與出廠預設說明；`2026-11-06-theme-design.md` 的出廠預設與「不做第五種風格」這條過時的非目標；`docs/feature.md` 加一列。
 
