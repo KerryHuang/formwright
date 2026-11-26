@@ -89,6 +89,60 @@ public class SharedMasterMergeTests : IDisposable
         await _rig.AssertIntegrityAsync();
     }
 
+    /// <summary>
+    /// 沒人開過的主檔（資料庫裡存的是格式 8）再匯入格式 10，替既有欄位標「不提供給 AI」：定義層合併要留住旗標（只加不減，i3c 審查 🔴1），
+    /// 合併結果升到格式 10（主檔套件不收簽核流程，升版不會讓舊內容變不合法，i3c 審查 🟡1）；之後第一個需要它的應用程式開啟時欄位是 true。
+    /// </summary>
+    [Fact]
+    public async Task NotOpenedFormat8Master_ReimportFormat10WithFlagOnExistingField_FlagSurvivesToOpen()
+    {
+        var bp8 = Node(SharedMasterPackages.Bp);
+        bp8["formatVersion"] = 8;
+        await _rig.ImportAsync(bp8.ToJsonString());
+        foreach (var json in new[] { SharedMasterPackages.Ct, SharedMasterPackages.Crm, SharedMasterPackages.Stock, SharedMasterPackages.Mes, SharedMasterPackages.ContactOnly })
+            await _rig.ImportAsync(json);
+        StoredFormat(_rig, "bp").Should().Be(8);
+
+        var bp10 = Node(SharedMasterPackages.Bp);
+        bp10["formatVersion"] = 10;
+        FieldNode(bp10, "phone")["excludeFromAi"] = true;
+        FieldNode(bp10, "phone")["label"]!["ja"] = "電話番号";
+        await _rig.ImportMergeOkAsync(bp10.ToJsonString());
+        StoredFormat(_rig, "bp").Should().Be(10);
+
+        await _rig.OpenOkAsync("crmx");
+        DbField(_rig, "bp", "partner.phone").ExcludeFromAi.Should().BeTrue("沒開過的主檔再匯入時標的旗標，開啟後要在");
+        DbField(_rig, "bp", "partner.name").ExcludeFromAi.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// 已開啟的主檔再匯入替既有欄位補旗標，只改旗標（i3c 審查 🟡4）：欄位既有的設定已不合現行檢查（這裡直接改資料庫，讓預設值不合型別），
+    /// 補旗標照樣成功，不因為重送整份設定被擋。
+    /// </summary>
+    [Fact]
+    public async Task Reimport_FlagOnExistingFieldWithStaleConfig_StillSucceeds()
+    {
+        await _rig.ImportAllAsync();
+        await _rig.OpenOkAsync("crmx");
+        var headcount = _rig.FieldId("bp", "partner.headcount");
+        _rig.Db(db =>
+        {
+            var f = db.Set<Field>().Single(x => x.Id == headcount);
+            f.Config = f.Config with { DefaultValue = JsonSerializer.SerializeToElement("不是數字") };
+        });
+
+        var (exported, _) = await _rig.ExportAsync("bp");
+        var bp = Node(exported.GetRawText());
+        FieldNode(bp, "headcount")["excludeFromAi"] = true;
+        await _rig.ImportMergeOkAsync(bp.ToJsonString());
+
+        DbField(_rig, "bp", "partner.headcount").ExcludeFromAi.Should().BeTrue();
+        DbField(_rig, "bp", "partner.headcount").Config.DefaultValue!.Value.GetString().Should().Be("不是數字", "只改旗標，其他設定不動");
+    }
+
+    private static int StoredFormat(SharedMasterRig rig, string key) =>
+        JsonNode.Parse(rig.Db(db => db.Set<AppPackage>().Single(p => p.Key == key).Json))!["formatVersion"]!.GetValue<int>();
+
     /// <summary>重匯已開啟的主檔替既有欄位加選項：套件文字只要求繁中（判斷 12），不受必填語系政策影響（審查修正 2）。</summary>
     [Fact]
     public async Task ReimportingAnOpenMaster_WithRequiredEnglish_AddsZhOnlyOption()
