@@ -1105,6 +1105,36 @@ public class AppUpgradeFlowTests : IDisposable
     }
 
     [Fact]
+    public async Task NewVersionParallelNotifyToSkippedGroup_PreviewWorkflowInvalid()
+    {
+        // 審查 🟡1：新版把知會改成並行兩條、都只通知開啟時略過的倉管（wh）；略過後流程不成立，預覽就標不能套用、寫出原因
+        await OpenAsync(Format9WithNotify, skipWh: true);
+        await NewVersionAsync(p =>
+        {
+            var flow = Flow(p, "uf-check");
+            flow["nodes"] = JsonNode.Parse("""
+                [ { "id": "start", "kind": "start" },
+                  { "id": "lead", "kind": "approval", "name": { "zh-TW": "主管" }, "approvers": { "source": "group", "groups": ["lead"] }, "mode": "any" },
+                  { "id": "split", "kind": "fork", "name": { "zh-TW": "同時知會" } },
+                  { "id": "n1", "kind": "notify", "name": { "zh-TW": "知會一" }, "recipients": [ { "kind": "group", "groups": ["wh"] } ], "template": { "title": { "zh-TW": "{title}" } } },
+                  { "id": "n2", "kind": "notify", "name": { "zh-TW": "知會二" }, "recipients": [ { "kind": "group", "groups": ["wh"] } ], "template": { "title": { "zh-TW": "{title}" } } },
+                  { "id": "merge", "kind": "join", "mode": "all", "forkId": "split" },
+                  { "id": "end", "kind": "end" } ]
+                """);
+            flow["edges"] = JsonNode.Parse("""
+                [ { "id": "e1", "from": "start", "to": "lead" }, { "id": "e2", "from": "lead", "to": "split" },
+                  { "id": "e3", "from": "split", "to": "n1" }, { "id": "e4", "from": "split", "to": "n2" },
+                  { "id": "e5", "from": "n1", "to": "merge" }, { "id": "e6", "from": "n2", "to": "merge" }, { "id": "e7", "from": "merge", "to": "end" } ]
+                """);
+        }, Format9WithNotify);
+
+        var item = Item(await PreviewAsync(), "approvalFlow:uf-check");
+        Reason(item).Should().Be("workflowInvalid", item.ToString());
+        item.GetProperty("applicable").GetBoolean().Should().BeFalse();
+        item.ToString().Should().Contain("通知收件人設定必須有 1 到 20 項", "第二個通知節點保留、沒有收件人，不是產生重複的線");
+    }
+
+    [Fact]
     public async Task CustomerNotifyUsersRecipient_PlainExport_Still409()
     {
         await OpenAsync(Format9WithNotify);
