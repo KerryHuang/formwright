@@ -29,9 +29,20 @@ function Normalize-Remote([string]$s) {
   return $s.ToLowerInvariant()
 }
 
+# Only an explicit "not found" counts as an empty set; any other error (CIM, access, ...) must not look like "already clean".
+function Get-Rules {
+  try {
+    return @(Get-NetFirewallRule -DisplayName $Name -ErrorAction Stop)
+  } catch {
+    if ($_.CategoryInfo.Category -eq 'ObjectNotFound' -or "$($_.FullyQualifiedErrorId)" -like '*NotFound*') { return @() }
+    throw
+  }
+}
+
 function Remove-All {
-  @(Get-NetFirewallRule -DisplayName $Name -ErrorAction SilentlyContinue) | Remove-NetFirewallRule
-  $left = @(Get-NetFirewallRule -DisplayName $Name -ErrorAction SilentlyContinue)
+  $found = @(Get-Rules)
+  if ($found.Count -gt 0) { $found | Remove-NetFirewallRule }
+  $left = @(Get-Rules)
   if ($left.Count -ne 0) { throw "firewall rule '$Name' still exists after delete ($($left.Count))" }
 }
 
@@ -45,10 +56,11 @@ try {
     if ($rules.Count -ne 1) { throw "expected exactly one rule, found $($rules.Count)" }
     $r = $rules[0]
     if ("$($r.Enabled)" -ne 'True' -or "$($r.Direction)" -ne 'Inbound' -or "$($r.Action)" -ne 'Allow' -or "$($r.Profile)" -ne 'Any') { throw 'rule flags (enabled/direction/action/profile) are not as requested' }
-    $port = $r | Get-NetFirewallPortFilter
-    if ("$($port.Protocol)" -ne 'TCP' -or "$($port.LocalPort)" -ne $Port) { throw "rule port is $($port.Protocol)/$($port.LocalPort), expected TCP/$Port" }
-    $app = ($r | Get-NetFirewallApplicationFilter).Program
-    if ($app -ine $Program) { throw "rule program is '$app', expected '$Program'" }
+    # PowerShell variable names are case-insensitive: never reuse $Port / $Program / $RemoteIp (the expected values) for read-back objects.
+    $portFilter = $r | Get-NetFirewallPortFilter
+    if ("$($portFilter.Protocol)" -ne 'TCP' -or "$($portFilter.LocalPort)" -ne $Port) { throw "rule port is $($portFilter.Protocol)/$($portFilter.LocalPort), expected TCP/$Port" }
+    $appFilter = $r | Get-NetFirewallApplicationFilter
+    if ($appFilter.Program -ine $Program) { throw "rule program is '$($appFilter.Program)', expected '$Program'" }
     $got = @(($r | Get-NetFirewallAddressFilter).RemoteAddress | ForEach-Object { Normalize-Remote "$_" } | Sort-Object)
     $want = @($remote | ForEach-Object { Normalize-Remote $_ } | Sort-Object)
     if (($got -join ',') -ne ($want -join ',')) { throw "rule remote scope is '$($got -join ',')', expected '$($want -join ',')'" }
