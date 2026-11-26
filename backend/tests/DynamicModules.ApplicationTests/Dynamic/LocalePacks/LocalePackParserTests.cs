@@ -244,6 +244,19 @@ public class LocalePackParserTests
         p.DesignDataCount.Should().Be(5);
     }
 
+    /// <summary>審查 r1 🟡8：路徑與原文也過安全檢查；拒收清單回顯的路徑把禁用字元換成 U+FFFD、截到上限，不原樣回顯。</summary>
+    [Fact]
+    public void DesignData_UnsafePathOrSource_Rejected_KeySanitized()
+    {
+        var longPath = new string('p', LocalePackLimits.MaxDesignPathLength + 1);
+        var p = Ok(Pack(rest: "\"designData\":{\"a\\u202Eb\":{\"text\":\"X\"},\"" + longPath + "\":{\"text\":\"Y\"},"
+            + "\"c\":{\"text\":\"Z\",\"source\":\"s\\u2066t\"},\"d\":{\"text\":\"W\",\"source\":\"ok\"}}"));
+        p.DesignData.Keys.Should().BeEquivalentTo(["d"]);
+        p.DesignDataProblems.Select(x => (x.Key, x.Reason)).Should().BeEquivalentTo([
+            ("a\uFFFDb", LocalePackReasons.Control), (longPath[..LocalePackLimits.MaxDesignPathLength], LocalePackReasons.TooLong), ("c", LocalePackReasons.Control)]);
+        p.DesignDataCount.Should().Be(4);
+    }
+
     [Fact]
     public void DesignData_Array_SectionNotObject() => Error(Pack(rest: "\"designData\":[1]")).Should().Be("designData 段必須是 JSON 物件");
 }
