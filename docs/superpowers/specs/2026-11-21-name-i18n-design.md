@@ -651,7 +651,7 @@ i3c 背景實作（2026-11-26）時自己定的技術做法，以及設計沒寫
 14. **刪除應用程式前的檢查**（§22.3 第 6 點）：`AppDeleteInspector` 的報表名稱、擋住刪除的儀表板名稱依請求語系解析。
 15. **已知收緊**（修正輪 🟢5）：`TemplateValidator` 新增規則訊息、清單檢視名稱的語系鍵檢查。以前 C# 沒驗這兩處，已存在資料庫的格式 2–9 套件若在這兩處帶了四語以外的鍵，重讀時會變不合法。schema 本來就不允許，實際上不太可能出現，只記一筆。
 16. **schema 的語系鍵上限**：`app.schema.json` 多語物件的 `maxProperties`，`AppSchemaTests` 斷言等於 `I18nNameRules.MaxLocales`（修正輪 🟢2）。通知範本內文（fg6）伺服器沒有語系鍵上限，schema 也不寫。schema 不另用 `if/then` 寫「`excludeFromAi`、多語報表名稱只在格式 10 起」，版本規則以 C# 驗證器為準。
-17. **不在本段範圍**：內建 event-registration、quality-inspection 兩份套件（格式 8）不升格式、報表名稱不補四語，見 backlog 票（修正輪 🟡5）。
+17. **不在本段範圍**：內建 event-registration、quality-inspection 兩份套件（格式 8）不升格式、報表名稱不補四語，見 backlog 票 #124（修正輪 🟡5）。
 
 ### 24.2 使用者行為（代做）
 
