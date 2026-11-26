@@ -58,6 +58,19 @@ public class AppSchemaTests
     }
 
     [Fact]
+    public void AppSchema_FormatVersionBindsFlowShape()
+    {
+        // 與 AppPackageValidator.V8 一致（審查 🟢1）：格式 9 起 approvalFlows 只收 graph，格式 8 以下只收 sequence；schema 不比 C# 寬
+        string? ShapeWhen(string bound, int value) => Schema().GetProperty("allOf").EnumerateArray()
+            .Where(x => x.TryGetProperty("if", out var c) && c.GetProperty("properties").GetProperty("formatVersion").TryGetProperty(bound, out var v) && v.GetInt32() == value)
+            .Select(x => x.GetProperty("then").GetProperty("properties").GetProperty("approvalFlows").GetProperty("items").GetProperty("properties")
+                .GetProperty("shape").GetProperty("const").GetString())
+            .SingleOrDefault();
+        ShapeWhen("minimum", 9).Should().Be("graph");
+        ShapeWhen("maximum", 8).Should().Be("sequence");
+    }
+
+    [Fact]
     public void AppSchema_ManifestKind_ListsAppMasterTemplate() =>
         Schema().GetProperty("$defs").GetProperty("manifest").GetProperty("properties").GetProperty("kind").GetProperty("enum")
             .EnumerateArray().Select(v => v.GetString()).Should().Equal("app", "master", "template");
