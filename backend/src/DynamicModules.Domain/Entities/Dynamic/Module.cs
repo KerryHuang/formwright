@@ -43,7 +43,7 @@ public class Module : AuditableEntity
         string.IsNullOrEmpty(Section) ? null
         : SectionI18n ?? new I18nText([KeyValuePair.Create(I18nText.FallbackLocale, Section)]);
 
-    /// <summary>設定選單分區：Section 取繁中、SectionI18n 存整個物件；繁中空白視同不分區，兩者都清成 null。</summary>
+    /// <summary>設定選單分區：Section 取繁中、SectionI18n 存整個物件；繁中空白視同不分區，兩者都清成 null；空白的其他語系丟掉。</summary>
     public void SetSection(I18nText? text)
     {
         var zh = text?.Values.GetValueOrDefault(I18nText.FallbackLocale);
@@ -55,7 +55,8 @@ public class Module : AuditableEntity
         }
         Section = zh;
         // 每次給新的實例，EF 才偵測得到 JSON 欄位變更
-        SectionI18n = new I18nText(text!.Values);
+        // 空字串的語系不存（名稱多語設計 §9 第 3 點）
+        SectionI18n = new I18nText(text!.Values.Where(kv => !string.IsNullOrWhiteSpace(kv.Value)));
     }
 
     /// <summary>metadata 異動時呼叫：版本加一並更新修改稽核。</summary>

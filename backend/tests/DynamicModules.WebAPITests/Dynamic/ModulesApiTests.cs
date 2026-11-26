@@ -72,17 +72,105 @@ public class ModulesApiTests : IClassFixture<TestApp>
     }
 
     [Fact]
-    public async Task Create_SectionWithBlankZhTw_HasNoSection()
+    public async Task Create_SectionWithBlankZhTwButOtherLocale_Returns400()
+    {
+        var res = await _admin.PostAsJsonAsync($"{Base}/modules", new
+        {
+            key = NewKey(), name = new Dictionary<string, string> { ["zh-TW"] = "x" },
+            section = new Dictionary<string, string> { ["zh-TW"] = " ", ["en-US"] = "Sales" }
+        });
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync()).Should().Contain("選單分區有其他語系時必須有繁體中文");
+    }
+
+    [Fact]
+    public async Task Create_SectionAllBlank_HasNoSection()
     {
         var key = NewKey();
         (await _admin.PostAsJsonAsync($"{Base}/modules", new
         {
             key, name = new Dictionary<string, string> { ["zh-TW"] = "x" },
-            section = new Dictionary<string, string> { ["zh-TW"] = " ", ["en-US"] = "Sales" }
+            section = new Dictionary<string, string> { ["zh-TW"] = " ", ["en-US"] = "" }
         })).StatusCode.Should().Be(HttpStatusCode.Created);
 
         (await JsonOf(await _admin.GetAsync($"{Base}/modules/{key}"))).TryGetProperty("section", out var s)
             .Should().BeFalse($"沒有分區時不回 section，實際：{s}");
+    }
+
+    // 名稱多語設計 §18.5 M1：舊畫面送字串，當作只有繁中
+    [Fact]
+    public async Task Update_SectionAsString_IsZhTwOnly()
+    {
+        var key = await CreateModule(_admin);
+
+        var res = await _admin.PutAsJsonAsync($"{Base}/modules/{key}", new
+        {
+            name = new Dictionary<string, string> { ["zh-TW"] = "x" }, section = "主檔"
+        });
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var section = (await JsonOf(await _admin.GetAsync($"{Base}/modules/{key}"))).GetProperty("section");
+        section.EnumerateObject().Select(p => (p.Name, p.Value.GetString())).Should().Equal(("zh-TW", "主檔"));
+    }
+
+    [Fact]
+    public async Task Create_SectionAsString_IsZhTwOnly()
+    {
+        var key = NewKey();
+        (await _admin.PostAsJsonAsync($"{Base}/modules", new
+        {
+            key, name = new Dictionary<string, string> { ["zh-TW"] = "x" }, section = "主檔"
+        })).StatusCode.Should().Be(HttpStatusCode.Created);
+
+        (await JsonOf(await _admin.GetAsync($"{Base}/modules/{key}"))).GetProperty("section").GetProperty("zh-TW").GetString().Should().Be("主檔");
+    }
+
+    // M2
+    [Fact]
+    public async Task Update_SectionWithoutZhTw_Returns400()
+    {
+        var key = await CreateModule(_admin);
+
+        var res = await _admin.PutAsJsonAsync($"{Base}/modules/{key}", new
+        {
+            name = new Dictionary<string, string> { ["zh-TW"] = "x" },
+            section = new Dictionary<string, string> { ["en-US"] = "Master" }
+        });
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync()).Should().Contain("選單分區有其他語系時必須有繁體中文");
+    }
+
+    // M3
+    [Fact]
+    public async Task Update_SectionEmptyOtherLocale_IsDropped()
+    {
+        var key = await CreateModule(_admin);
+
+        (await _admin.PutAsJsonAsync($"{Base}/modules/{key}", new
+        {
+            name = new Dictionary<string, string> { ["zh-TW"] = "x" },
+            section = new Dictionary<string, string> { ["zh-TW"] = "主檔", ["en-US"] = "" }
+        })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var section = (await JsonOf(await _admin.GetAsync($"{Base}/modules/{key}"))).GetProperty("section");
+        section.EnumerateObject().Select(p => p.Name).Should().Equal("zh-TW");
+    }
+
+    [Fact]
+    public async Task Update_SectionNullValue_Returns400()
+    {
+        var key = await CreateModule(_admin);
+
+        var res = await _admin.PutAsJsonAsync($"{Base}/modules/{key}", new
+        {
+            name = new Dictionary<string, string> { ["zh-TW"] = "x" },
+            section = new Dictionary<string, string?> { ["zh-TW"] = "主檔", ["en-US"] = null }
+        });
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync()).Should().Contain("語系 en-US 的文字不能是空值");
     }
 
     [Fact]

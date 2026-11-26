@@ -22,12 +22,22 @@ public static class ModuleRules
 
     public const int SectionMaxLength = 100;
 
-    /// <summary>選單分區：可省略；語系鍵同 <see cref="I18nText.IsWellFormed"/>；每個語系值不超過 100 字。繁中空白不算錯，視同不分區。</summary>
+    /// <summary>
+    /// 選單分區：可省略；語系鍵同 <see cref="I18nText.IsWellFormed"/>；拒收 null 值；每個語系值不超過 100 字；
+    /// 有任何非空值時繁中必填（分組鍵是繁中，名稱多語設計 §9 第 4 點）。全部語系都空白視同不分區，不算錯。
+    /// </summary>
     public static IRuleBuilderOptions<T, I18nText?> ValidModuleSection<T>(this IRuleBuilder<T, I18nText?> rule) =>
         rule.Must(s => UnsupportedLocale(s) is null)
             .WithMessage((_, s) => $"不支援的語系：{UnsupportedLocale(s)}")
+            .Must(s => NullValueLocale(s) is null)
+            .WithMessage((_, s) => I18nNameRules.NullValue(NullValueLocale(s)!))
             .Must(s => s is null || s.Values.Values.All(v => (v?.Length ?? 0) <= SectionMaxLength))
-            .WithMessage($"選單分區不能超過 {SectionMaxLength} 字");
+            .WithMessage($"選單分區不能超過 {SectionMaxLength} 字")
+            .Must(s => s is null || !s.Values.Values.Any(v => !string.IsNullOrWhiteSpace(v))
+                || !string.IsNullOrWhiteSpace(s.Values.GetValueOrDefault(I18nText.FallbackLocale)))
+            .WithMessage("選單分區有其他語系時必須有繁體中文");
+
+    private static string? NullValueLocale(I18nText? s) => s?.Values.FirstOrDefault(kv => kv.Value is null).Key;
 
     private static string? UnsupportedLocale(I18nText? s) => s is null ? null : I18nText.InvalidLocale(s.Values.Keys);
 }

@@ -10,6 +10,7 @@ using DynamicModules.Application.Dynamic.ModuleService.Queries.GetModule;
 using DynamicModules.Application.Dynamic.ModuleService.Queries.GetModules;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.ValueObjects;
+using System.Text.Json.Serialization;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 
@@ -19,9 +20,9 @@ namespace DynamicModules.WebAPI.Controllers.v3.Dynamic;
 [Route("api/v3/dynamic")]
 public class ModulesController(IMediator mediator) : ControllerBase
 {
-    public record CreateModuleBody(string Key, I18nText Name, string? Icon, I18nText? Section,
+    public record CreateModuleBody(string Key, I18nText Name, string? Icon, [property: JsonConverter(typeof(I18nTextOrStringJsonConverter))] I18nText? Section,
         ModuleKind Kind = ModuleKind.Standalone, string? HostEntityKey = null);
-    public record UpdateModuleBody(I18nText Name, string? Icon, I18nText? Section, long? TitleFieldId, string? TitleTemplate = null,
+    public record UpdateModuleBody(I18nText Name, string? Icon, [property: JsonConverter(typeof(I18nTextOrStringJsonConverter))] I18nText? Section, long? TitleFieldId, string? TitleTemplate = null,
         bool? TasksEnabled = null);
     public record AddBlockBody(I18nText Label);
     public record UpdateBlockBody(I18nText Label, bool Collapsed, int? Columns);

@@ -55,4 +55,15 @@ public class ModuleSectionTests
         m.Section.Should().BeNull();
         m.SectionI18n.Should().BeNull();
     }
+
+    // 名稱多語設計 §9 第 3 點：存檔前丟掉空字串的語系
+    [Fact]
+    public void SetSection_DropsEmptyLocales()
+    {
+        var m = new Module();
+
+        m.SetSection(Make(("zh-TW", "主檔"), ("en-US", ""), ("th", "  ")));
+
+        m.SectionI18n!.Values.Keys.Should().Equal("zh-TW");
+    }
 }
