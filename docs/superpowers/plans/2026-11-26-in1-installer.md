@@ -46,7 +46,7 @@
 
 ## Review Focus
 
-1. **Windows 服務自行結束後沒被重啟**：精靈完成時站台以 `StopApplication` 結束，Windows SCM 把「回報已停止」當正常停止，失敗復原不觸發，服務停在「已停止」，客戶再也打不開。期望：服務在 60 秒內以一般模式回來。→ Task 14 `setup-complete-restarts-service`（Windows e2e）；Task 5 先讓結束碼可觀察（`SetupCompletion_SetsExitCode75`）。若 e2e 證實 SCM 不吃結束碼，Task 5 改成回應送完後 `Environment.Exit(75)`（只動 `SetupRestart.Default`）。
+1. **Windows 服務自行結束後沒被重啟**：精靈完成時若以 `StopApplication` 正常停止，Windows SCM 把「回報已停止」當正常停止，失敗復原不觸發，服務停在「已停止」，客戶再也打不開。期望：服務在 60 秒內以一般模式回來。→ Task 5 改用回應送完後 `Environment.Exit(75)`（`SetupCompletion_ExitsAfterResponse_With75`）；Task 14 `setup-complete-restarts-service`（Windows e2e）驗 SCM 真的重啟。
 2. **設定模式期間打其他 API**（例如 `POST auth/login`、`GET me`）：期望 503 `setupRequired`，不建資料庫檔、不建 admin、不產生隨機密碼 log。→ Task 3 `SetupMode_OtherApi_Is503_AndNoDatabaseCreated`。
 3. **精靈還沒跑完就升級**（裝好放著、隔週裝新版）：期望 `--backup-now` 回 0（沒有資料可備份）、升級繼續、仍是設定模式、設定碼不變。→ Task 6 `BackupNow_InSetupMode_ExitsZeroWithoutDatabase`；Task 12 e2e `upgrade-while-pending`。
 4. **設定碼照畫面抄的變化**（小寫、前後空白、少了或多了連字號）：期望照樣接受；空字串、少一碼、`000000`：403。→ Task 3 `SetupCode_Normalization_Theory`、`WrongCode_Is403_AC10`。
@@ -77,14 +77,14 @@
     - `InvalidServerPort_Throws`：`[Theory]` `"0"`、`"70000"`、`"abc"` → 例外訊息含 `Server:Port`。
   - `InstallConfigTests`（WebAPITests，自建暫存目錄，`WebApplicationFactory<Program>` 子類只 `UseSetting(Install:ConfigFile, …)`）：
     - `NoConfigFile_StartsAsBefore`：既有 `TestApp` 不設 `Install:ConfigFile` → `GET /api/health` 200（防回歸）。
-    - `ConfigFile_OverridesEnvironmentStyleSettings`：設定檔寫 `{"Reports":{"MaxRows":123}}`、`UseSetting("Reports:MaxRows","50000")` → 解析出的 `ReportOptions.MaxRows == 123`。
+    - `ConfigFile_OverridesEnvironmentStyleSettings`：設定檔寫暫存目錄的 `ConnectionStrings:Dynamic`（`Data Source=<tmp>/fw.db`）、`DataProtection:KeysDirectory`、`Attachments:Root`，再加 `{"Reports":{"MaxRows":123}}`；`UseSetting("Reports:MaxRows","50000")` → 解析出的 `ReportOptions.MaxRows == 123`，且資料庫檔建在 `<tmp>/fw.db`（不能退回 `appsettings.json` 的 `../../data/poc.db` 動到開發機的資料庫）。本 task 所有起主機的測試都要這樣給齊暫存路徑。
     - `ConfigFile_Missing_RefusesToStart`：指到不存在的檔 → `CreateClient()` 丟 `InvalidOperationException`，訊息含該路徑。
     - `ConfigFile_Relative_RefusesToStart`：`"formwright.json"` → 丟例外，訊息含 `Install:ConfigFile`。
 - [ ] **Step 2: 跑測試確認失敗**
   Run: `dotnet test tests/DynamicModules.WebAPITests --filter "FullyQualifiedName~Setup.ListenAddressTests|FullyQualifiedName~Setup.InstallConfigTests"`
   Expected: FAIL（型別不存在）。
 - [ ] **Step 3: 實作**
-  - `Program.cs` 在 `CreateBuilder(args)` 之後依序：`InstallConfig.AddConfigFile(builder.Configuration)`；`builder.Host.UseWindowsService(o => o.ServiceName = "Formwright")`；`builder.Host.UseSystemd()`（兩者不在服務管理員底下時不做事，`dotnet run`、Docker、測試不受影響）。`--install-init` 與容器自動初始化要排在 `AddConfigFile` 之前，由 Task 2 插入。
+  - `Program.cs` 在 `CreateBuilder(args)` 之後依序：`InstallConfig.AddConfigFile(builder.Configuration)`；`builder.Services.AddWindowsService(o => o.ServiceName = "Formwright")`；`builder.Services.AddSystemd()`（用 Services 版，不用會改 content root 的 `Host.UseWindowsService`；兩者不在服務管理員底下時不做事，`dotnet run`、Docker、測試不受影響）。content root 由服務定義的工作目錄決定（Task 10 `WorkingDirectory`、Task 13 的服務在 `{app}` 執行），CLI 也一律在程式目錄執行。`--install-init` 與容器自動初始化要排在 `AddConfigFile` 之前，由 Task 2 插入。
   - 第 58–60 行改成 `builder.WebHost.UseUrls(ListenAddress.Resolve(builder.Configuration, Environment.GetEnvironmentVariable("PORT")))`，註解改寫成三段順序。
 - [ ] **Step 4: 跑測試確認通過**（同 Step 2；另跑 `--filter "FullyQualifiedName~DatabaseProviderStartupTests|FullyQualifiedName~HealthTests"` 防回歸）Expected: PASS。
 - [ ] **Step 5: 本機驗 `dotnet run` 不變**：`cd src/DynamicModules.WebAPI && dotnet run` → log 顯示聽 `http://127.0.0.1:5180`；Ctrl-C 結束。`docker build -t fw-in1 .`（本機有 Docker 才跑）後 `docker run --rm -p 8080:8080 -e Auth__InitialAdminPassword=Fw-test-2026 fw-in1` → `curl -s localhost:8080/api/health` 回 `{"status":"ok"}`。沒有 Docker 就在交付說明寫「容器啟動由 Task 12 的 docker job 驗」。
@@ -95,6 +95,7 @@
 **Files:**
 - Create: `WebAPI/Setup/SetupCode.cs`
 - Create: `WebAPI/Setup/InstallInitializer.cs`
+- Create: `WebAPI/Setup/InstallConfigWriter.cs`
 - Modify: `WebAPI/Program.cs`（`AddConfigFile` 之前：`--install-init` 分支與 `Install:InitIfMissing` 自動初始化）
 - Test: `WebAPITests/Setup/SetupCodeTests.cs`、`WebAPITests/Setup/InstallInitializerTests.cs`
 
@@ -120,7 +121,7 @@
 - [ ] **Step 1: 寫失敗測試**
   - `SetupCodeTests`：
     - `Generate_Is12CharsInGroupsOf4_FromAlphabet`：100 次，`^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$`。
-    - `SetupCode_Normalization_Theory`（Review Focus 4）：期望碼 `K7QM-3HZP-W2XA`，`"k7qm-3hzp-w2xa"`、`" K7QM3HZPW2XA "`、`"K7QM 3HZP W2XA"` → true；`""`、`null`、`"K7QM-3HZP-W2X"`、`"000000"` → false。
+    - `SetupCode_Normalization_Theory`（Review Focus 4）：期望碼 `K7QM-3HZP-W2XA`，`"k7qm-3hzp-w2xa"`、`" K7QM3HZPW2XA "`、`"K7QM 3HZP W2XA"`、`"K7QM--3HZP-W2XA-"` → true；`""`、`null`、`"K7QM-3HZP-W2X"`、`"000000"` → false。
     - `Ensure_KeepsExistingCode`：先 `Ensure` 拿到 A，再 `Ensure` 得 A、`created == false`。
     - `Ensure_FileIsOwnerOnly`（非 Windows 才斷言）：`File.GetUnixFileMode` 等於 `UserRead | UserWrite`。
   - `InstallInitializerTests`：
@@ -134,7 +135,7 @@
   Expected: FAIL（型別不存在）。
 - [ ] **Step 3: 實作**
   - `Program.cs`：`CreateBuilder` 之後、`AddConfigFile` 之前：`if (args.Contains("--install-init")) return InstallInitializer.Run(builder.Configuration, Console.Out);`，接著 `InstallInitializer.EnsureForContainer(builder.Configuration, Console.Out);`。
-  - 設定檔用 `System.Text.Json` 的 `JsonObject` 組、`WriteIndented = true`；寫檔照 Task 5 的 `InstallConfigWriter.WriteAtomic`（本 task 先建這個 helper：同目錄暫存檔 → `File.Move(overwrite: true)`；非 Windows 設 `UserRead | UserWrite`），Task 5 沿用。
+  - 設定檔用 `System.Text.Json` 的 `JsonObject` 組、`WriteIndented = true`；寫檔用 `public static class InstallConfigWriter`：`static JsonObject Read(string path)`、`static void WriteAtomic(string path, JsonObject content)`（同目錄暫存檔 → `File.Move(overwrite: true)`；非 Windows 設 `UserRead | UserWrite`），Task 5 沿用。
 - [ ] **Step 4: 跑測試確認通過**（同 Step 2）Expected: PASS（`Container_InitIfMissing_ThenSetupMode` 為 Skip）。
 - [ ] **Step 5: Commit** `feat(in1a): --install-init 產生安裝設定檔與一次性設定碼`
 
@@ -148,7 +149,7 @@
 
 **Interfaces:**
 - Consumes: Task 1 `InstallConfig`、`ListenAddress`；Task 2 `SetupCode`、`InstallInitializer.Run`（測試用它造設定檔）。
-- Produces: `public static class SetupHost`：`const int RestartExitCode = 75`；`static Task<int> RunAsync(WebApplicationBuilder builder)`：只註冊 `IPasswordService`、`TimeProvider.System`、`SetupRestart`（Task 5）、`SetupChecks`（Task 4），不註冊資料庫；`app.Run` 結束後回 `Environment.ExitCode`。啟動時 `SetupCode.Ensure(Install:DataDirectory)` 並以 Warning 記 `設定精靈的設定碼：{Code}`（每次以設定模式啟動都記；Docker 從 `docker compose logs` 看得到，D-11）。
+- Produces: `public static class SetupHost`：`const int RestartExitCode = 75`；`static Task<int> RunAsync(WebApplicationBuilder builder)`：本 task 只註冊 `IPasswordService`、`TimeProvider.System`，不註冊資料庫；Task 4 加 `SetupChecks`、Task 5 加 `SetupRestart`；`app.Run` 結束後回 `Environment.ExitCode`。啟動時 `SetupCode.Ensure(Install:DataDirectory)` 並以 Warning 記 `設定精靈的設定碼：{Code}`（每次以設定模式啟動都記；Docker 從 `docker compose logs` 看得到，D-11）。
 - Produces（HTTP 契約，in1b 用）：
   - `GET /api/setup/status` → 200 `{ "setupPending": true }`；一般模式這條路由不存在（落到既有 404）。
   - `POST /api/setup/verify`，body `{ "code": string }` → 204；錯誤 403 `{ "code": "setupCodeInvalid" }`。
@@ -162,7 +163,7 @@
   - `NormalMode_SetupEndpoints_Are404_AC04`：一般 `TestApp` → `GET /api/setup/status`、`POST /api/setup/verify`、`POST /api/setup/complete` 都 404。
   - `RightCode_Verifies`：`POST verify { code = factory.Code.ToLowerInvariant() }` → 204。
   - `WrongCode_Is403_AC10`：`[Theory]` `"000000"`、`""` → 403、`code == "setupCodeInvalid"`；帶錯 `X-Setup-Code` 打 `POST /api/setup/checks` → 403（看不到後續步驟的資料）。
-  - `SetupMode_OtherApi_Is503_AndNoDatabaseCreated`（Review Focus 2）：`POST /api/v3/dynamic/auth/login`、`GET /api/v3/dynamic/me` → 503 `setupRequired`；資料目錄裡沒有 `formwright.db`。
+  - `SetupMode_OtherApi_Is503_AndNoDatabaseCreated`（Review Focus 2）：`POST /api/v3/dynamic/auth/login`、`GET /api/v3/dynamic/me` → 503 `setupRequired`；資料目錄裡沒有 `formwright.db`；收到的 log 沒有「已產生初始管理員密碼」那句。
   - `SetupMode_ServesBuiltinUiMessages`：`GET /api/v3/dynamic/i18n/ui/en-US` 200，主體含 `shared/i18n/en-US/ui.json` 第一個鍵的英文值（測試讀檔取鍵，不寫死）；`/i18n/ui/xx-XX` 404。
   - `SetupMode_LogsCode`：用 `ILoggerProvider` 測試替身收 log → 有一筆 Warning 含 `factory.Code`。
   - 拿掉 Task 2 `Container_InitIfMissing_ThenSetupMode` 的 Skip。
@@ -182,8 +183,8 @@
 
 **Interfaces:**
 - Consumes: `BackupSettings.Create`（重疊判斷，`BackupSettings.cs:23`）、`PostgresDatabaseBackup.ToolsProblem`／`ParseMajor`（`PostgresDatabaseBackup.cs:90`、`:140`）、`PgDumpSettings`。
-- Produces: `public sealed record SetupDraft(string Provider, string? ConnectionString, string BackupRoot)`（`Provider` 是 `sqlite` 或 `postgres`；`BackupRoot` 省略時用設定檔現值）；`public sealed record SetupCheckItem(string Key, bool Ok, string? Path = null, string? Problem = null, IReadOnlyDictionary<string, string>? Params = null)`；`public sealed class SetupChecks`：`Task<IReadOnlyList<SetupCheckItem>> RunAsync(SetupDraft draft, CancellationToken ct)`。
-- 項目（`Key` 固定順序）：`dataDirectory`、`keysDirectory`、`backupDirectory`、`database`，`Provider = postgres` 時再加 `pgDump`。`Problem` 代碼：`notWritable`、`notAbsolute`、`overlaps`（`Params.with` 是重疊的那個目錄）、`existingData`（資料庫已有 Formwright 的資料表；SQLite 是 `formwright.db` 已存在且有 `__EFMigrationsHistory`，PostgreSQL 是目標庫有 `__EFMigrationsHistory`）、`connectFailed`（`Params.detail` 是 Npgsql 例外的類別名稱，不帶連線字串）、`pgDumpMissing`、`pgDumpVersion`（`Params.client`、`Params.server`）、`invalidConnectionString`。
+- Produces: `public sealed record SetupDraft(string? Provider = null, string? ConnectionString = null, string? BackupRoot = null)`（`Provider` 是 `sqlite` 或 `postgres`，null＝`sqlite`；`BackupRoot` null＝設定檔現值；端點收 `SetupDraft?`，整個 body 省略＝全部預設）；`public sealed record SetupCheckItem(string Key, bool Ok, string? Path = null, string? Problem = null, IReadOnlyDictionary<string, string>? Params = null)`；`public sealed class SetupChecks`：`Task<IReadOnlyList<SetupCheckItem>> RunAsync(SetupDraft draft, CancellationToken ct)`。
+- 項目（`Key` 固定順序）：`dataDirectory`、`keysDirectory`、`backupDirectory`、`database`，`Provider = postgres` 時再加 `pgDump`。`Problem` 代碼：`notWritable`、`notAbsolute`、`overlaps`（`Params.with` 是重疊的那個目錄）、`existingData`（計畫自加的防線，待使用者確認，見結果檔待決；裁決不要就拿掉這個代碼與 `ExistingSqliteDatabase_IsExistingData`。判斷：資料庫已有 Formwright 的資料表；SQLite 是 `formwright.db` 已存在且有 `__EFMigrationsHistory`，PostgreSQL 是目標庫有 `__EFMigrationsHistory`）、`connectFailed`（`Params.detail` 是 Npgsql 例外的類別名稱，不帶連線字串）、`pgDumpMissing`、`pgDumpVersion`（`Params.client`、`Params.server`）、`invalidConnectionString`。
 - 「可寫」的判斷：目錄不存在就建，寫入再刪除一個 `.fw-write-test-<guid>` 暫存檔；任一步例外即 `notWritable`。
 - HTTP：`POST /api/setup/checks`（`X-Setup-Code`），body `SetupDraft`（可省略，省略＝SQLite＋設定檔現值）→ 200 `{ "items": SetupCheckItem[], "ok": bool }`。
 
@@ -208,7 +209,7 @@
 **Files:**
 - Create: `WebAPI/Setup/SetupCompletion.cs`（含 `SetupRestart`）
 - Create: `WebAPI/Setup/SetupPayload.cs`
-- Create: `WebAPI/Setup/InstallConfigWriter.cs`（Task 2 已建則 Modify）
+- 沿用：`WebAPI/Setup/InstallConfigWriter.cs`（Task 2 建）
 - Modify: `WebAPI/Setup/SetupEndpoints.cs`（`POST /api/setup/complete`）
 - Modify: `WebAPI/Security/AdminBootstrap.cs:20-50`（`EnsureAsync` 多收 `SetupPayload? setup`）
 - Modify: `WebAPI/Program.cs:306-314`（讀 payload、傳給 `AdminBootstrap`、套用網站名稱、成功後刪檔）
@@ -217,19 +218,20 @@
 
 **Interfaces:**
 - Consumes: Task 3 `SetupHost`、Task 4 `SetupChecks`、`SetupDraft`。
-- Produces: `public sealed record SetupCompleteBody(string Provider, string? ConnectionString, string AdminPassword, string SiteName, string BackupRoot)`；`POST /api/setup/complete`（`X-Setup-Code`）→ 200 `{ "restarting": true }`；驗證錯 422 `{ "errors": { "<欄位>": ["<代碼>"] } }`，代碼 `passwordTooShort`（`params.min`）、`siteNameRequired`、`siteNameTooLong`（`params.max`）、`siteNameControlChars`；檢查有紅燈 422 `{ "code": "checksFailed", "items": SetupCheckItem[] }`。
+- Produces: `public sealed record SetupCompleteBody(string? Provider, string? ConnectionString, string AdminPassword, string SiteName, string BackupRoot)`；`public sealed record SetupFieldError(string Code, IReadOnlyDictionary<string, object>? Params = null)`；`POST /api/setup/complete`（`X-Setup-Code`）→ 200 `{ "restarting": true }`；驗證錯 422 `{ "code": "invalid", "errors": { "<欄位 camelCase>": SetupFieldError[] } }`（例 `{"adminPassword":[{"code":"passwordTooShort","params":{"min":8}}]}`），代碼 `passwordTooShort`（`params.min`）、`siteNameRequired`、`siteNameTooLong`（`params.max`）、`siteNameControlChars`；檢查有紅燈 422 `{ "code": "checksFailed", "items": SetupCheckItem[] }`。前端 Task 7 的型別照這兩個形狀。
+- 密碼最短長度：設定模式沒有資料庫政策，取一般模式在沒有資料庫覆寫時的生效值（部署出廠值有設就用它，見 `PolicyEnvironmentDefaults` 與 `AttachmentSettingsFactory.Create` 產出的 `policyDefaults`；沒有就是 `PolicyCatalog.AuthPasswordMinLength` 的出廠值）。實作者先核對 `PolicyEnvironmentDefaults` 是否涵蓋 `auth.passwordMinLength`，不涵蓋就只讀 `PolicyCatalog`，並在交付說明寫明。
 - Produces: `public sealed record SetupPayload(string PasswordHash, string SiteName)`；`const string FileName = "setup-pending.json"`；`static SetupPayload? Read(string? dataDirectory)`；`static void Write(string dataDirectory, SetupPayload p)`（權限同設定碼檔）；`static void Delete(string dataDirectory)`。
-- Produces: `public sealed class SetupRestart(Action<int> exit)`；`static SetupRestart Default`（設 `Environment.ExitCode = code` 後 `IHostApplicationLifetime.StopApplication()`，在回應送完後執行：`HttpContext.Response.OnCompleted`）；測試替身記錄收到的碼。
+- Produces: `public sealed class SetupRestart(Action<int> exit)`：`public void Exit(int code) => exit(code)`；`public static SetupRestart Process => new(code => { Environment.ExitCode = code; Environment.Exit(code); })`。端點在 `HttpContext.Response.OnCompleted` 裡呼叫 `Exit(SetupHost.RestartExitCode)`（回應送完才結束）。直接 `Environment.Exit` 是因為 Windows SCM 對「回報已停止」的正常停止不跑失敗復原，程序以非 0 結束碼直接結束才算失敗（Review Focus 1；Task 14 驗）。`SetupHost` 註冊 `SetupRestart.Process`，測試以 `ConfigureTestServices` 換成記錄收到的碼的替身。
 - Produces: `AdminBootstrap.EnsureAsync(..., SetupPayload? setup = null, CancellationToken ct = default)`：沒有可用管理員且 `setup` 不是 null 時，用 `setup.PasswordHash` 建／補 admin、`MustChangePassword = false`、log `已用設定精靈設定管理員 admin 的密碼`；已有可用管理員時 `setup` 不生效、log Warning `設定精靈的密碼沒有套用：資料庫已有可用的管理員`。`Auth:ResetAdminPassword` 照舊最優先。
 - 完成時的寫入順序（當機時能重來）：(1) 重跑檢查，有紅燈即 422、什麼都不寫；(2) `SetupPayload.Write`；(3) 改設定檔：`Backup:Root`，`Provider = postgres` 時 `Database:Provider=Postgres` 與 `ConnectionStrings:Dynamic`，移除 `Setup` 節，`InstallConfigWriter.WriteAtomic`；(4) `SetupCode.Delete`；(5) 回 200，回應送完後 `SetupRestart.Exit(75)`。
 - 一般啟動：`Program.cs` 在 `SeedData.EnsureSeededAsync` 之後讀 `SetupPayload.Read(Install:DataDirectory)`；有值時傳給 `AdminBootstrap`，並在 `site.name` 沒有值時寫入 `setup.SiteName`（走 `ISystemSettingRepository`，和 `DemoPeople.cs:125` 同樣的判斷）；兩步都成功、`SaveChanges` 之後 `SetupPayload.Delete`。
 
 - [ ] **Step 1: 寫失敗測試**（`InstalledApp : WebApplicationFactory<Program>`：只 `UseSetting(Install:ConfigFile, …)`、`UseEnvironment("Production")`，用真實 cookie 登入）
   - `Complete_ThenRestart_LogsInWithNewPassword_AC03`：`SetupHostFactory` → `POST complete { Provider = "sqlite", AdminPassword = "Fw-test-2026", SiteName = "青禾貿易", BackupRoot = factory.BackupDirectory }` → 200；替身收到 `75`；設定檔沒有 `Setup` 節、`Backup:Root` 不變；`setup-code` 檔不在、`setup-pending.json` 在。接著以同一設定檔起 `InstalledApp` → `POST auth/login admin/Fw-test-2026` 200；`GET me` 的 `mustChangePassword == false`；`GET theme` 的網站名稱是「青禾貿易」；`GET apps` 沒有任何 `status = Open`；`GET system/ops/backups` 回應的位置等於 `factory.BackupDirectory`（AC-03 第二點，欄位名照 `BackupOverviewDto`）；`setup-pending.json` 已刪。
-  - `SetupCompletion_SetsExitCode75`（Review Focus 1）：`SetupRestart.Default` 以假 `IHostApplicationLifetime` 測：呼叫後 `Environment.ExitCode == 75`、`StopApplication` 被呼叫一次（測完把 `Environment.ExitCode` 設回 0）。
+  - `SetupCompletion_ExitsAfterResponse_With75`（Review Focus 1）：替身記錄的碼是 `75`，且替身被呼叫時回應已完成（替身裡讀到的 `HttpResponse.HasStarted == true`）；只呼叫一次。
   - `Complete_WithRedCheck_Is422_AndConfigUnchanged`（Review Focus 5）：`BackupRoot = <data>/backup` → 422 `checksFailed`；設定檔逐字不變、`setup-code` 還在、沒有 payload。
-  - `Complete_PasswordTooShort_Is422`：`"short"` → `errors.adminPassword == ["passwordTooShort"]`、`params.min == 8`（值從 `PolicyCatalog.AuthPasswordMinLength` 的出廠值讀，測試也讀它，不寫 8）。
-  - `Complete_SiteNameRules`：`[Theory]` 空白 → `siteNameRequired`；101 字 → `siteNameTooLong`；含 `\n` → `siteNameControlChars`。
+  - `Complete_PasswordTooShort_Is422`：`"short"` → `errors.adminPassword[0].code == "passwordTooShort"`、`errors.adminPassword[0].params.min` 等於生效的最短長度（測試用同一個來源取值，不寫 8）。
+  - `Complete_SiteNameRules`：`[Theory]` 空白 → `siteNameRequired`；101 字 → `siteNameTooLong`（`params.max == SiteName.MaxLength`）；含 `\n` → `siteNameControlChars`。
   - `Complete_Twice_SecondIs403`：完成後同一 `X-Setup-Code` 再送 → 403 `setupCodeInvalid`（碼已作廢，D-11）。
   - `Payload_Ignored_WhenAdminAlreadyUsable`：一般 `TestApp(fileDatabase: true)` 已有 admin，資料目錄放 payload → 重啟後舊密碼仍可登入、新雜湊不生效、payload 被刪、log 有該 Warning。
   - `NoConfigFile_AdminBootstrapUnchanged`：既有 `AuthApiTests` 與 `PermissionAxesUpgradeTests` 不改，重跑要過。
@@ -249,21 +251,28 @@
 
 **Interfaces:**
 - Consumes: `BackupSettings`、`BackupLocator.ResolveAsync`、`BackupQueue.TryEnqueueAsync`、`BackupWorker.TickAsync`、`IBackupRepository`（`BackupWorker.cs:54-100`、`:301-322`）。
-- Produces: `public static class PreUpgradeBackup`：`const int Ok = 0, Failed = 1, NotConfigured = 2`；`static Task<int> RunAsync(IServiceProvider services, TextWriter output, CancellationToken ct)`：沒設或無效 `Backup:Root` → 印 `FORMWRIGHT_BACKUP_NOT_CONFIGURED` 回 2；排一份 `BackupTrigger.Manual`、`RequestedUserId = null` 的備份（沿用「立即備份」的保留規則，不加 migration）；排不進（已有排隊或執行中）→ 印 `FORMWRIGHT_BACKUP_BUSY` 回 1；以 `BackupWorker.TickAsync` 執行到這一份結束（每輪間隔 1 秒，上限 `BackupLimits.MaxRun`）；`Succeeded` → 印 `FORMWRIGHT_BACKUP_OK <RunKey>` 回 0；其他 → 印 `FORMWRIGHT_BACKUP_FAILED <ErrorCode>` 回 1。輸出代碼是給安裝程式判讀的機器字串，安裝程式各自顯示給客戶的句子（Task 10、13）。
+- Produces: `public static class PreUpgradeBackup`：`const int Ok = 0, Failed = 1, NotConfigured = 2`；`static Task<int> RunAsync(IServiceProvider services, TextWriter output, CancellationToken ct)`，依序：
+  1. 沒設或無效 `Backup:Root`（`BackupSettings.Configured == false` 或 `Invalid`）→ 印 `FORMWRIGHT_BACKUP_NOT_CONFIGURED` 回 2。
+  2. 自己先以 `BackupLocator.ResolveAsync(adopt: true, …)` 解析位置；不是 `Ok`（`Unwritable`、`Mismatch` 等）→ 印 `FORMWRIGHT_BACKUP_FAILED location<狀態>` 回 1，不排備份（`TickAsync` 在位置不是 Ok 時直接返回，排了也不會有人執行，見 `BackupWorker.cs:66`）。
+  3. 已有排隊中的一份（服務停止前排程剛排的）→ 接手它當這一次要等的那份；已有執行中的一份 → 等它結束後再排自己的一份；都沒有 → 排一份 `BackupTrigger.Manual`、`RequestedUserId = null`（沿用「立即備份」的保留規則，不加 migration）。
+  4. 以 `BackupWorker.TickAsync` 推進，每輪間隔 1 秒；等待上限 30 分鐘（技術限制，`PreUpgradeBackup.MaxWait`，列進可寫死清單），逾時印 `FORMWRIGHT_BACKUP_FAILED timeout` 回 1。
+  5. 那一份 `Succeeded` → 印 `FORMWRIGHT_BACKUP_OK <RunKey>` 回 0；其他 → 印 `FORMWRIGHT_BACKUP_FAILED <ErrorCode>` 回 1。
+  輸出代碼是給安裝程式判讀的機器字串，安裝程式各自顯示給客戶的句子（Task 10、13）。
 - 不啟動 Kestrel、不跑 hosted service（照 `--generate-demo-data` 的分支，在 `app.Run` 之前 return）。
 
 - [ ] **Step 1: 寫失敗測試**（呼叫 `PreUpgradeBackup.RunAsync(app.Services, writer, ct)`，`TestApp(fileDatabase: true)`，照 `Ops/BackupTests.cs` 設 `Backup:Root`）
   - `BackupNow_Succeeds_AddsOneRun_AC06`：回 0；`GET system/ops/backups` 的成功份數比之前多 1；輸出含 `FORMWRIGHT_BACKUP_OK`。
-  - `BackupNow_Unwritable_Fails_AC07`（非 Windows）：備份目錄 `chmod 0500` → 回 1、輸出含 `FORMWRIGHT_BACKUP_FAILED`。
+  - `BackupNow_Unwritable_Fails_AC07`（非 Windows）：全新資料庫、備份目錄 `chmod 0500` → 10 秒內回 1、輸出含 `FORMWRIGHT_BACKUP_FAILED location`（不能等到逾時）。
+  - `BackupNow_UnwritableAfterAdopted_Fails`（非 Windows）：先成功備份一次（位置已採用），再 `chmod 0500` → 回 1、輸出含 `FORMWRIGHT_BACKUP_FAILED`、備份清單多一筆失敗。
   - `BackupNow_NotConfigured_Is2`：不設 `Backup:Root` → 回 2、輸出含 `FORMWRIGHT_BACKUP_NOT_CONFIGURED`。
-  - `BackupNow_Busy_Is1`：先以 `BackupQueue.TryEnqueueAsync` 排一份不執行 → 回 1、`FORMWRIGHT_BACKUP_BUSY`。
+  - `BackupNow_AdoptsQueuedRun`：先以 `BackupQueue.TryEnqueueAsync` 排一份（`Trigger = Schedule`）不執行 → 回 0、輸出的 `RunKey` 是那一份、成功份數只多 1。
   - `BackupNow_InSetupMode_ExitsZeroWithoutDatabase`（Review Focus 3）：`SetupHostFactory` 的設定檔，以 `Program` 的入口跑 `--backup-now`（測試用 `Process` 啟動 `dotnet DynamicModules.WebAPI.dll --backup-now --Install:ConfigFile=<檔>`，工作目錄是測試輸出的 WebAPI 組件目錄）→ 結束碼 0、輸出含 `FORMWRIGHT_BACKUP_SETUP_PENDING`、沒有 `formwright.db`、`setup-code` 內容不變。
 - [ ] **Step 2: 跑測試確認失敗**
   Run: `dotnet test tests/DynamicModules.WebAPITests --filter "FullyQualifiedName~Ops.PreUpgradeBackupTests"`
   Expected: FAIL（型別不存在）。
 - [ ] **Step 3: 實作**（照 Interfaces）。設定模式的判斷在 `SetupHost.RunAsync` 之前：`InstallConfig.IsPending && args.Contains("--backup-now")` → 印 `FORMWRIGHT_BACKUP_SETUP_PENDING` 回 0。
 - [ ] **Step 4: 跑測試確認通過**（同 Step 2；`BackupTests` 一起跑防回歸）Expected: PASS。
-- [ ] **Step 5: 子段收尾**：`dotnet test tests/DynamicModules.WebAPITests --filter "FullyQualifiedName~Setup.|FullyQualifiedName~Ops.PreUpgradeBackupTests|FullyQualifiedName~Ops.BackupTests"` 全綠；交付說明列出可寫死項目（設定碼 12 碼與字母表、結束碼 75 與 0／1／2／64、檔名 `formwright.db`／`keys`／`attachments`／`setup-code`／`setup-pending.json`、環境檢查項目、寫入測試檔名）；Demo 寫「無可示範」。
+- [ ] **Step 5: 子段收尾**：`dotnet test tests/DynamicModules.WebAPITests --filter "FullyQualifiedName~Setup.|FullyQualifiedName~Ops.PreUpgradeBackupTests|FullyQualifiedName~Ops.BackupTests"` 全綠；交付說明列出可寫死項目（設定碼 12 碼與字母表、結束碼 75 與 0／1／2／64、`PreUpgradeBackup.MaxWait` 30 分鐘、檔名 `formwright.db`／`keys`／`attachments`／`setup-code`／`setup-pending.json`、環境檢查項目、寫入測試檔名）；Demo 寫「無可示範」。
 - [ ] **Step 6: Commit** `feat(in1a): --backup-now 供安裝程式在升級前備份`
 
 ---
@@ -280,11 +289,11 @@
 
 **Interfaces:**
 - Consumes: Task 3–5 的 HTTP 契約。
-- Produces: `setup-api.ts` 用自己的 axios 實例（`baseURL: '/api/setup'`，不經 `http.ts` 的 401／403 處理）：`getStatus(): Promise<'pending' | 'notInSetup'>`（404 → `notInSetup`）；`verify(code: string): Promise<boolean>`（403 → false）；`runChecks(code: string, draft?: SetupDraft): Promise<SetupChecksResult>`；`complete(code: string, body: SetupCompleteBody): Promise<void>`（422 丟 `SetupValidationError { errors?: Record<string,{code:string;params?:Record<string,unknown>}[]>; checks?: SetupCheckItem[] }`）；型別 `SetupDraft { provider: 'sqlite' | 'postgres'; connectionString?: string; backupRoot?: string }`、`SetupCheckItem { key: string; ok: boolean; path?: string; problem?: string; params?: Record<string,string> }`、`SetupChecksResult { items: SetupCheckItem[]; ok: boolean }`、`SetupCompleteBody`（欄位同 Task 5）。
+- Produces: `setup-api.ts` 用自己的 axios 實例（`baseURL: '/api'`，路徑寫 `setup/status` 這類相對路徑；不經 `http.ts` 的 401／403 處理）：`getStatus(): Promise<'pending' | 'notInSetup'>`（404 → `notInSetup`；沒有回應或 5xx → reject）；`isReady(): Promise<boolean>`（`GET health/ready` 200 → true，其他狀態或沒有回應 → false，不 reject）；`verify(code: string): Promise<boolean>`（403 → false）；`runChecks(code: string, draft?: SetupDraft): Promise<SetupChecksResult>`；`complete(code: string, body: SetupCompleteBody): Promise<void>`（422 丟 `SetupValidationError { errors?: Record<string, { code: string; params?: Record<string, unknown> }[]>; checks?: SetupCheckItem[] }`，對應 Task 5 的 `invalid` 與 `checksFailed` 兩種形狀）；型別 `SetupDraft { provider: 'sqlite' | 'postgres'; connectionString?: string; backupRoot?: string }`、`SetupCheckItem { key: string; ok: boolean; path?: string; problem?: string; params?: Record<string,string> }`、`SetupChecksResult { items: SetupCheckItem[]; ok: boolean }`、`SetupCompleteBody`（欄位同 Task 5）。
 - Produces: 路由 `{ path: '/setup', component: () => import('src/pages/setup/SetupWizardPage.vue'), meta: { public: true, setup: true } }`。
 
 - [ ] **Step 1: 寫失敗測試**
-  - `setup-api.vitest.spec.ts`：`getStatus` 200 → `'pending'`、404 → `'notInSetup'`；`verify` 204 → true、403 → false；`runChecks` 送 `X-Setup-Code` 標頭；`complete` 422 → 丟 `SetupValidationError` 且帶 `checks`。
+  - `setup-api.vitest.spec.ts`：`getStatus` 200 → `'pending'`、404 → `'notInSetup'`、網路錯誤 reject；`isReady` 200 → true、503 與網路錯誤 → false；`verify` 204 → true、403 → false；`runChecks` 送 `X-Setup-Code` 標頭；`complete` 422 → 丟 `SetupValidationError` 且帶 `checks`。
   - `auth-guard.vitest.spec.ts`：
     - `setup route in normal mode goes to login (AC-04)`：`getStatus` → `notInSetup`，導到 `/setup` → `/login`；`getMe` 沒被呼叫。
     - `setup route in setup mode stays`：`pending` → 停在 `/setup`。
@@ -318,13 +327,13 @@
   - 管理員密碼：兩個欄位（密碼、確認）；「確認」不一致是只有前端才有的檢查，顯示 `setup.admin.mismatch`、不送出；長度由後端 422 回報，畫面顯示 `setup.error.passwordTooShort` 帶 `min`。
   - 公司名稱：一個必填欄位，說明 `setup.company.hint`（「會顯示在畫面與寄出的信件上」）。
   - 備份位置：預設值取 `runChecks` 回的 `backupDirectory.path`（不在前端寫預設路徑，TD-02）；提醒 `setup.backup.hint`（「建議改到另一顆磁碟或 NAS」，D-08）；改了值按「下一步」前重跑 `runChecks(code, { …, backupRoot })`，紅燈擋。
-  - 完成：按「完成」→ `complete`；422 `checksFailed` 回到環境檢查步驟並顯示新結果；欄位錯誤回到該欄位的步驟；成功顯示 `setup.done.restarting`，每 2 秒 `getStatus()`，變成 `notInSetup` 且 `GET /api/health/ready` 200 後 `router.replace('/login')`；120 秒還沒好顯示 `setup.done.timeout`（「請確認服務已啟動後重新整理」）與重新整理鈕。
+  - 完成：按「完成」→ `complete`；422 `checksFailed` 回到環境檢查步驟並顯示新結果；欄位錯誤回到該欄位的步驟；成功顯示 `setup.done.restarting`，每 2 秒 `getStatus()`：reject（服務重啟中、連不上）或 `pending` 都繼續等；變成 `notInSetup` 且 `isReady()` 為 true 後 `router.replace('/login')`；120 秒還沒好顯示 `setup.done.timeout`（「請確認服務已啟動後重新整理」）與重新整理鈕。
 - i18n 鍵（四語）：`setup.title`、`setup.code.{label,hint,submit,invalid}`、`setup.step.{checks,database,admin,company,backup,done}`、`setup.check.{dataDirectory,keysDirectory,backupDirectory,database,pgDump}`、`setup.problem.{notWritable,notAbsolute,overlaps,existingData,connectFailed,pgDumpMissing,pgDumpVersion,invalidConnectionString}`、`setup.database.{sqlite,sqliteHint,advanced,postgres,connectionString,test}`、`setup.admin.{password,confirm,mismatch}`、`setup.company.{label,hint}`、`setup.backup.{label,hint}`、`setup.error.{passwordTooShort,siteNameRequired,siteNameTooLong,siteNameControlChars}`、`setup.done.{submit,restarting,timeout,reload}`、`setup.recheck`、`setup.next`、`setup.back`。含 `{`、`@` 的句子用字面量寫法。
 
 - [ ] **Step 1: 寫失敗元件測試**（mock `setupApi`）
   - `wrong code stays on the code step (AC-10)`：`verify` → false → 顯示 `setup.code.invalid` 的繁中句；`setup-step-admin` 不存在。
   - `red check blocks next (AC-05)`：`runChecks` 回 `backupDirectory { ok: false, problem: 'notWritable', path: '/x/backup' }` → 顯示路徑與紅燈句；「下一步」disabled。
-  - `default path completes (AC-03)`：全綠 → 逐步填 `Fw-test-2026`、「青禾貿易」、備份不改 → `complete` 被呼叫一次，參數 `{ provider: 'sqlite', adminPassword: 'Fw-test-2026', siteName: '青禾貿易', backupRoot: <checks 回的 path> }`；之後 `getStatus` 第二次回 `notInSetup`、ready 200 → `router.replace('/login')`。
+  - `default path completes (AC-03)`：全綠 → 逐步填 `Fw-test-2026`、「青禾貿易」、備份不改 → `complete` 被呼叫一次，參數 `{ provider: 'sqlite', adminPassword: 'Fw-test-2026', siteName: '青禾貿易', backupRoot: <checks 回的 path> }`；之後 `getStatus` 第一次 reject（重啟中）、第二次回 `notInSetup`、`isReady` → true → `router.replace('/login')`；reject 那次畫面仍是 `setup.done.restarting`、沒有錯誤提示。
   - `postgres is behind advanced`：初始畫面沒有連線字串欄；展開「進階」選 PostgreSQL 才出現；`connectFailed` 時停在資料庫步驟。
   - `no error-report step (D-12)`：七個步驟的 testid 齊全，沒有其他步驟。
   - `422 checksFailed returns to checks`：`complete` 丟 `SetupValidationError { checks: [...紅] }` → 目前步驟是環境檢查、顯示新紅燈。
@@ -339,7 +348,7 @@
   1. `cd backend/src/DynamicModules.WebAPI && dotnet run -- --install-init --Install:ConfigFile=<repo>/.tmp/in1/formwright.json --Install:DataDirectory=<repo>/.tmp/in1/data --Install:BackupDirectory=<repo>/.tmp/in1/backup --Server:Port=5180`，記下輸出的設定碼。
   2. `dotnet run -- --Install:ConfigFile=<repo>/.tmp/in1/formwright.json`（設定模式，聽 5180），另開 `cd frontend && bunx quasar dev`，開 `http://127.0.0.1:9180/`。
   3. 驗：自動轉到 `/setup`；設定碼錯誤（`000000`）停在第一步；備份目錄 `chmod 0500` 後紅燈且「下一步」不能按、改回後綠；走完預設路徑後站台結束（`dotnet run` 不會自動重啟，手動再跑第 2 步的指令）、轉到登入頁、`admin`／`Fw-test-2026` 登入不要求改密碼；再開 `/setup` 轉登入頁。
-  4. 390、820、1366、1920 四種寬度，每步都不得橫向捲動；淺色、深色各看一次；切 en-US、th、vi 各看一次，沒有繁中殘留。
+  4. 390、820、1366、1920 四種寬度，每步都不得橫向捲動；淺色、深色各看一次（跟系統主題，或在瀏覽器開發者工具切 `prefers-color-scheme`）；精靈頁沒有語系切換元件，四語走查用瀏覽器的 localStorage 把 `formwright.locale` 設成 `en-US`、`th`、`vi` 後重新整理各看一次，沒有繁中殘留。
   5. `.tmp/in1/` 不進 git，走查完刪掉。
 - [ ] **Step 6: 手冊**：`docs/manual.md` §1「第一次安裝」前加「安裝版的設定精靈」一小節（文案照畫面實際文字）：設定碼從哪裡看（Windows 安裝程式最後一頁、Ubuntu 終端輸出、Docker 的 `docker compose logs`）、各步驟、完成後站台會自動重新啟動、精靈只能跑一次；原有「第一次安裝」段落開頭加一句「不是用安裝程式裝的站台（容器、開發環境）」。
 - [ ] **Step 7: Commit** `feat(in1b): 瀏覽器設定精靈頁`
@@ -387,8 +396,10 @@
 - Produces: 用法 `curl -fsSL https://github.com/<repo>/releases/latest/download/install.sh | sudo bash [-s -- <動作> [選項]]`；動作 `install`（預設，也是升級）、`remove`、`purge`；選項 `--port <n>`（只在全新安裝生效）、`--skip-backup`（備份位置沒設時才允許略過，TD-07）；環境變數 `FORMWRIGHT_PACKAGE`（本機 tarball 路徑，給 e2e 用；沒設時從 `https://github.com/$FW_REPO/releases/download/v$FW_VERSION/formwright-$FW_VERSION-linux-x64.tar.gz` 下載並以同目錄 `SHA256SUMS` 驗證）。
 - 結束碼：`0` 成功；`10` 不是 root；`11` 不支援的系統（不是 Ubuntu 22.04／24.04 或不是 x86_64）；`12` 下載或校驗失敗；`20` 升級前備份失敗（已中止、舊版照跑）；`21` 備份位置沒設且沒給 `--skip-backup`。
 - 流程：
-  - `install` 全新（`/etc/formwright/formwright.json` 不存在）：建系統使用者 `formwright`（`useradd --system --home /var/lib/formwright --shell /usr/sbin/nologin`）；解壓到 `/opt/formwright`（root 擁有、0755）；`/var/lib/formwright/{data,backup}` 擁有者 `formwright`、0700；`/etc/formwright` 擁有者 `formwright`、0700；以 `formwright` 身分跑 `/opt/formwright/DynamicModules.WebAPI --install-init --Install:ConfigFile=… --Install:DataDirectory=… --Install:BackupDirectory=… --Server:Port=<port>`；寫 `/etc/systemd/system/formwright.service`；`systemctl daemon-reload && systemctl enable --now formwright`；`ufw` 為 active 時 `ufw allow <port>/tcp`；最後印 `http://<第一個 IPv4>:<port>/` 與設定碼。
-  - `install` 已安裝：讀既有版本（`/opt/formwright/VERSION`）；`systemctl stop formwright`；以 `formwright` 身分跑**舊版**的 `--backup-now --Install:ConfigFile=…`：2 且沒有 `--skip-backup` → `systemctl start formwright`、印「備份位置沒有設定，升級已中止；確定不備份就加 --skip-backup 重跑」、exit 21；1 → `systemctl start formwright`、印「升級前備份失敗，升級已中止，舊版照常執行」、exit 20；0 → 解壓到 `/opt/formwright.new`、換名（舊的移到 `/opt/formwright.old`，成功啟動後刪）、`systemctl start formwright`、印新版號。
+  - `install` 的 `fresh`（`/etc/formwright/formwright.json` 不存在）：建系統使用者 `formwright`（`useradd --system --home /var/lib/formwright --shell /usr/sbin/nologin`）；解壓到 `/opt/formwright`（root 擁有、0755）；`/var/lib/formwright/{data,backup}` 擁有者 `formwright`、0700；`/etc/formwright` 擁有者 `formwright`、0700；以 `formwright` 身分跑 `/opt/formwright/DynamicModules.WebAPI --install-init --Install:ConfigFile=… --Install:DataDirectory=… --Install:BackupDirectory=… --Server:Port=<port>`；寫 `/etc/systemd/system/formwright.service`；`systemctl daemon-reload && systemctl enable --now formwright`；`ufw` 為 active 時 `ufw allow <port>/tcp`；最後印 `http://<第一個 IPv4>:<port>/` 與設定碼。
+  - 狀態判斷（`detect_state`）三種：`fresh`（設定檔不存在）、`reinstall`（設定檔在、`/opt/formwright/DynamicModules.WebAPI` 不在，即 `remove` 之後重裝，AC-08）、`upgrade`（兩者都在）。
+  - `install` 的 `reinstall`：不跑備份、不跑 `--install-init`（設定檔已在，資料保留）；確認使用者 `formwright` 存在（`purge` 才會刪，不在就重建）；解壓到 `/opt/formwright`、寫 unit、`enable --now`；印網址，不印設定碼（不是全新安裝）。
+  - `install` 的 `upgrade`：讀既有版本（`/opt/formwright/VERSION`）；`systemctl stop formwright || true`（unit 可能被手動刪掉）；在 `/opt/formwright` 目錄以 `formwright` 身分（`runuser -u formwright --`）跑**舊版**的 `--backup-now --Install:ConfigFile=…`：2 且沒有 `--skip-backup` → `systemctl start formwright`、印「備份位置沒有設定，升級已中止；確定不備份就加 --skip-backup 重跑」、exit 21；1 → `systemctl start formwright`、印「升級前備份失敗，升級已中止，舊版照常執行」、exit 20；0 → 解壓到 `/opt/formwright.new`、換名（舊的移到 `/opt/formwright.old`，成功啟動後刪）、`systemctl start formwright`、印新版號。
   - `remove`：`systemctl disable --now formwright`、刪 unit 與 `/opt/formwright`；保留 `/var/lib/formwright`、`/etc/formwright`、使用者；印保留了哪些目錄（D-10）。
   - `purge`：`remove` 之後再刪 `/var/lib/formwright`、`/etc/formwright`、使用者 `formwright`；要求 `--yes` 或互動確認（從 `/dev/tty` 讀；沒有 tty 又沒有 `--yes` → exit 1）。只刪 D-06 的預設目錄；設定檔裡 `Backup:Root` 指到別處時印出該路徑、不刪。
 - `formwright.service`：`User=formwright`、`WorkingDirectory=/opt/formwright`、`ExecStart=/opt/formwright/DynamicModules.WebAPI --Install:ConfigFile=/etc/formwright/formwright.json`（路徑從標記區塊的變數組）、`Type=notify`、`Restart=always`、`RestartSec=5`、`Environment=DOTNET_ENVIRONMENT=Production`、`WantedBy=multi-user.target`。
@@ -397,6 +408,7 @@
   - `parse_args` 對 `remove`、`purge --yes`、`--port 9000`、`--skip-backup` 解析正確；未知動作 exit 1。
   - `check_os` 對假 `/etc/os-release`（`VERSION_ID="24.04"`、`"22.04"`、`"20.04"`）分別通過、通過、exit 11。
   - `backup_exit_to_action`：0 → `proceed`、1 → `abort20`、2 無 skip → `abort21`、2 有 skip → `proceed`。
+  - `detect_state`：假根目錄（`FW_ROOT` 前綴給測試用）下沒有設定檔 → `fresh`；有設定檔沒有程式 → `reinstall`；兩者都有 → `upgrade`。
   - `FW_VERSION` 空且沒設 `FORMWRIGHT_PACKAGE` → exit 12，訊息說明「這份腳本不是從 Releases 下載的」。
 - [ ] **Step 2: 跑測試確認失敗** Run: `bash installer/linux/install.test.sh` Expected: FAIL（`install.sh` 不存在）。
 - [ ] **Step 3: 實作** `install.sh`（`set -euo pipefail`，函式化，`main "$@"` 只在 `FW_TEST` 沒設時呼叫）與 `formwright.service`；跑 `node scripts/installer/render-defaults.mjs` 填標記區塊。
@@ -410,8 +422,9 @@
 
 **Interfaces:**
 - Consumes: Task 2 `Install:InitIfMissing`、Task 9 標記區塊。
-- Produces: 服務 `formwright`：`image: ghcr.io/${FORMWRIGHT_IMAGE_REPO}:${FORMWRIGHT_VERSION:-latest}`（`FORMWRIGHT_IMAGE_REPO` 由標記區塊寫入 release 時的 `<owner>/formwright`；e2e 以 `.env` 覆寫成本機建的映像）、`restart: unless-stopped`、`ports: ["${FORMWRIGHT_PORT:-8080}:8080"]`、volumes `formwright-data:/app/data`、`formwright-backup:/backup`；environment（標記區塊內）：`Install__ConfigFile=/app/data/formwright.json`、`Install__InitIfMissing=true`、`Install__DataDirectory=/app/data`、`Install__BackupDirectory=/backup`。不設 `ConnectionStrings__Dynamic`、`Backup__Root`（由設定檔決定，精靈改得到）。
-- `Dockerfile` 不改（`PORT=8080`、`ASPNETCORE_ENVIRONMENT=Production` 沿用）。
+- Produces: 服務 `formwright`：`image: ${FORMWRIGHT_IMAGE:-<預設映像>}`，`<預設映像>` 由 Task 9 的產生腳本寫進標記區塊：release 時是 `ghcr.io/<owner 小寫>/formwright:<版號>`（`--repo` 參數轉小寫，和 Task 15 推的映像同一個字串），repo 內的版本是 `ghcr.io/<owner 小寫>/formwright:latest`。客戶只下載這份檔就能 `up`，不需要 `.env`；e2e 用 shell 環境的 `FORMWRIGHT_IMAGE` 指到本機建的映像。`restart: unless-stopped`、`ports: ["${FORMWRIGHT_PORT:-8080}:8080"]`、volumes `formwright-data:/app/data`、`formwright-backup:/backup`；environment（標記區塊內）：`Install__ConfigFile=/app/data/formwright.json`、`Install__InitIfMissing=true`、`Install__DataDirectory=/app/data`、`Install__BackupDirectory=/backup`。不設 `ConnectionStrings__Dynamic`、`Backup__Root`（由設定檔決定，精靈改得到）。
+- `Dockerfile` 不改（`PORT=8080`、`ASPNETCORE_ENVIRONMENT=Production` 沿用）。映像的 `ConnectionStrings__Dynamic` 環境變數會被設定檔蓋掉（設定檔優先，Task 1），這是刻意的：精靈寫的值要生效；`deploy.md` 寫明 compose 部署改設定要改 volume 裡的設定檔，不是改環境變數（待決 1 若裁決相反，改這裡與 Task 1 的優先序）。
+- Task 9 的產生腳本對 compose 多一個輸出：`FORMWRIGHT_IMAGE` 的預設值；`render-defaults.test.mjs` 加 `compose image is lowercase`：`--repo Some-Owner/X` → 預設映像是 `ghcr.io/some-owner/formwright:<版號>`。
 
 - [ ] **Step 1: 本機驗證**（有 Docker 才跑，沒有就寫「交 Task 12」）：`docker compose -f deploy/docker-compose.yml config` exit 0；`node scripts/installer/render-defaults.mjs --check` exit 0。
 - [ ] **Step 2: Commit** `feat(in1c): Docker compose 部署檔，走同一套設定精靈`
@@ -436,11 +449,11 @@
     3. `wizard`（AC-03、04、10）：`wizard.sh http://127.0.0.1:8080 <碼> /var/lib/formwright/backup`。
     4. `upgrade`（AC-06）：`install.sh` 換 `e2e.2` → exit 0；`/api/version` 是 `0.0.1-e2e.2`；`wizard.sh verify-kept` 記錄還在、備份份數比升級前多 1。
     5. `upgrade-backup-fails`（AC-07）：備份目錄 `chown root && chmod 0500` → `install.sh` 換 `e2e.3` exit 20、輸出含「升級前備份失敗」；`systemctl is-active` 是 `active`；`/api/version` 仍是 `0.0.1-e2e.2`；改回權限。
-    6. `remove-reinstall`（AC-08）：`install.sh remove` → unit 不在、`/var/lib/formwright/data` 還在；`install.sh`（`e2e.2`）→ `/api/setup/status` 404、原密碼登入成功。
+    6. `remove-reinstall`（AC-08）：`install.sh remove` → unit 不在、`/opt/formwright` 不在、`/var/lib/formwright/data` 還在；`install.sh`（`e2e.2`）→ exit 0、輸出沒有 `FORMWRIGHT_SETUP_CODE`、`systemctl is-enabled` 是 `enabled`、`/api/setup/status` 404、原密碼登入成功、記錄還在。
     7. `purge`（D-10）：`install.sh purge --yes` → `/var/lib/formwright`、`/etc/formwright` 不在、`id formwright` 失敗。
     8. `upgrade-while-pending`（Review Focus 3）：全新裝 `e2e.1` 不跑精靈 → 升級到 `e2e.2` exit 0；`/api/setup/status` 200；設定碼檔內容不變。
     9. 失敗時上傳 `journalctl -u formwright` 與設定檔（遮掉 `ConnectionStrings`）。
-  - job `docker`（`ubuntu-24.04`）：用 repo 的 `Dockerfile` 建 `fw-e2e:1`、`fw-e2e:2`（`APP_VERSION` 不同）；`.env` 設 `FORMWRIGHT_IMAGE_REPO`、`FORMWRIGHT_VERSION` 指向本機映像（compose 的 `image` 寫法允許本機標籤；做不到就在 job 裡用 `docker tag` 成 `ghcr.io/<repo 小寫>/formwright:e2e-1`）；`docker compose up -d`；從 `docker compose logs` 抓設定碼（log 的 Warning 句）；`wizard.sh http://127.0.0.1:8080 <碼> /backup`（AC-09）；確認容器結束後自動重啟（`docker inspect` 的 `RestartCount >= 1`）；換 `fw-e2e:2` 再 `up -d` → `wizard.sh verify-kept`。
+  - job `docker`（`ubuntu-24.04`）：用 repo 的 `Dockerfile` 建 `fw-e2e:1`、`fw-e2e:2`（`APP_VERSION` 不同）；`FORMWRIGHT_IMAGE=fw-e2e:1 docker compose -f deploy/docker-compose.yml up -d`；從 `docker compose logs` 抓設定碼（log 的 Warning 句）；`wizard.sh http://127.0.0.1:8080 <碼> /backup`（AC-09）；確認容器結束後自動重啟（`docker inspect` 的 `RestartCount >= 1`）；`FORMWRIGHT_IMAGE=fw-e2e:2` 再 `up -d` → `wizard.sh verify-kept`（compose 沒有升級前備份，見待決）。
 - [ ] **Step 2: 本機驗證**：`node --test scripts/installer/`、`bash -n scripts/installer/e2e/wizard.sh`；workflow 語法用 `actionlint`（本機有才跑，沒有就寫「推上去後看 Actions 是否解析」）。推分支後 `bash scripts/unattended/ci-wait.sh <sha>` 等 `installer-e2e` 結果，`linux` 兩個版本與 `docker` 都要綠。
 - [ ] **Step 3: Commit** `ci(in1c): Ubuntu 與 Docker 安裝端到端測試`
 
@@ -459,15 +472,20 @@
 - Consumes: Task 2 `--install-init`、Task 6 `--backup-now`、Task 9 `defaults.iss`。
 - Produces: 安裝檔 `Formwright-Setup-<版本>.exe`（`OutputBaseFilename=Formwright-Setup-{#FwVersion}`、`ArchitecturesAllowed=x64compatible`、`ArchitecturesInstallIn64BitMode=x64compatible`、`PrivilegesRequired=admin`、`MinVersion=10.0.17763`、固定 `AppId`、`DefaultDirName={#FwProgramDir}`、不簽章）；語言 `chinesetraditional`（預設）與 `english`。
 - 頁面與流程：
-  - 全新安裝（`{#FwConfigFile}` 不存在）：多一頁「連接埠」（預設 `{#FwPort}`，1–65535 整數才能下一步）；升級時不顯示。
-  - `PrepareToInstall`（升級時）：`sc stop Formwright` 並等到停止；以舊版 `{app}\DynamicModules.WebAPI.exe --backup-now --Install:ConfigFile={#FwConfigFile}` 執行（`Exec`，等結束碼）：1 → `sc start Formwright`、回傳錯誤字串「升級前備份失敗，升級已中止，舊版照常執行」（Inno 會顯示並中止）；2 → 顯示一頁「備份位置沒有設定」與預設不勾的「略過備份繼續升級」核取方塊，沒勾就 `sc start` 並中止；靜默模式用參數 `/SKIPBACKUP` 代替勾選；0 → 繼續。
+  - 狀態三種，和 Task 10 同義：`fresh`（`{#FwConfigFile}` 不存在）、`reinstall`（設定檔在、`{app}\DynamicModules.WebAPI.exe` 不在，即移除後重裝）、`upgrade`（兩者都在）。
+  - `fresh` 多一頁「連接埠」（預設 `{#FwPort}`，1–65535 整數才能下一步）；`reinstall`、`upgrade` 不顯示。
+  - `PrepareToInstall`（只在 `upgrade`；`reinstall` 跳過備份）：`sc stop Formwright` 並等到停止（服務不存在不算錯）；以舊版 `{app}\DynamicModules.WebAPI.exe --backup-now --Install:ConfigFile={#FwConfigFile}` 執行（`Exec`，`WorkingDir` 是 `{app}`，等結束碼）：
+    - 1 → `sc start Formwright`、回傳錯誤字串「升級前備份失敗，升級已中止，舊版照常執行」（Inno 顯示後中止）。
+    - 2 → 這時已不能回到自訂頁面，改用 `SuppressibleMsgBox`（`mbConfirmation`、`MB_YESNO`、預設按鈕「否」）：「備份位置沒有設定，升級前無法備份。要略過備份繼續升級嗎？」；選「否」或靜默模式沒給 `/SKIPBACKUP` → `sc start` 並回傳中止字串；選「是」或有 `/SKIPBACKUP` → 繼續。
+    - 0 → 繼續。
   - 檔案：`{app}` 放 self-contained 發佈結果（含 `wwwroot`）。
   - `ssPostInstall`，依序（先建服務：`NT SERVICE\Formwright` 這個虛擬帳戶要服務存在後 `icacls` 才解析得到）：
     1. 每次：`sc create Formwright binPath= "\"{app}\DynamicModules.WebAPI.exe\" --Install:ConfigFile=\"{#FwConfigFile}\"" start= auto obj= "NT SERVICE\Formwright"`（已存在就 `sc config` 同樣參數）；`sc failure Formwright reset= 86400 actions= restart/5000/restart/5000/restart/5000`；`sc failureflag Formwright 1`；`sc description`。
-    2. 全新：建 `{#FwDataDir}`、`{#FwBackupDir}`；`icacls` 讓兩者的共同上層（`{#FwConfigFile}` 所在目錄）停用繼承，只留 `SYSTEM`、`Administrators` 完全控制與 `NT SERVICE\Formwright` 修改（`(OI)(CI)M`）；跑 `--install-init`（`--Server:Port=<頁面的值>`、三個 `Install:*` 鍵用 defines），從 `{#FwDataDir}\setup-code` 讀設定碼；`netsh advfirewall firewall add rule name="Formwright" dir=in action=allow protocol=TCP localport=<port>`。
+    2. `fresh`：建 `{#FwDataDir}`、`{#FwBackupDir}`；`icacls` 讓兩者的共同上層（`{#FwConfigFile}` 所在目錄）停用繼承，只留 `SYSTEM`、`Administrators` 完全控制與 `NT SERVICE\Formwright` 修改（`(OI)(CI)M`）；跑 `--install-init`（`--Server:Port=<頁面的值>`、三個 `Install:*` 鍵用 defines），從 `{#FwDataDir}\setup-code` 讀設定碼；`netsh advfirewall firewall add rule name="Formwright" dir=in action=allow protocol=TCP localport=<port>`。
     3. 每次：`sc start Formwright`。
   - 安裝程式以系統管理員身分跑 `--install-init`、`--backup-now`：產生的檔案靠上層目錄的繼承 ACL 讓服務帳號可寫；Task 14 的升級步驟會驗升級後服務照常寫入。
-  - 完成頁：全新時顯示設定碼（大字、可選取複製）與 `http://localhost:<port>/`；`[Run]` 預設勾選「開啟設定精靈」→ `shellexec` 開該網址（AC-01 第一點）。
+  - `reinstall`：防火牆規則被移除時一起刪了，從設定檔讀 `Server:Port`（`LoadStringFromFile` 後找 `"Port"`，找不到用 `{#FwPort}`）重建；不跑 `--install-init`。
+  - 完成頁：`fresh` 時顯示設定碼（大字、可選取複製）與 `http://localhost:<port>/`；`[Run]` 預設勾選「開啟設定精靈」→ `shellexec` 開該網址（AC-01 第一點）。
   - 移除：`[Code]` 在 `usUninstall` 前 `sc stop`、`sc delete`、刪防火牆規則；`InitializeUninstall` 問一次預設不勾的「同時刪除所有資料（資料庫、附件、金鑰、備份、設定檔）」，勾了才在 `usPostUninstall` 刪 `{#FwDataDir}`、`{#FwBackupDir}`、`{#FwConfigFile}` 與它們的共同上層目錄（空了才刪）；設定檔的 `Backup:Root` 指到別處時不刪那裡（D-10）。靜默移除參數 `/DELETEDATA` 代替勾選，沒給就保留。
 - 所有使用者看得到的句子放 `[CustomMessages]`，`chinesetraditional` 與 `english` 各一份。
 
@@ -489,12 +507,13 @@
   1. `fresh-install`（AC-01）：`Start-Process Formwright-Setup-0.0.1-e2e.1.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait`；斷言 `Get-Service Formwright` 的 `StartType` 是 `Automatic`、`Status` 是 `Running`；`(Get-CimInstance Win32_Service -Filter "Name='Formwright'").StartName` 是 `NT SERVICE\Formwright`；`Get-NetTCPConnection -LocalPort 8080 -State Listen` 的 `LocalAddress` 含 `0.0.0.0`；`Get-NetFirewallRule -DisplayName Formwright` 存在；`Invoke-WebRequest http://localhost:8080/` 200 且是 HTML；`/api/setup/status` 200。「瀏覽器自動打開」與「另一台電腦打得開」runner 驗不到，列進 Task 17 的人工驗收。
   2. `acl`（TD-04）：`icacls C:\ProgramData\Formwright\data` 的輸出沒有 `BUILTIN\Users`。
   3. `backup-red`（AC-05）：`icacls C:\ProgramData\Formwright\backup /deny "NT SERVICE\Formwright:(OI)(CI)W"` → `checks` 的 `backupDirectory.ok == false`；`icacls /remove:d` 改回。
-  4. `wizard`（AC-03、10、04）＋`setup-complete-restarts-service`（Review Focus 1）：`wizard.ps1` 走完；`complete` 之後 60 秒內 `Get-Service` 回到 `Running`、`/api/setup/status` 404、登入成功。這一步失敗就照 Review Focus 1 改 Task 5 的 `SetupRestart.Default`。
+  4. `wizard`（AC-03、10、04）＋`setup-complete-restarts-service`（Review Focus 1）：`wizard.ps1` 走完；`complete` 之後 60 秒內 `Get-Service` 回到 `Running`、`/api/setup/status` 404、登入成功。這一步失敗先看事件記錄裡 SCM 記的結束碼與失敗復原設定（`sc qfailure Formwright`、`sc qfailureflag Formwright`），再改 Task 5 的 `SetupRestart.Process` 或 Task 13 的服務設定。
   5. `upgrade`（AC-06）：靜默裝 `e2e.2` → `/api/version` 是新版、記錄還在、備份多一份。
-  6. `upgrade-backup-fails`（AC-07）：deny 備份目錄寫入 → 靜默裝 `e2e.3` 結束碼非 0、`Get-Service` 是 `Running`、`/api/version` 仍是 `e2e.2`；改回。
+  6. `upgrade-backup-fails`（AC-07）：升級前備份由安裝程式以系統管理員身分執行，只擋服務帳號擋不住它，所以對 Everyone deny 寫入：`icacls C:\ProgramData\Formwright\backup /deny "*S-1-1-0:(OI)(CI)(W,AD,WD)"`（deny 對 Administrators 也生效）→ 靜默裝 `e2e.3` 結束碼非 0、安裝 log 含「升級前備份失敗」、`Get-Service` 是 `Running`、`/api/version` 仍是 `e2e.2`；`icacls … /remove:d "*S-1-1-0"` 改回。交付說明寫明：實際環境中「只有服務帳號寫不進、系統管理員寫得進」的備份目錄，升級前備份會成功，但之後每天的排程備份會失敗並由「備份」檢查告警。
   7. `remove-reinstall`（AC-08）：`& "C:\Program Files\Formwright\unins000.exe" /VERYSILENT` → 服務不在、`C:\ProgramData\Formwright\data` 還在；重裝 `e2e.2` → 不出現精靈（`/api/setup/status` 404）、原密碼登入成功。
   8. `remove-delete-data`（D-10）：`unins000.exe /VERYSILENT /DELETEDATA` → `C:\ProgramData\Formwright` 不在。
-  9. 失敗時上傳 Windows 事件記錄（`Get-WinEvent -ProviderName Formwright`）與安裝 log（`/LOG=`）。
+  9. 失敗時上傳 Windows 事件記錄（`Get-WinEvent -LogName Application -MaxEvents 500`，不以來源名稱篩：事件來源預設是程式名稱、安裝程式不另註冊）與安裝 log（每次安裝都帶 `/LOG=<artifact 目錄>\setup-<步驟>.log`）。
+  10. `reinstall-without-backup`：第 7 步重裝時安裝 log 沒有呼叫 `--backup-now`（`reinstall` 狀態不備份）。
 - [ ] **Step 2: 驗證**：推分支，`bash scripts/unattended/ci-wait.sh <sha>` 等 `installer-e2e` 的 `windows` job 綠。本機無法驗。
 - [ ] **Step 3: Commit** `ci(in1d): Windows 安裝端到端測試`
 
@@ -552,12 +571,12 @@
   - AC-09：Task 12 `docker`。
   - AC-11：引設計 D-15 的 lt1 結果（2026-11-26，8207f37a），本段不重跑。
   - 有案例沒證據 → 回報主控補做後重跑本 task。
-- [ ] **Step 2: 回填功能清單**：照 lifecycle plugin 的 `references/feature-checklist.md`，第 107 行「一鍵安裝版（段 lt1、in1）」改 `[x]`、行尾加 `` `2026/MM/DD` ``（合併當天）；跑 `python3 ~/.claude/plugins/cache/plugharbor/lifecycle/4.3.5/scripts/feature_checklist.py docs/feature.md --write`，不手改統計行。
+- [ ] **Step 2: 回填功能清單**：照 lifecycle plugin 的 `references/feature-checklist.md`，第 107 行「一鍵安裝版（段 lt1、in1）」改 `[x]`、行尾加括號與灰底完成日 `` （`2026/MM/DD`） ``（合併當天，`.claude/rules/docs.md`）；跑 `python3 ~/.claude/plugins/cache/plugharbor/lifecycle/4.3.5/scripts/feature_checklist.py docs/feature.md --write`，不手改統計行。
 - [ ] **Step 3: 同步票**：`ticket.tool` 是 `github`，照 `feature-checklist.md` 的「同步票」叫 `tickets:ticket-ops`；沒有對應票就回報一行。
 - [ ] **Step 4: Commit**
   ```bash
   git add docs/feature.md
-  git commit -m "docs(in1): 對照驗收並回填功能清單"
+  git commit -m "docs(in1): 對照驗收並回填功能清單" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   ```
   `.tmp/` 不進 git。回報時驗收對照、清單、同步票分開宣稱，沒跑到的標「未驗證」；push、roadmap 狀態欄（`docs/roadmap.md` 第 61 行）交給 `formwright-ship` 收尾，不自動 merge。
 
@@ -570,6 +589,7 @@
 3. **Type consistency**：`InstallConfig.*Key`、`SetupCode.Ensure/Read/Delete/Matches`、`SetupHost.RestartExitCode = 75`、`SetupDraft`／`SetupCheckItem`（後端 record 與前端型別欄位同名）、`SetupCompleteBody`、`SetupPayload`、`PreUpgradeBackup.Ok/Failed/NotConfigured = 0/1/2`、`FORMWRIGHT_*` 輸出代碼在 Task 2、6、10、12、13 一致；`install.sh` 結束碼 20／21 只在 Task 10、12 使用。
 4. **Review Focus**：五條都落到 owning task 的測試（1→Task 5＋14、2→Task 3、3→Task 6＋12、4→Task 2／3、5→Task 4／5）。
 5. **Proportion**：計畫只寫簽章、契約、測試名與斷言；設定檔 JSON 是設計沒定、實作者自己定不出來的格式，所以列出。
+6. **計畫審查修正（第 1 輪，同家 subagent）**：Task 6 先解析備份位置、不是 Ok 直接失敗（原本會等 6 小時），已有排隊的一份就接手；Task 10、13 加「設定在、程式不在」的重裝狀態（AC-08）；Task 13 升級前備份的「略過」改成預設「否」的 MsgBox；Task 14 的 AC-07 改對 Everyone deny；Task 5／7 對齊 422 形狀、`SetupDraft` 可省略、`SetupRestart.Process` 直接 `Environment.Exit(75)`、前端加 `isReady`；Task 8 重啟期間 reject 繼續等；Task 11 映像位址由產生腳本寫入、小寫；Task 1 測試給齊暫存路徑、改用 `AddWindowsService`／`AddSystemd`；Task 17 完成日格式與 commit trailer。
 
 ## 對設計的疑點（交主控）
 
