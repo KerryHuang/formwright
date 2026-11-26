@@ -13,6 +13,7 @@ namespace DynamicModules.Persistence.Postgres.Migrations
             // 手寫（名稱多語設計 §5.2 T2，前例 SharedMailSettings）：EF 產生的是「刪 Name → 加 NameI18n」，順序改成「加 NameI18n → 搬資料 → 刪 Name」（操作本身沒改），
             // 預設值由 "" 改成 "{}"：空字串反序列化會丟 JsonException。舊名稱一律放繁中（不猜原本的語言）；空白或 NULL 存 {}。
             // JSON 由資料庫函式組（名稱裡的引號、反斜線、換行由資料庫跳脫）。PostgreSQL 用 json_build_object（欄型別是 text，不是 jsonb）；識別字加雙引號。
+            // 去頭尾的字元集：半形空白、tab、LF、CR、全形空白（chr(9)、chr(10)、chr(13)、chr(12288)），和 C# Trim() 對齊到這幾種（審查 🟢7）。
             migrationBuilder.AddColumn<string>(
                 name: "NameI18n",
                 table: "Dynamic_TaskView",
@@ -38,13 +39,13 @@ namespace DynamicModules.Persistence.Postgres.Migrations
                 collation: "C");
 
             migrationBuilder.Sql(
-                "UPDATE \"Dynamic_TaskView\" SET \"NameI18n\" = CASE WHEN \"Name\" IS NULL OR btrim(\"Name\") = '' THEN '{}' ELSE json_build_object('zh-TW', btrim(\"Name\"))::text END;");
+                "UPDATE \"Dynamic_TaskView\" SET \"NameI18n\" = CASE WHEN \"Name\" IS NULL OR btrim(\"Name\", ' ' || chr(9) || chr(10) || chr(13) || chr(12288)) = '' THEN '{}' ELSE json_build_object('zh-TW', btrim(\"Name\", ' ' || chr(9) || chr(10) || chr(13) || chr(12288)))::text END;");
 
             migrationBuilder.Sql(
-                "UPDATE \"Dynamic_Report\" SET \"NameI18n\" = CASE WHEN \"Name\" IS NULL OR btrim(\"Name\") = '' THEN '{}' ELSE json_build_object('zh-TW', btrim(\"Name\"))::text END;");
+                "UPDATE \"Dynamic_Report\" SET \"NameI18n\" = CASE WHEN \"Name\" IS NULL OR btrim(\"Name\", ' ' || chr(9) || chr(10) || chr(13) || chr(12288)) = '' THEN '{}' ELSE json_build_object('zh-TW', btrim(\"Name\", ' ' || chr(9) || chr(10) || chr(13) || chr(12288)))::text END;");
 
             migrationBuilder.Sql(
-                "UPDATE \"Dynamic_Dashboard\" SET \"NameI18n\" = CASE WHEN \"Name\" IS NULL OR btrim(\"Name\") = '' THEN '{}' ELSE json_build_object('zh-TW', btrim(\"Name\"))::text END;");
+                "UPDATE \"Dynamic_Dashboard\" SET \"NameI18n\" = CASE WHEN \"Name\" IS NULL OR btrim(\"Name\", ' ' || chr(9) || chr(10) || chr(13) || chr(12288)) = '' THEN '{}' ELSE json_build_object('zh-TW', btrim(\"Name\", ' ' || chr(9) || chr(10) || chr(13) || chr(12288)))::text END;");
 
             migrationBuilder.DropColumn(
                 name: "Name",
