@@ -65,9 +65,9 @@ public class ThemeApiTests
         theme.GetProperty("mode").ValueKind.Should().Be(JsonValueKind.Null);
         theme.GetProperty("style").ValueKind.Should().Be(JsonValueKind.Null);
         theme.GetProperty("effectiveMode").GetString().Should().Be("system");
-        theme.GetProperty("effectiveStyle").GetString().Should().Be("workbench");
+        theme.GetProperty("effectiveStyle").GetString().Should().Be("signature");
         theme.GetProperty("defaultMode").GetString().Should().Be("system");
-        theme.GetProperty("defaultStyle").GetString().Should().Be("workbench");
+        theme.GetProperty("defaultStyle").GetString().Should().Be("signature");
         theme.GetProperty("canSave").GetBoolean().Should().BeTrue();
         Db(app, db => db.Set<SystemSetting>().Any(s => s.Key.StartsWith("theme.")).Should().BeFalse());
     }
@@ -127,7 +127,7 @@ public class ThemeApiTests
         var body = await res.Content.ReadFromJsonAsync<JsonElement>();
         body.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(["mode", "style"]);
         body.GetProperty("mode").GetString().Should().Be("dark");
-        body.GetProperty("style").GetString().Should().Be("workbench");
+        body.GetProperty("style").GetString().Should().Be("signature");
     }
 
     [Fact]
@@ -275,5 +275,60 @@ public class ThemeApiTests
         res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await res.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString().Should().Be("passwordChangeRequired");
         Stored(app, "admin").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Me_RemovedStyleInStorage_FallsBackPerLevel()
+    {
+        using var app = new TestApp();
+        SetSite(app, "theme.defaultStyle", "airy");
+        SetUser(app, "sales01", null, "botanical");
+        var theme = await MeTheme(app.AsUser("sales01"));
+        theme.GetProperty("style").ValueKind.Should().Be(JsonValueKind.Null);
+        theme.GetProperty("effectiveStyle").GetString().Should().Be("airy");
+
+        SetSite(app, "theme.defaultStyle", "botanical");
+        theme = await MeTheme(app.AsUser("sales01"));
+        theme.GetProperty("style").ValueKind.Should().Be(JsonValueKind.Null);
+        theme.GetProperty("defaultStyle").GetString().Should().Be("signature");
+        theme.GetProperty("effectiveStyle").GetString().Should().Be("signature");
+
+        SetUser(app, "sales01", null, "airy");
+        theme = await MeTheme(app.AsUser("sales01"));
+        theme.GetProperty("effectiveStyle").GetString().Should().Be("airy");
+    }
+
+    [Fact]
+    public async Task PutBoth_RemovedStyle_Returns400AndStoresNothing()
+    {
+        using var app = new TestApp();
+        SetUser(app, "sales01", null, "airy");
+        SetSite(app, "theme.defaultStyle", "enterprise");
+
+        (await Put(app.AsUser("sales01"), "/me/theme", "system", "botanical")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await Put(app.AsUser(), "/system/theme", "system", "botanical")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        Stored(app, "sales01", style: true).Should().Be("airy");
+        Site(app, "theme.defaultStyle").Should().Be("enterprise");
+    }
+
+    [Fact]
+    public async Task Theme_Anonymous_NoSettings_ReturnsFactory()
+    {
+        using var app = new TestApp();
+        var body = await (await app.AsUser(null).GetAsync($"{Base}/theme")).Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("mode").GetString().Should().Be("system");
+        body.GetProperty("style").GetString().Should().Be("signature");
+    }
+
+    [Fact]
+    public async Task Me_DemoSite_IgnoresStoredStyle_UsesSignature()
+    {
+        using var app = new DemoSiteApp();
+        SetUser(app, "sales01", null, "airy");
+        var theme = await MeTheme(app.AsUser("sales01"));
+        theme.GetProperty("style").ValueKind.Should().Be(JsonValueKind.Null);
+        theme.GetProperty("defaultStyle").GetString().Should().Be("signature");
+        theme.GetProperty("effectiveStyle").GetString().Should().Be("signature");
     }
 }

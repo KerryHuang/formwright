@@ -15,7 +15,7 @@ public class AppUser
     public string SecurityStamp { get; set; } = Guid.NewGuid().ToString("N");
     /// <summary>個人外觀模式（light／dark／system）；null 代表跟隨全站預設。</summary>
     public string? ThemeMode { get; set; }
-    /// <summary>個人外觀風格（workbench／airy／enterprise／industrial／glass／bento／command／botanical）；null 代表跟隨全站預設。</summary>
+    /// <summary>個人外觀風格（workbench／airy／enterprise／industrial／glass／bento／command／signature）；null 代表跟隨全站預設。</summary>
     public string? ThemeStyle { get; set; }
 
     // 帳號安全（帳號安全設計 §5.1）：au1a 一次建好，au1b、au1c 不再改表

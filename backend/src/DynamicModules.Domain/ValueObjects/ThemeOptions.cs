@@ -3,10 +3,10 @@ namespace DynamicModules.Domain.ValueObjects;
 /// <summary>外觀設定的允許值與出廠預設；比對區分大小寫。</summary>
 public static class ThemeOptions
 {
-    public const string FactoryMode = "system", FactoryStyle = "workbench";
+    public const string FactoryMode = "system", FactoryStyle = "signature";
 
     private static readonly string[] Modes = ["light", "dark", "system"];
-    private static readonly string[] Styles = ["workbench", "airy", "enterprise", "industrial", "glass", "bento", "command", "botanical"];
+    private static readonly string[] Styles = ["workbench", "airy", "enterprise", "industrial", "glass", "bento", "command", "signature"];
 
     /// <summary>不在允許值就回 null。</summary>
     public static string? NormalizeMode(string? value) => value is not null && Modes.Contains(value) ? value : null;
