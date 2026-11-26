@@ -466,6 +466,7 @@ jobs:
           . ./scripts/installer/e2e/windows-lib.ps1
           icacls 'C:\ProgramData\Formwright' | Write-Host
           Assert-AclState
+          Assert-ParentSddl   # fresh：父目錄是一次建立的最終 DACL，回讀的 SDDL 與預期一致
           Assert (Test-Path "$Data\setup-code") 'setup-code 不在'
 
       - name: backup-red（AC-05）
@@ -747,6 +748,34 @@ jobs:
             } finally { Quiesce-Fw }
           } finally {
             try { Cleanup 'inject-userwrite' } finally { Remove-Item -LiteralPath $ext -Recurse -Force -ErrorAction SilentlyContinue }
+          }
+
+          # 5) 資料父目錄的直接上層（ProgramData）有別人可刪除／改名它的授權：預檢必須拒絕（結束碼 20、log 有 untrusted ancestor、父目錄不被建立）；清掉後同一個安裝程式必須成功
+          #    用暫時的本機群組當非受信主體（對 Users 加了 DELETE_CHILD 再移除，會一併清掉 ProgramData 預設給 Users 的授權）
+          $grp = 'fwe2eDc'
+          & net.exe localgroup $grp /add | Out-Null
+          Assert ($LASTEXITCODE -eq 0) '建立暫時群組失敗'
+          try {
+            Icacls 'C:\ProgramData' /grant "${grp}:(DC)"   # 只套用本物件的 DELETE_CHILD
+            try {
+              $rc = Install-Fw $env:V1 'inject-ancestor'
+              Assert ($rc -eq 20) "ProgramData 有 DELETE_CHILD 授權時結束碼應為 20、實得 $rc"
+              Assert ((Log-Text 'setup-inject-ancestor.log') -match 'untrusted ancestor') 'log 缺「untrusted ancestor」'
+              $s = Get-Service Formwright -ErrorAction SilentlyContinue
+              Assert ($null -ne $s -and $s.StartType -eq 'Disabled' -and $s.Status -eq 'Stopped') '預檢拒絕後服務應為 Disabled／Stopped'
+              Assert (-not (Test-Path 'C:\ProgramData\Formwright')) '被拒絕時資料父目錄不該被建立'
+              Icacls 'C:\ProgramData' /remove:g $grp
+              Quiesce-Fw
+              Assert ((Install-Fw $env:V1 'inject-ancestor-fixed') -eq 0) '清掉授權後安裝應成功'
+              Wait-Code "$Base/api/version" 200
+              Assert (((Invoke-RestMethod "$Base/api/version").version) -ceq $env:V1) '清掉後安裝的版本不對'
+              Assert-AclState -AllowServiceOwner
+              Assert-ParentSddl
+            } finally { Quiesce-Fw }
+          } finally {
+            & "$env:SystemRoot\System32\icacls.exe" 'C:\ProgramData' /remove:g $grp | Out-Null
+            & net.exe localgroup $grp /delete | Out-Null
+            Cleanup 'inject-ancestor'
           }
 
       - name: 失敗時收集事件記錄與服務狀態

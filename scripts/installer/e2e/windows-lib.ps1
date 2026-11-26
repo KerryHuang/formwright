@@ -68,6 +68,18 @@ function Assert-AclState([string]$Parent = 'C:\ProgramData\Formwright', [switch]
   Assert ($n -ge 2) "父目錄之下至少要有 data 與 backup，實得 $n 個項目"
 }
 
+# 父目錄是一次建立的最終 DACL：擁有者 Administrators、受保護，三個明確 ACE 恰為 SYSTEM／Administrators 完全控制（OICI）與服務帳號 Modify（OICI）
+function Assert-ParentSddl([string]$Parent = 'C:\ProgramData\Formwright') {
+  $sid = [Security.Principal.SecurityIdentifier]
+  $svc = (New-Object Security.Principal.NTAccount('NT SERVICE\Formwright')).Translate($sid).Value
+  $sddl = (Get-Acl -LiteralPath $Parent).GetSecurityDescriptorSddlForm('Owner,Access')
+  Assert ($sddl -match '^O:BA') "$Parent 的 SDDL 擁有者不是 Administrators：$sddl"
+  Assert ($sddl -match 'D:P') "$Parent 的 SDDL 不是受保護 DACL：$sddl"
+  $got = @([regex]::Matches($sddl, '\(A;[^)]*\)') | ForEach-Object { $_.Value } | Sort-Object)
+  $want = @('(A;OICI;FA;;;SY)', '(A;OICI;FA;;;BA)', "(A;OICI;0x1301bf;;;$svc)") | Sort-Object
+  Assert (($got -join '') -ieq ($want -join '')) "$Parent 的 ACE 與預期不同：實得 $($got -join ' ')、預期 $($want -join ' ')"
+}
+
 # sc.exe 的結束碼檢查（原生指令的非 0 不會讓 step 失敗）；-Allow 列出可接受的碼
 function Sc-Checked([string[]]$ScArgs, [int[]]$Allow = @(0)) {
   & "$env:SystemRoot\System32\sc.exe" @ScArgs | Out-Null
