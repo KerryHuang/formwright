@@ -1,10 +1,16 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/vue-query';
+import type { Ref } from 'vue';
 import type { PolicyValue } from 'src/domain/dynamic/policy-types';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 
 /** 語系清單（系統管理員；讀資料庫，不讀快照）。 */
 export function useInstalledLocaleAdmin() {
   return useQuery({ queryKey: ['locale-admin'], queryFn: dynamicApi.getLocaleAdmin });
+}
+
+/** 匯出設計資料時可選的應用程式與模組（勾了設計資料範圍才取）。 */
+export function useDesignScopes(enabled: Ref<boolean>) {
+  return useQuery({ queryKey: ['design-scopes'], queryFn: dynamicApi.getDesignScopes, enabled });
 }
 
 /** 任何語系寫入成功後：清單、生效政策（語系清單與文字）、登入選項都要重取，語言選單與文字才會換上新的。 */
@@ -18,8 +24,10 @@ export function usePreviewLocalePack() {
 export function useApplyLocalePack() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (i: { previewId: string; fileHash: string }) => dynamicApi.applyLocalePack(i.previewId, i.fileHash),
-    onSuccess: () => invalidateLocaleViews(qc),
+    mutationFn: (i: { previewId: string; fileHash: string; applySourceChanged?: boolean }) =>
+      dynamicApi.applyLocalePack(i.previewId, i.fileHash, i.applySourceChanged ?? false),
+    // 寫了設計資料（模組、欄位、選項、群組…的名稱）時，名稱散在各處的查詢裡：全部重取
+    onSuccess: (r) => (r.designDataApplied > 0 ? qc.invalidateQueries() : invalidateLocaleViews(qc)),
   });
 }
 

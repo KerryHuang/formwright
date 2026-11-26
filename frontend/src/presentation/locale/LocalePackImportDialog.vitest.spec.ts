@@ -17,6 +17,10 @@ vi.mock('src/i18n/ui-messages', async (orig) => ({ ...(await orig<typeof import(
 const section = (o: Record<string, unknown> = {}) => ({
   added: 0, changed: 0, unchanged: 0, skipped: 0, sameAsBuiltin: 0, extra: 0, extraKeys: [], rejected: 0, rejectedItems: [], confirmed: 0, ...o,
 });
+const design = (o: Record<string, unknown> = {}) => ({
+  count: 0, changed: 0, unchanged: 0, skipped: 0, notFound: 0, sourceChanged: 0, rejected: 0, localeNotInstalled: false,
+  notFoundPaths: [], sourceChangedItems: [], rejectedItems: [], ...o,
+});
 const report = (o: Record<string, unknown> = {}) => ({
   previewId: 'pv-1', expiresUtc: '2026-11-21T04:00:00Z', importEnabled: true, fileName: 'ja.langpack.json', fileHash: 'abc',
   locale: { code: 'ja', isNew: true, builtin: false, nativeName: '日本語', quasarLang: 'ja', fallbackCode: 'en-US', changes: ['nativeName', 'fallback'], ignored: [] },
@@ -27,7 +31,7 @@ const report = (o: Record<string, unknown> = {}) => ({
   ] }),
   server: section({ added: 4, sameAsBuiltin: 3 }),
   completeness: { ui: { have: 1790, total: 2701 }, server: { have: 160, total: 300 }, topMissing: [] },
-  designData: { count: 12 },
+  designData: design({ count: 12, changed: 9, unchanged: 1, notFound: 2, notFoundPaths: ['app:gone/name'] }),
   orphanedDropped: { ui: 0, server: 0 },
   warnings: [{ code: 'booleanCollisionExisting', args: ['はい', 'ja', 'ko'] }],
   ...o,
@@ -43,7 +47,7 @@ async function mountDialog(handler: Handler = () => undefined, props: Record<str
     const r = handler(c);
     if (r !== undefined) return r;
     if (c.url === '/i18n/packs/preview') return report();
-    if (c.url === '/i18n/packs/apply') return { code: 'ja', isNew: true, noChanges: false, packId: 5, enabled: false };
+    if (c.url === '/i18n/packs/apply') return { code: 'ja', isNew: true, noChanges: false, packId: 5, enabled: false, designDataApplied: 0 };
     if (c.url === '/system/policies') return [{ code: 'locale.enabled', effective: ['zh-TW', 'en-US'] }];
     return {};
   });
@@ -95,7 +99,9 @@ describe('LocalePackImportDialog 預覽', () => {
     expect(q('report-rejected')!.textContent).toContain('{first}');
     expect(q('report-rejected')!.textContent).toContain('ko');
     expect(q('report-warnings')!.textContent).toContain('はい');
-    expect(q('report-design-data')!.textContent).toContain('12');
+    expect(q('report-design-changed')!.textContent).toContain('9');
+    expect(q('report-design-notFound')!.textContent).toContain('2');
+    expect(q('report-design-not-found')!.textContent).toContain('app:gone/name');
     w.unmount();
   });
 
@@ -179,7 +185,7 @@ describe('LocalePackImportDialog 套用', () => {
     q('pack-apply')!.click();
     await tick();
     const apply = calls.find((c) => c.url === '/i18n/packs/apply')!;
-    expect(bodyOf(apply)).toEqual({ previewId: 'pv-1', fileHash: 'abc' });
+    expect(bodyOf(apply)).toEqual({ previewId: 'pv-1', fileHash: 'abc', applySourceChanged: false });
     for (const k of ['["locale-admin"]', '["effective-policies"]', '["auth-options"]']) expect(keys(spy)).toContain(k);
     expect(q('pack-done')).not.toBeNull();
     expect(q('pack-enable')).not.toBeNull();
@@ -249,7 +255,7 @@ describe('LocalePackImportDialog 換檔與關閉時作廢舊流程（第二輪�
     expect(q('pack-report')!.textContent).not.toContain('語系A');
     q('pack-apply')!.click();
     await tick();
-    expect(bodyOf(calls.find((c) => c.url === '/i18n/packs/apply'))).toEqual({ previewId: 'pv-B', fileHash: 'hash-B' });
+    expect(bodyOf(calls.find((c) => c.url === '/i18n/packs/apply'))).toEqual({ previewId: 'pv-B', fileHash: 'hash-B', applySourceChanged: false });
     w.unmount();
   });
 
@@ -480,6 +486,72 @@ describe('LocalePackImportDialog 關閉重開後舊流程不寫回（#71）', ()
     expect(box.textContent).toContain(evil);
     expect(box.textContent).toContain(script);
     expect((window as unknown as { __pwned?: number }).__pwned).toBeUndefined();
+    w.unmount();
+  });
+});
+
+describe('LocalePackImportDialog 設計資料（i4e）', () => {
+  it('接受 .json 與 .xlsx', async () => {
+    const w = await mountDialog();
+    expect((q('pack-file') as HTMLInputElement).accept).toContain('.xlsx');
+    expect((q('pack-file') as HTMLInputElement).accept).toContain('.json');
+    w.unmount();
+  });
+
+  it('原文已改：列出檔案與目前的原文；預設不套用，勾「仍套用這些列」才送 applySourceChanged', async () => {
+    const w = await mountDialog((c) => (c.url === '/i18n/packs/preview' ? report({ designData: design({
+      count: 3, changed: 1, sourceChanged: 2,
+      sourceChangedItems: [{ path: 'local:field:9/label', fileSource: '舊名稱', currentSource: '新名稱' }],
+    }) }) : undefined));
+    await pick();
+    const list = q('report-design-source-changed')!.textContent!;
+    expect(list).toContain('local:field:9/label');
+    expect(list).toContain('舊名稱');
+    expect(list).toContain('新名稱');
+    expect(list).toContain('共 2 筆');
+    const box = q('pack-apply-source-changed')!;
+    expect(box.textContent).toContain('2');
+    box.click();
+    await tick();
+    q('pack-apply')!.click();
+    await tick();
+    expect(bodyOf(calls.find((c) => c.url === '/i18n/packs/apply'))).toEqual({ previewId: 'pv-1', fileHash: 'abc', applySourceChanged: true });
+    w.unmount();
+  });
+
+  it('沒有原文已改的列時不顯示勾選框', async () => {
+    const w = await mountDialog();
+    await pick();
+    expect(q('pack-apply-source-changed')).toBeNull();
+    w.unmount();
+  });
+
+  it('新安裝語系：說明設計資料這次不套用，不列計數', async () => {
+    const w = await mountDialog((c) => (c.url === '/i18n/packs/preview' ? report({ designData: design({ count: 5, localeNotInstalled: true }) }) : undefined));
+    await pick();
+    expect(q('report-design-not-installed')!.textContent).toContain('5');
+    expect(q('report-design-changed')).toBeNull();
+    w.unmount();
+  });
+
+  it('拒收原因顯示文字（公式、標題選項）', async () => {
+    const w = await mountDialog((c) => (c.url === '/i18n/packs/preview' ? report({ designData: design({ count: 2, rejected: 2, rejectedItems: [
+      { key: 'local:field:9/label', reason: 'formula', args: [] }, { key: 'app:crm/module:order/option:open/label', reason: 'titleOption', args: [] },
+    ] }) }) : undefined));
+    await pick();
+    const text = q('report-design-rejected-list')!.textContent!;
+    expect(text).toContain(zhTW.localePacks.reasons.formula);
+    expect(text).toContain(zhTW.localePacks.reasons.titleOption);
+    w.unmount();
+  });
+
+  it('套用後顯示寫入的設計資料段數', async () => {
+    const w = await mountDialog((c) => (c.url === '/i18n/packs/apply'
+      ? { code: 'ja', isNew: false, noChanges: false, packId: 5, enabled: true, designDataApplied: 7 } : undefined));
+    await pick();
+    q('pack-apply')!.click();
+    await tick();
+    expect(q('pack-design-applied')!.textContent).toContain('7');
     w.unmount();
   });
 });

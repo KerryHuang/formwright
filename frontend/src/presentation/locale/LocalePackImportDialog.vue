@@ -32,6 +32,8 @@ const enabledNow = ref(false);
 const error = ref<string | null>(null);
 const canRepreview = ref(false);
 const busy = ref<'preview' | 'apply' | null>(null);
+// 原文已改的設計資料列預設不套用；勾了才送 applySourceChanged（U8、§23.2）
+const applySourceChanged = ref(false);
 
 // 換檔、重新預覽、關閉或打開對話框都會推進世代；每個 await 回來先核對世代，舊流程的結果與錯誤一律不寫回（第二輪審查必修 1）
 let generation = 0;
@@ -40,6 +42,7 @@ const isCurrent = (gen: number) => gen === generation;
 function reset() {
   generation++;
   picked.value = null; report.value = null; result.value = null; enabledNow.value = false; error.value = null; canRepreview.value = false; busy.value = null;
+  applySourceChanged.value = false;
 }
 watch(() => props.modelValue, reset);
 
@@ -56,6 +59,7 @@ async function runPreview() {
   if (!picked.value) return;
   const gen = ++generation;
   error.value = null; canRepreview.value = false; report.value = null; result.value = null; enabledNow.value = false; busy.value = 'preview';
+  applySourceChanged.value = false;
   try {
     const r = await preview.mutateAsync({ bytes: picked.value.bytes, fileName: picked.value.name });
     if (isCurrent(gen)) report.value = r;
@@ -89,7 +93,9 @@ async function doApply() {
   const gen = generation;
   error.value = null; busy.value = 'apply';
   try {
-    const r = await apply.mutateAsync({ previewId: report.value.previewId, fileHash: report.value.fileHash });
+    const r = await apply.mutateAsync({
+      previewId: report.value.previewId, fileHash: report.value.fileHash, applySourceChanged: applySourceChanged.value,
+    });
     if (isCurrent(gen)) result.value = r;
   } catch (e) {
     if (!isCurrent(gen)) return;
@@ -138,6 +144,7 @@ async function doPreview() {
 
 const close = () => emit('update:modelValue', false);
 const applyDisabled = computed(() => !report.value?.previewId || !props.importEnabled);
+const sourceChangedCount = computed(() => report.value?.designData.sourceChanged ?? 0);
 </script>
 
 <template>
@@ -146,7 +153,7 @@ const applyDisabled = computed(() => !report.value?.previewId || !props.importEn
       <q-card-section class="text-subtitle1">{{ t('localePacks.dialog.title') }}</q-card-section>
       <q-card-section class="scroll" style="max-height: 70vh">
         <p class="text-muted">{{ t('localePacks.dialog.hint') }}</p>
-        <input ref="fileInput" type="file" accept=".json,application/json" class="hidden" data-testid="pack-file" @change="onFile" />
+        <input ref="fileInput" type="file" accept=".json,.xlsx,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden" data-testid="pack-file" @change="onFile" />
         <q-btn outline no-caps icon="upload_file" :label="t('localePacks.dialog.pick')" :disable="!!result || !!busy" data-testid="pack-pick" @click="fileInput?.click()" />
         <span v-if="picked" class="q-ml-sm text-caption" style="overflow-wrap: anywhere">{{ picked.name }}</span>
 
@@ -161,10 +168,15 @@ const applyDisabled = computed(() => !report.value?.previewId || !props.importEn
           {{ t('localePacks.dialog.importDisabled') }}
         </div>
         <LocalePackReport v-if="report" :report="report" class="q-mt-md" />
+        <q-checkbox v-if="report && sourceChangedCount > 0 && !result" v-model="applySourceChanged" dense class="q-mt-sm"
+          :disable="applyDisabled || !!busy" :label="t('localePacks.design.applySourceChanged', { n: sourceChangedCount })" data-testid="pack-apply-source-changed" />
 
         <div v-if="result" class="q-mt-md" data-testid="pack-done">
           <div class="text-positive">
             {{ t(result.noChanges ? 'localePacks.dialog.noChanges' : 'localePacks.dialog.applied', { name: report?.locale.nativeName ?? result.code }) }}
+          </div>
+          <div v-if="result.designDataApplied > 0" class="text-body2" data-testid="pack-design-applied">
+            {{ t('localePacks.design.applied', { n: result.designDataApplied }) }}
           </div>
           <q-btn v-if="!result.enabled && !enabledNow" class="q-mt-sm" color="primary" no-caps :label="t('localePacks.dialog.enableNow')"
             :loading="enable.isPending.value" data-testid="pack-enable" @click="doEnable" />
