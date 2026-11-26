@@ -642,16 +642,19 @@ i3c 背景實作（2026-11-26）時自己定的技術做法，以及設計沒寫
 8. **共用主檔合併**（`MasterMerger`）：
    - 資料庫層：已存在的欄位套件標 true、現值是 false 時，送只改旗標的 `SetFieldAiExclusionRequest`（經 `PermissionAdminGate`，稽核照 `field.update`），不重送整份 `UpdateFieldRequest`。欄位既有設定過不了現行檢查也不影響補標（政策調嚴不溯及既有資料，修正輪 🟡4）。沒有權限設定就 403、整個匯入回滾；實際上匯入要系統管理員，系統管理員一律有權限設定。孤兒欄位接回本來就要重新解析設定，照舊用 `UpdateFieldRequest`。
    - 定義層（`MergeDefinition`：主檔還沒開啟時存下的定義、升級預覽的內建＋匯入副本）：既有欄位套件標 true 時合併結果也帶 true，和選項合併一起處理（修正輪 🔴1；原本沒有新選項就整個略過，沒開過的主檔再匯入會靜默丟掉旗標）。
+   - 同代號但型別不同的既有欄位：保留既有欄位、加「型別不同」警告，但旗標兩層都照補（只加不減無害，略過會往「提供給 AI」的不安全方向錯；複審 N1）。
+   - 稽核（複審 N3，已知行為）：`SetFieldAiExclusionRequest` 在匯入裡是巢狀呼叫，`AuditBehavior` 只記最外層，補了哪些旗標不另記一列，只能從匯入稽核推；和改動前用 `UpdateFieldRequest` 時相同。
    - 定義層合併的結果取兩份較新的格式版號再驗證，否則舊格式的主檔補進格式 10 的欄位旗標會被誤擋。查證（修正輪 🟡1）：版號較高才變嚴的規則只有「簽核流程一律是圖」（V8 的格式 ≥9），而主檔套件不收 `approvalFlows`（`MasterStructure`），其他規則都是高版放寬，所以升版不會讓合法的舊主檔變不合法，不另做正規化；測試覆蓋「格式 8 主檔存在資料庫、再匯入格式 10」。
 9. **開啟套件沒有權限設定的 403（P11）**：開啟是 `ISystemAdminRequest`＋`IPermissionAdminRequest`，系統管理員一律有權限設定，所以 HTTP 層由請求宣告先擋（非系統管理員 403、沒有模組留下）；`TemplateInstantiator` 裡 `AddFieldRequest`／`UpdateFieldRequest` 的權限設定檢查是第二道防線，由既有的欄位旗標測試覆蓋（設計者帶 true 新增欄位 403）；修正輪另在應用層直接呼叫 `InstantiateAsync`（app 不是 null），斷言 403 與代碼 `permissionAdminRequired`（🟢6）。
 10. **預覽的 `aiExcludedFields`**：列套件模組欄位與擴充欄位中旗標是 true、且不在 `excludeFields` 的，`field` 是限定欄位名（擴充欄位是 `主檔/模組.欄位`），`module`、`label` 是多語文字由前端照介面語系解析。一起開啟（action 是 open）的共用主檔裡標旗標的欄位也列，`field` 寫 `主檔/模組.欄位`（修正輪 🟡3）；已開啟（bind）或重開（reopen）的主檔不新建欄位，不列。共用主檔已存在欄位要補標的也不列（合併在匯入時已做）。
 11. **內建 crm-sales、inventory 的簽核流程改寫成流程圖**：格式 10 的驗證沿用格式 9 的「簽核流程一律是圖」，所以兩個套件的 `stages` 照 `ApprovalGraphConversion.AsGraph` 的結果改成 `nodes`、`edges`（節點代號＝原關卡代號，開啟後資料庫裡的定義和格式 8 開啟時轉出來的一樣）。這和 fg6「內建套件留在格式 8」的決定不同：fg6 不需要升內建套件，本段要升，只能一起轉。Demo 的「較舊版本 CRM」（`DemoOldCrm`）改成改第一個簽核節點的名稱。`BuiltInFlowGraphEquivalenceTests` 存了格式 8 版的流程原文，斷言 `AsGraph` 的結果等於現在檔案裡的 nodes、edges，日後手改不會悄悄分岔（修正輪 🟡6）。
-12. **報表名稱匯出**：`AppPackageReport.Name` 用 `SectionTextJsonConverter`，只有繁中寫字串（P8）；範本與套件的欄位旗標只寫 true（`TemplateExporter` 共用）。名稱沒有繁中時（必填語系不含繁中時建的報表），匯出用退回鏈解析出的值補成繁中、其他語系照留，匯出的套件才匯得回去（`AppExporter.PackageName`，修正輪 🟡2）。
+12. **報表名稱匯出**：`AppPackageReport.Name` 用 `SectionTextJsonConverter`，只有繁中寫字串（P8）；範本與套件的欄位旗標只寫 true（`TemplateExporter` 共用）。名稱沒有繁中時（必填語系不含繁中時建的報表），匯出用退回鏈解析出的值補成繁中、其他語系照留，匯出的套件才匯得回去（`AppExporter.PackageName`，修正輪 🟡2）。升級比對的現況（`compare` 模式）不補，照資料庫原樣，否則其他語系的字會被當成客戶改過的繁中（複審 N2）。
 13. **拿掉 i3a 的四個相容介面**（§22.1 第 1 點）：`Report.Name`、`CreateReportRequest` 的字串建構子、`ReportDefinitionValidator.ValidateAsync(string?, …)`、`DashboardReportReference.DashboardName`；呼叫處改用多語名稱，警告訊息用繁中（`I18nText.FallbackLocale`，和其他套件警告一致）。
 14. **刪除應用程式前的檢查**（§22.3 第 6 點）：`AppDeleteInspector` 的報表名稱、擋住刪除的儀表板名稱依請求語系解析。
 15. **已知收緊**（修正輪 🟢5）：`TemplateValidator` 新增規則訊息、清單檢視名稱的語系鍵檢查。以前 C# 沒驗這兩處，已存在資料庫的格式 2–9 套件若在這兩處帶了四語以外的鍵，重讀時會變不合法。schema 本來就不允許，實際上不太可能出現，只記一筆。
 16. **schema 的語系鍵上限**：`app.schema.json` 多語物件的 `maxProperties`，`AppSchemaTests` 斷言等於 `I18nNameRules.MaxLocales`（修正輪 🟢2）。通知範本內文（fg6）伺服器沒有語系鍵上限，schema 也不寫。schema 不另用 `if/then` 寫「`excludeFromAi`、多語報表名稱只在格式 10 起」，版本規則以 C# 驗證器為準。
 17. **不在本段範圍**：內建 event-registration、quality-inspection 兩份套件（格式 8）不升格式、報表名稱不補四語，見 backlog 票 #124（修正輪 🟡5）。
+18. **`AppJson` 範本判斷變寬**（複審 N4，已知行為）：格式 3–10 的套件檔漏了 `format`、頂層又剛好有 `key` 時，以前報「缺少必要屬性：format」，現在當成未來的範本格式報「需要較新版本」。一樣被擋，只有訊息不準；頂層帶 `key` 的套件檔實際上不會出現。
 
 ### 24.2 使用者行為（代做）
 
