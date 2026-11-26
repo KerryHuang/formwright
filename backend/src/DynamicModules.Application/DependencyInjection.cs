@@ -301,6 +301,7 @@ public static class DependencyInjection
         services.AddScoped<Dynamic.ApprovalService.ApprovalReadGrant>();
         services.AddScoped<Dynamic.ApprovalService.ApprovalNotifyAudience>();
         services.AddScoped<Dynamic.ApprovalService.ApprovalNotifyComposer>();
+        services.AddScoped<Dynamic.ApprovalService.ApprovalGraphBatchConversion>();
         services.AddScoped<Dynamic.ApprovalService.ApprovalAlert>();
         services.AddScoped<Dynamic.ApprovalService.ApprovalSubmitEligibility>();
         services.AddScoped<Dynamic.ApprovalService.ApprovalPreviewer>();
