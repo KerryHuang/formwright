@@ -24,13 +24,25 @@ using DynamicModules.WebAPI.Demo;
 using DynamicModules.WebAPI.Mcp;
 using DynamicModules.WebAPI.Ops;
 using DynamicModules.WebAPI.Security;
+using DynamicModules.WebAPI.Setup;
 using DynamicModules.WebAPI.Time;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting.WindowsServices;
 
-var builder = WebApplication.CreateBuilder(args);
+// Windows 服務啟動時目前目錄是 System32、sc create 沒有工作目錄參數，content root 要明指程式目錄，wwwroot 才找得到
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    ContentRootPath = WindowsServiceHelpers.IsWindowsService() ? AppContext.BaseDirectory : null,
+});
+// 安裝版設定檔是最高優先的來源，要在讀 Database:Provider 之前加上（安裝版設計 TD-01）
+InstallConfig.AddConfigFile(builder.Configuration);
+// 不在服務管理員底下時兩者都不做事（dotnet run、Docker、測試不受影響）
+builder.Services.AddWindowsService(o => o.ServiceName = "Formwright");
+builder.Services.AddSystemd();
 
 // 資料庫種類由 Database:Provider 決定（預設 Sqlite，PostgreSQL provider 設計 §5.1）；只在設定有效時才往下
 var databaseProvider = DatabaseProviders.Read(builder.Configuration);
@@ -55,9 +67,8 @@ else
 }
 // 資料庫檔案所在目錄（SQLite 檔案型才有；記憶體資料庫是 null）：建目錄、預設金鑰目錄與附件目錄都依它
 var databaseDirectory = DatabaseProviders.FileDirectory(databaseProvider, dynamicConnection);
-// 雲端主機（如 Render）用 PORT 指定埠並要求聽所有介面；本機開發維持 127.0.0.1:5180。
-var port = Environment.GetEnvironmentVariable("PORT");
-builder.WebHost.UseUrls(port is null ? "http://127.0.0.1:5180" : $"http://0.0.0.0:{port}");
+// 聽的位址：Server:Port（安裝版）→ PORT（雲端主機如 Render，聽所有介面）→ 本機開發 127.0.0.1:5180
+builder.WebHost.UseUrls(ListenAddress.Resolve(builder.Configuration, Environment.GetEnvironmentVariable("PORT")));
 builder.Services.Configure<RouteOptions>(o => o.LowercaseUrls = true);
 builder.Services.AddApplication();
 DynamicModules.WebAPI.Ops.TaskRuleFaultInjection.Configure(builder.Services, builder.Configuration, builder.Environment, startupWarnings);
