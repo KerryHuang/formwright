@@ -112,6 +112,30 @@ public class NameI18nApiTests : IDisposable
         (await FirstError(res, "name")).Should().Be("語系 en-US 的文字不能是空值");
     }
 
+    /// <summary>zh-TW 加上 n−1 個格式合法、沒安裝的語系鍵（aa、ab、…）。</summary>
+    private static Dictionary<string, string> ManyLocales(int n)
+    {
+        var d = new Dictionary<string, string> { ["zh-TW"] = "訂單" };
+        for (var i = 0; d.Count < n; i++) d[$"{(char)('a' + i / 26)}{(char)('a' + i % 26)}"] = "x";
+        return d;
+    }
+
+    // 審查 🟡1：語系鍵數上限＝系統最多能安裝的語系數（政策 locale.maxInstalled 的技術上限 30），訊息帶上限數字
+    [Fact]
+    public async Task LocaleKeyCount_CappedAtMaxInstallable_ForNamesAndCardTitles()
+    {
+        var max = DynamicModules.Domain.Policies.PolicyCatalog.LocaleMaxInstalled.Max;
+        await CreateReport(ManyLocales(max));
+        (await FirstError(await Client().PostAsJsonAsync(Reports, new { name = ManyLocales(max + 1), definition = TaskDef }), "name"))
+            .Should().Be($"最多 {max} 個語系");
+        (await FirstError(await Client().PostAsJsonAsync(TaskViews, new { kind = "board", name = ManyLocales(max + 1) }), "name"))
+            .Should().Be($"最多 {max} 個語系");
+        var report = await CreateReport(new Dictionary<string, string> { ["zh-TW"] = "訂單" });
+        var card = await Client().PostAsJsonAsync(Dashboards,
+            new { name = new Dictionary<string, string> { ["zh-TW"] = "我的" }, layout = new { cards = new[] { Card("a", report, ManyLocales(max + 1)) } } });
+        (await FirstError(card, "layout")).Should().Be($"最多 {max} 個語系");
+    }
+
     [Fact]
     public async Task V6_UninstalledLocale_KeptOnReadBack_BlankLocaleDropped()
     {
