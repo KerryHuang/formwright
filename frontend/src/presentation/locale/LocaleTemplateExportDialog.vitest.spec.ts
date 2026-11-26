@@ -1,3 +1,4 @@
+import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import * as quasar from 'quasar';
@@ -28,6 +29,10 @@ const withReview = (ui: Record<string, unknown>, server: Record<string, unknown>
   entry({ code: 'th', nativeName: 'ไทย', review: { ui: section(ui), server: section(server) } });
 
 const MB = 1048576;
+const SCOPES = {
+  apps: [{ key: 'crm', name: { 'zh-TW': '客戶關係' }, modules: [{ id: 3, name: { 'zh-TW': '訂單' } }] }],
+  unbound: [{ id: 9, name: { 'zh-TW': '筆記' } }],
+};
 let calls: Call[];
 const mounted: { unmount(): void }[] = [];
 
@@ -36,13 +41,15 @@ async function mountDialog(target: LocaleAdminEntry | null, opts: { reply?: (c: 
     const custom = opts.reply?.(c);
     if (custom !== undefined) return custom;
     if (c.url.endsWith('/template')) return new Blob(['{}']);
+    if (c.url === '/i18n/design-scopes') return SCOPES;
     return {};
   });
   const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
   const w = mount(LocaleTemplateExportDialog, {
     attachTo: document.body,
     props: { modelValue: true, target, locales: LOCALES, packMaxBytes: opts.packMaxBytes ?? 5 * MB, defaultSource: opts.defaultSource ?? 'zh-TW', defaultReference: opts.defaultReference ?? 'en-US' },
-    global: { plugins: [[quasar.Quasar, { components: quasar, directives: quasar, plugins: { Notify: quasar.Notify } }], createPinia(), i18n] },
+    global: { plugins: [[quasar.Quasar, { components: quasar, directives: quasar, plugins: { Notify: quasar.Notify } }], createPinia(), i18n,
+      [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]] },
   });
   mounted.push(w);
   await flushPromises();
@@ -283,5 +290,69 @@ describe('LocaleTemplateExportDialog 重疊請求（世代防護）', () => {
     await tick();
     expect(clicked).toHaveLength(1);
     expect(w.emitted('update:modelValue')?.at(-1)).toEqual([false]);
+  });
+});
+
+describe('LocaleTemplateExportDialog 設計資料與格式（i4e）', () => {
+  const scopeCalls = () => calls.filter((c) => c.url === '/i18n/design-scopes');
+
+  it('預設不勾設計資料、不取範圍；格式 JSON 時不送 format', async () => {
+    await mountDialog(LOCALES[2]!);
+    expect(q('export-scope-design')).not.toBeNull();
+    expect(q('export-design-app')).toBeNull();
+    await download();
+    expect(scopeCalls()).toHaveLength(0);
+    expect(templateCalls()[0]!.params).not.toHaveProperty('format');
+    expect(templateCalls()[0]!.params).not.toHaveProperty('designApp');
+  });
+
+  it('新語系樣板沒有設計資料選項', async () => {
+    await mountDialog(null);
+    expect(q('export-scope-design')).toBeNull();
+  });
+
+  it('勾設計資料：取範圍、選應用程式與模組、Excel 格式，參數一起送出', async () => {
+    const w = await mountDialog(LOCALES[2]!);
+    q('export-scope-design')!.click();
+    await tick();
+    expect(scopeCalls()).toHaveLength(1);
+    // 下拉順序：原文語系、參考語系、應用程式、模組
+    const selects = () => w.findAllComponents(quasar.QSelect);
+    const appOptions = selects()[2]!.props('options') as { value: string; label: string }[];
+    expect(appOptions.map((o) => o.label)).toEqual(['全部', '客戶關係', '不屬於應用程式的']);
+    selects()[2]!.vm.$emit('update:modelValue', 'crm');
+    await tick();
+    expect((selects()[3]!.props('options') as { label: string }[]).map((o) => o.label)).toEqual(['全部模組', '訂單']);
+    selects()[3]!.vm.$emit('update:modelValue', 3);
+    w.findComponent(quasar.QOptionGroup).vm.$emit('update:modelValue', 'xlsx');
+    await tick();
+    await download();
+    expect(templateCalls()[0]!.params).toMatchObject({ scopes: ['ui', 'server', 'designData'], designApp: 'crm', designModule: '3', format: 'xlsx' });
+  });
+
+  it('換應用程式時清掉已選的模組；「不屬於應用程式的」只列沒綁定的模組', async () => {
+    const w = await mountDialog(LOCALES[2]!);
+    q('export-scope-design')!.click();
+    await tick();
+    const selects = () => w.findAllComponents(quasar.QSelect);
+    selects()[3]!.vm.$emit('update:modelValue', 3);
+    await tick();
+    selects()[2]!.vm.$emit('update:modelValue', '-');
+    await tick();
+    expect((selects()[3]!.props('options') as { label: string }[]).map((o) => o.label)).toEqual(['全部模組', '筆記']);
+    await download();
+    expect(templateCalls()[0]!.params).toMatchObject({ designApp: '-' });
+    expect(templateCalls()[0]!.params).not.toHaveProperty('designModule');
+  });
+
+  it('只勾設計資料也能下載', async () => {
+    await mountDialog(LOCALES[2]!);
+    q('export-scope-ui')!.click();
+    q('export-scope-server')!.click();
+    q('export-scope-design')!.click();
+    await tick();
+    expect(isDisabled(q('export-download'))).toBe(false);
+    await download();
+    expect(templateCalls()[0]!.params).toMatchObject({ scopes: ['designData'] });
   });
 });

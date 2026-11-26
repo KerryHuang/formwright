@@ -25,7 +25,7 @@ import type {
   TaskScheduleResult, TaskViewConfig, TaskViewDetail, TaskViewKind, TaskViewList, TaskViewShareKind, TaskViewShareTargets,
 } from 'src/domain/dynamic/task-board-types';
 import type { TaskRule, TaskRuleInput } from 'src/domain/dynamic/task-rule-draft';
-import type { ApplyLocalePackResult, LocaleAdminList, LocalePackReportData, LocaleTemplateOptions } from 'src/domain/dynamic/locale-pack-types';
+import type { ApplyLocalePackResult, DesignScopes, LocaleAdminList, LocalePackReportData, LocaleTemplateOptions } from 'src/domain/dynamic/locale-pack-types';
 import type { McpCreateBody, McpInfo, McpToken, McpTokenCall, McpTokenCreated } from 'src/domain/mcp/mcp-types';
 import type { EffectivePolicies, ModulePolicy, PolicyValue, SystemPolicy } from 'src/domain/dynamic/policy-types';
 import type {
@@ -770,8 +770,10 @@ export const dynamicApi = {
   getLocaleAdmin: () => http.get<LocaleAdminList>('/i18n/locales').then(data),
   previewLocalePack: (bytes: ArrayBuffer, fileName: string) =>
     http.post<LocalePackReportData>('/i18n/packs/preview', bytes, { params: { fileName }, headers: { 'Content-Type': 'application/octet-stream' } }).then(data),
-  applyLocalePack: (previewId: string, fileHash: string) =>
-    http.post<ApplyLocalePackResult>('/i18n/packs/apply', { previewId, fileHash }).then(data),
+  /** applySourceChanged：預覽頁勾了「仍套用這些列」（原文已改的設計資料）。 */
+  applyLocalePack: (previewId: string, fileHash: string, applySourceChanged = false) =>
+    http.post<ApplyLocalePackResult>('/i18n/packs/apply', { previewId, fileHash, applySourceChanged }).then(data),
+  getDesignScopes: () => http.get<DesignScopes>('/i18n/design-scopes').then(data),
   /** 同 exportReport：validateStatus 繞過 interceptor，錯誤本文（Blob）在這裡解析成 ApiError。 */
   exportLocaleTemplate: async (code: string, options: LocaleTemplateOptions) => {
     const r = await http.get<Blob>(`/i18n/locales/${encodeURIComponent(code)}/template`, {
@@ -784,7 +786,7 @@ export const dynamicApi = {
       handleAuthFailure(err);
       throw err;
     }
-    return { blob: r.data, fileName: dispositionFileName(r.headers['content-disposition']) ?? `${code}.langpack.json` };
+    return { blob: r.data, fileName: dispositionFileName(r.headers['content-disposition']) ?? `${code}.langpack.${options.format === 'xlsx' ? 'xlsx' : 'json'}` };
   },
   rollbackLocalePack: (code: string) => http.post<{ code: string; packId: number }>(`/i18n/locales/${encodeURIComponent(code)}/rollback`).then(data),
   clearLocaleOverrides: (code: string) => http.post<{ code: string; packId: number }>(`/i18n/locales/${encodeURIComponent(code)}/clear`).then(data),

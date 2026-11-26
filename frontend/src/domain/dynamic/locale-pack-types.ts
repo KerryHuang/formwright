@@ -1,5 +1,7 @@
 /** 語系包匯入與語系管理（語系包設計 §6；i4d1）的 API 型別。伺服器明示 null 的欄位在這裡是 `| null`，不是可省略。 */
 
+import type { I18nText } from './types';
+
 export interface LocalePackRejectedItem { key: string; reason: string; args: string[] }
 
 /** 一段（介面文字或後端訊息）的筆數；extraKeys、rejectedItems 只含前幾筆，總數看 extra、rejected。 */
@@ -26,9 +28,12 @@ export interface LocaleReviewSection {
 
 export interface LocaleReview { ui: LocaleReviewSection; server: LocaleReviewSection }
 
+/** 樣板範圍：介面文字、系統訊息、設計資料（i4e；新語系不能選設計資料）。 */
+export type LocaleTemplateScope = 'ui' | 'server' | 'designData';
+
 /** 樣板匯出的選項（GET i18n/locales/{code}/template 的查詢參數）。 */
 export interface LocaleTemplateOptions {
-  scopes: ('ui' | 'server')[];
+  scopes: LocaleTemplateScope[];
   onlyMissing: boolean;
   /** 原文已更新或參數不符的句子（後端取聯集）。 */
   onlyBaseChanged: boolean;
@@ -39,6 +44,25 @@ export interface LocaleTemplateOptions {
   nativeName?: string;
   fallback?: string;
   quasarLang?: string;
+  /** 設計資料的範圍（§23.3）：應用程式代號或 `-`（不屬於應用程式）；模組 Id。不送＝全部。 */
+  designApp?: string;
+  designModule?: string;
+  /** 不送＝json。 */
+  format?: 'json' | 'xlsx';
+}
+
+/** 匯出設計資料時可選的範圍（GET i18n/design-scopes）。 */
+export interface DesignScopeModule { id: number; name: I18nText }
+export interface DesignScopes { apps: { key: string; name: I18nText; modules: DesignScopeModule[] }[]; unbound: DesignScopeModule[] }
+
+/** 預覽報告的設計資料段（§10.3、§23.2）：清單只列前 50 筆，總數看計數。 */
+export interface LocalePackDesignData {
+  count: number; changed: number; unchanged: number; skipped: number; notFound: number; sourceChanged: number; rejected: number;
+  /** 這次匯入才新安裝的語系：設計資料整段不套用。 */
+  localeNotInstalled: boolean;
+  notFoundPaths: string[];
+  sourceChangedItems: { path: string; fileSource: string; currentSource: string }[];
+  rejectedItems: LocalePackRejectedItem[];
 }
 
 export interface LocalePackReportData {
@@ -56,13 +80,17 @@ export interface LocalePackReportData {
   ui: LocalePackSection;
   server: LocalePackSection;
   completeness: LocaleCompleteness;
-  designData: { count: number };
+  designData: LocalePackDesignData;
   /** 這次套用會清掉的已失效覆寫句數（只在會寫新版本時非 0）。 */
   orphanedDropped: { ui: number; server: number };
   warnings: { code: string; args: string[] }[];
 }
 
-export interface ApplyLocalePackResult { code: string; isNew: boolean; noChanges: boolean; packId: number | null; enabled: boolean }
+export interface ApplyLocalePackResult {
+  code: string; isNew: boolean; noChanges: boolean; packId: number | null; enabled: boolean;
+  /** 實際寫入的設計資料段數。 */
+  designDataApplied: number;
+}
 
 export interface LocaleAdminEntry {
   code: string;
