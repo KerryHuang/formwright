@@ -17,36 +17,43 @@ public static class DemoPeople
         ("designer01", "設計人員")
     ];
 
-    public static readonly (string Key, string Name, string[] Members)[] Groups =
+    private static I18nText Name(string zh, string en, string th, string vi) =>
+        new([KeyValuePair.Create("zh-TW", zh), KeyValuePair.Create("en-US", en), KeyValuePair.Create("th", th), KeyValuePair.Create("vi", vi)]);
+
+    /// <summary>
+    /// 示範群組。譯名見名稱多語設計 §11.1；和內建套件同義的群組沿用套件的譯名，th、vi 為機器翻譯，待母語者校對（功能清單 #30）。
+    /// 「已存在的不覆寫」：既有資料庫不會自動補譯，刪資料庫重建或重新產生 Demo 才有。
+    /// </summary>
+    public static readonly (string Key, I18nText Name, string[] Members)[] Groups =
     [
-        ("mis", "MIS", ["admin"]),
-        ("sales", "業務", ["sales01", "sales02", "sales03"]),
-        ("sales-manager", "業務主管", ["manager01"]),
-        ("floor", "現場人員", ["floor01", "floor02"]),
-        ("maint", "保養", ["maint01"]),
-        ("qa", "品保", ["qa01"]),
-        ("planner", "生管組", ["planner01"]),
-        ("purchasing", "採購組", ["buyer01"]),
-        ("warehouse", "倉管組", ["keeper01"]),
-        ("ops-manager", "進銷存管理組", ["ops01"]),
+        ("mis", Name("MIS", "MIS", "MIS", "MIS"), ["admin"]),
+        ("sales", Name("業務", "Sales", "ฝ่ายขาย", "Kinh doanh"), ["sales01", "sales02", "sales03"]),
+        ("sales-manager", Name("業務主管", "Sales manager", "ผู้จัดการฝ่ายขาย", "Trưởng phòng kinh doanh"), ["manager01"]),
+        ("floor", Name("現場人員", "Shop floor", "พนักงานหน้างาน", "Nhân viên hiện trường"), ["floor01", "floor02"]),
+        ("maint", Name("保養", "Maintenance", "ซ่อมบำรุง", "Bảo trì"), ["maint01"]),
+        ("qa", Name("品保", "Quality assurance", "ประกันคุณภาพ", "Đảm bảo chất lượng"), ["qa01"]),
+        ("planner", Name("生管組", "Production planning", "วางแผนการผลิต", "Kế hoạch sản xuất"), ["planner01"]),
+        ("purchasing", Name("採購組", "Purchasing", "ฝ่ายจัดซื้อ", "Mua hàng"), ["buyer01"]),
+        ("warehouse", Name("倉管組", "Warehouse", "คลังสินค้า", "Kho"), ["keeper01"]),
+        ("ops-manager", Name("進銷存管理組", "Inventory manager", "ผู้จัดการคลังสินค้า", "Quản lý kho"), ["ops01"]),
         // 只讀進銷存的品項與倉庫：MES 出貨單要選庫存品項與出庫倉（整合），出貨的生管與業務需要這份讀取權限
-        ("inv-viewer", "進銷存查詢組", ["planner01", "sales01", "sales02"]),
+        ("inv-viewer", Name("進銷存查詢組", "Inventory viewer", "ผู้ดูข้อมูลคลังสินค้า", "Người xem tồn kho"), ["planner01", "sales01", "sales02"]),
         // 產品設計人員（Demo 開 CRM 時對應其 designer 群組）
-        ("design", "產品設計", ["designer01"])
+        ("design", Name("產品設計", "Product design", "ฝ่ายออกแบบผลิตภัณฑ์", "Thiết kế sản phẩm"), ["designer01"])
     ];
 
     /// <summary>
     /// 示範組織（簽核計畫 a1 Task 5、主控裁決 6），上級排在下級之前。只由 Demo 產生器建立，不放進 <see cref="EnsureAsync"/>：
     /// 測試基底會呼叫 EnsureAsync，簽核測試自己建組織。
     /// </summary>
-    public static readonly (string Code, string Name, string? Parent, string? Manager, string[] Members)[] Departments =
+    public static readonly (string Code, I18nText Name, string? Parent, string? Manager, string[] Members)[] Departments =
     [
-        ("exec", "總經理室", null, "manager01", ["manager01"]),
-        ("sales", "業務部", "exec", "manager01", ["sales01", "sales02", "sales03"]),
-        ("design", "產品設計部", "exec", "designer01", ["designer01"]),
-        ("ops", "營運部", "exec", "ops01", ["ops01", "keeper01"]),
-        ("purchasing", "採購部", "ops", null, ["buyer01"]),
-        ("production", "生產部", "ops", "planner01", ["planner01", "floor01", "floor02", "maint01", "qa01"])
+        ("exec", Name("總經理室", "General Manager's Office", "สำนักงานผู้จัดการทั่วไป", "Văn phòng Tổng giám đốc"), null, "manager01", ["manager01"]),
+        ("sales", Name("業務部", "Sales", "ฝ่ายขาย", "Phòng Kinh doanh"), "exec", "manager01", ["sales01", "sales02", "sales03"]),
+        ("design", Name("產品設計部", "Product Design", "ฝ่ายออกแบบผลิตภัณฑ์", "Phòng Thiết kế sản phẩm"), "exec", "designer01", ["designer01"]),
+        ("ops", Name("營運部", "Operations", "ฝ่ายปฏิบัติการ", "Phòng Vận hành"), "exec", "ops01", ["ops01", "keeper01"]),
+        ("purchasing", Name("採購部", "Purchasing", "ฝ่ายจัดซื้อ", "Phòng Mua hàng"), "ops", null, ["buyer01"]),
+        ("production", Name("生產部", "Production", "ฝ่ายผลิต", "Phòng Sản xuất"), "ops", "planner01", ["planner01", "floor01", "floor02", "maint01", "qa01"])
     ];
 
     /// <summary>補齊示範資料，已存在的不覆寫；會自行 SaveChanges。</summary>
@@ -61,7 +68,7 @@ public static class DemoPeople
         var groups = await db.Set<PermissionGroup>().ToListAsync(ct);
         foreach (var (key, name, _) in Groups.Where(g => groups.All(x => x.Key != g.Key)))
         {
-            var group = new PermissionGroup { Key = key, NameI18n = new I18nText([KeyValuePair.Create("zh-TW", name)]) };
+            var group = new PermissionGroup { Key = key, NameI18n = new I18nText(name.Values) };
             db.Set<PermissionGroup>().Add(group);
             groups.Add(group);
         }
@@ -128,7 +135,7 @@ public static class DemoPeople
         {
             var department = new Department
             {
-                Code = code, NameI18n = new I18nText([KeyValuePair.Create("zh-TW", name)]),
+                Code = code, NameI18n = new I18nText(name.Values),
                 ParentId = parent is null ? null : departments[parent].Id, ManagerUserId = manager, CreatedUserId = "admin",
                 CreatedTime = createdTime
             };
