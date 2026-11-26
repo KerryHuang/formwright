@@ -50,6 +50,7 @@ jobs:
           shellcheck installer/linux/install.sh installer/linux/install.test.sh scripts/installer/e2e/wizard.sh
           node --test scripts/installer/render-defaults.test.mjs
           node scripts/installer/render-defaults.mjs --check
+          python3 -I scripts/installer/e2e/totp_test.py
           bash installer/linux/install.test.sh
       - name: 建前端
         working-directory: frontend
@@ -94,7 +95,7 @@ jobs:
           path: ${{ runner.temp }}/pkgs
       - name: 前置（jq、套件路徑）
         run: |
-          sudo apt-get install -y jq >/dev/null
+          sudo apt-get install -y jq sqlite3 >/dev/null
           echo "P1=$RUNNER_TEMP/pkgs/formwright-$V1-linux-x64.tar.gz" >> "$GITHUB_ENV"
           echo "P2=$RUNNER_TEMP/pkgs/formwright-$V2-linux-x64.tar.gz" >> "$GITHUB_ENV"
           echo "P3=$RUNNER_TEMP/pkgs/formwright-$V3-linux-x64.tar.gz" >> "$GITHUB_ENV"
@@ -165,12 +166,22 @@ jobs:
 
       - name: config-lost-existing-data（AC-13、D-16）
         run: |
-          # M4：先停服務、確認已停，再取基準 hash（WAL 模式下運作中的主檔不穩定；-wal／-shm 若存在一併納入）
+          # M4：先停服務、確認已停；再以服務帳號 checkpoint（把 WAL 回填主檔），主檔必須存在且是一般檔案，只 hash 主檔。
+          # -wal／-shm 是可重建的伴隨檔，唯讀開啟也可能建立它們，不納入比較；helper 內任何一步失敗都非 0（set -e，不吞錯）
+          db_hash() (
+            set -e
+            db=/var/lib/formwright/data/formwright.db
+            test "$(systemctl is-active formwright || true)" = inactive
+            sudo test -f "$db"
+            sudo test ! -L "$db"
+            sudo -u formwright sqlite3 "$db" 'PRAGMA wal_checkpoint(TRUNCATE);' > /dev/null
+            sudo test -f "$db"
+            sudo sha256sum "$db" | cut -d' ' -f1
+          )
           sudo systemctl stop formwright
           test "$(systemctl is-active formwright || true)" = inactive
-          db_hash() { sudo sh -c 'cd /var/lib/formwright/data && for f in formwright.db formwright.db-wal formwright.db-shm; do [ -e "$f" ] && sha256sum "$f"; done; true'; }
           before=$(db_hash)
-          test -n "$before"
+          test "${#before}" = 64
           sudo rm /etc/formwright/formwright.json
           sudo FORMWRIGHT_PACKAGE="$P2" bash installer/linux/install.sh | tee out3.txt
           code=$(grep '^FORMWRIGHT_SETUP_CODE=' out3.txt | cut -d= -f2)
@@ -184,6 +195,7 @@ jobs:
           sudo systemctl stop formwright
           test "$(systemctl is-active formwright || true)" = inactive
           after=$(db_hash)
+          test "${#after}" = 64
           test "$before" = "$after"
 
       - name: purge（D-10）

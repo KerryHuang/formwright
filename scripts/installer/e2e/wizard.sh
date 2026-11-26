@@ -13,6 +13,10 @@ SITE_NAME='青禾貿易'
 API=/api/v3/dynamic
 MODULE=e2e-note
 RECORD_TITLE=e2e-record-1
+# 雙因素（系統預設管理員第一次存取受保護 API 前要先綁定，產品照設計的行為）：secret 與最後用過的時間步存這裡，
+# 讓同一個 job 的後續步驟（升級、重裝後登入）共用；後端拒絕重放（時間步必須大於上次用過的）
+STATE="${FW_E2E_STATE:-${RUNNER_TEMP:-/tmp}/fw-e2e-totp}"
+TOTP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/totp.py"
 JAR=$(mktemp)
 trap 'rm -f "$JAR"' EXIT
 
@@ -47,11 +51,45 @@ wait_status() { # wait_status <url> <期望碼> <秒>
   return 1
 }
 
-login() { # login <base>
-  local code
-  code=$(http POST "$1$API/auth/login" -H 'Content-Type: application/json' \
+# 產生下一組可用的 TOTP 碼：時間步必須大於上次用過的，且不超過「現在 + 1」（後端容許前後各一步）；不夠就等到下一個時間窗
+totp_code() {
+  local secret last now step
+  secret=$(sed -n 1p "$STATE"); last=$(sed -n 2p "$STATE"); last="${last:--1}"
+  while :; do
+    now=$(( $(date +%s) / 30 ))
+    step=$(( now > last ? now : last + 1 ))
+    [ "$step" -le $(( now + 1 )) ] && break
+    sleep 5
+  done
+  printf '%s\n%s\n' "$secret" "$step" > "$STATE"
+  python3 -I "$TOTP" "$secret" --step "$step"
+}
+
+# 綁定雙因素：setup 回 secret → 算碼 → enable
+enroll_2fa() { # enroll_2fa <base>
+  local c
+  c=$(http POST "$1$API/account/two-factor/setup" -H 'Content-Type: application/json' \
+    -d "$(jq -nc --arg p "$ADMIN_PASSWORD" '{password:$p}')")
+  expect "雙因素 setup" 200 "$c"
+  printf '%s\n\n' "$(jq -r '.secret' "$BODY")" > "$STATE"
+  c=$(http POST "$1$API/account/two-factor/enable" -H 'Content-Type: application/json' \
+    -d "$(jq -nc --arg c "$(totp_code)" '{code:$c}')")
+  expect "雙因素 enable" 200 "$c"
+}
+
+login() { # login <base>：登入；被要求第二步就帶 TOTP；還沒綁定過就綁定
+  local c
+  c=$(http POST "$1$API/auth/login" -H 'Content-Type: application/json' \
     -d "$(jq -nc --arg u "$ADMIN_USER" --arg p "$ADMIN_PASSWORD" '{userId:$u,password:$p}')")
-  expect "登入" 200 "$code"
+  expect "登入" 200 "$c"
+  if jq -e '.twoFactorRequired == true' "$BODY" >/dev/null; then
+    [ -s "$STATE" ] || fail "登入要求雙因素，但沒有已綁定的 secret（$STATE）"
+    c=$(http POST "$1$API/auth/two-factor" -H 'Content-Type: application/json' \
+      -d "$(jq -nc --arg c "$(totp_code)" '{code:$c}')")
+    expect "雙因素登入" 200 "$c"
+  elif [ ! -s "$STATE" ]; then
+    enroll_2fa "$1"
+  fi
 }
 
 cmd_checks() { # checks <base> <code>
@@ -117,6 +155,7 @@ create_module_and_record() { # <base>
 
 cmd_full() { # <base> <code> <backup-dir>
   local base="$1" code="$2" backup="$3" c
+  rm -f "$STATE"
   step "GET / 是 HTML"
   c=$(http GET "$base/" -D "$BODY.h"); expect "GET /" 200 "$c"
   grep -qi '^content-type: *text/html' "$BODY.h" || fail "GET / 不是 HTML"
@@ -142,6 +181,8 @@ cmd_full() { # <base> <code> <backup-dir>
     -d "$(jq -nc --arg u "$ADMIN_USER" --arg p "$ADMIN_PASSWORD" '{userId:$u,password:$p}')")
   expect "登入" 200 "$c"
   jq -e '.mustChangePassword == false' "$BODY" >/dev/null || fail "mustChangePassword 不是 false"
+  step "綁定雙因素（產品要求系統預設管理員先綁定）"
+  enroll_2fa "$base"
   c=$(http GET "$base/api/setup/status"); expect "完成後 status" 404 "$c"
   step "備份位置等於精靈填的（AC-03）"
   c=$(http GET "$base$API/system/ops/backups"); expect "備份清單" 200 "$c"
