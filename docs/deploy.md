@@ -215,7 +215,10 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 - **設定碼**：精靈第一步要輸入的 12 碼英數字（例 `K7QM-3HZP-W2XA`），只能用一次。Windows 在安裝程式最後一頁；Ubuntu 在安裝指令的輸出（`FORMWRIGHT_SETUP_CODE=` 那一行）；Docker 在容器 log。
 - **雙因素**：依系統預設，管理員第一次登入後會先被要求設定雙因素驗證，要準備好驗證器 App。
 - **語言**：安裝程式與腳本提供繁體中文與英文。Windows 只有繁中介面的 Windows（含香港、澳門）用繁中，其他一律英文；Ubuntu 只有系統語言是 `zh_TW`、`zh_HK`、`zh_MO` 才用繁中，其他一律英文。`sudo` 會丟掉呼叫端的環境變數，所以要指定語言請寫成 `curl … \| sudo bash -s -- --lang zh-TW`（或 `--lang en`）。
-- **Ubuntu 的選項**：`--port <n>`（只在全新安裝生效）、`--skip-backup`、`--lang <zh-TW|en>`；動作 `remove`、`purge`（`curl … \| sudo bash -s -- remove`）。Windows 靜默安裝參數：`/PORT=<n>`、`/SKIPBACKUP`；解除安裝帶 `/DELETEDATA`。
+- **Ubuntu 的選項**：`--port <n>`（只在全新安裝生效）、`--skip-backup`、`--lang <zh-TW|en>`；動作 `remove`、`purge`（`curl … \| sudo bash -s -- remove`）。Windows 靜默安裝參數：`/PORT=<n>`、`/SKIPBACKUP`、`/FIREWALLSCOPE=<範圍>`；解除安裝帶 `/DELETEDATA`。
+- **Windows 防火牆**：安裝程式建一條輸入規則「Formwright」，只放行 Formwright 程式、該連接埠，來源預設只有同網段（`localsubnet`），所有網路設定檔都適用。其他網段的電腦要連，安裝時帶 `/FIREWALLSCOPE=<netsh remoteip 值>`（例 `192.0.2.0/24,198.51.100.0/24`）；之後升級或重裝不帶參數會沿用上次的範圍。每次安裝都會刪掉舊的同名規則再重建。
+- **Windows 安裝失敗時**：權限、初始化、防火牆或服務 60 秒內沒有正常回應任一步失敗，安裝程式以結束碼 20 結束，Formwright 服務會停止並設成「停用」，避免一直自動重啟；排除問題後重新執行安裝程式即可（會改回自動並啟動）。若訊息說服務沒能停用，請手動執行 `sc config Formwright start= disabled` 與 `sc stop Formwright`。
+- **資料目錄權限（Windows）**：每次安裝都會重設資料目錄（`C:\ProgramData\Formwright`）的權限，只留 SYSTEM、Administrators 與服務帳號；自己加的其他授權會被清掉。
 
 ### 預設位置
 
@@ -243,7 +246,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 
 ### 升級
 
-- **Windows**：直接執行新版安裝程式。會先停服務、用舊版程式做一次備份，備份成功才換檔案；備份失敗就中止，舊版照常執行。備份位置沒設時會問要不要略過備份（靜默安裝要帶 `/SKIPBACKUP`，否則中止）。資料與設定不動。
+- **Windows**：直接執行新版安裝程式。會先停服務、用舊版程式做一次備份，備份成功才換檔案；備份失敗就中止，安裝程式會把舊版服務重新啟動並等它回應；舊版沒能重新啟動時訊息會明說，要手動啟動服務。備份位置沒設時會問要不要略過備份（靜默安裝要帶 `/SKIPBACKUP`，否則中止）。資料與設定不動。
 - **Ubuntu**：重跑同一行安裝指令。流程同上，備份失敗以結束碼 20 中止、舊版照跑；備份位置沒設且沒加 `--skip-backup` 以結束碼 21 中止。`--skip-backup` 只略過「備份位置沒設」，不略過備份失敗。
 - **Docker compose**：Releases 附的 `docker-compose.yml` 固定在該版的映像版號，`docker compose pull` 只會重拉同一版，不會升級。升級用下列任一種方式：
   - 下載新版 Release 的 `docker-compose.yml` 覆蓋舊檔，再 `docker compose pull && docker compose up -d`。
@@ -262,7 +265,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 
 ### 資料庫與備份工具
 
-預設 SQLite，不必另外安裝資料庫。要用 PostgreSQL，在精靈的「資料庫」步驟展開「進階」貼上連線字串；Docker 映像已內附 `pg_dump`，Windows 與 Ubuntu 要自己安裝 PostgreSQL 用戶端工具（`pg_dump` 版本不可低於資料庫伺服器），否則精靈的環境檢查會亮紅燈。
+預設 SQLite，不必另外安裝資料庫。要用 PostgreSQL，在精靈的「資料庫」步驟展開「進階」貼上連線字串；Docker 映像已內附 `pg_dump`，Windows 與 Ubuntu 要自己安裝 PostgreSQL 用戶端工具（`pg_dump` 版本不可低於資料庫伺服器），否則精靈的環境檢查會亮紅燈。Windows 的用戶端工具要裝在 `C:\Program Files`（或 `Program Files (x86)`）底下：升級前備份由安裝程式以系統管理員身分執行，為了不讓其他帳號換掉工具或旁邊的 DLL，系統管理員身分只執行這兩個位置的 `pg_dump`；`Backup:PgDumpPath` 或 `PATH` 指到別處時升級前備份會失敗、升級中止。
 
 ### 設定檔遺失
 
