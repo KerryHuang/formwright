@@ -48,7 +48,7 @@ jobs:
       - name: 腳本檢查（shellcheck、預設值產生腳本、install.sh 離線測試）
         run: |
           shellcheck installer/linux/install.sh installer/linux/install.test.sh scripts/installer/e2e/wizard.sh
-          node --test scripts/installer/
+          node --test scripts/installer/render-defaults.test.mjs
           node scripts/installer/render-defaults.mjs --check
           bash installer/linux/install.test.sh
       - name: 建前端
