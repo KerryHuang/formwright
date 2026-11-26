@@ -89,6 +89,29 @@ public class AppSchemaTests
         defs.GetProperty("field").GetProperty("properties").GetProperty("excludeFromAi").GetProperty("type").GetString().Should().Be("boolean");
     }
 
+    /// <summary>
+    /// schema 裡多語物件（語系鍵是代碼格式的）寫的語系鍵上限都等於伺服器的單一來源 I18nNameRules.MaxLocales（名稱多語設計 §15）。
+    /// 通知範本內文（fg6）伺服器沒有這個上限，schema 也不寫，不在這裡檢查。
+    /// </summary>
+    [Fact]
+    public void AppSchema_LocaleKeyCap_EqualsServerMaxLocales()
+    {
+        var caps = new List<int>();
+        void Walk(JsonElement e)
+        {
+            if (e.ValueKind == JsonValueKind.Object)
+            {
+                if (e.TryGetProperty("propertyNames", out var names) && names.TryGetProperty("$ref", out var r) && r.GetString() == "#/$defs/localeCode")
+                    if (e.TryGetProperty("maxProperties", out var max)) caps.Add(max.GetInt32());
+                foreach (var p in e.EnumerateObject()) Walk(p.Value);
+            }
+            else if (e.ValueKind == JsonValueKind.Array)
+                foreach (var x in e.EnumerateArray()) Walk(x);
+        }
+        Walk(Schema());
+        caps.Should().HaveCountGreaterThanOrEqualTo(3).And.OnlyContain(c => c == DynamicModules.Application.Common.I18nNameRules.MaxLocales);
+    }
+
     [Fact]
     public void AppSchema_ManifestKind_ListsAppMasterTemplate() =>
         Schema().GetProperty("$defs").GetProperty("manifest").GetProperty("properties").GetProperty("kind").GetProperty("enum")
