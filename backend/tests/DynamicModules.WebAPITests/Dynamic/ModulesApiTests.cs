@@ -1,15 +1,25 @@
 using System.Net;
 using System.Net.Http.Json;
+using DynamicModules.Domain.Data;
+using DynamicModules.Domain.Entities.Dynamic;
+using DynamicModules.Domain.ValueObjects;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using static DynamicModules.WebAPITests.Dynamic.ApiTestKit;
 
 namespace DynamicModules.WebAPITests.Dynamic;
 
 public class ModulesApiTests : IClassFixture<TestApp>
 {
+    private readonly TestApp _app;
     private readonly HttpClient _admin;
 
-    public ModulesApiTests(TestApp app) => _admin = app.AsUser("admin");
+    public ModulesApiTests(TestApp app)
+    {
+        _app = app;
+        _admin = app.AsUser("admin");
+    }
 
     [Fact]
     public async Task Create_Update_List_Get_Roundtrip()
@@ -171,6 +181,82 @@ public class ModulesApiTests : IClassFixture<TestApp>
 
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await res.Content.ReadAsStringAsync()).Should().Contain("語系 en-US 的文字不能是空值");
+    }
+
+    // 審查 🟢5：空字串＝不分區；數字不是合法型別
+    [Fact]
+    public async Task Update_SectionEmptyString_ClearsSection()
+    {
+        var key = await CreateModule(_admin);
+        (await _admin.PutAsJsonAsync($"{Base}/modules/{key}", new
+        {
+            name = new Dictionary<string, string> { ["zh-TW"] = "x" }, section = "主檔"
+        })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await _admin.PutAsJsonAsync($"{Base}/modules/{key}", new
+        {
+            name = new Dictionary<string, string> { ["zh-TW"] = "x" }, section = ""
+        })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await JsonOf(await _admin.GetAsync($"{Base}/modules/{key}"))).TryGetProperty("section", out var s)
+            .Should().BeFalse($"沒有分區時不回 section，實際：{s}");
+    }
+
+    [Fact]
+    public async Task Update_SectionAsNumber_Returns400()
+    {
+        var key = await CreateModule(_admin);
+
+        var res = await _admin.PutAsJsonAsync($"{Base}/modules/{key}", new
+        {
+            name = new Dictionary<string, string> { ["zh-TW"] = "x" }, section = 123
+        });
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    // 審查 🟡2：缺繁中的訊息依請求語系
+    [Theory]
+    [InlineData("en-US", "The menu section must have Traditional Chinese when other languages are filled in")]
+    [InlineData("zh-TW", "選單分區有其他語系時必須有繁體中文")]
+    public async Task Update_SectionWithoutZhTw_MessageFollowsRequestLocale(string locale, string message)
+    {
+        var key = await CreateModule(_admin);
+        var client = _app.AsUser("admin");
+        client.DefaultRequestHeaders.Add("X-Locale", locale);
+
+        var res = await client.PutAsJsonAsync($"{Base}/modules/{key}", new
+        {
+            name = new Dictionary<string, string> { ["zh-TW"] = "x" },
+            section = new Dictionary<string, string> { ["en-US"] = "Master" }
+        });
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync()).Should().Contain(message);
+    }
+
+    // 審查 🟡1：升級前已存的 null 值分區不能擋住不相干的修改（政策調嚴不溯及既有資料）
+    [Fact]
+    public async Task Update_IconOnly_WhenStoredSectionHasNullValue_Succeeds()
+    {
+        var key = await CreateModule(_admin);
+        using (var scope = _app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<DynamicDbContext>();
+            var module = await db.Set<Module>().SingleAsync(m => m.Key == key);
+            module.Section = "主檔";
+            module.SectionI18n = new I18nText(new Dictionary<string, string> { ["zh-TW"] = "主檔", ["en-US"] = null! });
+            await db.SaveChangesAsync();
+        }
+        var current = await JsonOf(await _admin.GetAsync($"{Base}/modules/{key}"));
+
+        // 前端只改圖示時，其餘欄位（含 section）原封不動送回
+        var res = await _admin.PutAsJsonAsync($"{Base}/modules/{key}", new
+        {
+            name = current.GetProperty("name"), icon = "star", section = current.GetProperty("section")
+        });
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]

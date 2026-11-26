@@ -176,6 +176,16 @@ public class ModuleServiceTests : IAsyncLifetime
         result.Errors["Section"].Should().Contain("選單分區不能超過 100 字");
     }
 
+    // 審查 🟢3：長度算去前後空白後的字數（同 I18nNameRules.TooLong）
+    [Fact]
+    public async Task CreateModule_SectionOf100CharsPaddedWithSpaces_Accepted()
+    {
+        var result = await Send(new CreateModuleRequest("order", Name(), null, Name($" {new string('a', 100)} ")));
+
+        result.IsSuccess.Should().BeTrue();
+        (await _db.Context.Set<Module>().AsNoTracking().SingleAsync(m => m.Key == "order")).Section.Should().Be(new string('a', 100));
+    }
+
     [Fact]
     public async Task CreateModule_SectionWithMalformedLocale_ReturnsValidationError()
     {

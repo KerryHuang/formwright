@@ -38,15 +38,20 @@ public class Module : AuditableEntity
     public IReadOnlyList<long> TitleFieldIds() =>
         (TitleFieldId is { } id ? new[] { id } : []).Concat(Modules.TitleTemplate.FieldIds(TitleTemplate)).Distinct().ToList();
 
-    /// <summary>選單分區的多語系文字；沒有分區是 null，SectionI18n 是 null 的舊資料視為 {"zh-TW": Section}。</summary>
+    /// <summary>
+    /// 選單分區的多語系文字；沒有分區是 null，SectionI18n 是 null 的舊資料視為 {"zh-TW": Section}。
+    /// 讀取端正規化：升級前存進去的 null 或空白語系在這裡去掉，不流到 API 回應、匯出與套件升級（新驗證拒收 null 值，不溯及既有資料）。
+    /// </summary>
     public I18nText? SectionText() =>
         string.IsNullOrEmpty(Section) ? null
-        : SectionI18n ?? new I18nText([KeyValuePair.Create(I18nText.FallbackLocale, Section)]);
+        : SectionI18n?.Compacted() ?? new I18nText([KeyValuePair.Create(I18nText.FallbackLocale, Section)]);
 
-    /// <summary>設定選單分區：Section 取繁中、SectionI18n 存整個物件；繁中空白視同不分區，兩者都清成 null；空白的其他語系丟掉。</summary>
+    /// <summary>設定選單分區：Section 取繁中、SectionI18n 存整個物件；各語系去前後空白、丟掉空白的語系；繁中空白視同不分區，兩者都清成 null。</summary>
     public void SetSection(I18nText? text)
     {
-        var zh = text?.Values.GetValueOrDefault(I18nText.FallbackLocale);
+        // Compacted 每次給新的實例，EF 才偵測得到 JSON 欄位變更
+        var compact = text?.Compacted();
+        var zh = compact?.Values.GetValueOrDefault(I18nText.FallbackLocale);
         if (string.IsNullOrWhiteSpace(zh))
         {
             Section = null;
@@ -54,9 +59,7 @@ public class Module : AuditableEntity
             return;
         }
         Section = zh;
-        // 每次給新的實例，EF 才偵測得到 JSON 欄位變更
-        // 空字串的語系不存（名稱多語設計 §9 第 3 點）
-        SectionI18n = new I18nText(text!.Values.Where(kv => !string.IsNullOrWhiteSpace(kv.Value)));
+        SectionI18n = compact;
     }
 
     /// <summary>metadata 異動時呼叫：版本加一並更新修改稽核。</summary>
