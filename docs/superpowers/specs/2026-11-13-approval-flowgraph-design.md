@@ -1226,7 +1226,7 @@
 ### 技術類（實作者決定）
 
 - **批次轉換的執行機制**：WebAPI 啟動流程裡、索引回填（`IndexBackfillJob`）之後跑 `ApprovalGraphBatchConversion`。每次啟動都檢查；列出所有模組的流程，只挑目前版本 `shape` 是 `sequence` 的，沒有就直接回傳、不寫任何東西。SQLite 與 PostgreSQL 共用同一份程式（只走 repository，沒有 raw SQL）。
-- **一條流程一個交易**（審查修正 fg6-r2）：每條流程用 `ITransactionManager.BeginAsync` 包一個交易，交易內重讀流程與版本、`IsVersionUsedAsync`、寫入；新版本與改 `CurrentVersionId` 一起提交或一起回滾，中途中斷不留孤兒版本。PostgreSQL 的交易一開始就取全庫寫入鎖，所以「是否被用過」的檢查與寫入不會被正在服務的舊實例插隊（不會原地改寫剛被綁定的版本，也不會兩邊都拿 `Max+1`）。一條流程失敗只記 Warning（帶流程代碼）、`Discard` 追蹤中的變更、繼續下一條；`Program.cs` 呼叫處也包 try/catch，連列出流程都失敗時只記 Warning，不讓啟動掛掉。先列完待轉清單再逐條改，列舉中不再發查詢（PostgreSQL 同一條連線不能同時開兩個讀取器）。
+- **一條流程一個交易**（審查修正 fg6-r2）：每條流程用 `ITransactionManager.BeginAsync` 包一個交易，交易內重讀流程與版本、`IsVersionUsedAsync`、寫入；新版本與改 `CurrentVersionId` 一起提交或一起回滾，中途中斷不留孤兒版本。PostgreSQL 的交易一開始就取全庫寫入鎖，所以「是否被用過」的檢查與寫入不會被正在服務的舊實例插隊（不會原地改寫剛被綁定的版本，也不會兩邊都拿 `Max+1`）。一條流程失敗只記 Warning（帶流程代碼）、`Discard` 追蹤中的變更、繼續下一條；資料庫忙碌（`DatabaseBusyException`，鎖逾時）時整輪中止、記一次 Warning，剩下的下次啟動再轉，不逐條各等一次逾時（複審 🟢N1）；`Program.cs` 呼叫處也包 try/catch，連列出流程都失敗時只記 Warning，不讓啟動掛掉。先列完待轉清單再逐條改，列舉中不再發查詢（PostgreSQL 同一條連線不能同時開兩個讀取器）。
 - **原地覆寫保留建立者與時間**：格式轉換不算編輯；被用過時新增的版本建立者記系統（`ApprovalEngine.SystemActor`）、時間用營運時間，流程本身也標成系統修改（`StampModified`），部署當下開著的設計器發布撞到 409 時，衝突資訊顯示是系統改的。`LayoutJson` 留空，設計頁自動排版（§7.8 第 5 點）。
 - **草稿不動**：草稿只收 graph（fg3），只有草稿的流程沒有目前版本，跳過。
 - **日誌**：一行「簽核流程批次轉成流程圖：轉換 N 條流程，其中 M 條因目前版本已被使用而新增版本；失敗 K 條」，失敗的每條另有一行 Warning；沒有待轉換的不寫日誌。
@@ -1238,7 +1238,7 @@
 - **U24 移除**：`AppExporter` 的「停用 graph 略過並警告」與 `ToPackage` 的 graph 拒絕都拿掉，訊息常數 `ExportFlowGraph` 刪除。U17（只有草稿的流程不匯出）照舊。
 - **升級比對的屬性**：流程的 `stages` 屬性改成 `nodes`（每個節點去掉簽核人；簽核節點的 `onEmpty` 沒寫時補預設值，免得格式 8 與 9 寫法不同被當成差異）與連線（照一般序列化比）；`approvers` 以簽核節點代號為鍵。關卡代號集合的檢查（套件升級設計 Q27 第二點）改看簽核節點代號集合。套用時兩邊都先轉成 graph，再依節點代號逐個把新版內容配上目前的簽核人。
 - **`app.schema.json`**：`formatVersion` 加 9；`approvalFlows` 的項目改成 `oneOf`（sequence＋stages／graph＋nodes＋edges），加上節點、連線、通知收件人（種類只有三種）、範本的 `$defs`。根層 `allOf` 依 `formatVersion` 綁定 `shape`：9 以上只能 graph、8 以下只能 sequence（用 `minimum`／`maximum`，格式升到 10 也不必改）。schema 只會比 C# 寬或相等；節點依種類的必填屬性、收件人組合規則仍以伺服器驗證為準。
-- **通知節點拿掉後的重複線**（審查修正 fg6-r2）：入線改接到出線終點時，若來源已有一條線到同一個終點——來源是條件節點、既有那條是預設線、而且改接的線之後比對的條件線也都到同一個終點時，刪掉改接的那條（符合它的單照樣落到預設線，語意不變）；條件節點因此只剩預設線時，條件節點本身也是直通，一起跳過。其他情況（既有那條是條件線、中間有別的條件線分走、並行分支兩條都只剩通知節點）不保證等價，保留這個沒有收件人的通知節點，交給驗證回報。開啟預覽對略過群組後的流程圖再跑一次結構驗證（`AppPackageValidator.SkippedGroupErrors`），錯誤後面加「（略過群組後）」，預覽就列出、不等開啟才失敗；升級預覽原本就對套用後的定義跑設計器驗證（`ToInput` 已套略過），標 `workflowInvalid`。例：並行分支兩條都只通知被略過的群組 →「approvalFlows[t8-po-notify].nodes.n2.recipients: 通知收件人設定必須有 1 到 20 項（略過群組後）」。
+- **通知節點拿掉後的重複線**（審查修正 fg6-r2）：入線改接到出線終點時，若來源已有一條線到同一個終點——來源是條件節點、既有那條是預設線、而且改接的線之後比對的條件線也都到同一個終點時，刪掉改接的那條（符合它的單照樣落到預設線，語意不變）；條件節點因此只剩預設線時，條件節點本身也是直通，一起跳過。其他情況（既有那條是條件線、中間有別的條件線分走、並行分支兩條都只剩通知節點）不保證等價，保留這個沒有收件人的通知節點，交給驗證回報。沒有收件人的通知節點反覆嘗試跳過、直到不再有變化，結果與節點在陣列裡的順序無關：例如條件節點 order 1、order 2 兩條各接一個只通知被略過群組的知會、預設線到結束，不論兩個知會誰在前，都會兩個拿掉、條件節點也一起跳過（複審 🟡N1）。開啟預覽對略過群組後的流程圖再跑一次結構驗證（`AppPackageValidator.SkippedGroupErrors`），錯誤後面加「（略過群組後）」，預覽就列出、不等開啟才失敗；升級預覽原本就對套用後的定義跑設計器驗證（`ToInput` 已套略過），標 `workflowInvalid`。例：並行分支兩條都只通知被略過的群組 →「approvalFlows[t8-po-notify].nodes.n2.recipients: 通知收件人設定必須有 1 到 20 項（略過群組後）」。
 - **內建應用程式維持格式 8**：`backend/apps/*.app.json` 不改寫，開啟時轉 graph；格式 8 的 stages → graph 由 `AppFormat8Tests`、`InventoryApprovalTests`、`DesignCaseFlowTests` 涵蓋。改寫成格式 9 只會讓檔案變長、沒有新能力，也會讓已開啟的客戶看到一次純格式的升級差異。
 - **頂替清單的種類**：`approvalSubstitutions[].kind` 加 `notify`、`replacedBy` 加 `skipped`（前端型別同步）；簽核節點的頂替 `stage` 欄位放節點代號、`stageName` 放節點名稱。
 
