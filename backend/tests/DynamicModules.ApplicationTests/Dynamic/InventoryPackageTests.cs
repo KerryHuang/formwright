@@ -20,7 +20,7 @@ public class InventoryPackageTests
     public void Catalog_LoadsInventory_AndTheValidatorReportsNoErrors()
     {
         var p = Package.Value;
-        p.FormatVersion.Should().Be(8, "貢獻欄位要格式 6，採購單簽核流程要格式 8");
+        p.FormatVersion.Should().Be(10, "貢獻欄位要格式 6、採購單簽核流程要格式 8（9 起是流程圖），報表名稱多語要格式 10");
         p.Manifest.Requires.Apps.Should().BeEmpty("進銷存不依賴其他應用程式");
         p.Manifest.Requires.Entities.Should().BeEmpty();
         AppPackageValidator.Validate(p).Errors.Should().BeEmpty();
@@ -119,7 +119,7 @@ public class InventoryPackageTests
         texts.AddRange(p.Conversions.Select(c => ($"conversion {c.Code}", c.Name)));
         texts.AddRange(p.PrintTemplates.Select(t => ($"print {t.Code}", t.Name)));
         texts.AddRange(p.ApprovalFlows.Select(f => ($"flow {f.Code}", f.Name)));
-        texts.AddRange(p.ApprovalFlows.SelectMany(f => f.Stages!.Select(st => ($"flow {f.Code} stage {st.Code}", st.Name))));
+        texts.AddRange(p.ApprovalFlows.SelectMany(f => f.Nodes!.Where(n => n.Name is not null).Select(n => ($"flow {f.Code} node {n.Id}", n.Name!))));
 
         foreach (var (where, text) in texts)
             text.Values.Keys.Should().BeEquivalentTo(BuiltinLocales.Codes, where);
@@ -149,7 +149,7 @@ public class InventoryPackageTests
         var medium = p.ApprovalFlows[1];
         foreach (var flow in p.ApprovalFlows)
         {
-            (flow.Module, flow.To, flow.Shape, flow.Active).Should().Be(("po", "confirmed", "sequence", true));
+            (flow.Module, flow.To, flow.Shape, flow.Active).Should().Be(("po", "confirmed", "graph", true));
             flow.FallbackApprovers!.Source.Should().Be("group", flow.Code);
             flow.FallbackApprovers.Groups.Should().Equal("manager");
         }
@@ -160,14 +160,16 @@ public class InventoryPackageTests
         large.When!.Value.GetRawText().Should().Contain("\"gte\"").And.Contain("100000");
         medium.When!.Value.GetRawText().Should().Contain("\"gte\"").And.Contain("10000").And.NotContain("100000");
 
-        large.Stages!.Select(s => $"{s.Code}:{s.Approvers.Source}:{s.Approvers.Level}:{s.DueHours}").Should().Equal("buyer-lead:manager:1:24", "gm:manager:2:48");
-        medium.Stages!.Select(s => $"{s.Code}:{s.Approvers.Source}:{s.Approvers.Level}:{s.DueHours}").Should().Equal("buyer-lead:manager:1:24");
-        p.ApprovalFlows.SelectMany(f => f.Stages!).Should().OnlyContain(s => s.Mode == "any" && s.OnEmpty == "fallback" && (s.EditableFields == null || s.EditableFields.Count == 0));
+        static IEnumerable<AppApprovalNode> Approvals(AppApprovalFlow f) => f.Nodes!.Where(n => n.Kind == "approval");
+        Approvals(large).Select(s => $"{s.Id}:{s.Approvers!.Source}:{s.Approvers.Level}:{s.DueHours}").Should().Equal("buyer-lead:manager:1:24", "gm:manager:2:48");
+        Approvals(medium).Select(s => $"{s.Id}:{s.Approvers!.Source}:{s.Approvers.Level}:{s.DueHours}").Should().Equal("buyer-lead:manager:1:24");
+        large.Edges!.Select(e => $"{e.From}>{e.To}").Should().Equal("start>buyer-lead", "buyer-lead>gm", "gm>end");
+        medium.Edges!.Select(e => $"{e.From}>{e.To}").Should().Equal("start>buyer-lead", "buyer-lead>end");
+        p.ApprovalFlows.SelectMany(Approvals).Should().OnlyContain(s => s.Mode == "any" && s.OnEmpty == "fallback" && (s.EditableFields == null || s.EditableFields.Count == 0));
         // 手冊與 Demo 劇本照這幾個繁中名稱寫，改名要連手冊一起改
         large.Name.Resolve("zh-TW").Should().Be("採購單（大額）");
         medium.Name.Resolve("zh-TW").Should().Be("採購單（一萬以上）");
-        large.Stages![0].Name.Resolve("zh-TW").Should().Be("採購主管");
-        large.Stages[1].Name.Resolve("zh-TW").Should().Be("總經理");
+        Approvals(large).Select(s => s.Name!.Resolve("zh-TW")).Should().Equal("採購主管", "總經理");
     }
 
     [Fact]
