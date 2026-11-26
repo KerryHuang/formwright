@@ -1,8 +1,12 @@
 # Formwright installer: rebuild the permissions of the data parent directory (run by the installer as administrator, every install).
 # Windows PowerShell 5.1 compatible; ASCII only (5.1 reads BOM-less files as ANSI).
-# Order: lock the parent first (one Set-Acl: owner Administrators + protected, brand-new DACL), then handle the children.
-# After the lock only administrators and the (stopped) service account can change anything inside.
-# Children: reparse points are refused and never followed (icacls /L); owner -> Administrators; DACL -> inherited only.
+# Order: (1) lock the parent (one Set-Acl: owner Administrators + protected, brand-new DACL);
+# (2) let icacls itself recurse below it, without following links: owner -> Administrators (/setowner /T /C /L), then /reset /T /C /L on
+#     every child (removes every explicit ACE, children inherit only); (3) only then walk the tree and verify each item against the
+#     authoritative expected set (owner Administrators or SYSTEM, non-null DACL, exactly 3 inherited ACEs: SYSTEM and Administrators
+#     Full Control, service account Modify; inheritance flags right for files and directories). A reparse point anywhere = failure.
+# Accepted residual risk (decided by the owner): while icacls is recursing, an account that was already granted write access to a
+# child could still plant a link ahead of the reset. /L never follows links, so the effect stays inside the tree, and step (3) fails on it.
 # Any failure exits non-zero (message goes to -LogFile).
 param(
   [Parameter(Mandatory = $true)][string]$Parent,
@@ -72,7 +76,7 @@ try {
   $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sidService, 'Modify', $flags, $none, $allow)))
   Set-Acl -LiteralPath $Parent -AclObject $acl
 
-  # 3. Now (only administrators and the stopped service account can change things inside) create what is missing and walk the children.
+  # 3. Create what is missing, then let icacls recurse (links are never followed: /L). Owner first, then reset every child's DACL.
   foreach ($d in @($Data, $Backup)) {
     if (Test-Path -LiteralPath $d) {
       if (-not (Test-Path -LiteralPath $d -PathType Container)) { throw "not a directory: $d" }
@@ -80,12 +84,8 @@ try {
       New-Item -ItemType Directory -Path $d | Out-Null
     }
   }
-  $null = Get-Tree $Parent   # fail fast on any reparse point before touching anything
-  foreach ($child in @(Get-ChildItem -LiteralPath $Parent -Force)) {
-    # /L: act on a link itself, never its target (belt and braces if something appears after the walk above)
-    Run-Icacls @($child.FullName, '/setowner', '*S-1-5-32-544', '/T', '/C', '/L')
-    Run-Icacls @($child.FullName, '/reset', '/T', '/C', '/L')
-  }
+  Run-Icacls @($Parent, '/setowner', '*S-1-5-32-544', '/T', '/C', '/L')
+  Run-Icacls @(($Parent.TrimEnd('\') + '\*'), '/reset', '/T', '/C', '/L')
 
   # 4. Read everything back.
   $now = Get-Acl -LiteralPath $Parent
@@ -109,15 +109,41 @@ try {
       throw "unexpected ACE for $sid"
     }
   }
+  # Whole tree: nothing may be a link; every item must match the expected set exactly (an empty set does not pass).
   $ownersOk = @($sidAdmins.Value, $sidSystem.Value)
+  $dirFlags = [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
+  $fileFlags = [Security.AccessControl.InheritanceFlags]::None
+  $count = 0
   foreach ($item in (Get-Tree $Parent)) {
-    $a = Get-Acl -LiteralPath $item.FullName
-    if ($ownersOk -notcontains $a.GetOwner([Security.Principal.SecurityIdentifier]).Value) { throw "unexpected owner: $($item.FullName)" }
-    if ($a.AreAccessRulesProtected) { throw "protected (non-inheriting) permissions remain: $($item.FullName)" }
-    foreach ($r in $a.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
-      if (-not $r.IsInherited) { throw "explicit ACE remains: $($item.FullName)" }
+    $count++
+    $path = $item.FullName
+    $a = Get-Acl -LiteralPath $path
+    if ($ownersOk -notcontains $a.GetOwner([Security.Principal.SecurityIdentifier]).Value) { throw "unexpected owner: $path" }
+    if ($a.AreAccessRulesProtected) { throw "protected (non-inheriting) permissions remain: $path" }
+    if ([string]::IsNullOrEmpty($a.GetSecurityDescriptorSddlForm('Access'))) { throw "no DACL: $path" }
+    $rs = @($a.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
+    if ($rs.Count -ne 3) { throw "$($rs.Count) ACEs, expected 3: $path" }
+    $want = if ($item.PSIsContainer) { $dirFlags } else { $fileFlags }
+    $seen = @()
+    foreach ($r in $rs) {
+      $sid = $r.IdentityReference.Value
+      $mask = [int]$r.FileSystemRights
+      if (-not $r.IsInherited) { throw "explicit ACE for ${sid}: $path" }
+      if ($r.AccessControlType -ne 'Allow') { throw "ACE for $sid is not Allow: $path" }
+      if ($r.InheritanceFlags -ne $want -or $r.PropagationFlags -ne 'None') { throw "ACE for $sid has wrong inheritance flags: $path" }
+      if ($sid -eq $sidSystem.Value -or $sid -eq $sidAdmins.Value) {
+        if (($mask -band $FullMask) -ne $FullMask) { throw "$sid is not Full Control: $path" }
+      } elseif ($sid -eq $sidService.Value) {
+        if (($mask -band $ModifyRequired) -ne $ModifyRequired) { throw "service account lacks Modify: $path" }
+        if (($mask -band $ForbiddenForService) -ne 0) { throw "service account has WriteDACL/WriteOwner: $path" }
+      } else {
+        throw "unexpected ACE for ${sid}: $path"
+      }
+      $seen += $sid
     }
+    if (@($seen | Sort-Object -Unique).Count -ne 3) { throw "ACE principals are not SYSTEM, Administrators and the service account: $path" }
   }
+  if ($count -lt 2) { throw "expected at least the data and backup directories below the parent, found $count items" }
   exit 0
 } catch {
   $msg = "set-acl failed: $($_.Exception.Message)"

@@ -20,9 +20,22 @@ function To-UtcOffset($UnixSeconds) {
 }
 function Now-Utc { [DateTimeOffset]::FromUnixTimeSeconds([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) }
 
-# B01／M02：資料父目錄的完整預期集合（照安裝程式 set-acl.ps1 的驗證）：
+# B01／M02：資料父目錄的完整預期集合（與安裝程式 set-acl.ps1 的驗證同一套）：
 #  父目錄：擁有者 Administrators、受保護（不繼承）、恰好三個 Allow ACE（SYSTEM、Administrators 完全控制；服務帳號 Modify、沒有 WriteDACL／WriteOwner），皆 OI CI、非繼承；
-#  父目錄之下每個項目：沒有任何明確 ACE（全部繼承）、不是受保護、擁有者是 Administrators 或 SYSTEM（-AllowServiceOwner 時也接受服務帳號：精靈完成後服務自己建的檔案）。
+#  父目錄之下每個項目：不是 reparse point、DACL 非空、擁有者是 Administrators 或 SYSTEM（-AllowServiceOwner 時也接受服務帳號：精靈完成後服務自己建的檔案）、
+#  不是受保護、恰好三個「繼承」ACE（同一組三個主體與遮罩；目錄旗標 OI CI、檔案旗標無），沒有任何明確 ACE。至少要有 data 與 backup 兩個子項（空集合不得通過）。
+function Assert-AclRule($r, [string]$Where, [string]$Svc, $WantFlags, [bool]$Inherited) {
+  $id = $r.IdentityReference.Value; $mask = [int]$r.FileSystemRights
+  Assert ("$($r.AccessControlType)" -eq 'Allow') "$Where：$id 的 ACE 不是 Allow"
+  Assert ($r.IsInherited -eq $Inherited) "$Where：$id 的 ACE 繼承狀態不對（IsInherited=$($r.IsInherited)）"
+  Assert ($r.InheritanceFlags -eq $WantFlags -and "$($r.PropagationFlags)" -eq 'None') "$Where：$id 的 ACE 繼承旗標不對（$($r.InheritanceFlags)/$($r.PropagationFlags)）"
+  if ($id -eq 'S-1-5-18' -or $id -eq 'S-1-5-32-544') { Assert (($mask -band 0x1F01FF) -eq 0x1F01FF) "$Where：$id 應為完全控制" }
+  elseif ($id -eq $Svc) {
+    Assert (($mask -band 0x301BF) -eq 0x301BF) "$Where：服務帳號應有 Modify"
+    Assert (($mask -band 0xC0000) -eq 0) "$Where：服務帳號不該有 WriteDACL／WriteOwner"
+    Assert (($mask -band 0x1F01FF) -ne 0x1F01FF) "$Where：服務帳號不該是完全控制"
+  } else { throw "FAIL: $Where 有不該有的 ACE：$id" }
+}
 function Assert-AclState([string]$Parent = 'C:\ProgramData\Formwright', [switch]$AllowServiceOwner) {
   $sid = [Security.Principal.SecurityIdentifier]
   $svc = (New-Object Security.Principal.NTAccount('NT SERVICE\Formwright')).Translate($sid).Value
@@ -32,25 +45,27 @@ function Assert-AclState([string]$Parent = 'C:\ProgramData\Formwright', [switch]
   Assert ($acl.AreAccessRulesProtected) "$Parent 還在繼承權限"
   $rules = @($acl.GetAccessRules($true, $true, $sid))
   Assert ($rules.Count -eq 3) "$Parent 應有 3 個 ACE、實得 $($rules.Count)"
-  $want = [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
-  foreach ($r in $rules) {
-    $id = $r.IdentityReference.Value; $mask = [int]$r.FileSystemRights
-    Assert ("$($r.AccessControlType)" -eq 'Allow' -and -not $r.IsInherited) "$id 的 ACE 不是明確的 Allow"
-    Assert ($r.InheritanceFlags -eq $want -and "$($r.PropagationFlags)" -eq 'None') "$id 的 ACE 繼承旗標不是 OI CI"
-    if ($id -eq $system -or $id -eq $admins) { Assert (($mask -band 0x1F01FF) -eq 0x1F01FF) "$id 應為完全控制" }
-    elseif ($id -eq $svc) {
-      Assert (($mask -band 0x301BF) -eq 0x301BF) '服務帳號應有 Modify'
-      Assert (($mask -band 0xC0000) -eq 0) '服務帳號不該有 WriteDACL／WriteOwner'
-      Assert (($mask -band 0x1F01FF) -ne 0x1F01FF) '服務帳號不該是完全控制'
-    } else { throw "FAIL: $Parent 有不該有的 ACE：$id" }
-  }
+  $dirFlags = [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
+  $fileFlags = [Security.AccessControl.InheritanceFlags]::None
+  foreach ($r in $rules) { Assert-AclRule $r $Parent $svc $dirFlags $false }
+  Assert (@($rules | ForEach-Object { $_.IdentityReference.Value } | Sort-Object -Unique).Count -eq 3) "$Parent 的三個 ACE 主體不是 SYSTEM、Administrators、服務帳號"
   $owners = @($admins, $system); if ($AllowServiceOwner) { $owners += $svc }
+  $n = 0
   foreach ($item in (Get-ChildItem -LiteralPath $Parent -Recurse -Force)) {
-    $a = Get-Acl -LiteralPath $item.FullName
-    Assert ($owners -contains $a.GetOwner($sid).Value) "$($item.FullName) 的擁有者是 $($a.Owner)"
-    Assert (-not $a.AreAccessRulesProtected) "$($item.FullName) 的權限不繼承"
-    foreach ($r in $a.GetAccessRules($true, $true, $sid)) { Assert $r.IsInherited "$($item.FullName) 有明確 ACE：$($r.IdentityReference)" }
+    $n++
+    $p = $item.FullName
+    Assert (-not $item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) "$p 是 reparse point"
+    $a = Get-Acl -LiteralPath $p
+    Assert ($owners -contains $a.GetOwner($sid).Value) "$p 的擁有者是 $($a.Owner)"
+    Assert (-not $a.AreAccessRulesProtected) "$p 的權限不繼承"
+    Assert (-not [string]::IsNullOrEmpty($a.GetSecurityDescriptorSddlForm('Access'))) "$p 沒有 DACL"
+    $rs = @($a.GetAccessRules($true, $true, $sid))
+    Assert ($rs.Count -eq 3) "$p 應有 3 個 ACE、實得 $($rs.Count)"
+    $wf = if ($item.PSIsContainer) { $dirFlags } else { $fileFlags }
+    foreach ($r in $rs) { Assert-AclRule $r $p $svc $wf $true }
+    Assert (@($rs | ForEach-Object { $_.IdentityReference.Value } | Sort-Object -Unique).Count -eq 3) "$p 的三個 ACE 主體不是 SYSTEM、Administrators、服務帳號"
   }
+  Assert ($n -ge 2) "父目錄之下至少要有 data 與 backup，實得 $n 個項目"
 }
 
 # sc.exe 的結束碼檢查（原生指令的非 0 不會讓 step 失敗）；-Allow 列出可接受的碼
