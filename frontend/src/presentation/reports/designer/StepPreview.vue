@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import type { ReportResult, ReportViz } from 'src/domain/dynamic/report-types';
 import type { I18nText } from 'src/domain/dynamic/types';
 import I18nTextInput from 'src/presentation/dynamic/designer/I18nTextInput.vue';
@@ -14,8 +14,8 @@ const props = defineProps<{
 const emit = defineEmits<{ save: []; refresh: [] }>();
 const { t } = useI18n();
 const VIZS: ReportViz[] = ['table', 'indicator', 'line', 'bar', 'donut'];
-// 綁 original 的要是獨立副本，不能和 v-model 的 state.name 同一個物件
-const original = props.originalName ? { ...props.originalName } : undefined;
+// 綁 original 的要是獨立副本，不能和 v-model 的 state.name 同一個物件；跟著 originalName 換（報表重新載入時不用舊值）
+const original = computed(() => (props.originalName ? { ...props.originalName } : undefined));
 const nameInput = ref<{ validate(): Promise<boolean> } | null>(null);
 async function save() {
   if (await nameInput.value?.validate()) emit('save');
