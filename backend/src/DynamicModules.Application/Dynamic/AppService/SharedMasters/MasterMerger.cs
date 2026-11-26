@@ -76,6 +76,12 @@ public sealed class MasterMerger(
         var blocks = current.Blocks.Select(b => b with { Fields = b.Fields.ToList() }).ToList();
         var fields = blocks.SelectMany(b => b.Fields).ToDictionary(f => f.Code);
         var optionCodes = blocks.SelectMany(b => b.Fields).SelectMany(f => f.Options).Select(o => o.Code).ToHashSet();
+        void Replace(TemplateField existing, TemplateField merged)
+        {
+            var host = blocks.First(b => b.Fields.Contains(existing));
+            host.Fields[host.Fields.IndexOf(existing)] = merged;
+            fields[merged.Code] = merged;
+        }
         foreach (var ib in incoming.Blocks)
         {
             var target = blocks.FirstOrDefault(b => b.Code == ib.Code);
@@ -83,16 +89,19 @@ public sealed class MasterMerger(
             {
                 if (fields.TryGetValue(f.Code, out var existing))
                 {
-                    if (existing.Type != f.Type) { warnings.Add(TypeKept(Label(existing.Label, lc), f.Code)); continue; }
-                    var added = f.Options.Where(o => existing.Options.All(x => x.Code != o.Code))
-                        .Select(o => o with { Code = Avoid(o.Code, optionCodes) }).ToList();
                     // 「不提供給 AI」只加不減（名稱多語設計 §8.1）：匯入的標 true 而現值不是才補，和選項一起合併，不因為沒有新選項就丟掉
                     var flag = f.ExcludeFromAi == true && existing.ExcludeFromAi != true;
+                    if (existing.Type != f.Type)
+                    {
+                        // 型別不同保留既有欄位，但旗標照樣補（只加不減無害；略過會往「提供給 AI」的不安全方向錯）
+                        warnings.Add(TypeKept(Label(existing.Label, lc), f.Code));
+                        if (flag) Replace(existing, existing with { ExcludeFromAi = true });
+                        continue;
+                    }
+                    var added = f.Options.Where(o => existing.Options.All(x => x.Code != o.Code))
+                        .Select(o => o with { Code = Avoid(o.Code, optionCodes) }).ToList();
                     if (added.Count == 0 && !flag) continue;
-                    var merged = existing with { Options = [.. existing.Options, .. added], ExcludeFromAi = flag ? true : existing.ExcludeFromAi };
-                    var host = blocks.First(b => b.Fields.Contains(existing));
-                    host.Fields[host.Fields.IndexOf(existing)] = merged;
-                    fields[f.Code] = merged;
+                    Replace(existing, existing with { Options = [.. existing.Options, .. added], ExcludeFromAi = flag ? true : existing.ExcludeFromAi });
                     continue;
                 }
                 if (target is null)
@@ -192,9 +201,10 @@ public sealed class MasterMerger(
                     if (baseFields.TryGetValue(f.Code, out var fieldId))
                     {
                         var existing = dbFields[fieldId];
-                        if (existing.Type != f.Type) { warnings.Add(TypeKept(Label(existing.LabelI18n, lc), f.Code)); continue; }
-                        // 「不提供給 AI」只加不減（名稱多語設計 §8.1）：套件標 true 而現值不是才寫；false 或省略不動既有的 true
+                        // 「不提供給 AI」只加不減（名稱多語設計 §8.1）：套件標 true 而現值不是才寫；false 或省略不動既有的 true。
+                        // 型別不同保留既有欄位時也照補，略過會往「提供給 AI」的不安全方向錯
                         if (f.ExcludeFromAi == true && !existing.ExcludeFromAi) aiFlags.Add(existing);
+                        if (existing.Type != f.Type) { warnings.Add(TypeKept(Label(existing.LabelI18n, lc), f.Code)); continue; }
                         foreach (var o in f.Options)
                         {
                             if (!baseOptions.TryGetValue(o.Code, out var optionId)) optionAdds.Add((im.Code, fieldId, NewOption(o)));

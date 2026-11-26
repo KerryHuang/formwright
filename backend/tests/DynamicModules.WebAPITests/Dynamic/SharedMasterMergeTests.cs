@@ -140,6 +140,43 @@ public class SharedMasterMergeTests : IDisposable
         DbField(_rig, "bp", "partner.headcount").Config.DefaultValue!.Value.GetString().Should().Be("不是數字", "只改旗標，其他設定不動");
     }
 
+    /// <summary>
+    /// 定義層（沒人開過的主檔）：同代號但型別不同的既有欄位保留既有的，但套件標的「不提供給 AI」照樣補上（只加不減，i3c 複審 N1：
+    /// 略過會往「提供給 AI」的不安全方向錯）。
+    /// </summary>
+    [Fact]
+    public async Task NotOpenedMaster_ReimportTypeMismatchWithFlag_KeepsTypeButAddsFlag()
+    {
+        await _rig.ImportAllAsync();
+        var bp = Node(SharedMasterPackages.Bp);
+        bp["formatVersion"] = 10;
+        FieldNode(bp, "phone")["type"] = "text";
+        FieldNode(bp, "phone")["excludeFromAi"] = true;
+        var warnings = await _rig.ImportMergeOkAsync(bp.ToJsonString());
+        warnings.Should().Contain(w => w.Contains("電話") && w.Contains("型別"), string.Join("\n", warnings));
+
+        await _rig.OpenOkAsync("crmx");
+        DbField(_rig, "bp", "partner.phone").Type.Should().Be(FieldType.Phone, "型別不同保留既有的");
+        DbField(_rig, "bp", "partner.phone").ExcludeFromAi.Should().BeTrue("型別不同也要補旗標");
+    }
+
+    /// <summary>資料庫層（已開啟的主檔）：型別不同的既有欄位保留型別，旗標照樣補上（i3c 複審 N1）。</summary>
+    [Fact]
+    public async Task OpenMaster_ReimportTypeMismatchWithFlag_KeepsTypeButAddsFlag()
+    {
+        await _rig.ImportAllAsync();
+        await _rig.OpenOkAsync("crmx");
+        var (exported, _) = await _rig.ExportAsync("bp");
+        var bp = Node(exported.GetRawText());
+        FieldNode(bp, "phone")["type"] = "text";
+        FieldNode(bp, "phone")["excludeFromAi"] = true;
+        var warnings = await _rig.ImportMergeOkAsync(bp.ToJsonString());
+        warnings.Should().Contain(w => w.Contains("電話") && w.Contains("型別"), string.Join("\n", warnings));
+
+        DbField(_rig, "bp", "partner.phone").Type.Should().Be(FieldType.Phone, "型別不同保留既有的");
+        DbField(_rig, "bp", "partner.phone").ExcludeFromAi.Should().BeTrue("型別不同也要補旗標");
+    }
+
     private static int StoredFormat(SharedMasterRig rig, string key) =>
         JsonNode.Parse(rig.Db(db => db.Set<AppPackage>().Single(p => p.Key == key).Json))!["formatVersion"]!.GetValue<int>();
 
