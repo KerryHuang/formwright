@@ -11,13 +11,13 @@ set -euo pipefail
 # 預設值由 scripts/installer/render-defaults.mjs 依 installer/install-defaults.json 寫入，不要手改標記之間的內容
 # >>> install-defaults
 FW_PORT=8080
-FW_PROGRAM_DIR=/opt/formwright
-FW_DATA_DIR=/var/lib/formwright/data
-FW_BACKUP_DIR=/var/lib/formwright/backup
-FW_CONFIG_FILE=/etc/formwright/formwright.json
-FW_SERVICE_USER=formwright
-FW_VERSION=""
-FW_REPO=""
+FW_PROGRAM_DIR='/opt/formwright'
+FW_DATA_DIR='/var/lib/formwright/data'
+FW_BACKUP_DIR='/var/lib/formwright/backup'
+FW_CONFIG_FILE='/etc/formwright/formwright.json'
+FW_SERVICE_USER='formwright'
+FW_VERSION=''
+FW_REPO=''
 # <<< install-defaults
 
 # 測試用：FW_ROOT 是 /etc、/opt 的路徑前綴（正式執行為空）；FW_ARCH 取代 uname -m

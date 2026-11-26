@@ -20,6 +20,8 @@
     "backupVolume": "formwright-backup",
     "backupMount": "/backup",
     "configFile": "/app/data/formwright.json",
-    "imageName": "formwright"
+    "imageName": "formwright",
+    "registry": "ghcr.io",
+    "owner": "kerryhuang"
   }
 }

@@ -3,7 +3,7 @@
 # 預設值（映像、埠、volume、路徑）由 scripts/installer/render-defaults.mjs 依 installer/install-defaults.json 寫入，不要手改標記之間的內容。
 # 改設定請改 formwright-data volume 裡的設定檔（精靈寫入），不要改環境變數：設定檔優先於環境變數。
 # >>> install-defaults
-x-fw-image: &fw-image ${FORMWRIGHT_IMAGE:-ghcr.io/example-owner/formwright:latest}
+x-fw-image: &fw-image ${FORMWRIGHT_IMAGE:-ghcr.io/kerryhuang/formwright:latest}
 x-fw-port: &fw-port "${FORMWRIGHT_PORT:-8080}:8080"
 x-fw-data-volume: &fw-data-volume formwright-data:/app/data
 x-fw-backup-volume: &fw-backup-volume formwright-backup:/backup
@@ -12,6 +12,7 @@ x-fw-environment: &fw-environment
   Install__InitIfMissing: "true"
   Install__DataDirectory: /app/data
   Install__BackupDirectory: /backup
+  Server__Port: "8080"
 x-fw-volumes: &fw-volumes
   formwright-data:
   formwright-backup:

@@ -56,9 +56,9 @@ test('rewrites only the marked block', () => {
   assert.deepEqual(lines.slice(b + 1), SH.slice(5))
   const block = lines.slice(a + 1, b).join('\n')
   assert.match(block, /^FW_PORT=8080$/m)
-  assert.match(block, /^FW_DATA_DIR=\/var\/lib\/formwright\/data$/m)
-  assert.match(block, /^FW_VERSION="1\.2\.3"$/m)
-  assert.match(block, /^FW_REPO="Some-Owner\/X"$/m)
+  assert.match(block, /^FW_DATA_DIR='\/var\/lib\/formwright\/data'$/m)
+  assert.match(block, /^FW_VERSION='1\.2\.3'$/m)
+  assert.match(block, /^FW_REPO='Some-Owner\/X'$/m)
   assert.doesNotMatch(block, /OLD=1/)
 })
 
@@ -66,8 +66,8 @@ test('empty version and repo are written as empty strings', () => {
   const f = fixture()
   assert.equal(run(f).status, 0)
   const sh = read(f, 'installer', 'linux', 'install.sh')
-  assert.match(sh, /^FW_VERSION=""$/m)
-  assert.match(sh, /^FW_REPO=""$/m)
+  assert.match(sh, /^FW_VERSION=''$/m)
+  assert.match(sh, /^FW_REPO=''$/m)
 })
 
 test('compose image is lowercase', () => {
@@ -76,10 +76,33 @@ test('compose image is lowercase', () => {
   assert.match(read(f, 'deploy', 'docker-compose.yml'), /ghcr\.io\/some-owner\/formwright:0\.1\.0/)
 })
 
-test('compose image defaults to latest without version', () => {
+test('compose default image comes from install-defaults.json (D-19)', () => {
   const f = fixture()
   assert.equal(run(f).status, 0)
-  assert.match(read(f, 'deploy', 'docker-compose.yml'), /formwright:latest/)
+  assert.ok(
+    read(f, 'deploy', 'docker-compose.yml').includes('${FORMWRIGHT_IMAGE:-ghcr.io/kerryhuang/formwright:latest}'),
+  )
+})
+
+test('compose default image follows the json owner', () => {
+  const f = fixture()
+  const d = JSON.parse(readFileSync(f.defaults, 'utf8'))
+  d.docker.registry = 'registry.example.test'
+  d.docker.owner = 'acme'
+  writeFileSync(f.defaults, JSON.stringify(d))
+  assert.equal(run(f).status, 0)
+  assert.ok(read(f, 'deploy', 'docker-compose.yml').includes('registry.example.test/acme/formwright:latest'))
+})
+
+test('compose gives the container the same port as the mapping (M5)', () => {
+  const f = fixture()
+  const d = JSON.parse(readFileSync(f.defaults, 'utf8'))
+  d.port = 9090
+  writeFileSync(f.defaults, JSON.stringify(d))
+  assert.equal(run(f).status, 0)
+  const yml = read(f, 'deploy', 'docker-compose.yml')
+  assert.ok(yml.includes('"${FORMWRIGHT_PORT:-9090}:9090"'))
+  assert.match(yml, /^ {2}Server__Port: "9090"$/m)
 })
 
 test('rendering twice is stable and check passes', () => {
@@ -128,4 +151,44 @@ test('missing key in defaults fails', () => {
   const r = run(f)
   assert.equal(r.status, 1)
   assert.match(r.stderr, /dataDir/)
+})
+
+// S2：輸入契約與 shell quoting
+const withDefaults = (mutate) => {
+  const f = fixture()
+  const d = JSON.parse(readFileSync(f.defaults, 'utf8'))
+  mutate(d)
+  writeFileSync(f.defaults, JSON.stringify(d))
+  return f
+}
+
+for (const [name, mutate, args] of [
+  ['linux path with space', (d) => (d.linux.dataDir = '/var/lib/my formwright'), []],
+  ['linux path with $()', (d) => (d.linux.dataDir = '/var/$(id)'), []],
+  ['linux path with quote', (d) => (d.linux.configFile = "/etc/x'y"), []],
+  ['linux path relative', (d) => (d.linux.programDir = 'opt/formwright'), []],
+  ['service user with semicolon', (d) => (d.linux.serviceUser = 'a;b'), []],
+  ['port zero', (d) => (d.port = 0), []],
+  ['port string', (d) => (d.port = '80; rm'), []],
+  ['port too large', (d) => (d.port = 70000), []],
+  ['windows path with quote', (d) => (d.windows.dataDir = 'C:\\a"b'), []],
+  ['docker mount not absolute', (d) => (d.docker.dataMount = 'data'), []],
+  ['volume name with slash', (d) => (d.docker.dataVolume = 'a/b'), []],
+  ['version with quote', () => {}, ['--version', '1.0"; id; "']],
+  ['version with space', () => {}, ['--version', '1.0 0']],
+  ['repo without slash', () => {}, ['--repo', 'owner']],
+  ['repo with shell chars', () => {}, ['--repo', 'a/b;c']],
+]) {
+  test(`rejects unsupported value: ${name}`, () => {
+    const f = withDefaults(mutate)
+    const r = run(f, ...args)
+    assert.equal(r.status, 1, r.stdout)
+    assert.equal(read(f, 'installer', 'linux', 'install.sh'), SH.join('\n'), 'must not write files')
+  })
+}
+
+test('windows path with spaces is accepted', () => {
+  const f = fixture()
+  assert.equal(run(f).status, 0)
+  assert.match(read(f, 'installer', 'windows', 'defaults.iss'), /Program Files/)
 })
