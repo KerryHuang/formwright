@@ -13,6 +13,9 @@ param(
   [string]$LogFile = ''
 )
 $ErrorActionPreference = 'Stop'
+# Started from PowerShell 7 (pwsh), this Windows PowerShell 5.1 inherits pwsh's PSModulePath and cannot load its own
+# built-in modules (Set-Acl, NetSecurity). Use only the machine-wide module path plus the 5.1 system modules.
+$env:PSModulePath = (@([Environment]::GetEnvironmentVariable('PSModulePath', 'Machine'), (Join-Path $PSHOME 'Modules')) | Where-Object { $_ }) -join ';'
 $icacls = Join-Path $env:SystemRoot 'System32\icacls.exe'
 $FullMask = 0x1F01FF           # FILE_ALL_ACCESS
 $ModifyRequired = 0x301BF      # Delete + ReadControl + read/write/execute basics (FileSystemRights.Modify without Synchronize)

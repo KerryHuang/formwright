@@ -10,6 +10,9 @@ param(
   [string]$LogFile = ''
 )
 $ErrorActionPreference = 'Stop'
+# Started from PowerShell 7 (pwsh), this Windows PowerShell 5.1 inherits pwsh's PSModulePath and cannot load its own
+# built-in modules (Set-Acl, NetSecurity). Use only the machine-wide module path plus the 5.1 system modules.
+$env:PSModulePath = (@([Environment]::GetEnvironmentVariable('PSModulePath', 'Machine'), (Join-Path $PSHOME 'Modules')) | Where-Object { $_ }) -join ';'
 $Name = 'Formwright'
 
 # a.b.c.d/n -> a.b.c.d/mask (the form Windows reads back); everything else compared case-insensitively as is
