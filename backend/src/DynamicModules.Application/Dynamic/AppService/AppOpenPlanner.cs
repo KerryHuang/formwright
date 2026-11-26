@@ -147,7 +147,8 @@ public sealed partial class AppOpenPlanner(
 
         return new Plan(null, source, finalKeys, requirement.ExternalModuleKeys,
             new OpenPreview(errors, conflicts, hostConflicts, [.. requirement.Missing, .. masters.Missing], suggestions, warnings,
-                masters.Previews, unbound) { ApprovalSubstitutions = substitutions, AiExcludedFields = AiExcludedFieldsOf(package, knownMasters, body.ExcludeFields.ToHashSet()) },
+                masters.Previews, unbound) { ApprovalSubstitutions = substitutions, AiExcludedFields = [.. AiExcludedFieldsOf(package, knownMasters, body.ExcludeFields.ToHashSet()),
+                    .. MasterAiExcludedFieldsOf(masters.Previews, knownMasters)] },
             mapped, masters.Order);
     }
 
@@ -171,6 +172,19 @@ public sealed partial class AppOpenPlanner(
         }
         return result;
     }
+
+    /// <summary>
+    /// 一起開啟（action = open）的共用主檔裡標 excludeFromAi: true 的欄位：主檔開啟時照樣寫入旗標，預覽也要列（i3c 審查 🟡3）。
+    /// field 照擴充欄位的寫法「主檔/模組.欄位」；已開啟（bind）、重開（reopen）的主檔不會新建欄位，不列。
+    /// </summary>
+    internal static IEnumerable<AiExcludedField> MasterAiExcludedFieldsOf(
+        IEnumerable<MasterPreview> previews, IReadOnlyDictionary<string, AppPackageData> masters) =>
+        from p in previews
+        where p.Action == "open" && masters.ContainsKey(p.Id)
+        from m in masters[p.Id].Modules
+        from f in m.Blocks.SelectMany(b => b.Fields)
+        where f.ExcludeFromAi == true
+        select new AiExcludedField(TemplateGraph.Qualify($"{p.Id}/{m.Code}", f.Code), m.Name, f.Label);
 
     private sealed record MasterPlan(List<string> Order, List<MissingDependency> Missing, List<MasterPreview> Previews);
 

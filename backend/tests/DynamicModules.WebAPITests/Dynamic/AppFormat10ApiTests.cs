@@ -135,6 +135,30 @@ public sealed class AppFormat10ApiTests : IDisposable
         (await JsonOf(res)).GetProperty("aiExcludedFields").EnumerateArray().Select(f => f.GetProperty("field").GetString()).Should().Equal("doc.idNo");
     }
 
+    /// <summary>一起開啟的共用主檔裡標旗標的欄位也列進預覽，field 寫「主檔/模組.欄位」；開啟後確實是 true（i3c 審查 🟡3）。</summary>
+    [Fact]
+    public async Task P17_Preview_ListsFlaggedFieldsOfMastersOpenedAlong()
+    {
+        var bp = JsonNode.Parse(SharedMasterPackages.Bp)!.AsObject();
+        bp["formatVersion"] = 10;
+        bp["modules"]![0]!["blocks"]![0]!["fields"]!.AsArray().Single(f => (string?)f!["code"] == "phone")!["excludeFromAi"] = true;
+        await _rig.ImportAsync(bp.ToJsonString());
+        foreach (var json in new[] { SharedMasterPackages.Ct, SharedMasterPackages.Crm })
+            await _rig.ImportAsync(json);
+
+        var res = await _rig.Admin.PostAsJsonAsync($"{SharedMasterRig.Apps}/packages/crmx/preview", _rig.BodyFor("crmx"));
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        var preview = await JsonOf(res);
+        preview.GetProperty("masters").EnumerateArray().Should().Contain(m => m.GetProperty("id").GetString() == "bp" && m.GetProperty("action").GetString() == "open");
+        preview.GetProperty("aiExcludedFields").EnumerateArray()
+            .Select(f => $"{f.GetProperty("field").GetString()}|{f.GetProperty("module").GetProperty("zh-TW").GetString()}．{f.GetProperty("label").GetProperty("zh-TW").GetString()}")
+            .Should().Equal("bp/partner.phone|往來對象．電話");
+
+        await _rig.OpenOkAsync("crmx");
+        var phone = _rig.FieldId("bp", "partner.phone");
+        _rig.Db(db => db.Set<Field>().AsNoTracking().Single(f => f.Id == phone).ExcludeFromAi).Should().BeTrue();
+    }
+
     [Fact]
     public async Task P16_P8_ExportCarriesFlag_ZhOnlyReportNameIsString_RoundTripToAnotherSystem()
     {
@@ -155,6 +179,36 @@ public sealed class AppFormat10ApiTests : IDisposable
         await other.OpenOkAsync(AppId, Body);
         Flag(other, "身分證字號").Should().BeTrue("往返不失去旗標");
         Flag(other, "標題").Should().BeFalse();
+    }
+
+    /// <summary>
+    /// 必填語系不含繁中時改名的報表只有越南文名稱：匯出補上繁中（退回鏈的值），其他語系照留，匯出的套件在另一套系統開得起來（i3c 審查 🟡2）。
+    /// </summary>
+    [Fact]
+    public async Task Export_ReportNameWithoutZhTw_FillsZhTw_AndReopens()
+    {
+        await _rig.ImportAsync(Package().ToJsonString());
+        await _rig.OpenOkAsync(AppId, Body);
+        (await _rig.Admin.PutAsJsonAsync($"{Base}/system/policies/locale.requiredText", new { value = new[] { "vi" } })).EnsureSuccessStatusCode();
+        var reportId = _rig.Db(db =>
+        {
+            var appId = db.Set<App>().Single(a => a.Key == AppId).Id;
+            return db.Set<AppReport>().Single(r => r.AppId == appId).ReportId;
+        });
+        var current = await JsonOf(await _rig.Admin.GetAsync($"{Base}/reports/{reportId}"));
+        var put = await _rig.Admin.PutAsJsonAsync($"{Base}/reports/{reportId}",
+            new { name = new Dictionary<string, string> { ["vi"] = "Phân bố trạng thái" }, definition = current.GetProperty("definition") });
+        put.StatusCode.Should().Be(HttpStatusCode.OK, await put.Content.ReadAsStringAsync());
+        ReportName().Should().Equal(new Dictionary<string, string> { ["vi"] = "Phân bố trạng thái" }, "前提：資料庫裡的名稱沒有繁中");
+
+        var (exported, _) = await _rig.ExportAsync(AppId);
+        var name = exported.GetProperty("reports")[0].GetProperty("name");
+        name.GetProperty("zh-TW").GetString().Should().Be("Phân bố trạng thái");
+        name.GetProperty("vi").GetString().Should().Be("Phân bố trạng thái");
+
+        using var other = new SharedMasterRig();
+        await other.ImportAsync(exported.GetRawText());
+        await other.OpenOkAsync(AppId, Body);
     }
 
     [Fact]
