@@ -58,6 +58,15 @@ public sealed class DemoDataApiTests(DemoDataApiTests.DemoGeneratedFixture gen) 
         public DateTime ProbeAt { get; private set; }
         public JsonElement Final { get; private set; }
 
+        private readonly System.Diagnostics.Stopwatch _watch = new();
+
+        /// <summary>
+        /// 關卡二之前是結構建立（約 21 秒的 SQL，閒置的開發機實測），這段 runner 沒有進度回報（done/total 都是 0），無法用「有進度就延長」。
+        /// 本機 CPU 加壓（核心數 2 倍的 yes）實測 51～54 秒，CI 共用核心更慢，原本的 60 秒餘裕不到 2 倍；
+        /// 放寬到 180 秒仍會抓到真卡死（卡死時狀態會變成非 running 而立刻報錯，見 WaitGateAsync）。票 #126。
+        /// </summary>
+        private static readonly TimeSpan GateTwoTimeout = TimeSpan.FromSeconds(180);
+
         public async Task InitializeAsync()
         {
             App.AddUsers("guest01"); // 產生器自己會建 sales01，產生中還看不到，探針用先建好的帳號
@@ -65,6 +74,7 @@ public sealed class DemoDataApiTests(DemoDataApiTests.DemoGeneratedFixture gen) 
             App.Gate2.When = _ => ActingScope.Now is not null; // 關卡二：時間線第一步，身分與時間都被覆寫
             Admin = App.AsUser();
 
+            _watch.Restart();
             var first = await Admin.PostAsync(Generate, null);
             FirstPostStatus = first.StatusCode;
             FirstPostBody = await JsonOf(first);
@@ -76,7 +86,7 @@ public sealed class DemoDataApiTests(DemoDataApiTests.DemoGeneratedFixture gen) 
             StatusWhileRunning = await JsonOf(await Admin.GetAsync(Status));
 
             App.Gate.Release.SetResult();
-            await WaitGateAsync("關卡二（ActingScope.Now 已覆寫的第一步）", App.Gate2, TimeSpan.FromSeconds(60));
+            await WaitGateAsync("關卡二（ActingScope.Now 已覆寫的第一步）", App.Gate2, GateTwoTimeout);
             Inside = App.Gate2.Seen;
             Probe = await JsonOf(await App.AsUser("guest01").GetAsync(DemoApp.ProbePath));
             ProbeAt = DateTime.Now;
@@ -97,8 +107,18 @@ public sealed class DemoDataApiTests(DemoDataApiTests.DemoGeneratedFixture gen) 
                 if (state != "running" || DateTime.UtcNow > deadline)
                     throw new InvalidOperationException(
                         $"等不到{name}（{(state != "running" ? "背景產生已不是 running" : $"逾時 {timeout.TotalSeconds:0} 秒")}）。" +
-                        $"首次 POST：{FirstPostStatus} {FirstPostBody}；runner 狀態：{snapshot}");
+                        $"首次 POST：{FirstPostStatus} {FirstPostBody}；runner 狀態：{snapshot}；{Diagnostics()}");
             }
+        }
+
+        /// <summary>逾時時的診斷：已等多久、執行緒池與行程 CPU 時間，用來分辨「runner 卡住」與「機器太慢」。</summary>
+        private string Diagnostics()
+        {
+            ThreadPool.GetAvailableThreads(out var freeWorkers, out _);
+            ThreadPool.GetMaxThreads(out var maxWorkers, out _);
+            var cpu = System.Diagnostics.Process.GetCurrentProcess().TotalProcessorTime;
+            return $"已等 {_watch.Elapsed.TotalSeconds:F1}s；執行緒池 工作中={maxWorkers - freeWorkers} 佇列={ThreadPool.PendingWorkItemCount} 執行緒={ThreadPool.ThreadCount}；" +
+                   $"行程 CPU {cpu.TotalSeconds:F1}s；核心數 {Environment.ProcessorCount}；關卡二已進入={App.Gate2.Entered.Task.IsCompleted}";
         }
 
         public Task DisposeAsync()
