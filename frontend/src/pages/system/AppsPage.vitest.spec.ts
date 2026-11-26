@@ -141,8 +141,8 @@ describe('AppsPage', () => {
     expect(section.textContent).toContain('Fields to be marked "Hide from AI tools": 2');
     (section.querySelector('.q-item') as HTMLElement).click();
     await flushPromises();
-    expect(section.textContent).toContain('Document．ID number');
-    expect(section.textContent).toContain('文件．薪資');
+    expect(section.textContent).toContain('Document › ID number');
+    expect(section.textContent).toContain('文件 › 薪資');
   });
 
   it('open: no AI section when nothing is hidden from AI', async () => {

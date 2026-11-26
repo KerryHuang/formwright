@@ -208,7 +208,7 @@ const reopen = (key: string) => reopenApp.mutate(key, {
               </div>
               <q-expansion-item v-if="result.aiExcludedFields?.length" dense data-testid="open-ai-excluded"
                 :label="t('apps.aiExcluded', { n: result.aiExcludedFields.length })">
-                <ul><li v-for="f in result.aiExcludedFields" :key="f.field">{{ name(f.module) }}．{{ name(f.label) }}</li></ul>
+                <ul><li v-for="f in result.aiExcludedFields" :key="f.field">{{ t('apps.aiExcludedItem', { module: name(f.module), field: name(f.label) }) }}</li></ul>
               </q-expansion-item>
             </template>
             <ul v-if="result.warnings.length" class="text-muted"><li v-for="w in result.warnings" :key="w">{{ w }}</li></ul>
