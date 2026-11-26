@@ -22,6 +22,8 @@ function reasonText(item: LocalePackRejectedItem): string {
   if (item.reason === 'booleanCollision') {
     return second ? t('localePacks.reasons.booleanCollision', { word: first ?? '', locale: second }) : t('localePacks.reasons.booleanCollisionAlias', { word: first ?? '' });
   }
+  // 超過上限要帶出上限數字（審查 r3 N1）：後端在 args[0] 傳上限
+  if (item.reason === 'tooLong' || item.reason === 'tooManyLocales') return t(`localePacks.reasons.${item.reason}`, { max: first ?? '' });
   return te(`localePacks.reasons.${item.reason}`) ? t(`localePacks.reasons.${item.reason}`) : t('localePacks.reasons.unknown', { code: item.reason });
 }
 
