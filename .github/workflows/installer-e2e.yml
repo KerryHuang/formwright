@@ -1,0 +1,306 @@
+# 一鍵安裝版的 Ubuntu 與 Docker 端到端測試（設計 AC-02～10、12、13 的 Linux／Docker 部分）。
+# 建三個 0.0.1-e2e.* 版本的 tarball 與映像，在 Ubuntu 22.04、24.04 跑 install.sh（systemd 真的起），
+# 在 24.04 跑 docker compose 的精靈、升級、升級前備份失敗與回復。
+name: installer-e2e
+
+on:
+  push:
+    branches-ignore: [main]
+    paths:
+      - 'installer/**'
+      - 'deploy/**'
+      - 'scripts/installer/**'
+      - 'backend/src/DynamicModules.WebAPI/Setup/**'
+      - 'backend/src/DynamicModules.WebAPI/Program.cs'
+      - 'backend/src/DynamicModules.WebAPI/Ops/PreUpgradeBackup.cs'
+      - 'Dockerfile'
+      - '.github/workflows/installer-e2e.yml'
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash   # GitHub 對明指 bash 的 shell 加 -eo pipefail，管線裡失敗才不會被吞掉
+
+env:
+  V1: 0.0.1-e2e.1
+  V2: 0.0.1-e2e.2
+  V3: 0.0.1-e2e.3
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: backend/global.json
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - name: 腳本檢查（shellcheck、預設值產生腳本、install.sh 離線測試）
+        run: |
+          shellcheck installer/linux/install.sh installer/linux/install.test.sh scripts/installer/e2e/wizard.sh
+          node --test scripts/installer/
+          node scripts/installer/render-defaults.mjs --check
+          bash installer/linux/install.test.sh
+      - name: 建前端
+        working-directory: frontend
+        run: |
+          bun install --frozen-lockfile --ignore-scripts
+          bunx quasar prepare
+          APP_VERSION="$V1" bunx quasar build
+      - name: 發佈三個版本的 tarball
+        run: |
+          mkdir -p "$RUNNER_TEMP/pkgs"
+          for v in "$V1" "$V2" "$V3"; do
+            out="$RUNNER_TEMP/pub-$v"
+            dotnet publish backend/src/DynamicModules.WebAPI/DynamicModules.WebAPI.csproj -c Release -r linux-x64 \
+              --self-contained true -p:AppVersion="$v" -o "$out"
+            rm -rf "$out/wwwroot"; cp -r frontend/dist/spa "$out/wwwroot"
+            printf '%s' "$v" > "$out/VERSION"
+            tar -czf "$RUNNER_TEMP/pkgs/formwright-$v-linux-x64.tar.gz" -C "$out" .
+          done
+          ls -l "$RUNNER_TEMP/pkgs"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: e2e-packages
+          path: ${{ runner.temp }}/pkgs/*.tar.gz
+          retention-days: 3
+
+  linux:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      W: scripts/installer/e2e/wizard.sh
+      URL: http://127.0.0.1:8080
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: e2e-packages
+          path: ${{ runner.temp }}/pkgs
+      - name: 前置（jq、套件路徑）
+        run: |
+          sudo apt-get install -y jq >/dev/null
+          echo "P1=$RUNNER_TEMP/pkgs/formwright-$V1-linux-x64.tar.gz" >> "$GITHUB_ENV"
+          echo "P2=$RUNNER_TEMP/pkgs/formwright-$V2-linux-x64.tar.gz" >> "$GITHUB_ENV"
+          echo "P3=$RUNNER_TEMP/pkgs/formwright-$V3-linux-x64.tar.gz" >> "$GITHUB_ENV"
+
+      - name: fresh-install（AC-02）
+        run: |
+          sudo FORMWRIGHT_PACKAGE="$P1" bash installer/linux/install.sh | tee out.txt
+          test "$(systemctl is-active formwright)" = active
+          test "$(systemctl is-enabled formwright)" = enabled
+          test "$(stat -c %U /var/lib/formwright/data)" = formwright
+          grep -q 'http://' out.txt
+          grep -q '^FORMWRIGHT_SETUP_CODE=' out.txt
+          ss -ltn > listen.txt; grep -q '0.0.0.0:8080' listen.txt
+          grep '^FORMWRIGHT_SETUP_CODE=' out.txt | cut -d= -f2 > "$RUNNER_TEMP/code"
+
+      - name: backup-red（AC-05 API）
+        run: |
+          code=$(cat "$RUNNER_TEMP/code")
+          sudo chown root /var/lib/formwright/backup
+          sudo chmod 0500 /var/lib/formwright/backup
+          bash "$W" checks "$URL" "$code" | tee checks.json
+          jq -e '.items[] | select(.key == "backupDirectory") | .ok == false' checks.json
+          sudo chown formwright:formwright /var/lib/formwright/backup
+          sudo chmod 0700 /var/lib/formwright/backup
+
+      - name: wizard（AC-03、04、10）
+        run: bash "$W" "$URL" "$(cat "$RUNNER_TEMP/code")" /var/lib/formwright/backup
+
+      - name: upgrade（AC-06）
+        run: |
+          bash "$W" backups "$URL" > before.json
+          start=$(date -u +%Y-%m-%dT%H:%M:%S)
+          sudo FORMWRIGHT_PACKAGE="$P2" bash installer/linux/install.sh
+          curl -fsS "$URL/api/version" > v.json; grep -q "$V2" v.json
+          bash "$W" verify-kept "$URL"
+          bash "$W" backups "$URL" > after.json
+          jq -e --arg s "$start" '[.[] | select((.trigger|tostring|ascii_downcase)=="manual" and .requestedUserId == null
+            and (.status|tostring|ascii_downcase)=="succeeded" and (.queuedUtc[0:19] >= $s))] | length >= 1' after.json
+
+      - name: upgrade-backup-fails（AC-07、D-20）
+        run: |
+          sudo chown root /var/lib/formwright/backup
+          sudo chmod 0500 /var/lib/formwright/backup
+          rc=0; sudo FORMWRIGHT_PACKAGE="$P3" bash installer/linux/install.sh > en.txt 2>&1 || rc=$?
+          cat en.txt; test "$rc" = 20; grep -q 'Pre-upgrade backup failed' en.txt
+          rc=0; sudo FORMWRIGHT_PACKAGE="$P3" bash installer/linux/install.sh --lang zh-TW > zh.txt 2>&1 || rc=$?
+          cat zh.txt; test "$rc" = 20; grep -q '升級前備份失敗' zh.txt
+          test "$(systemctl is-active formwright)" = active
+          curl -fsS "$URL/api/version" > v.json; grep -q "$V2" v.json
+          sudo chown formwright:formwright /var/lib/formwright/backup
+          sudo chmod 0700 /var/lib/formwright/backup
+
+      - name: remove-reinstall（AC-08）
+        run: |
+          sudo bash installer/linux/install.sh remove
+          test ! -e /etc/systemd/system/formwright.service
+          test ! -e /opt/formwright
+          test -e /var/lib/formwright/data
+          sudo FORMWRIGHT_PACKAGE="$P2" bash installer/linux/install.sh | tee out2.txt
+          if grep -q FORMWRIGHT_SETUP_CODE out2.txt; then echo "重裝不該印設定碼"; exit 1; fi
+          test "$(systemctl is-enabled formwright)" = enabled
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/setup/status")" = 404
+          bash "$W" verify-kept "$URL"
+
+      - name: config-lost-existing-data（AC-13、D-16）
+        run: |
+          before=$(sudo sha256sum /var/lib/formwright/data/formwright.db | cut -d' ' -f1)
+          sudo rm /etc/formwright/formwright.json
+          sudo FORMWRIGHT_PACKAGE="$P2" bash installer/linux/install.sh | tee out3.txt
+          code=$(grep '^FORMWRIGHT_SETUP_CODE=' out3.txt | cut -d= -f2)
+          test -n "$code"
+          bash "$W" checks "$URL" "$code" | tee checks.json
+          jq -e '.ok == false and ([.items[] | select(.key == "database")][0] | .ok == false and .problem == "existingData"
+            and .params.configFile == "/etc/formwright/formwright.json")' checks.json
+          rc=0; bash "$W" complete-expect "$URL" "$code" 422 | tee complete.json || rc=$?
+          test "$rc" = 0
+          grep -q existingData complete.json
+          after=$(sudo sha256sum /var/lib/formwright/data/formwright.db | cut -d' ' -f1)
+          test "$before" = "$after"
+
+      - name: purge（D-10）
+        run: |
+          sudo bash installer/linux/install.sh purge --yes
+          test ! -e /var/lib/formwright
+          test ! -e /etc/formwright
+          if id formwright; then echo "使用者應已刪除"; exit 1; fi
+
+      - name: upgrade-while-pending（Review Focus 3）
+        run: |
+          sudo FORMWRIGHT_PACKAGE="$P1" bash installer/linux/install.sh | tee out4.txt
+          sudo cat /var/lib/formwright/data/setup-code > code-before.txt
+          sudo FORMWRIGHT_PACKAGE="$P2" bash installer/linux/install.sh
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/setup/status")" = 200
+          sudo cat /var/lib/formwright/data/setup-code > code-after.txt
+          diff code-before.txt code-after.txt
+          curl -fsS "$URL/api/version" > v.json; grep -q "$V2" v.json
+
+      - name: 失敗時收集 journal 與設定檔
+        if: failure()
+        run: |
+          sudo journalctl -u formwright --no-pager > journal.txt || true
+          sudo cat /etc/formwright/formwright.json 2>/dev/null | sed -E 's/("ConnectionStrings"|"Dynamic")[^,}]*/\1: "<遮蔽>"/' > config-masked.json || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: linux-${{ matrix.os }}-diagnostics
+          path: |
+            journal.txt
+            config-masked.json
+            out*.txt
+            en.txt
+            zh.txt
+          if-no-files-found: ignore
+
+  docker:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      W: scripts/installer/e2e/wizard.sh
+      URL: http://127.0.0.1:8080
+      C: docker compose -f deploy/docker-compose.yml
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y jq >/dev/null
+      - name: 建三個映像（用 repo 的 Dockerfile）
+        run: |
+          i=1
+          for v in "$V1" "$V2" "$V3"; do
+            docker build --build-arg APP_VERSION="$v" -t "fw-e2e:$i" .
+            i=$((i + 1))
+          done
+
+      - name: wizard（AC-09）
+        run: |
+          FORMWRIGHT_IMAGE=fw-e2e:1 $C up -d
+          code=""
+          for _ in $(seq 1 60); do
+            code=$($C logs formwright 2>&1 | grep -oE '[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}' | head -n 1 || true)
+            [ -n "$code" ] && break; sleep 2
+          done
+          test -n "$code"
+          bash "$W" "$URL" "$code" /backup
+          restarts=$(docker inspect -f '{{.RestartCount}}' "$($C ps -q formwright)")
+          test "$restarts" -ge 1
+
+      - name: upgrade（D-17、D-18）
+        run: |
+          bash "$W" backups "$URL" > before.json
+          start=$(date -u +%Y-%m-%dT%H:%M:%S)
+          FORMWRIGHT_IMAGE=fw-e2e:2 $C up -d
+          for _ in $(seq 1 120); do
+            [ "$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/health/ready")" = 200 ] && break; sleep 1
+          done
+          curl -fsS "$URL/api/version" > v.json; grep -q "$V2" v.json
+          bash "$W" verify-kept "$URL"
+          bash "$W" backups "$URL" > after.json
+          jq -e --arg s "$start" '[.[] | select((.trigger|tostring|ascii_downcase)=="manual" and .requestedUserId == null
+            and (.status|tostring|ascii_downcase)=="succeeded" and (.queuedUtc[0:19] >= $s))] | length >= 1' after.json
+
+      - name: upgrade-backup-fails（AC-12）
+        run: |
+          FORMWRIGHT_IMAGE=fw-e2e:3 $C -f scripts/installer/e2e/compose.backup-ro.yml up -d
+          ok=0
+          for _ in $(seq 1 60); do
+            if [ "$(curl -s -o m.json -w '%{http_code}' "$URL/api/maintenance")" = 200 ]; then ok=1; break; fi; sleep 1
+          done
+          test "$ok" = 1
+          jq -e --arg v "$V3" --arg p "$V2" '.reason == "preUpgradeBackupFailed" and .errorCode != null
+            and .version == $v and .previousVersion == $p' m.json
+          for path in / /maintenance; do
+            curl -s -D h.txt -o page.html "$URL$path"
+            head -n 1 h.txt | grep -q ' 200'
+            grep -qi '<html' page.html
+          done
+          js=$(curl -s "$URL/" | grep -oE '"[^"]*\.js"' | head -n 1 | tr -d '"' | sed 's|^\./|/|')
+          case "$js" in /*) ;; *) js="/$js" ;; esac
+          curl -s -D h.txt -o /dev/null "$URL$js"
+          head -n 1 h.txt | grep -q ' 200'
+          grep -qi '^content-type: .*javascript' h.txt
+          curl -s -D h.txt -o me.json "$URL/api/v3/dynamic/me"
+          head -n 1 h.txt | grep -q ' 503'
+          jq -e '.code == "maintenance"' me.json
+          $C logs formwright > logs.txt 2>&1
+          grep -qiE '備份|backup' logs.txt
+          sleep 30
+          cid=$($C ps -q formwright)
+          test "$(docker inspect -f '{{.State.Running}}' "$cid")" = true
+          test "$(docker inspect -f '{{.RestartCount}}' "$cid")" = 0
+
+      - name: rollback（AC-12）
+        run: |
+          FORMWRIGHT_IMAGE=fw-e2e:2 $C up -d
+          for _ in $(seq 1 120); do
+            [ "$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/health/ready")" = 200 ] && break; sleep 1
+          done
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/maintenance")" = 404
+          curl -fsS "$URL/api/version" > v.json; grep -q "$V2" v.json
+          bash "$W" verify-kept "$URL"
+
+      - name: 失敗時收集 compose logs
+        if: failure()
+        run: $C logs --no-color > compose-logs.txt 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: docker-diagnostics
+          path: compose-logs.txt
+          if-no-files-found: ignore

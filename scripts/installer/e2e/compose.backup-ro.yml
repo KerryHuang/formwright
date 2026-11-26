@@ -1,0 +1,6 @@
+# AC-12 用的 compose override：備份 volume 以唯讀掛上，升級前備份必定失敗。
+# 容器以 root 執行，chmod 擋不住，所以用唯讀掛載。
+services:
+  formwright:
+    volumes:
+      - formwright-backup:/backup:ro
