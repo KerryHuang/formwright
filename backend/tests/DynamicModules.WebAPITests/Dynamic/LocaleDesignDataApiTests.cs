@@ -131,6 +131,9 @@ public class LocaleDesignDataApiTests : IDisposable
         (local.GetProperty("text").GetString(), local.GetProperty("source").GetString(), local.GetProperty("local").GetBoolean())
             .Should().Be(("", "欄位", true));
         json.GetProperty("reference").GetProperty("designData").GetProperty(FieldPath(fieldId)).GetString().Should().Be("欄位", "沒有英文時沿繁中");
+        // 開啟應用程式時建的群組鍵是隨機產生的：只在本系統有效（審查 r1 🟡7）
+        var group = dd.EnumerateObject().Single(p => p.Name.StartsWith("group:g-", StringComparison.Ordinal));
+        group.Value.GetProperty("local").GetBoolean().Should().BeTrue();
     }
 
     [Fact]

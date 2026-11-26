@@ -27,7 +27,7 @@ public sealed class GetLocaleTemplateHandler(LocaleWorldReader worlds, IOpsEnvir
         IReadOnlyList<DesignTextItem>? design = null;
         if (options.Scopes.Contains(LocaleTemplateBuilder.DesignDataScope))
         {
-            design = await catalog.BuildAsync(ct);
+            design = await catalog.BuildReadOnlyAsync(ct);
             if (LocaleTemplateBuilder.ValidateDesign(design, options) is { } designError) return Invalid(designError);
         }
         // 本系統識別（§5.1 pack.instance；審查 r1 🔴3）：啟動種子補上；讀不到就不寫，匯回時 local: 列一律拒收（fail closed）

@@ -81,6 +81,8 @@ public class DesignTextCatalogTests
     private sealed class Repo(DesignTextData data) : IDesignTextRepository
     {
         public Task<DesignTextData> LoadAsync(CancellationToken ct) => Task.FromResult(data);
+        public Task<DesignTextData> LoadReadOnlyAsync(CancellationToken ct) => Task.FromResult(data);
+        public Task<DesignTextData> LoadScopesAsync(CancellationToken ct) => Task.FromResult(data);
     }
 
     private sealed class User : ICurrentUser { public string UserId => "admin"; }
@@ -230,6 +232,42 @@ public class DesignTextCatalogTests
         order.SectionText()!.Values["ja"].Should().Be("営業");
         note.SectionText()!.Values["ja"].Should().Be("営業");
         order.Section.Should().Be("業務", "分組鍵（繁中）不變");
+    }
+
+    /// <summary>審查 r1 🟡7：使用者自建的群組鍵是本系統隨機產生的，路徑雖然不是 local:，樣板一樣標「只在本系統有效」。</summary>
+    [Fact]
+    public async Task GeneratedGroupKey_OnlyThisSystem()
+    {
+        var (world, _, _) = World();
+        var data = world with { Groups = [.. world.Groups, new PermissionGroup { Id = 8, Key = PermissionGroup.GeneratedKeyPrefix + "x7k2m9qa", NameI18n = Zh("專案") }] };
+        var items = await Build(data);
+        items["group:sales/name"].OnlyThisSystem.Should().BeFalse("固定鍵（種子）跨系統一致");
+        var mine = items["group:g-x7k2m9qa/name"];
+        (mine.Local, mine.OnlyThisSystem).Should().Be((false, true));
+        items["local:field:12/label"].OnlyThisSystem.Should().BeTrue();
+    }
+
+    // ── 路徑撞名（審查 r1 🟡5）：後產生的那段改用 local: 路徑，不能直接丟掉 ──
+
+    [Fact]
+    public async Task PathCollision_LaterFallsBackToLocal()
+    {
+        var (world, _, _) = World();
+        // 欄位 12 也綁到 order.status：兩個欄位的綁定路徑相同（依 Id，欄位 11 先產生）
+        var data = world with
+        {
+            AppFields = [.. world.AppFields, new AppField { AppId = 7, Name = "order.status", FieldId = 12 }],
+            TaskRules = [.. world.TaskRules, new TaskRule { Id = 72, Key = "follow", ModuleId = 1, NameI18n = Zh("追蹤二"),
+                Tasks = [new TaskRuleTask { Id = 73, RuleId = 72, Code = "call", TitleI18n = Zh("再打電話") }] }],
+        };
+        var items = await Build(data);
+
+        items["app:crm/module:order/field:status/label"].Targets[0].Id.Should().Be("11");
+        var moved = items["local:field:12/label"];
+        (moved.Local, moved.Kind, moved.Targets[0].Id, moved.Text.Values["zh-TW"]).Should().Be((true, "field", "12", "備註"));
+        items["app:crm/module:order/taskRule:follow/task:call/title"].Text.Values["zh-TW"].Should().Be("打電話");
+        items["local:taskRule:72/name"].Local.Should().BeTrue();
+        items["local:taskRule:72/task:call/title"].Text.Values["zh-TW"].Should().Be("再打電話", "任務的路徑跟著規則改用 local:");
     }
 
     // ── 長度上限（審查 r1 🔴1）：designData 不能寫進物件自己存檔時會被擋的長度 ──

@@ -71,6 +71,35 @@ public class DesignTextRepositoryTests
         return (module.Id, check.Id);
     }
 
+    // ── 審查 r1 🟡6：樣板匯出與預覽只讀不寫，不追蹤；匯出範圍下拉只讀應用程式與模組 ──
+
+    [Fact]
+    public async Task LoadReadOnly_SameData_NotTracked()
+    {
+        await using var db = await TestDb.CreateAsync();
+        var (moduleId, _) = await SeedAsync(db);
+
+        var data = await new DesignTextRepository(db.Context).LoadReadOnlyAsync(CancellationToken.None);
+        db.Context.ChangeTracker.Entries().Should().BeEmpty();
+        data.Modules.Single(m => m.Id == moduleId).Blocks.Single().Fields.Single().Options.Should().ContainSingle();
+        data.Checks.Should().ContainSingle();
+        data.Apps.Single().Reports.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task LoadScopes_AppsAndModulesOnly_NotTracked()
+    {
+        await using var db = await TestDb.CreateAsync();
+        var (moduleId, _) = await SeedAsync(db);
+
+        var data = await new DesignTextRepository(db.Context).LoadScopesAsync(CancellationToken.None);
+        db.Context.ChangeTracker.Entries().Should().BeEmpty();
+        data.Apps.Single().Modules.Single().ModuleId.Should().Be(moduleId);
+        data.Modules.Single(m => m.Id == moduleId).Blocks.Should().BeEmpty("不載入區塊、欄位與選項");
+        (data.AppFields.Count, data.Checks.Count, data.ListViews.Count, data.Reports.Count, data.Dashboards.Count, data.Programs.Count)
+            .Should().Be((0, 0, 0, 0, 0, 0));
+    }
+
     [Fact]
     public async Task Load_OnlySharedAndAppObjects_Tracked()
     {

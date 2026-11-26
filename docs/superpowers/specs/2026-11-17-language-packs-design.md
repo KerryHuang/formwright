@@ -798,6 +798,12 @@ Formwright 的取捨：
 | 權限目錄項目（平台固定：設計器、權限設定） | `DynamicProgram.NameI18n`（`SystemProgramCodes.All`） | `program:{code}/name` | 同左 |
 | 權限目錄項目（模組的） | `DynamicProgram.NameI18n` | `app:{a}/module:{m}/program/name` | `local:program:{code}/name` |
 
+**哪些路徑跨客戶一致**（審查 r1 🟡7；路徑表本身維持上表，**主控裁決待使用者確認**）：
+
+- 跨客戶一致：「有綁定」欄的 `app:` 路徑（同一個應用程式開在別套系統也對得上，替內建應用程式翻好的檔可以給其他客戶用）、平台固定的 `program:{code}`、以分區繁中名為鍵的 `section:`、`department:{code}`（部門代碼由管理員自訂，兩邊代碼相同才對得上）。
+- 只在本系統有效：所有 `local:` 路徑（匯回時另靠 `pack.instance` 擋別套系統的檔，§5.1）；以及 `group:{key}` 裡鍵是本系統隨機產生的群組（`PermissionGroup.GeneratedKeyPrefix`＝`g-`，使用者建立的群組、開啟應用程式時建的群組都是），路徑不是 `local:`，但樣板一樣標「只在本系統有效」（JSON 帶 `"local": true`、Excel 備註）。只有 Demo 種子的群組是固定鍵。
+- **撞名**（審查 r1 🟡5）：兩段文字算出同一條路徑時（例如資料異常讓兩個欄位綁到同一個名稱），依登記清單順序、各類依 Id，先產生的保留，後者改用 `local:{種類}:{Id}`（任務的路徑跟著規則改，例 `local:taskRule:{規則 Id}/task:{code}/title`），不丟掉。
+
 說明（技術）：
 
 - 檢查、事件、轉換、列印範本、任務規則、簽核流程有自己的 `Key`，但「跨客戶一致」只靠模組的應用程式綁定成立，所以掛在綁定模組下才用代碼，否則一律用 Id（§10.2 第 3 點）。事件與轉換以來源模組判斷。
@@ -834,7 +840,7 @@ Formwright 的取捨：
 - 篩選：`onlyMissing`＝目標語系沒有自己的文字；設計資料沒有「原文已更新」的概念（沒存原文雜湊），只勾 `onlyBaseChanged` 時設計資料段沒有列（照既有聯集公式）。
 - **JSON**：`designData` 段每列 `{ "text": 目標語系自己的值或空字串, "source": 原文語系的值 }`，`local:` 路徑另帶 `"local": true`（解析器只讀 `text`、`source`）；`reference` 段另有 `designData`（路徑 → 參考語系的值）。
 - **本系統識別**（審查 r1 🔴3）：JSON 樣板的 `pack` 段與 Excel 說明頁（機器鍵 `pack.instance`）都寫本系統識別（§5.1）；不論勾哪些範圍都寫。預覽時語系包的 `pack.instance` 與本系統識別不同或沒帶，`designData` 的 `local:` 列一律拒收（`otherSystem`），不論路徑找不找得到；空白譯文仍算略過。前端拒收原因四語文案在 `localePacks.reasons.otherSystem`。
-- 新端點 `GET i18n/design-scopes`（系統管理員）：回應用程式與其模組清單、不屬於應用程式的模組清單，給匯出對話框的下拉選單用。
+- 新端點 `GET i18n/design-scopes`（系統管理員）：回應用程式與其模組清單、不屬於應用程式的模組清單，給匯出對話框的下拉選單用。只讀應用程式與模組兩張表；樣板匯出、預覽與範圍查詢都不追蹤實體，只有套用時追蹤（審查 r1 🟡6）。
 
 ### 23.4 Excel 樣板配置（§7.1、§7.2）
 
