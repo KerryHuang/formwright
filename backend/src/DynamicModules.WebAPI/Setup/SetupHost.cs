@@ -22,6 +22,7 @@ public static class SetupHost
         builder.Services.AddSingleton<IPasswordService, PasswordService>();
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<SetupChecks>();
+        builder.Services.AddSingleton(SetupRestart.Process);
 
         // 每次以設定模式啟動都記設定碼（Docker 從 compose logs 看得到，D-11）
         var code = SetupCode.Ensure(dataDirectory, out _);

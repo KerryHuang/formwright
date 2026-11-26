@@ -60,6 +60,15 @@ public static class SiteName
 
     public static async Task<string?> ReadAsync(ISystemSettingRepository settings, CancellationToken ct) =>
         MailAddressRules.Blank(await settings.GetValueAsync(Key, ct));
+
+    /// <summary>已 Trim 的名稱不合規則時回 <see cref="MessageText"/> 鍵名（<c>TooLong</c>＝超過 <see cref="MaxLength"/>、<c>SiteNameControlChars</c>＝含換行等控制字元），合規回 null。外觀設定與設定精靈共用。</summary>
+    public static string? Problem(string? value)
+    {
+        if (value is { Length: > MaxLength }) return MessageText.TooLong;
+        // 會進信件主旨與寄件顯示名稱：擋換行等控制字元（au1a 審查次要）
+        if (value is not null && value.Any(char.IsControl)) return MessageText.SiteNameControlChars;
+        return null;
+    }
 }
 
 /// <summary>

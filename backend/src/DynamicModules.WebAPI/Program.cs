@@ -320,6 +320,9 @@ static async Task InitializeDatabaseAsync(WebApplication app, string? databaseDi
     // 全系統政策快照（營運時區等）在索引回填與 Demo 資料之前載入；讀不到時沿用部署出廠值，不擋啟動
     await app.Services.GetRequiredService<CachedSystemPolicy>().EnsureFreshAsync(CancellationToken.None);
     await SeedData.EnsureSeededAsync(db);
+    // 設定精靈留下的一次性檔案（D-08）：admin 密碼雜湊與網站名稱，兩步都成功才刪
+    var installDataDirectory = app.Configuration[DynamicModules.WebAPI.Setup.InstallConfig.DataDirectoryKey];
+    var setupPayload = DynamicModules.WebAPI.Setup.SetupPayload.Read(installDataDirectory);
     var systemPolicy = app.Services.GetRequiredService<CachedSystemPolicy>();
     var passwordEffects = scope.ServiceProvider.GetRequiredService<DynamicModules.Application.Dynamic.AccountService.PasswordReset.PasswordChangeEffects>();
     await AdminBootstrap.EnsureAsync(db, scope.ServiceProvider.GetRequiredService<IPasswordService>(), app.Configuration,
@@ -327,7 +330,18 @@ static async Task InitializeDatabaseAsync(WebApplication app, string? databaseDi
         int.Parse(systemPolicy.Get(DynamicModules.Domain.Policies.PolicyCatalog.AuthPasswordMinLength), System.Globalization.CultureInfo.InvariantCulture),
         (admin, ct) => passwordEffects.ApplyAsync(admin, systemPolicy.DefaultLocale, ct),
         (admin, ct) => DynamicModules.Application.Dynamic.AccountService.TwoFactor.TwoFactorClear.ApplyAsync(admin,
-            scope.ServiceProvider.GetRequiredService<DynamicModules.Domain.Repositories.Dynamic.ITwoFactorRepository>(), ct));
+            scope.ServiceProvider.GetRequiredService<DynamicModules.Domain.Repositories.Dynamic.ITwoFactorRepository>(), ct),
+        setupPayload);
+    if (setupPayload is not null)
+    {
+        const string siteNameKey = DynamicModules.Application.Dynamic.MailService.SiteName.Key;
+        if (!await db.Set<DynamicModules.Domain.Entities.Dynamic.SystemSetting>().AnyAsync(s => s.Key == siteNameKey))
+        {
+            db.Set<DynamicModules.Domain.Entities.Dynamic.SystemSetting>().Add(new() { Key = siteNameKey, Value = setupPayload.SiteName });
+            await db.SaveChangesAsync();
+        }
+        DynamicModules.WebAPI.Setup.SetupPayload.Delete(installDataDirectory!);
+    }
     // 救援設定沒移除、金鑰不落地或可能遺失：開事件提醒（帳號安全設計 §8.7、§8.11）。啟動步驟直接建 Mediator（照樣走管線與交易），
     // 不經可被替換的 IMediator 註冊（測試替身以呼叫次數決定丟例外，不該算到啟動步驟）
     await new MediatR.Mediator(scope.ServiceProvider).Send(

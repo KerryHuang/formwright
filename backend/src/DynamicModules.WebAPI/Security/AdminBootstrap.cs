@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using DynamicModules.Application.Common.Security;
 using DynamicModules.Domain.Data;
 using DynamicModules.Domain.Entities.Dynamic;
+using DynamicModules.WebAPI.Setup;
 using Microsoft.EntityFrameworkCore;
 
 namespace DynamicModules.WebAPI.Security;
@@ -19,7 +20,7 @@ public static class AdminBootstrap
     /// <param name="clearTwoFactor">救援時清除 admin 的雙因素（金鑰、復原碼、記住的裝置、帳號層計數與寬限，帳號安全設計 §8.11）：欄位跟著下一次 SaveChanges 寫入，復原碼與記住的裝置以 ExecuteDelete 立即刪除，不跟著 SaveChanges（審查次要 3）。</param>
     public static async Task EnsureAsync(
         DynamicDbContext db, IPasswordService passwords, IConfiguration config, ILogger logger, int minPasswordLength,
-        Func<AppUser, CancellationToken, Task> passwordChanged, Func<AppUser, CancellationToken, Task> clearTwoFactor, CancellationToken ct = default)
+        Func<AppUser, CancellationToken, Task> passwordChanged, Func<AppUser, CancellationToken, Task> clearTwoFactor, SetupPayload? setup = null, CancellationToken ct = default)
     {
         var reset = config["Auth:ResetAdminPassword"];
         if (!string.IsNullOrEmpty(reset))
@@ -28,7 +29,25 @@ public static class AdminBootstrap
             return;
         }
 
-        if (await db.Set<AppUser>().AnyAsync(u => u.IsActive && u.IsSystemAdmin && u.PasswordHash != null, ct)) return;
+        if (await db.Set<AppUser>().AnyAsync(u => u.IsActive && u.IsSystemAdmin && u.PasswordHash != null, ct))
+        {
+            if (setup is not null) logger.LogWarning("設定精靈的密碼沒有套用：資料庫已有可用的管理員");
+            return;
+        }
+
+        if (setup is not null)
+        {
+            var wizardAdmin = await db.Set<AppUser>().SingleOrDefaultAsync(u => u.UserId == "admin", ct);
+            if (wizardAdmin is null) db.Set<AppUser>().Add(wizardAdmin = new AppUser { UserId = "admin", DisplayName = "系統管理員" });
+            wizardAdmin.IsActive = true;
+            wizardAdmin.IsSystemAdmin = true;
+            wizardAdmin.PasswordHash = setup.PasswordHash;
+            wizardAdmin.MustChangePassword = false;
+            wizardAdmin.SecurityStamp = Guid.NewGuid().ToString("N");
+            await db.SaveChangesAsync(ct);
+            logger.LogInformation("已用設定精靈設定管理員 admin 的密碼");
+            return;
+        }
 
         var password = config["Auth:InitialAdminPassword"];
         var generated = string.IsNullOrWhiteSpace(password);

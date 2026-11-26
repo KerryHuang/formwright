@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DynamicModules.Application.Common.Security;
 
 namespace DynamicModules.WebAPI.Setup;
 
@@ -34,6 +35,13 @@ public static class SetupEndpoints
             }
             var items = await checks.RunAsync(draft ?? new SetupDraft(), ct);
             return Results.Json(new { items, ok = items.All(i => i.Ok) });
+        });
+        group.MapPost("/complete", async (HttpContext http, IConfiguration configuration, SetupChecks checks, IPasswordService passwords, SetupRestart restart, CancellationToken ct) =>
+        {
+            SetupCompleteBody? body = null;
+            try { body = await http.Request.ReadFromJsonAsync<SetupCompleteBody>(ct); }
+            catch (JsonException) { /* 壞掉的本文當成欄位全空，回欄位錯誤 */ }
+            return await SetupCompletion.RunAsync(http, body, configuration, checks, passwords, restart, dataDirectory, ct);
         });
         group.Map("{**rest}", () => Results.NotFound());
 

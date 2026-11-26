@@ -23,11 +23,13 @@ public class UpdateSiteThemeHandler(ISystemSettingRepository settings, IUnitOfWo
         if (style is null) errors["style"] = ["不是允許的風格"];
         if (errors.Count > 0) return ServiceResult.Invalid(errors);
         var siteName = request.SiteName?.Trim();
-        if (siteName is { Length: > MailService.SiteName.MaxLength })
-            return ServiceResult.Invalid("siteName", MessageRef.Of(MessageText.TooLong, MailService.SiteName.MaxLength));
-        // 會進信件主旨與寄件顯示名稱：擋換行等控制字元（au1a 審查次要）
-        if (siteName is not null && siteName.Any(char.IsControl))
-            return ServiceResult.Invalid("siteName", MessageRef.Of(MessageText.SiteNameControlChars));
+        switch (MailService.SiteName.Problem(siteName))
+        {
+            case MessageText.TooLong:
+                return ServiceResult.Invalid("siteName", MessageRef.Of(MessageText.TooLong, MailService.SiteName.MaxLength));
+            case MessageText.SiteNameControlChars:
+                return ServiceResult.Invalid("siteName", MessageRef.Of(MessageText.SiteNameControlChars));
+        }
 
         var oldName = await MailService.SiteName.ReadAsync(settings, ct);
         if (siteName is not null && siteName != (oldName ?? ""))
