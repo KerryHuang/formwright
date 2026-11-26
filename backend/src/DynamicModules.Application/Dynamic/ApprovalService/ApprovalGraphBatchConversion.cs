@@ -12,7 +12,8 @@ namespace DynamicModules.Application.Dynamic.ApprovalService;
 /// 目前版本被用過（被實例綁定或出現在快照，簽核設計 §4.4）就開新版本，沒被用過就原地覆寫（同發布的規則）；
 /// 歷史版本、實例快照、草稿（只收 graph）、只有草稿的流程都不動。已是 graph 的跳過，所以可重複執行；沒有待轉換的就不寫任何東西。
 /// 一條流程一個交易：在交易內重讀流程與版本、判斷是否被用過再寫入（PostgreSQL 在全庫寫入鎖內，檢查與寫入不會被別的實例插隊），
-/// 新版本與改目前版本一起提交或一起回滾，不留孤兒版本。一條流程失敗只記 Warning、丟棄變更、繼續下一條，下次啟動再試（§25）。
+/// 新版本與改目前版本一起提交或一起回滾，不留孤兒版本。一條流程失敗只記 Warning、丟棄變更、繼續下一條，下次啟動再試；
+/// 資料庫忙碌（DatabaseBusyException）時整輪中止，不逐條各等一次鎖逾時（§25）。
 /// </summary>
 public sealed class ApprovalGraphBatchConversion(
     IModuleRepository modules, IApprovalFlowRepository flows, IUnitOfWork uow, ITransactionManager transactions, IBusinessTime time,
@@ -31,8 +32,9 @@ public sealed class ApprovalGraphBatchConversion(
         if (pending.Count == 0) return new Result(0, 0);
 
         var (converted, opened, failed) = (0, 0, 0);
-        foreach (var key in pending)
+        for (var i = 0; i < pending.Count; i++)
         {
+            var key = pending[i];
             try
             {
                 await using var tx = await transactions.BeginAsync(ct);
@@ -41,6 +43,14 @@ public sealed class ApprovalGraphBatchConversion(
                 if (outcome is not { } newVersion) continue;
                 converted++;
                 if (newVersion) opened++;
+            }
+            catch (DatabaseBusyException ex)
+            {
+                // 資料庫忙碌（鎖逾時）：別條也會各等一次逾時、拖慢啟動，這一輪直接中止，剩下的下次啟動再轉（複審 🟢N1）
+                uow.Discard();
+                failed++;
+                logger.LogWarning(ex, "資料庫忙碌，簽核流程批次轉成流程圖這一輪中止，剩 {Remaining} 條下次啟動再試", pending.Count - i);
+                break;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

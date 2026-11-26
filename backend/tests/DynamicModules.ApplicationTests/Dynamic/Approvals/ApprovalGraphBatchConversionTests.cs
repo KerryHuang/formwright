@@ -27,25 +27,25 @@ public class ApprovalGraphBatchConversionTests : ApprovalTestBase
     }
 
     /// <summary>第 <paramref name="failOn"/> 次提交時先真的存檔再丟例外：模擬「新版本已寫入、改目前版本之前」程序中斷或資料庫斷線。</summary>
-    private sealed class FailingUnitOfWork(IUnitOfWork inner, int failOn) : IUnitOfWork
+    private sealed class FailingUnitOfWork(IUnitOfWork inner, int failOn, Func<Exception>? error = null) : IUnitOfWork
     {
         private int _calls;
 
         public async Task CommitAsync(CancellationToken ct)
         {
             await inner.CommitAsync(ct);
-            if (++_calls == failOn) throw new InvalidOperationException("模擬中斷");
+            if (++_calls == failOn) throw error?.Invoke() ?? new InvalidOperationException("模擬中斷");
         }
 
         public void Discard() => inner.Discard();
     }
 
-    private async Task<ApprovalGraphBatchConversion.Result> ConvertFailingOn(int failOn)
+    private async Task<ApprovalGraphBatchConversion.Result> ConvertFailingOn(int failOn, Func<Exception>? error = null)
     {
         using var scope = NewScope();
         var sp = scope.ServiceProvider;
         var job = new ApprovalGraphBatchConversion(sp.GetRequiredService<IModuleRepository>(), sp.GetRequiredService<IApprovalFlowRepository>(),
-            new FailingUnitOfWork(sp.GetRequiredService<IUnitOfWork>(), failOn), sp.GetRequiredService<ITransactionManager>(),
+            new FailingUnitOfWork(sp.GetRequiredService<IUnitOfWork>(), failOn, error), sp.GetRequiredService<ITransactionManager>(),
             sp.GetRequiredService<IBusinessTime>(), sp.GetRequiredService<ILogger<ApprovalGraphBatchConversion>>());
         return await job.RunAsync(CancellationToken.None);
     }
@@ -209,5 +209,21 @@ public class ApprovalGraphBatchConversionTests : ApprovalTestBase
 
         (await Convert()).Should().Be(new ApprovalGraphBatchConversion.Result(1, 0, 0));
         new[] { "po-a", "po-b" }.Select(k => Versions(Flow(k).Id).Single().Definition.Shape).Should().OnlyContain(x => x == ApprovalShapes.Graph);
+    }
+
+    [Fact]
+    public async Task DatabaseBusy_AbortsThisRun_RemainingFlowsLeftForNextStart()
+    {
+        // 複審 🟢N1：資料庫忙碌（鎖逾時）時不再逐條各等一次，這一輪直接中止，剩下的下次啟動再轉
+        var r = await BuildPurchase();
+        await SeedFlow(r, "po-a", r.Confirmed, 1, Def(null, Stage("lead", Group(PurchaseLeadGroup))));
+        await SeedFlow(r, "po-b", r.Confirmed, 2, Def(null, Stage("board", Group(BoardGroup))));
+        await Wire(r);
+
+        (await ConvertFailingOn(1, () => new DatabaseBusyException(DatabaseBusyException.DefaultMessage)))
+            .Should().Be(new ApprovalGraphBatchConversion.Result(0, 0, 1));
+        new[] { "po-a", "po-b" }.Select(k => Versions(Flow(k).Id).Single().Definition.Shape).Should().OnlyContain(x => x == ApprovalShapes.Sequence);
+
+        (await Convert()).Should().Be(new ApprovalGraphBatchConversion.Result(2, 0, 0));
     }
 }
