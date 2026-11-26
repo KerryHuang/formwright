@@ -98,7 +98,9 @@ public sealed class AppFlowUpgrader(ISender sender, IModuleRepository modules, I
             var substitutions = new List<AppApprovalFlowCodec.Substitution>();
             if ((failure = await installer.InstallApprovalFlowsAsync(n with { ApprovalFlows = n.ApprovalFlows.Where(f => newFlows.Contains(f.Code)).ToList() },
                     ids, groupIds, lc, substitutions, ct)) is not null) return failure;
-            warnings.AddRange(substitutions.Select(s => AppMessages.FlowGroupSubstituted(s.FlowName.Resolve(lc), s.GroupName.Resolve(lc))));
+            warnings.AddRange(substitutions.Select(s => s.Kind == AppApprovalFlowCodec.KindNotify
+                ? AppMessages.FlowNotifyGroupSkipped(s.FlowName.Resolve(lc), s.GroupName.Resolve(lc))
+                : AppMessages.FlowGroupSubstituted(s.FlowName.Resolve(lc), s.GroupName.Resolve(lc))));
         }
         foreach (var item in Modified("approvalFlows"))
             if ((failure = await UpdateFlowAsync(item, ctx, ids, groupIds, ct)) is not null) return failure;
@@ -319,31 +321,30 @@ public sealed class AppFlowUpgrader(ISender sender, IModuleRepository modules, I
     }
 
     /// <summary>
-    /// 既有流程的定義合併（套用與預覽守衛共用）：以現況 <paramref name="cd"/> 為底，<paramref name="applied"/> 為 true 的屬性取新版 <paramref name="nd"/>；
-    /// 簽核人一律保留現況（Q27）；套件格式沒有流程圖，不留舊定義的 Nodes／Edges。
+    /// 既有流程的定義合併（套用與預覽守衛共用）：兩邊先轉成流程圖（§7.8），以現況 <paramref name="cd"/> 為底，<paramref name="applied"/> 為 true 的屬性取新版 <paramref name="nd"/>；
+    /// 簽核人一律保留現況，依簽核節點代號配上（Q27）。nodes、edges 是兩個屬性：只套一邊而兩邊對不起來時，存檔的結構驗證會擋下（不猜怎麼接）。
     /// </summary>
     internal static ApprovalDefinition MergeDefinition(ApprovalDefinition cd, ApprovalDefinition nd, Func<string, bool> applied)
     {
-        var approvers = cd.Stages.ToDictionary(s => s.Code, s => s.Approvers);
+        var (c, n) = (ApprovalGraphConversion.FromSequence(cd), ApprovalGraphConversion.FromSequence(nd));
+        var approvers = (c.Nodes ?? []).Where(x => x?.Approvers is not null).GroupBy(x => x.Id).ToDictionary(g => g.Key, g => g.First().Approvers!);
         static bool Unmatched(ApproverSource a) => a.UnmatchedGroups is { Count: > 0 } || a.CandidatesUnmatched;
-        return cd with
+        return c with
         {
-            Nodes = null,
-            Edges = null,
-            Shape = applied("shape") ? nd.Shape : cd.Shape,
-            When = applied("when") ? nd.When : cd.When,
-            RejectTo = applied("rejectTo") ? nd.RejectTo : cd.RejectTo,
+            When = applied("when") ? n.When : c.When,
+            RejectTo = applied("rejectTo") ? n.RejectTo : c.RejectTo,
             // 略過群組不能變成少簽（簽核設計 §14.4）：保留的簽核人有頂替時，新版的「找不到人就略過」改成交給備援
-            Stages = applied("stages")
-                ? nd.Stages.Select(s => approvers.TryGetValue(s.Code, out var a)
-                    ? s with { Approvers = a, OnEmpty = Unmatched(a) && s.OnEmpty == ApprovalOnEmpty.Skip ? ApprovalOnEmpty.Fallback : s.OnEmpty } : s).ToList()
-                : cd.Stages
+            Nodes = applied("nodes")
+                ? (n.Nodes ?? []).Select(x => x.Approvers is not null && approvers.TryGetValue(x.Id, out var a)
+                    ? x with { Approvers = a, OnEmpty = Unmatched(a) && x.OnEmpty == ApprovalOnEmpty.Skip ? ApprovalOnEmpty.Fallback : x.OnEmpty } : x).ToList()
+                : c.Nodes,
+            Edges = applied("edges") ? n.Edges : c.Edges
         };
     }
 
     /// <summary>
     /// 既有流程的修改（T29、T44）：現況（客戶群組 Key 換 id）與新版（套件群組經群組對應換 id）各自轉成輸入，在 id 層合併：
-    /// 寫入的屬性取新版；簽核人一律保留現況，依關卡代號逐關配上（Q27，關卡代號集合不同時預覽已擋下）。
+    /// 寫入的屬性取新版；簽核人一律保留現況，依簽核節點代號配上（Q27，簽核節點代號集合不同時預覽已擋下）。
     /// </summary>
     private async Task<ServiceResult?> UpdateFlowAsync(
         UpgradeItemResponse item, AppUpgradePreviewer.CompareContext ctx, TemplateIdMap ids, IReadOnlyDictionary<string, long> groupIds, CancellationToken ct)

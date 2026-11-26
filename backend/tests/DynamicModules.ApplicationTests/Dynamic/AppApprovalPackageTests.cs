@@ -152,10 +152,115 @@ public class AppApprovalPackageTests
     }
 
     [Fact]
-    public void Format9_Parse_NeedsNewerVersion()
+    public void Format10_Parse_NeedsNewerVersion()
     {
-        AppJson.Parse(Package(LargeFlow, formatVersion: 9)).Errors.Should().ContainSingle()
+        AppJson.Parse(Package(GraphFlow, formatVersion: 10)).Errors.Should().ContainSingle()
             .Which.Should().Be("這個套件需要較新版本的 Formwright");
+    }
+
+    // ---- 格式 9：流程圖（流程圖設計 §13 第 5 點） ----
+
+    private const string GraphFlow = """
+        { "code": "t8-po-graph", "name": { "zh-TW": "採購單（流程圖）" }, "active": true,
+          "module": "po", "to": "confirmed", "priority": 3, "shape": "graph",
+          "rejectTo": "draft",
+          "nodes": [
+            { "id": "start", "kind": "start" },
+            { "id": "lead", "kind": "approval", "name": { "zh-TW": "採購主管" }, "approvers": { "source": "group", "groups": ["purchaseLead"] },
+              "mode": "any", "editableFields": ["po.memo"], "dueHours": 24, "onEmpty": "fallback" },
+            { "id": "amount", "kind": "condition", "name": { "zh-TW": "金額分級" } },
+            { "id": "board", "kind": "approval", "name": { "zh-TW": "董事會" }, "approvers": { "source": "manager", "level": 2 }, "mode": "all" },
+            { "id": "tell", "kind": "notify", "name": { "zh-TW": "知會" },
+              "recipients": [ { "kind": "group", "groups": ["buyers"] }, { "kind": "initiator" }, { "kind": "initiatorManager", "level": 1 } ],
+              "template": { "title": { "zh-TW": "{title} 已核准" }, "body": { "zh-TW": "金額 {f:po.total}" } } },
+            { "id": "end", "kind": "end" }
+          ],
+          "edges": [
+            { "id": "e1", "from": "start", "to": "lead" },
+            { "id": "e2", "from": "lead", "to": "amount" },
+            { "id": "e3", "from": "amount", "to": "board", "order": 1, "label": { "zh-TW": "十萬以上" },
+              "when": { "all": [ { "field": "po.total", "op": "gte", "value": 100000 } ] } },
+            { "id": "e4", "from": "amount", "to": "tell", "default": true },
+            { "id": "e5", "from": "board", "to": "tell" },
+            { "id": "e6", "from": "tell", "to": "end" }
+          ] }
+        """;
+
+    [Fact]
+    public void Format9_GraphFlow_Passes_StagesStillReadable()
+    {
+        Errors(Package(Flows(GraphFlow, MidFlow.Replace("\"shape\": \"sequence\"", "\"shape\": \"graph\"")), formatVersion: 9))
+            .Should().Contain("approvalFlows[t8-po-mid].stages: 格式 9 改用 nodes、edges");
+        Errors(Package(GraphFlow, formatVersion: 9)).Should().BeEmpty();
+        var p = AppJson.Parse(Package(GraphFlow, formatVersion: 9)).V2!;
+        p.ApprovalFlows.Single().Nodes!.Select(n => n.Id).Should().Equal("start", "lead", "amount", "board", "tell", "end");
+    }
+
+    [Fact]
+    public void Format9_SequenceShape_Rejected()
+    {
+        Errors(Package(LargeFlow, formatVersion: 9)).Should()
+            .Contain("approvalFlows[t8-po-large].shape: 格式 9 只支援 graph")
+            .And.Contain("approvalFlows[t8-po-large].stages: 格式 9 改用 nodes、edges");
+    }
+
+    [Fact]
+    public void Format8_WithNodes_Rejected()
+    {
+        // 舊讀取器讀不懂 nodes、edges：格式 8 帶這兩個屬性整份拒絕
+        Errors(Package(With(GraphFlow, "\"shape\": \"graph\"", "\"shape\": \"sequence\""))).Should()
+            .Contain("approvalFlows[t8-po-graph].nodes: formatVersion 9 才支援 nodes、edges");
+    }
+
+    [Fact]
+    public void Format9_GraphStructureErrors_FromDomainValidator()
+    {
+        // §9 的結構規則重用 Domain 的 ApprovalGraphValidator：環、走不到結束、條件節點缺預設線
+        var cycle = With(GraphFlow, "{ \"id\": \"e6\", \"from\": \"tell\", \"to\": \"end\" }", "{ \"id\": \"e6\", \"from\": \"tell\", \"to\": \"lead\" }");
+        Errors(Package(cycle, formatVersion: 9)).Should()
+            .Contain($"approvalFlows[t8-po-graph].graph: {ApprovalMessages.Graph("cycle")}")
+            .And.Contain($"approvalFlows[t8-po-graph].nodes.tell: {ApprovalMessages.Graph("deadEnd")}");
+        var noDefault = With(GraphFlow, "\"default\": true", "\"order\": 2, \"when\": { \"all\": [ { \"field\": \"po.total\", \"op\": \"lt\", \"value\": 1 } ] }");
+        Errors(Package(noDefault, formatVersion: 9)).Should()
+            .Contain($"approvalFlows[t8-po-graph].nodes.amount: {ApprovalMessages.Graph("defaultCount")}");
+    }
+
+    [Fact]
+    public void Format9_NotifyRecipients_OnlyGroupInitiatorManager()
+    {
+        // §12.1：套件不收具體使用者，通知節點只能用 group、initiator、initiatorManager
+        var users = With(GraphFlow, "{ \"kind\": \"initiator\" }", "{ \"kind\": \"users\" }");
+        Errors(Package(users, formatVersion: 9)).Should()
+            .Contain("approvalFlows[t8-po-graph].nodes.tell.recipients: 套件不收指定使用者（帳號屬於這個資料庫）");
+        var unknown = With(GraphFlow, "{ \"kind\": \"initiator\" }", "{ \"kind\": \"everyone\" }");
+        Errors(Package(unknown, formatVersion: 9)).Should()
+            .Contain("approvalFlows[t8-po-graph].nodes.tell.recipients: 通知收件人只能是 group、initiator、initiatorManager");
+        var empty = With(GraphFlow, "\"groups\": [\"buyers\"]", "\"groups\": []");
+        Errors(Package(empty, formatVersion: 9)).Should().Contain("approvalFlows[t8-po-graph].nodes.tell.recipients: 群組至少要有一個");
+    }
+
+    [Fact]
+    public void Format9_References_GroupsFieldsTemplate()
+    {
+        var group = With(GraphFlow, "\"groups\": [\"buyers\"]", "\"groups\": [\"nobody\"]");
+        Errors(Package(group, formatVersion: 9)).Should().Contain("approvalFlows[t8-po-graph].nodes.tell.recipients: 群組 nobody 沒有在 groups 宣告");
+        var template = With(GraphFlow, "{f:po.total}", "{f:vendor.rating}");
+        Errors(Package(template, formatVersion: 9)).Should().Contain("approvalFlows[t8-po-graph].nodes.tell.template.body: vendor.rating 必須是模組 po 的欄位");
+        var syntax = With(GraphFlow, "{title} 已核准", "{who} 已核准");
+        Errors(Package(syntax, formatVersion: 9)).Should().Contain(
+            $"approvalFlows[t8-po-graph].nodes.tell.template.title: {ApprovalMessages.TemplatePlaceholderUnknown("{who}")}");
+        var edge = With(GraphFlow, "\"field\": \"po.total\", \"op\": \"gte\"", "\"field\": \"vendor.rating\", \"op\": \"gte\"");
+        Errors(Package(edge, formatVersion: 9)).Should().Contain("approvalFlows[t8-po-graph].edges.e3.when: vendor.rating 必須是模組 po 的欄位");
+    }
+
+    [Fact]
+    public void Format9_LimitErrors_ApprovalNodesAndNotifyLevel()
+    {
+        var p = AppJson.Parse(Package(GraphFlow, formatVersion: 9)).V2!;
+        AppPackageValidator.ApprovalLimitErrors(p, new ApprovalLimitSet(1, 20, 720, 1, 5)).Should().Equal(
+            $"approvalFlows[t8-po-graph].nodes: {ApprovalMessages.Graph("approvalNodesTooMany", 1, 5)}",
+            $"approvalFlows[t8-po-graph].nodes.board.approvers: {ApprovalMessages.ManagerLevel(1)}");
+        AppPackageValidator.ApprovalLimitErrors(p, new ApprovalLimitSet(10, 20, 720, 2, 5)).Should().BeEmpty();
     }
 
     [Fact]

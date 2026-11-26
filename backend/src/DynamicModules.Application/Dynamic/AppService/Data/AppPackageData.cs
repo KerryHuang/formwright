@@ -5,7 +5,7 @@ using DynamicModules.Domain.ValueObjects;
 
 namespace DynamicModules.Application.Dynamic.AppService.Data;
 
-// 應用程式套件格式（formatVersion 2 到 8）。modules 直接重用範本的 TemplateModule；
+// 應用程式套件格式（formatVersion 2 到 9）。modules 直接重用範本的 TemplateModule；
 // 保留的 section（dashboards）目前只能是空陣列，讀進來的值不解讀，非空一律整份拒絕（fail-closed，見 AppPackageValidator）。
 
 public record AppPackageData(
@@ -25,8 +25,9 @@ public record AppPackageData(
     ///    與模組的標題樣板 titleTemplate 可用（5 以下的檔案這些必須是空的／不存在）。
     /// 7：taskRules 與模組的 tasksEnabled 可用（6 以下的檔案這些必須是空的／不存在）。
     /// 8：approvalFlows、轉移的 approval、狀態的 editable 可用（7 以下的檔案這些必須是空的／不存在）。
+    /// 9：approvalFlows 改用流程圖（shape graph 加 nodes、edges）；stages 只在 8 出現，讀進來時轉成 graph（流程圖設計 §13 第 5 點）。
     /// </summary>
-    public const int CurrentFormatVersion = 8;
+    public const int CurrentFormatVersion = 9;
     public const int MinFormatVersion = 2;
 
     public List<AppGroup> Groups { get; init; } = Groups ?? [];
@@ -303,16 +304,17 @@ public record AppTaskRuleTask(string Code, I18nText Title, I18nText? Description
 /// <summary>Field 是日期或日期時間欄位的限定欄位名；OffsetDays 正數往後、負數往前。</summary>
 public record AppTaskDue(string Field, int OffsetDays);
 
-// ---- 格式 8 的 section：簽核流程（簽核設計 §14）。形狀與 DefinitionJson 相同，引用寫代號；fg6 在這裡加 Nodes、Edges。 ----
+// ---- 格式 8、9 的 section：簽核流程（簽核設計 §14、流程圖設計 §13 第 5 點）。形狀與 DefinitionJson 相同，引用寫代號。 ----
 
 /// <summary>
 /// 簽核流程。Code 就是 ApprovalFlow.Key（全站唯一，慣例以應用程式 id 當前綴）；Module 是本套件的獨立模組代號，
-/// To、RejectTo 是該模組狀態機的選項代號；When 是規則條件 JSON，欄位寫同模組的限定欄位名。Shape 必填，格式 8 只收 sequence。
-/// Stages 可為 null 是留給 fg6 的 graph（不帶 stages）；格式 8 的結構層要求非空。
+/// To、RejectTo 是該模組狀態機的選項代號；When 是規則條件 JSON，欄位寫同模組的限定欄位名。Shape 必填：
+/// 格式 8 只收 sequence（Stages），格式 9 只收 graph（Nodes、Edges）。讀進來的 sequence 由 <see cref="AppApprovalFlowCodec.AsGraph"/> 轉成 graph。
 /// </summary>
 public record AppApprovalFlow(
     string Code, I18nText Name, bool Active, string Module, string To, int Priority, string Shape,
-    JsonElement? When, string? RejectTo, AppApproverSource? FallbackApprovers, List<AppApprovalStage>? Stages);
+    JsonElement? When, string? RejectTo, AppApproverSource? FallbackApprovers, List<AppApprovalStage>? Stages,
+    List<AppApprovalNode>? Nodes = null, List<AppApprovalEdge>? Edges = null);
 
 /// <summary>關卡；EditableFields 是同模組的限定欄位名。OnEmpty 省略時是 fallback。</summary>
 public record AppApprovalStage(
@@ -321,3 +323,22 @@ public record AppApprovalStage(
 
 /// <summary>套件只收 group、manager、userField、initiatorPick；Groups、CandidateGroups 是 groups[].code，Field 是限定欄位名。</summary>
 public record AppApproverSource(string Source, List<string>? Groups, int? Level, string? Field, List<string>? CandidateGroups, int? Min, int? Max);
+
+/// <summary>
+/// 流程圖節點（格式 9，對齊 DefinitionJson 的 nodes，流程圖設計 §7.2）；依 Kind 使用其中的屬性。
+/// EditableFields 是限定欄位名；Recipients 只收 group、initiator、initiatorManager（§12.1：套件不收具體使用者）；
+/// Template 的欄位佔位符寫 {f:&lt;限定欄位名&gt;}。版面（LayoutJson）不進套件（§7.5）。
+/// </summary>
+public record AppApprovalNode(
+    string Id, string Kind, I18nText? Name = null, JsonElement? When = null, AppApproverSource? Approvers = null, string? Mode = null,
+    List<string>? EditableFields = null, int? DueHours = null, string? OnEmpty = null, string? ForkId = null,
+    List<AppNotifyRecipient>? Recipients = null, AppNotifyTemplate? Template = null);
+
+/// <summary>流程圖連線（§7.4）；When、Order、Default 只用在條件節點的出線，When 的欄位寫限定欄位名。</summary>
+public record AppApprovalEdge(string Id, string From, string To, I18nText? Label = null, JsonElement? When = null, int? Order = null, bool? Default = null);
+
+/// <summary>通知收件人：Groups 是 groups[].code（kind = group），Level 是主管層數（kind = initiatorManager，省略時第 1 層）。</summary>
+public record AppNotifyRecipient(string Kind, List<string>? Groups = null, int? Level = null);
+
+/// <summary>通知範本；內文選填。</summary>
+public record AppNotifyTemplate(I18nText Title, I18nText? Body = null);

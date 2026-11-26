@@ -120,6 +120,7 @@ public static class AppMessages
     public static string TransitionSkippedAll(string module, string from, string to) => $"模組「{module}」的轉移 {from} → {to} 的群組都沒有對應，已略過這條轉移";
     public static string TransitionGroupsPartial(string module, string from, string to) => $"模組「{module}」的轉移 {from} → {to} 有群組沒有對應，只開放給有對應的群組";
     public static string FlowGroupSubstituted(string flow, string group) => $"簽核流程「{flow}」的群組「{group}」沒有對應，已由備援簽核人頂替";
+    public static string FlowNotifyGroupSkipped(string flow, string group) => $"簽核流程「{flow}」的通知群組「{group}」沒有對應，不會通知這個群組";
     public static string UpgradeTitleFieldMissing(string title) => $"標題用到的欄位不存在：{title}，請一起勾選它";
     public static string ImportVersionNotNewer(string id, string version) => $"套件代碼已存在：{id}（目前版號 {version}）";
 
@@ -132,10 +133,8 @@ public static class AppMessages
 
     // ---- 匯出簽核流程失敗（整份 409，計畫 J10、U7）：ExportFlowError 組出「簽核流程「{流程}」{細節}」 ----
     public static string ExportFlowError(string flow, string detail) => $"簽核流程「{flow}」{detail}";
-    public static string ExportFlowStageAt(string stage) => $"關卡「{stage}」";
+    public static string ExportFlowStageAt(string node) => $"節點「{node}」";
     public const string ExportFlowFallbackAt = "的備援簽核人";
-    /// <summary>流程圖格式在套件格式升版（fg6）前不能匯出（U3）；fg6 刪除。</summary>
-    public const string ExportFlowGraph = "使用流程圖格式，套件格式升版前不能匯出";
     public static string ExportFlowUsers(string where) => $"{where}指定了具體使用者，帳號屬於這個資料庫，套件不收";
     public static string ExportFlowUnmatched(string where) => $"{where}有開啟套件時略過的群組，請先在設計器移除或補上群組";
     public const string ExportFlowFieldMissing = "引用了停用或未匯出的欄位";
@@ -150,10 +149,14 @@ public static class AppMessages
     public static string ApprovalSubstituted(AppApprovalFlowCodec.Substitution s, LocaleContext lc)
     {
         string Zh(I18nText t) => t.Resolve(lc);
+        string Node() => s.StageName is { } name ? Zh(name) : s.Stage ?? "";
+        // 通知節點的收件人沒有備援：拿掉這個群組，節點沒有其他收件人時整個略過（AppApprovalFlowCodec.WithoutSkippedRecipients）
+        if (s.Kind == AppApprovalFlowCodec.KindNotify)
+            return $"簽核流程「{Zh(s.FlowName)}」通知節點「{Node()}」的收件人「{Zh(s.GroupName)}」已略過，不會通知這個群組（沒有其他收件人時不發這則通知）";
         var where = s.Kind switch
         {
-            AppApprovalFlowCodec.KindApprovers => $"關卡「{Zh(s.StageName!)}」的簽核人來源",
-            AppApprovalFlowCodec.KindCandidates => $"關卡「{Zh(s.StageName!)}」的候選群組",
+            AppApprovalFlowCodec.KindApprovers => $"簽核節點「{Node()}」的簽核人來源",
+            AppApprovalFlowCodec.KindCandidates => $"簽核節點「{Node()}」的候選群組",
             _ => "的備援簽核人"
         };
         var by = s.ReplacedBy == AppApprovalFlowCodec.ByFlowFallback ? "流程的備援簽核人" : "預設備援簽核人（簽核政策）";

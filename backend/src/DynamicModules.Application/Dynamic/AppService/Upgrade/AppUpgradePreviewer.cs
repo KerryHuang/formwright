@@ -483,7 +483,7 @@ public sealed class AppUpgradePreviewer(
             if (item.IsPermission && item.Owner is not null && !C.ContainsKey(item.Owner)) continue;
             if (UpgradeClassifier.Classify(b, nv, cv, hasBaseline, excluded.Contains(id)) is not { } r) continue;
             // 現況有對照列、比對模式匯出卻表達不了（§6.1）：無法比對，不當成客戶已刪除（勾回會重建一份）
-            // 停用的流程圖格式流程匯出時略過（套件格式還沒有流程圖），資料庫裡仍有同 Key 的流程：也是表達不了，不是客戶刪除；
+            // 只有草稿的流程匯出時略過（流程圖設計 U17），資料庫裡仍有同 Key 的流程：也是表達不了，不是客戶刪除；
             // 同 Key 的流程掛在別的模組（不在本應用程式匯出範圍）而撞名，也涵蓋在內
             if (cv is null && nv is not null && (Unmatched(item, bindings, memberIds, reportCodes)
                     || (item.Section == "approvalFlows" && await approvalFlows.ModuleKeyOfAsync(id["approvalFlow:".Length..], ct) is not null)))
@@ -518,7 +518,7 @@ public sealed class AppUpgradePreviewer(
             else if (r.Applicable && nv is not null && cv is not null && item.Id.StartsWith("transition:", StringComparison.Ordinal) && Writes(r, "groups"))
                 r = r with { Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonTransitionGroups };
             else if (r.Applicable && nv is not null && cv is not null && item.Section == "approvalFlows"
-                     && (Writes(r, "approvers") || (Writes(r, "stages") && !StageCodes(nv).SetEquals(StageCodes(cv)))))
+                     && (Writes(r, "approvers") || (Writes(r, "nodes") && !StageCodes(nv).SetEquals(StageCodes(cv)))))
                 r = r with { Applicable = false, DefaultSelected = false, Reason = UpgradeClassifier.ReasonApproverGroups };
             // 既有欄位改成必填、有記錄沒填（§6.4、A12b）：會影響既有資料，不能套。
             // 只看這次真的會寫入的必填：客戶改成非必填（customerOnly，套用時保留）不算（審查 M4）
@@ -790,8 +790,10 @@ public sealed class AppUpgradePreviewer(
     private static bool Writes(UpgradeClassifier.Result r, string prop) =>
         r.Properties.Any(p => p.Name == prop && p.Result != UpgradeClassifier.CustomerOnly);
 
+    /// <summary>簽核節點代號：簽核人依它配上現況（Q27），集合不同就有節點會拿到套件的簽核人。</summary>
     private static HashSet<string> StageCodes(UpgradeItem flow) =>
-        (flow.Props.GetValueOrDefault("stages") as JsonArray ?? []).Select(s => s?["code"]?.ToString() ?? "").ToHashSet(StringComparer.Ordinal);
+        (flow.Props.GetValueOrDefault("nodes") as JsonArray ?? []).Where(n => n?["kind"]?.ToString() == "approval")
+            .Select(n => n?["id"]?.ToString() ?? "").ToHashSet(StringComparer.Ordinal);
 
     private static bool Changed(UpgradeItem a, UpgradeItem b, string prop) =>
         !UpgradeItems.Same(a.Props.GetValueOrDefault(prop), b.Props.GetValueOrDefault(prop));

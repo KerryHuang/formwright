@@ -45,6 +45,26 @@ public class EventNoticeFlowScenarioTests(DemoGeneratedFixture fx)
     }
 
     [Fact]
+    public async Task ExportEventRegistration_IncludesActiveNoticeFlow_AsFormat9Graph()
+    {
+        // fg6 起套件格式 9 收流程圖（U24 移除）：啟用中的通知示範流程不再讓活動報名整份 409
+        fx.Generated();
+        var result = await fx.As("admin", new DynamicModules.Application.Dynamic.AppService.Queries.ExportAppRequest("event-registration"));
+
+        result.IsSuccess.Should().BeTrue(result.Message);
+        var export = (DynamicModules.Application.Dynamic.AppService.Queries.AppExportResult)result.Data!;
+        using var package = System.Text.Json.JsonDocument.Parse(export.File.Content);
+        package.RootElement.GetProperty("formatVersion").GetInt32().Should().Be(9);
+        var flow = package.RootElement.GetProperty("approvalFlows").EnumerateArray()
+            .Single(f => f.GetProperty("code").GetString() == EventRegistrationScenario.NoticeFlowKey);
+        flow.GetProperty("shape").GetString().Should().Be("graph");
+        var notify = flow.GetProperty("nodes").EnumerateArray().Where(n => n.GetProperty("kind").GetString() == "notify").ToList();
+        notify.Should().HaveCount(3);
+        notify.SelectMany(n => n.GetProperty("recipients").EnumerateArray()).Select(r => r.GetProperty("kind").GetString())
+            .Should().OnlyContain(k => k == "group" || k == "initiator" || k == "initiatorManager", "套件只收這三種收件人（§12.1）");
+    }
+
+    [Fact]
     public async Task TwoEventsWentThroughTheNoticeFlow_AndAreCancelled()
     {
         var instances = await NoticeInstances();

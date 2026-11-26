@@ -124,6 +124,13 @@ public class AppFormat8Tests : IDisposable
         return (await JsonOf(res)).EnumerateArray().ToList();
     }
 
+    /// <summary>格式 8 的 stages 開啟時轉成流程圖（流程圖設計 §13 第 5 點）、匯出也一律是流程圖：依序取簽核節點。</summary>
+    private static List<JsonElement> Steps(JsonElement definition) =>
+        definition.GetProperty("nodes").EnumerateArray().Where(n => n.GetProperty("kind").GetString() == "approval").ToList();
+
+    private static JsonNode StepNode(JsonNode definition, int i) =>
+        definition["nodes"]!.AsArray().Where(n => (string?)n!["kind"] == "approval").ElementAt(i)!;
+
     private long Option(string code) => _rig.Db(db => db.Set<AppOption>().Single(o => o.Name == $"po.{code}").OptionId);
 
     private void AssertNothingCreated(int existingFlows = 0)
@@ -179,9 +186,9 @@ public class AppFormat8Tests : IDisposable
         flows[0].GetProperty("toOptionId").GetInt64().Should().Be(Option("confirmed"));
         var large = flows[0].GetProperty("definition");
         large.GetProperty("rejectTo").GetInt64().Should().Be(Option("draft"));
-        large.GetProperty("stages")[0].GetProperty("approvers").GetProperty("groupIds")[0].GetInt64().Should().Be(_rig.GroupId("ops-manager"));
-        large.GetProperty("stages")[0].GetProperty("dueHours").GetInt32().Should().Be(24);
-        flows[1].GetProperty("definition").GetProperty("stages")[0].GetProperty("editableFields")[0].GetInt64()
+        Steps(large)[0].GetProperty("approvers").GetProperty("groupIds")[0].GetInt64().Should().Be(_rig.GroupId("ops-manager"));
+        Steps(large)[0].GetProperty("dueHours").GetInt32().Should().Be(24);
+        Steps(flows[1].GetProperty("definition"))[0].GetProperty("editableFields")[0].GetInt64()
             .Should().Be(_rig.FieldId(AppId, "po.memo"));
 
         var wf = await JsonOf(await _rig.Admin.GetAsync($"{Base}/modules/{PoKey}/workflow"));
@@ -219,7 +226,7 @@ public class AppFormat8Tests : IDisposable
         substitution.GetProperty("group").GetString().Should().Be("board");
         substitution.GetProperty("kind").GetString().Should().Be("approvers");
         substitution.GetProperty("replacedBy").GetString().Should().Be("flowFallback");
-        const string warning = "簽核流程「採購單（大額）」關卡「董事會」的簽核人來源「董事會」已略過，改由流程的備援簽核人頂替";
+        const string warning = "簽核流程「採購單（大額）」簽核節點「董事會」的簽核人來源「董事會」已略過，改由流程的備援簽核人頂替";
         preview.GetProperty("warnings").EnumerateArray().Select(w => w.GetString()).Should().Contain(warning);
 
         var opened = await _rig.OpenOkAsync(AppId, Body("board"));
@@ -227,7 +234,7 @@ public class AppFormat8Tests : IDisposable
         opened.GetProperty("warnings").EnumerateArray().Select(w => w.GetString()).Should().Contain(warning);
         var flows = await FlowsAsync();
         flows.Should().HaveCount(2, "流程一律保留");
-        var board = flows[0].GetProperty("definition").GetProperty("stages")[1].GetProperty("approvers");
+        var board = Steps(flows[0].GetProperty("definition"))[1].GetProperty("approvers");
         board.GetProperty("unmatchedGroups").EnumerateArray().Select(g => g.GetString()).Should().Equal("董事會");
         board.GetProperty("groupIds").EnumerateArray().Select(g => g.GetInt64()).Should().Equal(_rig.GroupId("purchasing"));
 
@@ -269,7 +276,7 @@ public class AppFormat8Tests : IDisposable
             .Should().Equal("approvers", "candidates");
 
         await _rig.OpenOkAsync(AppId, Body("board"));
-        var stages = (await FlowsAsync()).Single().GetProperty("definition").GetProperty("stages");
+        var stages = Steps((await FlowsAsync()).Single().GetProperty("definition"));
         stages[0].GetProperty("approvers").GetProperty("unmatchedGroups").EnumerateArray().Select(g => g.GetString()).Should().Equal("董事會");
         stages[0].GetProperty("onEmpty").GetString().Should().Be("fallback");
         stages[1].GetProperty("approvers").GetProperty("candidatesUnmatched").GetBoolean().Should().BeTrue();
@@ -338,7 +345,7 @@ public class AppFormat8Tests : IDisposable
     public async Task Open_SkippedGroup_OnEmptySkip_StoredAsFallback()
     {
         await ImportOpenAsync(null, "board");
-        var stage = (await FlowsAsync())[0].GetProperty("definition").GetProperty("stages")[1];
+        var stage = Steps((await FlowsAsync())[0].GetProperty("definition"))[1];
         stage.GetProperty("onEmpty").GetString().Should().Be("fallback", "略過群組不能變成少簽");
     }
 
@@ -433,9 +440,9 @@ public class AppFormat8Tests : IDisposable
     }
 
     [Fact]
-    public async Task Import_Format9_Rejected()
+    public async Task Import_Format10_Rejected()
     {
-        var json = Package().Replace("\"formatVersion\": 8", "\"formatVersion\": 9");
+        var json = Package().Replace("\"formatVersion\": 8", "\"formatVersion\": 10");
         var res = await _rig.Admin.PostAsync($"{SharedMasterRig.Apps}/packages/import", new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await res.Content.ReadAsStringAsync()).Should().Contain("較新版本");
@@ -483,24 +490,25 @@ public class AppFormat8Tests : IDisposable
     }
 
     [Fact]
-    public async Task Export_WritesFormat8_FlowsTransitionsEditable()
+    public async Task Export_WritesFormat9_FlowsTransitionsEditable()
     {
         await ImportOpenAsync();
         var (package, _) = await _rig.ExportAsync(AppId);
-        package.GetProperty("formatVersion").GetInt32().Should().Be(8);
+        package.GetProperty("formatVersion").GetInt32().Should().Be(9);
         var flows = package.GetProperty("approvalFlows").EnumerateArray().ToList();
         flows.Select(f => f.GetProperty("code").GetString()).Should().Equal(Large, Mid);
         var large = flows[0];
-        large.GetProperty("shape").GetString().Should().Be("sequence");
+        large.GetProperty("shape").GetString().Should().Be("graph", "格式 9 一律匯出流程圖");
+        large.TryGetProperty("stages", out _).Should().BeFalse();
         large.GetProperty("module").GetString().Should().Be("po");
         large.GetProperty("to").GetString().Should().Be("confirmed");
         large.GetProperty("rejectTo").GetString().Should().Be("draft");
         large.GetProperty("when").GetProperty("all")[0].GetProperty("field").GetString().Should().Be("po.total");
         large.GetProperty("fallbackApprovers").GetProperty("groups").EnumerateArray().Select(g => g.GetString()).Should().Equal("ops_manager");
-        large.GetProperty("stages")[1].GetProperty("approvers").GetProperty("groups").EnumerateArray().Select(g => g.GetString())
+        Steps(large)[1].GetProperty("approvers").GetProperty("groups").EnumerateArray().Select(g => g.GetString())
             .Should().Equal("sales_manager", "purchasing");
-        large.GetProperty("stages")[1].GetProperty("onEmpty").GetString().Should().Be("skip");
-        flows[1].GetProperty("stages")[0].GetProperty("editableFields").EnumerateArray().Select(f => f.GetString()).Should().Equal("po.memo");
+        Steps(large)[1].GetProperty("onEmpty").GetString().Should().Be("skip");
+        Steps(flows[1])[0].GetProperty("editableFields").EnumerateArray().Select(f => f.GetString()).Should().Equal("po.memo");
         package.GetProperty("groups").EnumerateArray().Select(g => g.GetProperty("code").GetString())
             .Should().Contain(["ops_manager", "sales_manager", "purchasing"]);
 
@@ -571,15 +579,15 @@ public class AppFormat8Tests : IDisposable
         foreach (var (a, b) in original.Zip(reopened))
         {
             b.GetProperty("priority").GetInt32().Should().Be(a.GetProperty("priority").GetInt32());
-            var stagesA = a.GetProperty("definition").GetProperty("stages").EnumerateArray().ToList();
-            var stagesB = b.GetProperty("definition").GetProperty("stages").EnumerateArray().ToList();
-            foreach (var name in new[] { "code", "name", "mode", "dueHours", "onEmpty" })
+            var stagesA = Steps(a.GetProperty("definition"));
+            var stagesB = Steps(b.GetProperty("definition"));
+            foreach (var name in new[] { "id", "name", "mode", "dueHours", "onEmpty" })
                 stagesB.Select(x => x.TryGetProperty(name, out var v) ? v.GetRawText() : null)
                     .Should().Equal(stagesA.Select(x => x.TryGetProperty(name, out var v) ? v.GetRawText() : null), name);
         }
         reopened[0].GetProperty("toOptionId").GetInt64().Should().Be(OtherOption("confirmed"));
         reopened[0].GetProperty("definition").GetProperty("rejectTo").GetInt64().Should().Be(OtherOption("draft"));
-        reopened[0].GetProperty("definition").GetProperty("stages")[1].GetProperty("approvers").GetProperty("groupIds").EnumerateArray()
+        Steps(reopened[0].GetProperty("definition"))[1].GetProperty("approvers").GetProperty("groupIds").EnumerateArray()
             .Select(g => g.GetInt64()).Should().Equal(other.GroupId("sales-manager"), other.GroupId("purchasing"));
         reopened[2].GetProperty("toOptionId").GetInt64().Should().Be(OtherOption("cancelled"));
 
@@ -626,62 +634,79 @@ public class AppFormat8Tests : IDisposable
     {
         await ImportOpenAsync();
         (await SubmitAsync(150000)).StatusCode.Should().Be(HttpStatusCode.Created);
-        await UpdateFlowAsync(Large, d => d["stages"]![0]!["dueHours"] = 72);
+        await UpdateFlowAsync(Large, d => StepNode(d, 0)["dueHours"] = 72);
         (await FlowsAsync())[0].GetProperty("version").GetInt32().Should().Be(2, "用過的流程改定義產生新版本");
 
         var (package, _) = await _rig.ExportAsync(AppId);
-        package.GetProperty("approvalFlows")[0].GetProperty("stages")[0].GetProperty("dueHours").GetInt32().Should().Be(72);
+        Steps(package.GetProperty("approvalFlows")[0])[0].GetProperty("dueHours").GetInt32().Should().Be(72);
 
         using var other = new SharedMasterRig();
         await other.ImportAsync(package.GetRawText());
         await other.OpenOkAsync(AppId, BodyIn(other));
         var flow = (await JsonOf(await other.Admin.GetAsync($"{Base}/approval-flows/{Large}")));
         flow.GetProperty("version").GetInt32().Should().Be(1);
-        flow.GetProperty("definition").GetProperty("stages")[0].GetProperty("dueHours").GetInt32().Should().Be(72);
+        Steps(flow.GetProperty("definition"))[0].GetProperty("dueHours").GetInt32().Should().Be(72);
     }
 
     [Fact]
     public async Task Export_UsersSource_409_NamesFlowAndStage()
     {
         await ImportOpenAsync();
-        await UpdateFlowAsync(Large, d => d["stages"]![0]!["approvers"] = new JsonObject
+        await UpdateFlowAsync(Large, d => StepNode(d, 0)["approvers"] = new JsonObject
         {
             ["source"] = "users", ["userIds"] = new JsonArray("buyer01")
         });
         var res = await ExportRawAsync();
         res.StatusCode.Should().Be(HttpStatusCode.Conflict);
         var body = await res.Content.ReadAsStringAsync();
-        body.Should().Contain("簽核流程「採購單（大額）」關卡「採購主管」指定了具體使用者，帳號屬於這個資料庫，套件不收");
+        body.Should().Contain("簽核流程「採購單（大額）」節點「採購主管」指定了具體使用者，帳號屬於這個資料庫，套件不收");
     }
 
     [Fact]
-    public async Task Export_WithGraphFlow_409()
+    public async Task Export_GraphFlowWithNotify_ExportsAndReopensInEmptyDb()
     {
-        // U3：套件格式 fg6 才升版，流程圖流程現在匯出會變成沒有關卡的流程，整份擋下並指名流程
+        // 流程圖設計 §13 第 5 點、U24 移除：流程圖照常匯出成格式 9 的 nodes／edges；通知收件人群組寫代號、範本佔位符寫限定欄位名
         await ImportOpenAsync();
-        var group = _rig.GroupId("ops-manager");
+        var titleId = _rig.FieldId(AppId, "po.title");
         await UpdateFlowAsync(Large, d =>
         {
-            d["shape"] = "graph";
-            d["stages"] = new JsonArray();
-            d["nodes"] = new JsonArray(
-                new JsonObject { ["id"] = "start", ["kind"] = "start" },
-                new JsonObject
+            d["nodes"]!.AsArray().Add(new JsonObject
+            {
+                ["id"] = "tell", ["kind"] = "notify", ["name"] = new JsonObject { ["zh-TW"] = "知會主管" },
+                ["recipients"] = new JsonArray(
+                    new JsonObject { ["kind"] = "group", ["groupIds"] = new JsonArray(_rig.GroupId("ops-manager")) },
+                    new JsonObject { ["kind"] = "initiator" }),
+                ["template"] = new JsonObject
                 {
-                    ["id"] = "a", ["kind"] = "approval", ["name"] = new JsonObject { ["zh-TW"] = "主管" },
-                    ["approvers"] = new JsonObject { ["source"] = "group", ["groupIds"] = new JsonArray(group) },
-                    ["mode"] = "any", ["editableFields"] = new JsonArray(), ["onEmpty"] = "fallback"
-                },
-                new JsonObject { ["id"] = "end", ["kind"] = "end" });
-            d["edges"] = new JsonArray(
-                new JsonObject { ["id"] = "e1", ["from"] = "start", ["to"] = "a" },
-                new JsonObject { ["id"] = "e2", ["from"] = "a", ["to"] = "end" });
+                    ["title"] = new JsonObject { ["zh-TW"] = $"{{f:{titleId}}} 已過採購主管" }, ["body"] = new JsonObject { ["zh-TW"] = "" }
+                }
+            });
+            var edges = d["edges"]!.AsArray();
+            edges.Single(e => (string?)e!["from"] == "lead")!["to"] = "tell";
+            edges.Add(new JsonObject { ["id"] = "e9", ["from"] = "tell", ["to"] = "board" });
         });
 
-        var res = await ExportRawAsync();
+        var (package, _) = await _rig.ExportAsync(AppId);
 
-        res.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await res.Content.ReadAsStringAsync()).Should().Contain("簽核流程「採購單（大額）」使用流程圖格式，套件格式升版前不能匯出");
+        var large = package.GetProperty("approvalFlows")[0];
+        large.GetProperty("shape").GetString().Should().Be("graph");
+        var tell = large.GetProperty("nodes").EnumerateArray().Single(n => n.GetProperty("id").GetString() == "tell");
+        tell.GetProperty("recipients")[0].GetProperty("groups").EnumerateArray().Select(g => g.GetString()).Should().Equal("ops_manager");
+        tell.GetProperty("recipients")[1].GetProperty("kind").GetString().Should().Be("initiator");
+        tell.GetProperty("template").GetProperty("title").GetProperty("zh-TW").GetString().Should().Be("{f:po.title} 已過採購主管");
+        large.TryGetProperty("layout", out _).Should().BeFalse("版面不進套件");
+
+        using var other = new SharedMasterRig();
+        await other.ImportAsync(package.GetRawText());
+        await other.OpenOkAsync(AppId, BodyIn(other));
+        var reopened = await JsonOf(await other.Admin.GetAsync($"{Base}/approval-flows/{Large}"));
+        var node = reopened.GetProperty("definition").GetProperty("nodes").EnumerateArray().Single(n => n.GetProperty("id").GetString() == "tell");
+        node.GetProperty("recipients")[0].GetProperty("groupIds")[0].GetInt64().Should().Be(other.GroupId("ops-manager"));
+        node.GetProperty("template").GetProperty("title").GetProperty("zh-TW").GetString()
+            .Should().Be($"{{f:{other.FieldId(AppId, "po.title")}}} 已過採購主管");
+
+        var (again, _) = await other.ExportAsync(AppId);
+        again.GetProperty("approvalFlows").GetRawText().Should().Be(package.GetProperty("approvalFlows").GetRawText());
     }
 
     [Fact]
@@ -691,7 +716,7 @@ public class AppFormat8Tests : IDisposable
         var res = await ExportRawAsync();
         res.StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await res.Content.ReadAsStringAsync()).Should()
-            .Contain("簽核流程「採購單（大額）」關卡「董事會」有開啟套件時略過的群組，請先在設計器移除或補上群組");
+            .Contain("簽核流程「採購單（大額）」節點「董事會」有開啟套件時略過的群組，請先在設計器移除或補上群組");
     }
 
     [Fact]
@@ -699,7 +724,7 @@ public class AppFormat8Tests : IDisposable
     {
         await ImportOpenAsync(Package(formatVersion: 7));
         var (package, _) = await _rig.ExportAsync(AppId);
-        package.GetProperty("formatVersion").GetInt32().Should().Be(8);
+        package.GetProperty("formatVersion").GetInt32().Should().Be(9);
         if (package.TryGetProperty("approvalFlows", out var flows)) flows.EnumerateArray().Should().BeEmpty();
         JsonNode.Parse(package.GetRawText())!["workflows"]![0]!["transitions"]!.AsArray()
             .Should().OnlyContain(t => t!["approval"] == null);

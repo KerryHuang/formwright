@@ -50,6 +50,10 @@ public class InventoryApprovalTests : IDisposable
         [.. current.GetProperty("stages").EnumerateArray().SelectMany(s => s.GetProperty("tasks").EnumerateArray())
             .Where(t => t.GetProperty("status").GetString() == "open").Select(t => t.GetProperty("assigneeUserId").GetString()!)];
 
+    /// <summary>流程定義（開啟後與匯出的格式 9 都是流程圖）裡的簽核節點數。</summary>
+    private static int ApprovalNodes(JsonElement definition) =>
+        definition.GetProperty("nodes").EnumerateArray().Count(n => n.GetProperty("kind").GetString() == "approval");
+
     private static string[] StageCodes(JsonElement current) =>
         [.. current.GetProperty("stages").EnumerateArray().Select(s => s.GetProperty("stageCode").GetString()!)];
 
@@ -292,8 +296,8 @@ public class InventoryApprovalTests : IDisposable
             flow.GetProperty("active").GetBoolean().Should().BeTrue();
         }
         (large.GetProperty("priority").GetInt32(), medium.GetProperty("priority").GetInt32()).Should().Be((1, 2));
-        large.GetProperty("definition").GetProperty("stages").GetArrayLength().Should().Be(2);
-        medium.GetProperty("definition").GetProperty("stages").GetArrayLength().Should().Be(1);
+        ApprovalNodes(large.GetProperty("definition")).Should().Be(2);
+        ApprovalNodes(medium.GetProperty("definition")).Should().Be(1);
     }
 
     [Fact]
@@ -303,11 +307,11 @@ public class InventoryApprovalTests : IDisposable
         var res = await _admin.GetAsync($"{Apps}/inventory/export");
         res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
         var exported = await JsonOf(res);
-        exported.GetProperty("formatVersion").GetInt32().Should().Be(8);
+        exported.GetProperty("formatVersion").GetInt32().Should().Be(9);
 
         var flows = exported.GetProperty("approvalFlows").EnumerateArray().ToList();
         flows.Select(f => f.GetProperty("code").GetString()).Should().Equal("inv-po-large", "inv-po-medium");
-        flows.Select(f => f.GetProperty("stages").GetArrayLength()).Should().Equal(2, 1);
+        flows.Select(ApprovalNodes).Should().Equal(2, 1);
 
         var po = exported.GetProperty("workflows").EnumerateArray().Single(w => w.GetProperty("module").GetString() == "po");
         var entry = po.GetProperty("transitions").EnumerateArray()

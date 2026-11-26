@@ -304,8 +304,8 @@ public class AppUpgradeFlowTests : IDisposable
             var flow = db.Set<ApprovalFlow>().Single(f => f.Key == "uf-win");
             return db.Set<ApprovalFlowVersion>().Single(v => v.Id == flow.CurrentVersionId).Definition;
         });
-        definition.Stages[0].Approvers.GroupIds.Should().Equal(new[] { sales }, "簽核人仍是對應到的群組，不是 Key 撞名的 sales（T44）");
-        definition.Stages[0].Name.Resolve("zh-TW").Should().Be("主管核准");
+        Step(definition).Approvers.GroupIds.Should().Equal(new[] { sales }, "簽核人仍是對應到的群組，不是 Key 撞名的 sales（T44）");
+        Step(definition).Name.Resolve("zh-TW").Should().Be("主管核准");
     }
 
     // ---- A55、A72、A31、§22.2 ----
@@ -504,6 +504,9 @@ public class AppUpgradeFlowTests : IDisposable
         version.Definition = change(version.Definition);
     });
 
+    /// <summary>開啟或升級後的定義是流程圖（格式 8 的 stages 開啟時轉換，流程圖設計 §13 第 5 點）：第一個簽核節點當關卡讀。</summary>
+    private static ApprovalStageDef Step(ApprovalDefinition d) => ApprovalDefinitionRefs.Steps(d).First();
+
     private ApprovalDefinition DefinitionOf(string flowKey) => _rig.Db(db =>
     {
         var flow = db.Set<ApprovalFlow>().Single(f => f.Key == flowKey);
@@ -569,7 +572,7 @@ public class AppUpgradeFlowTests : IDisposable
         versions.Should().Be(2, "被用過的版本另開新版本");
         current.Should().NotBe(oldVersion);
         bound.Should().Be(oldVersion, "簽核中的單照原版本走完");
-        DefinitionOf("uf-win").Stages[0].DueHours.Should().Be(24);
+        Step(DefinitionOf("uf-win")).DueHours.Should().Be(24);
     }
 
     // ---- A32、A61 ----
@@ -750,7 +753,7 @@ public class AppUpgradeFlowTests : IDisposable
         item.GetProperty("applicable").GetBoolean().Should().BeTrue(item.ToString());
         await ApplyOkAsync(preview, ["approvalFlow:uf-win"]);
         DefinitionOf("uf-win").RejectTo.Should().Be(check, "客戶改的退回保留");
-        DefinitionOf("uf-win").Stages[0].Name.Resolve("zh-TW").Should().Be("主管核准");
+        Step(DefinitionOf("uf-win")).Name.Resolve("zh-TW").Should().Be("主管核准");
     }
 
     // ---- 審查 S7：依賴不能套用的項目，自己也標不能勾 ----
@@ -819,7 +822,7 @@ public class AppUpgradeFlowTests : IDisposable
         nameOnly.GetProperty("category").GetString().Should().Be("newOnly");
         nameOnly.GetProperty("applicable").GetBoolean().Should().BeTrue();
         await ApplyOkAsync(preview, ["approvalFlow:uf-check"]);
-        DefinitionOf("uf-check").Stages[0].Name.Resolve("zh-TW").Should().Be("主管確認");
+        Step(DefinitionOf("uf-check")).Name.Resolve("zh-TW").Should().Be("主管確認");
     }
 
     [Fact]
@@ -827,12 +830,15 @@ public class AppUpgradeFlowTests : IDisposable
     {
         await OpenAsync();
         var wh = _rig.GroupId("warehouse");
-        EditDefinition("uf-check", d => d with { Stages = [d.Stages[0] with { Approvers = d.Stages[0].Approvers with { GroupIds = [wh] } }] });
+        EditDefinition("uf-check", d => d with
+        {
+            Nodes = [.. d.Nodes!.Select(n => n.Kind == ApprovalNodeKinds.Approval ? n with { Approvers = n.Approvers! with { GroupIds = [wh] } } : n)]
+        });
         await NewVersionAsync(p => Flow(p, "uf-check")["stages"]![0]!["name"] = new JsonObject { ["zh-TW"] = "主管確認" });
         var preview = await PreviewAsync();
         Item(preview, "approvalFlow:uf-check").GetProperty("applicable").GetBoolean().Should().BeTrue();
         await ApplyOkAsync(preview, ["approvalFlow:uf-check"]);
-        var stage = DefinitionOf("uf-check").Stages[0];
+        var stage = Step(DefinitionOf("uf-check"));
         stage.Name.Resolve("zh-TW").Should().Be("主管確認");
         stage.Approvers.GroupIds.Should().Equal(wh);
     }
@@ -841,7 +847,13 @@ public class AppUpgradeFlowTests : IDisposable
     public async Task A64_CustomerAddedStage_NewRenamesFirst_ApproverGroups()
     {
         await OpenAsync();
-        EditDefinition("uf-check", d => d with { Stages = [.. d.Stages, d.Stages[0] with { Code = "extra" }] });
+        // 客戶在流程圖最後加一個簽核節點（複製第一個、接在結束前）
+        EditDefinition("uf-check", d => d with
+        {
+            Nodes = [.. d.Nodes!.Where(n => n.Kind != ApprovalNodeKinds.End), d.Nodes!.First(n => n.Kind == ApprovalNodeKinds.Approval) with { Id = "extra" },
+                .. d.Nodes!.Where(n => n.Kind == ApprovalNodeKinds.End)],
+            Edges = [.. d.Edges!.Select(e => e.To == "end" ? e with { To = "extra" } : e), new ApprovalEdgeDef("e-extra", "extra", "end")]
+        });
         await NewVersionAsync(p => Flow(p, "uf-check")["stages"]![0]!["name"] = new JsonObject { ["zh-TW"] = "主管確認" });
         Reason(Item(await PreviewAsync(), "approvalFlow:uf-check")).Should().Be("approverGroups", "關卡代號集合不同（複核 N3）");
     }
@@ -900,15 +912,15 @@ public class AppUpgradeFlowTests : IDisposable
         Blockers(preview).Should().BeEmpty(preview.GetProperty("blockers").ToString());
         var item = Item(preview, "approvalFlow:uf-check");
         item.GetProperty("category").GetString().Should().Be("newOnly", item.ToString());
-        item.GetProperty("properties").EnumerateArray().Select(x => x.GetProperty("name").GetString()).Should().Equal("stages");
+        item.GetProperty("properties").EnumerateArray().Select(x => x.GetProperty("name").GetString()).Should().Equal("nodes");
         item.GetProperty("applicable").GetBoolean().Should().BeTrue();
 
         await ApplyOkAsync(preview, ["approvalFlow:uf-check"]);
         var d = DefinitionOf("uf-check");
-        d.Stages[0].Name.Resolve("zh-TW").Should().Be("主管確認");
-        d.Stages[0].Approvers.GroupIds.Should().Equal(_rig.GroupId("ops-manager"));
-        d.Stages[0].Approvers.UnmatchedGroups.Should().NotBeNullOrEmpty("被略過的群組仍由備援頂替");
-        d.Stages[0].OnEmpty.Should().Be(ApprovalOnEmpty.Fallback);
+        Step(d).Name.Resolve("zh-TW").Should().Be("主管確認");
+        Step(d).Approvers.GroupIds.Should().Equal(_rig.GroupId("ops-manager"));
+        Step(d).Approvers.UnmatchedGroups.Should().NotBeNullOrEmpty("被略過的群組仍由備援頂替");
+        Step(d).OnEmpty.Should().Be(ApprovalOnEmpty.Fallback);
         d.FallbackApprovers.Should().BeNull("備援群組有略過的，整份改用政策預設");
     }
 
@@ -1002,13 +1014,22 @@ public class AppUpgradeFlowTests : IDisposable
         WorkflowOf().Transitions.Single(t => t.From == Option("check") && t.To == Option("returned")).GroupIds.Should().Equal(_rig.GroupId("sales-manager"));
     }
 
-    /// <summary>#98 小項：停用的流程圖格式流程匯出時被略過，新版同 Key 不能當成「客戶已刪除」可勾（套用會撞到既有 Key 回滾），標 unmatched。</summary>
+    /// <summary>
+    /// 只有草稿的流程（沒有已發布版本）匯出時不進套件（流程圖設計 U17），資料庫裡仍有同 Key：新版同 Key 不能當成「客戶已刪除」可勾
+    /// （套用會撞到既有 Key 回滾），標 unmatched。fg6 前這裡用「停用的流程圖略過匯出」造情境，U24 移除後流程圖照常匯出。
+    /// </summary>
+    private void MakeDraftOnly(string key) => _rig.Db(db =>
+    {
+        var flow = db.Set<ApprovalFlow>().Single(f => f.Key == key);
+        flow.CurrentVersionId = null;
+        flow.DraftJson = """{"rev":"seed-rev","definition":{"shape":"graph"},"layout":null}""";
+    });
+
     [Fact]
-    public async Task InactiveGraphFlow_SameKeyInNew_Unmatched_NotApplicable()
+    public async Task DraftOnlyFlow_SameKeyInNew_Unmatched_NotApplicable()
     {
         await OpenAsync();
-        EditDefinition("uf-check", d => d with { Shape = ApprovalShapes.Graph });
-        _rig.Db(db => db.Set<ApprovalFlow>().Single(f => f.Key == "uf-check").Active = false);
+        MakeDraftOnly("uf-check");
         await NewVersionAsync(p => Flow(p, "uf-check")["stages"]![0]!["name"] = new JsonObject { ["zh-TW"] = "主管確認" });
         var preview = await PreviewAsync();
         var item = Item(preview, "approvalFlow:uf-check");
@@ -1022,8 +1043,7 @@ public class AppUpgradeFlowTests : IDisposable
     public async Task S5_TransitionDependsOnUnmatchedFlow_AlsoNotApplicable()
     {
         await OpenAsync();
-        EditDefinition("uf-check", d => d with { Shape = ApprovalShapes.Graph });
-        _rig.Db(db => db.Set<ApprovalFlow>().Single(f => f.Key == "uf-check").Active = false);
+        MakeDraftOnly("uf-check");
         await NewVersionAsync(p =>
         {
             Flow(p, "uf-check")["to"] = "returned";

@@ -230,17 +230,25 @@ public static class UpgradeItems
         foreach (var t in p.TaskRules) Add(Coded("taskRules", "taskRule", t.Code, t.Module, t.Name, t with { Repeat = t.Repeat ?? AppTaskRule.Once }));
         foreach (var raw in p.ApprovalFlows)
         {
-            var f = Substituted(raw, groupOf);
-            // 簽核人拆成獨立的 approvers 屬性（Q27、T59）：stages 是每關去掉簽核人後的內容，approvers 以關卡代號為鍵
-            // onEmpty 省略等於 fallback（開啟時寫入，匯出寫出 fallback）
-            var stages = f.Stages?.Select(s => s with { Approvers = null!, OnEmpty = s.OnEmpty ?? Domain.Approvals.ApprovalOnEmpty.Fallback }).ToList();
-            var props = Generic(f with { FallbackApprovers = null, Stages = stages });
+            // 兩邊都先轉成流程圖（格式 8 的 stages 用 §7.8，與資料庫批次轉換的結果逐一對得上），比的是 nodes、edges
+            var f = Substituted(AppApprovalFlowCodec.AsGraph(raw), groupOf);
+            // 簽核人拆成獨立的 approvers 屬性（Q27、T59）：nodes 是每個節點去掉簽核人後的內容，approvers 以簽核節點代號為鍵
+            // 簽核節點的 onEmpty 省略等於 fallback（開啟時寫入，匯出寫出 fallback）
+            var nodes = f.Nodes?.OfType<AppApprovalNode>().Select(n => n with
+            {
+                Approvers = null,
+                OnEmpty = n.Kind == Domain.Approvals.ApprovalNodeKinds.Approval ? n.OnEmpty ?? Domain.Approvals.ApprovalOnEmpty.Fallback : n.OnEmpty
+            }).ToList();
+            var props = Generic(f with { FallbackApprovers = null, Nodes = nodes });
             var approvers = new JsonObject();
-            foreach (var s in f.Stages ?? []) approvers[s.Code] = JsonSerializer.SerializeToNode(s.Approvers, TemplateJson.Options);
+            foreach (var n in (f.Nodes ?? []).Where(n => n?.Approvers is not null))
+                approvers[n.Id] = JsonSerializer.SerializeToNode(n.Approvers, TemplateJson.Options);
             if (f.FallbackApprovers is { } fb) approvers["$fallback"] = JsonSerializer.SerializeToNode(fb, TemplateJson.Options);
             if (Normalize(approvers) is { } a) props["approvers"] = a;
             // 目標與退回狀態要已在狀態機裡：限定名讓它依賴得到新狀態（T43 第 3 點）
             var refs = RefsOf(f);
+            // 通知範本的 {f:限定欄位名} 不是一般的 {代號} 佔位符：另外記進依賴，新欄位被範本引用時才連得上
+            refs.UnionWith(AppApprovalFlowCodec.ReferencedFields(f));
             refs.Add($"{f.Module}.{f.To}");
             if (f.RejectTo is { } rt) refs.Add($"{f.Module}.{rt}");
             // 關卡與備援的群組代號換成客戶群組 id（§6.2.1 第 4 點）
@@ -344,17 +352,18 @@ public static class UpgradeItems
 
     /// <summary>
     /// 開啟時略過的群組由備援頂替（§6.2.1 第 4 點、T42）：照開啟的同一份規則（<see cref="AppApprovalFlowCodec.ToInput"/>）先換，
-    /// 基準與新版才和現況一致——關卡有略過的群組時「找不到人就略過」改成交給備援，備援群組有略過的整份改用政策預設。
-    /// 現況匯出的群組都對得到，套這一步不會變。
+    /// 基準與新版才和現況一致——簽核節點有略過的群組時「找不到人就略過」改成交給備援，備援群組有略過的整份改用政策預設，
+    /// 通知收件人略過的群組拿掉（<see cref="AppApprovalFlowCodec.WithoutSkippedRecipients"/>）。現況匯出的群組都對得到，套這一步不會變。
     /// </summary>
-    private static AppApprovalFlow Substituted(AppApprovalFlow f, Func<string, long?> groupOf)
+    private static AppApprovalFlow Substituted(AppApprovalFlow graph, Func<string, long?> groupOf)
     {
         bool Skipped(IEnumerable<string>? codes) => (codes ?? []).Any(c => groupOf(c) is null);
         bool Unmatched(AppApproverSource? a) => a is not null
             && (a.Source == ApprovalSources.Group && Skipped(a.Groups)
                 || a.Source is ApprovalSources.UserField or ApprovalSources.InitiatorPick && Skipped(a.CandidateGroups));
-        var stages = f.Stages?.Select(s => s is { OnEmpty: ApprovalOnEmpty.Skip } && Unmatched(s.Approvers) ? s with { OnEmpty = ApprovalOnEmpty.Fallback } : s).ToList();
-        return f with { Stages = stages, FallbackApprovers = f.FallbackApprovers is { } fb && Skipped(fb.Groups) ? null : f.FallbackApprovers };
+        var f = AppApprovalFlowCodec.WithoutSkippedRecipients(graph, c => groupOf(c) is not null);
+        var nodes = f.Nodes?.Select(n => n is { OnEmpty: ApprovalOnEmpty.Skip } && Unmatched(n.Approvers) ? n with { OnEmpty = ApprovalOnEmpty.Fallback } : n).ToList();
+        return f with { Nodes = nodes, FallbackApprovers = f.FallbackApprovers is { } fb && Skipped(fb.Groups) ? null : f.FallbackApprovers };
     }
 
     /// <summary>簽核流程裡 groups、candidateGroups 的代號換成客戶群組 id；對不上的拿掉。</summary>

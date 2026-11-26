@@ -11,9 +11,15 @@ using FluentAssertions;
 
 namespace DynamicModules.ApplicationTests.Dynamic;
 
-/// <summary>簽核流程的代號轉換（開啟方向）與略過群組的頂替清單（簽核設計 §14.4、§17.5 審查第 1 項）。純函式。</summary>
+/// <summary>
+/// 簽核流程的代號轉換（開啟方向）與略過群組的頂替清單（簽核設計 §14.4、§17.5 審查第 1 項）。純函式。
+/// fg6 起套件裡的關卡（格式 8）在讀進來時轉成流程圖（流程圖設計 §13 第 5 點），匯入結果與匯出一律是 graph。
+/// </summary>
 public class AppApprovalFlowCodecTests
 {
+    /// <summary>定義裡的簽核節點（轉成關卡形狀，方便沿用關卡的斷言）。</summary>
+    private static List<ApprovalStageDef> Steps(ApprovalDefinition d) => ApprovalDefinitionRefs.Steps(d).ToList();
+
     private static I18nText T(string zh) => new([KeyValuePair.Create("zh-TW", zh)]);
 
     private static readonly List<AppGroup> Groups =
@@ -59,17 +65,20 @@ public class AppApprovalFlowCodecTests
         input.Priority.Should().Be(1);
         input.Active.Should().BeTrue();
         var d = input.Definition;
-        d.Shape.Should().Be("sequence");
+        d.Shape.Should().Be("graph", "格式 8 的關卡讀進來時轉成流程圖（§7.8）");
+        d.Stages.Should().BeEmpty();
+        d.Nodes!.Select(n => n.Id).Should().Equal("start", "lead", "board", "end");
+        d.Edges!.Select(e => (e.Id, e.From, e.To)).Should().Equal(("e1", "start", "lead"), ("e2", "lead", "board"), ("e3", "board", "end"));
         d.RejectTo.Should().Be(201);
         d.When!.Value.GetRawText().Should().Contain("101");
         d.FallbackApprovers!.GroupIds.Should().Equal(11);
-        d.Stages[0].EditableFields.Should().Equal(102);
-        d.Stages[0].DueHours.Should().Be(24);
-        d.Stages[0].When!.Value.GetRawText().Should().Contain("104").And.Contain("opt_201");
-        d.Stages[1].Approvers.GroupIds.Should().Equal(12, 13);
-        d.Stages[1].Mode.Should().Be("all");
-        d.Stages[1].OnEmpty.Should().Be("fallback", "省略時是 fallback");
-        d.Stages[1].EditableFields.Should().BeEmpty();
+        Steps(d)[0].EditableFields.Should().Equal(102);
+        Steps(d)[0].DueHours.Should().Be(24);
+        Steps(d)[0].When!.Value.GetRawText().Should().Contain("104").And.Contain("opt_201");
+        Steps(d)[1].Approvers.GroupIds.Should().Equal(12, 13);
+        Steps(d)[1].Mode.Should().Be("all");
+        Steps(d)[1].OnEmpty.Should().Be("fallback", "省略時是 fallback");
+        Steps(d)[1].EditableFields.Should().BeEmpty();
     }
 
     [Fact]
@@ -77,7 +86,7 @@ public class AppApprovalFlowCodecTests
     {
         var f = Flow(null, Stage("board", Group("board", "purchaseLead"), mode: "all"));
         var (input, _) = AppApprovalFlowCodec.ToInput(f, Lookups, Without("board"), GroupName);
-        var source = input!.Definition.Stages[0].Approvers;
+        var source = Steps(input!.Definition)[0].Approvers;
         source.GroupIds.Should().Equal(11);
         source.UnmatchedGroups.Should().Equal("董事會");
     }
@@ -87,8 +96,8 @@ public class AppApprovalFlowCodecTests
     {
         var f = Flow(null, Stage("board", Group("board", "buyers"), onEmpty: "skip"), Stage("lead", Group("purchaseLead"), onEmpty: "skip"));
         var (input, _) = AppApprovalFlowCodec.ToInput(f, Lookups, Without("board"), GroupName);
-        input!.Definition.Stages[0].OnEmpty.Should().Be("fallback");
-        input.Definition.Stages[1].OnEmpty.Should().Be("skip", "沒有略過群組的關卡照套件");
+        Steps(input!.Definition)[0].OnEmpty.Should().Be("fallback");
+        Steps(input.Definition)[1].OnEmpty.Should().Be("skip", "沒有略過群組的關卡照套件");
     }
 
     [Fact]
@@ -97,7 +106,7 @@ public class AppApprovalFlowCodecTests
         var userField = new AppApproverSource("userField", null, null, "po.buyer", ["buyers", "board"], null, null);
         var pick = new AppApproverSource("initiatorPick", null, null, null, ["board"], 1, 2);
         var (input, _) = AppApprovalFlowCodec.ToInput(Flow(null, Stage("owner", userField), Stage("pick", pick)), Lookups, Without("board"), GroupName);
-        var stages = input!.Definition.Stages;
+        var stages = Steps(input!.Definition);
         stages[0].Approvers.FieldId.Should().Be(103);
         stages[0].Approvers.CandidatesUnmatched.Should().BeTrue();
         stages[0].Approvers.CandidateGroupIds.Should().Equal(13);
@@ -121,7 +130,7 @@ public class AppApprovalFlowCodecTests
         var f = Flow(new AppApproverSource("manager", null, 2, null, null, null, null),
             Stage("lead", Group("purchaseLead")), Stage("owner", new AppApproverSource("userField", null, null, "po.buyer", ["buyers"], null, null)));
         var (input, _) = AppApprovalFlowCodec.ToInput(f, Lookups, AllGroups, GroupName);
-        input!.Definition.Stages.Should().AllSatisfy(s =>
+        Steps(input!.Definition).Should().HaveCount(2).And.AllSatisfy(s =>
         {
             s.Approvers.UnmatchedGroups.Should().BeNull();
             s.Approvers.CandidatesUnmatched.Should().BeFalse();
@@ -187,8 +196,9 @@ public class AppApprovalFlowCodecTests
     }
 
     [Fact]
-    public void ToPackage_RoundTrip_EqualsOriginal()
+    public void ToPackage_RoundTrip_EqualsOriginalAsGraph()
     {
+        // 格式 8 的關卡匯入後再匯出：結果是同一份流程的圖（§7.8），不是原本的 stages
         var original = new AppApprovalFlow("t8-po-large", T("採購單（大額）"), false, "po", "confirmed", 3, "sequence",
             Json("""{ "all": [ { "field": "po.total", "op": "gte", "value": 100000 } ] }"""), "draft", Group("purchaseLead"),
             [
@@ -200,7 +210,99 @@ public class AppApprovalFlowCodecTests
             ]);
         var (exported, errors) = Export(Imported(original));
         errors.Should().BeEmpty();
+        exported!.Shape.Should().Be("graph");
+        exported.Stages.Should().BeNull();
+        JsonSerializer.Serialize(exported, AppJson.StrictOptions)
+            .Should().Be(JsonSerializer.Serialize(AppApprovalFlowCodec.AsGraph(original), AppJson.StrictOptions));
+    }
+
+    /// <summary>格式 9 的流程圖：條件、分支與匯合、通知節點（三種收件人、範本的欄位佔位符）、線上的標籤與條件。</summary>
+    private static AppApprovalFlow GraphFlow(params AppNotifyRecipient[] recipients) =>
+        new("t8-po-large", T("採購單（大額）"), true, "po", "confirmed", 1, "graph", null, "draft", null, null,
+            [
+                new("start", "start"),
+                new("lead", "approval", T("主管"), null, Group("purchaseLead"), "any", ["po.memo"], 24, "fallback"),
+                new("amount", "condition", T("金額分級")),
+                new("split", "fork", T("會簽")),
+                new("board", "approval", T("董事會"), null, Group("board"), "all", null, null, "skip"),
+                new("owner", "approval", T("負責人"), null, new AppApproverSource("userField", null, null, "po.buyer", ["buyers"], null, null), "any", null, null, "fallback"),
+                new("merge", "join", Mode: "all", ForkId: "split"),
+                new("tell", "notify", T("知會"), Recipients: recipients.Length > 0 ? [.. recipients]
+                    : [new("group", ["buyers"]), new("initiator"), new("initiatorManager", Level: 2)],
+                    Template: new AppNotifyTemplate(T("{title} 已核准"), T("金額 {f:po.total}，備註 {f:po.memo}"))),
+                new("end", "end")
+            ],
+            [
+                new("e1", "start", "lead"), new("e2", "lead", "amount"),
+                new("e3", "amount", "split", T("十萬以上"), Json("""{ "all": [ { "field": "po.total", "op": "gte", "value": 100000 } ] }"""), 1),
+                new("e4", "amount", "tell", T("其他"), Default: true),
+                new("e5", "split", "board"), new("e6", "split", "owner"), new("e7", "board", "merge"), new("e8", "owner", "merge"),
+                new("e9", "merge", "tell"), new("e10", "tell", "end")
+            ]);
+
+    [Fact]
+    public void Graph_RoundTrip_EqualsOriginal()
+    {
+        var original = GraphFlow();
+        var input = Imported(original);
+        var d = input.Definition;
+        d.Shape.Should().Be("graph");
+        d.Edges!.Single(e => e.Id == "e3").When!.Value.GetRawText().Should().Contain("101");
+        var tell = d.Nodes!.Single(n => n.Id == "tell");
+        tell.Recipients!.Select(r => (r.Kind, r.GroupIds, r.Level)).Should().BeEquivalentTo(
+            [("group", (List<long>?)[13], (int?)null), ("initiator", (List<long>?)null, (int?)null), ("initiatorManager", (List<long>?)null, (int?)2)],
+            o => o.WithStrictOrdering());
+        tell.Template!.Body.Resolve("zh-TW").Should().Be("金額 {f:101}，備註 {f:102}", "範本的欄位佔位符換成欄位 Id");
+        d.Nodes!.Single(n => n.Id == "merge").ForkId.Should().Be("split");
+
+        var (exported, errors) = Export(input);
+        errors.Should().BeEmpty();
         JsonSerializer.Serialize(exported, AppJson.StrictOptions).Should().Be(JsonSerializer.Serialize(original, AppJson.StrictOptions));
+    }
+
+    [Fact]
+    public void Graph_NotifyRecipientUsers_ExportError()
+    {
+        var input = Imported(GraphFlow());
+        var nodes = input.Definition.Nodes!.Select(n => n.Id == "tell" ? n with { Recipients = [new NotifyRecipientDef("users", UserIds: ["buyer01"])] } : n).ToList();
+        var (flow, errors) = Export(input with { Definition = input.Definition with { Nodes = nodes } });
+        flow.Should().BeNull();
+        errors.Should().Equal("簽核流程「採購單（大額）」節點「知會」指定了具體使用者，帳號屬於這個資料庫，套件不收");
+    }
+
+    [Fact]
+    public void Graph_NotifyGroupSkipped_RecipientRemoved_Listed()
+    {
+        // 通知收件人沒有備援：略過的群組直接拿掉，其他收件人照常（技術決定，fg6 §25）
+        var f = GraphFlow(new AppNotifyRecipient("group", ["buyers", "board"]), new AppNotifyRecipient("initiator"));
+        var (input, errors) = AppApprovalFlowCodec.ToInput(f, Lookups, Without("board"), GroupName);
+        errors.Should().BeEmpty();
+        input!.Definition.Nodes!.Single(n => n.Id == "tell").Recipients!.Select(r => (r.Kind, r.GroupIds?.Count))
+            .Should().Equal(("group", 1), ("initiator", (int?)null));
+
+        var mapped = new HashSet<string> { "purchaseLead", "buyers" };
+        AppApprovalFlowCodec.Substitutions(f, mapped, Groups).Select(s => (s.Stage, s.Group, s.Kind, s.ReplacedBy))
+            .Should().Equal(("board", "board", "approvers", "policyDefault"), ("tell", "board", "notify", "skipped"));
+    }
+
+    [Fact]
+    public void Graph_NotifyAllRecipientsSkipped_NodeRemovedAndEdgesReconnected()
+    {
+        // 收件人全部被略過：整個通知節點略過，進來的線改接到它的出線終點，流程照樣完整
+        var f = GraphFlow(new AppNotifyRecipient("group", ["buyers"]));
+        var (input, errors) = AppApprovalFlowCodec.ToInput(f, Lookups, Without("buyers"), GroupName);
+        errors.Should().BeEmpty();
+        var d = input!.Definition;
+        d.Nodes!.Select(n => n.Id).Should().NotContain("tell");
+        d.Edges!.Select(e => (e.Id, e.From, e.To)).Should().Contain([("e4", "amount", "end"), ("e9", "merge", "end")]);
+        d.Edges!.Select(e => e.Id).Should().NotContain("e10");
+        ApprovalGraphValidator.Check(d, new GraphPolicyLimits(20, 10), null).Errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ReferencedFields_IncludeEdgeConditionsAndTemplate()
+    {
+        AppApprovalFlowCodec.ReferencedFields(GraphFlow()).Should().BeEquivalentTo("po.memo", "po.buyer", "po.total");
     }
 
     [Fact]
@@ -208,26 +310,27 @@ public class AppApprovalFlowCodecTests
     {
         var input = Imported(Flow(null, Stage("lead", Group("purchaseLead"))));
         var users = new ApproverSource(ApprovalSources.Users, UserIds: ["buyer01"]);
-        var stage = input with { Definition = input.Definition with { Stages = [input.Definition.Stages[0] with { Approvers = users }] } };
+        var nodes = input.Definition.Nodes!.Select(n => n.Id == "lead" ? n with { Approvers = users } : n).ToList();
+        var stage = input with { Definition = input.Definition with { Nodes = nodes } };
         var (flow, errors) = Export(stage);
         flow.Should().BeNull();
-        errors.Should().Equal("簽核流程「採購單（大額）」關卡「lead」指定了具體使用者，帳號屬於這個資料庫，套件不收");
+        errors.Should().Equal("簽核流程「採購單（大額）」節點「lead」指定了具體使用者，帳號屬於這個資料庫，套件不收");
 
         var fallback = input with { Definition = input.Definition with { FallbackApprovers = users } };
         Export(fallback).Errors.Should().Equal("簽核流程「採購單（大額）」的備援簽核人指定了具體使用者，帳號屬於這個資料庫，套件不收");
     }
 
     [Fact]
-    public void ToPackage_GraphFlow_Error()
+    public void ToPackage_SequenceDefinition_ExportedAsGraph()
     {
-        // U3：流程圖格式在套件格式升版（fg6）前不能匯出；整份擋下，不略過流程
-        var input = Imported(Flow(null, Stage("lead", Group("purchaseLead"))));
-        var graph = input with { Definition = input.Definition with { Shape = ApprovalShapes.Graph, Stages = [] } };
-
-        var (flow, errors) = Export(graph);
-
-        flow.Should().BeNull();
-        errors.Should().Equal("簽核流程「採購單（大額）」使用流程圖格式，套件格式升版前不能匯出");
+        // 資料庫裡還是關卡格式的版本（批次轉換前）：匯出時先轉成圖（§13 第 5 點「匯出一律輸出 graph」）
+        var sequence = new ApprovalDefinition(ApprovalShapes.Sequence, null, 201, null,
+            [new ApprovalStageDef("lead", T("lead"), null, new ApproverSource(ApprovalSources.Group, GroupIds: [11]), "any", [], null, "fallback")]);
+        var (flow, errors) = Export(new ApprovalFlowInput("t8-po-large", T("採購單（大額）"), 202, 1, true, sequence));
+        errors.Should().BeEmpty();
+        flow!.Shape.Should().Be("graph");
+        flow.Stages.Should().BeNull();
+        flow.Nodes!.Select(n => n.Id).Should().Equal("start", "lead", "end");
     }
 
     [Fact]
@@ -239,8 +342,8 @@ public class AppApprovalFlowCodecTests
         var (flow, errors) = Export(input!);
         flow.Should().BeNull();
         errors.Should().Equal(
-            "簽核流程「採購單（大額）」關卡「board」有開啟套件時略過的群組，請先在設計器移除或補上群組",
-            "簽核流程「採購單（大額）」關卡「owner」有開啟套件時略過的群組，請先在設計器移除或補上群組");
+            "簽核流程「採購單（大額）」節點「board」有開啟套件時略過的群組，請先在設計器移除或補上群組",
+            "簽核流程「採購單（大額）」節點「owner」有開啟套件時略過的群組，請先在設計器移除或補上群組");
     }
 
     [Fact]
@@ -330,7 +433,7 @@ public class AppApprovalFlowCodecDefinitionTests : ApprovalTestBase
             ]);
         var (input, errors) = AppApprovalFlowCodec.ToInput(f, lookups, groups, code => code == "board" ? "董事會" : code);
         errors.Should().BeEmpty();
-        input!.Definition.Stages[1].Approvers.UnmatchedGroups.Should().Equal("董事會");
+        ApprovalDefinitionRefs.Steps(input!.Definition).ElementAt(1).Approvers.UnmatchedGroups.Should().Equal("董事會");
 
         var module = (await Svc<IModuleRepository>().GetByKeyAsync(r.Module, includeChildren: true, CancellationToken.None))!;
         (await Svc<ApprovalDefinitionValidator>().ValidateAsync(module, module.Workflow!, input.Definition, null, CancellationToken.None))
@@ -355,7 +458,7 @@ public class AppApprovalFlowCodecDefinitionTests : ApprovalTestBase
             ]);
         var (input, errors) = AppApprovalFlowCodec.ToInput(f, lookups, new Dictionary<string, long>(), code => code == "board" ? "董事會" : code);
         errors.Should().BeEmpty();
-        var stages = input!.Definition.Stages;
+        var stages = ApprovalDefinitionRefs.Steps(input!.Definition).ToList();
         stages[0].Approvers.GroupIds.Should().BeEmpty();
         stages[0].Approvers.UnmatchedGroups.Should().Equal("董事會");
         stages[0].OnEmpty.Should().Be("fallback");

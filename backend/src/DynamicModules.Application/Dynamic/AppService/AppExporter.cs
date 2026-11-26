@@ -250,7 +250,7 @@ public sealed partial class AppExporter(
 
     /// <summary>
     /// 簽核流程（簽核設計 §14.4）：每個成員模組的流程取目前版本，停用的也匯出，依（模組、目標狀態的選項順序、優先序）排序；
-    /// 歷史版本、實例、任務、歷程、代理不匯出。表達不了的啟用中流程不略過、整份 409（停用的流程圖格式流程略過並記 warning）（略過會讓 direct 入口在重新匯入後少簽，計畫 U7）：
+    /// 歷史版本、實例、任務、歷程、代理、版面不匯出；格式 9 起一律以流程圖輸出（流程圖設計 §13 第 5 點，fg6 拆掉 U24 的略過與 409）。表達不了的流程不略過、整份 409（略過會讓 direct 入口在重新匯入後少簽，計畫 U7）：
     /// 有流程或需簽核轉移、但狀態機沒匯出（引用了停用選項），也算錯誤。
     /// </summary>
     private async Task<(List<AppApprovalFlow> Flows, List<string> Errors)> ExportApprovalFlowsAsync(
@@ -273,12 +273,6 @@ public sealed partial class AppExporter(
                 .OrderBy(o => o.Sequence).Select((o, i) => (o.Id, i)).ToDictionary(x => x.Id, x => x.i) ?? [];
             foreach (var s in current.OrderBy(s => order.GetValueOrDefault(s.Flow.ToOptionId, int.MaxValue)).ThenBy(s => s.Flow.Priority))
             {
-                // 停用的流程圖格式流程略過並提示（略過不會讓重新匯入後少簽；啟用中的仍由 ToPackage 擋下，使用者 11-16 確認）
-                if (!s.Flow.Active && s.Definition.Shape == ApprovalShapes.Graph)
-                {
-                    warnings.Add($"簽核流程「{s.Flow.NameI18n.Resolve(requestLocale.Current)}」使用流程圖格式，套件格式升版前不能匯出，已略過（流程已停用）");
-                    continue;
-                }
                 var (flow, flowErrors) = AppApprovalFlowCodec.ToPackage(s.Flow, s.Definition, module, w.StatusFieldId, names, groupCode, requestLocale.Current, compare);
                 if (flow is null) errors.AddRange(flowErrors);
                 else flows.Add(flow);

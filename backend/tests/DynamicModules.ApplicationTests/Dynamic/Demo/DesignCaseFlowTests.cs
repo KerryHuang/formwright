@@ -37,7 +37,8 @@ public class DesignCaseFlowTests(DemoGeneratedFixture fx)
         flow.Definition!.RejectTo.Should().Be(await Option("設計中"));
         flow.Definition!.When.Should().BeNull();
         flow.Definition!.FallbackApprovers.Should().BeNull("省略時由系統管理員頂替");
-        var stage = flow.Definition.Stages.Should().ContainSingle().Subject;
+        flow.Definition.Shape.Should().Be("graph", "格式 8 的關卡開啟時轉成流程圖（流程圖設計 §13 第 5 點）");
+        var stage = DynamicModules.Domain.Approvals.ApprovalDefinitionRefs.Steps(flow.Definition).Should().ContainSingle().Subject;
         stage.Code.Should().Be("owner-manager");
         stage.Approvers.Source.Should().Be("manager");
         stage.Approvers.Level.Should().Be(1);

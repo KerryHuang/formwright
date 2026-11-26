@@ -9,17 +9,20 @@ using DynamicModules.Domain.ValueObjects;
 namespace DynamicModules.Application.Dynamic.AppService;
 
 /// <summary>
-/// 簽核流程在套件（代號）與資料庫（Id）之間互轉（簽核設計 §14）。開啟時流程一律保留：被略過的群組不從名單移除，
-/// 而是記成對不上的來源單位，由備援簽核人頂替（§14.4）；<see cref="Substitutions"/> 列出每一個被頂替的來源，預覽與開啟共用。
-/// 欄位或選項解析不到時累積成錯誤、回 null，不猜。
+/// 簽核流程在套件（代號）與資料庫（Id）之間互轉（簽核設計 §14、流程圖設計 §13 第 5 點）。套件裡的 sequence（格式 8 的 stages）
+/// 一律先用 <see cref="AsGraph"/> 轉成 graph，匯入、開啟、升級比對都只處理 graph；匯出一律輸出 graph。
+/// 開啟時流程一律保留：簽核節點被略過的群組不從名單移除，而是記成對不上的來源單位，由備援簽核人頂替（§14.4）；
+/// 通知節點收件人被略過的群組直接拿掉（通知沒有備援的概念），整個節點都沒有收件人就略過這個節點（<see cref="WithoutSkippedRecipients"/>）。
+/// <see cref="Substitutions"/> 列出每一個被頂替或略過的來源，預覽與開啟共用。欄位或選項解析不到時累積成錯誤、回 null，不猜。
 /// </summary>
 public static partial class AppApprovalFlowCodec
 {
-    public const string KindApprovers = "approvers", KindCandidates = "candidates", KindFallback = "fallback";
-    public const string ByFlowFallback = "flowFallback", ByPolicyDefault = "policyDefault";
+    public const string KindApprovers = "approvers", KindCandidates = "candidates", KindFallback = "fallback", KindNotify = "notify";
+    public const string ByFlowFallback = "flowFallback", ByPolicyDefault = "policyDefault", BySkipped = "skipped";
 
-    /// <summary>開啟套件時被略過的群組造成的頂替。Kind：approvers（關卡來源的群組）、candidates（候選群組）、fallback（備援群組）。
-    /// ReplacedBy：flowFallback（流程的備援簽核人）或 policyDefault（政策 approval.defaultFallbackApprovers）。Stage 在 Kind = fallback 時為 null。</summary>
+    /// <summary>開啟套件時被略過的群組造成的頂替。Kind：approvers（簽核節點來源的群組）、candidates（候選群組）、fallback（備援群組）、
+    /// notify（通知節點的收件人群組）。ReplacedBy：flowFallback（流程的備援簽核人）、policyDefault（政策 approval.defaultFallbackApprovers）、
+    /// skipped（通知收件人，不頂替、直接不通知）。Stage 是節點代號，Kind = fallback 時為 null。</summary>
     public sealed record Substitution(string Flow, I18nText FlowName, string? Stage, I18nText? StageName,
         string Group, I18nText GroupName, string Kind, string ReplacedBy);
 
@@ -31,6 +34,7 @@ public static partial class AppApprovalFlowCodec
         AppApprovalFlow f, AppReportCodec.Lookups l, IReadOnlyDictionary<string, long> groupIds, Func<string, string> groupName)
     {
         var errors = new List<string>();
+        var g = WithoutSkippedRecipients(AsGraph(f), groupIds.ContainsKey);
         long Option(string code)
         {
             var id = l.OptionId($"{f.Module}.{code}");
@@ -47,6 +51,8 @@ public static partial class AppApprovalFlowCodec
             json is { ValueKind: not (JsonValueKind.Null or JsonValueKind.Undefined) } w ? AppEffectsCodec.ImportCondition(w, l, errors) : null;
         List<long> Mapped(IEnumerable<string>? codes) => (codes ?? []).Where(groupIds.ContainsKey).Select(c => groupIds[c]).Distinct().ToList();
         bool AnySkipped(IEnumerable<string>? codes) => (codes ?? []).Any(c => !groupIds.ContainsKey(c));
+        I18nText? Template(I18nText? text) => text is null ? null
+            : new I18nText(text.Values.Select(kv => KeyValuePair.Create(kv.Key, FieldPlaceholder().Replace(kv.Value ?? "", m => $"{{f:{Field(m.Groups[1].Value)}}}"))));
 
         ApproverSource Source(AppApproverSource a)
         {
@@ -65,21 +71,80 @@ public static partial class AppApprovalFlowCodec
             };
         }
 
-        var stages = (f.Stages ?? []).Select(s =>
+        // 屬性照原樣搬，不依種類篩：放錯位置的屬性要讓存檔驗證（G1 attrNotAllowed）看得到
+        var nodes = (g.Nodes ?? []).Where(n => n is not null).Select(n =>
         {
-            var approvers = Source(s.Approvers);
-            var unmatched = approvers.CandidatesUnmatched || approvers.UnmatchedGroups is { Count: > 0 };
-            // 略過群組不能變成少簽：onEmpty = skip 改成 fallback（§14.4）
-            var onEmpty = s.OnEmpty is null || (unmatched && s.OnEmpty == ApprovalOnEmpty.Skip) ? ApprovalOnEmpty.Fallback : s.OnEmpty;
-            return new ApprovalStageDef(s.Code, s.Name, When(s.When), approvers, s.Mode,
-                (s.EditableFields ?? []).Select(Field).ToList(), s.DueHours, onEmpty);
+            var approvers = n.Approvers is null ? null : Source(n.Approvers);
+            var unmatched = approvers is not null && (approvers.CandidatesUnmatched || approvers.UnmatchedGroups is { Count: > 0 });
+            // 略過群組不能變成少簽：onEmpty = skip 改成 fallback（§14.4）；簽核節點沒寫是 fallback
+            var onEmpty = n.Kind == ApprovalNodeKinds.Approval && (n.OnEmpty is null || (unmatched && n.OnEmpty == ApprovalOnEmpty.Skip))
+                ? ApprovalOnEmpty.Fallback : n.OnEmpty;
+            return new ApprovalNodeDef(n.Id, n.Kind, n.Name, When(n.When), approvers, n.Mode,
+                n.EditableFields?.Select(Field).ToList() ?? (n.Kind == ApprovalNodeKinds.Approval ? [] : null), n.DueHours, onEmpty, n.ForkId,
+                n.Recipients?.Select(r => new NotifyRecipientDef(r.Kind,
+                    GroupIds: r.Groups is null ? null : Mapped(r.Groups), Level: r.Level)).ToList(),
+                n.Template is null ? null : new NotifyTemplateDef(Template(n.Template.Title)!, Template(n.Template.Body) ?? new I18nText()));
         }).ToList();
+        var edges = (g.Edges ?? []).Where(e => e is not null)
+            .Select(e => new ApprovalEdgeDef(e.Id, e.From, e.To, e.Label, When(e.When), e.Order, e.Default)).ToList();
         // 備援群組任何一個被略過：整份備援改用政策預設（§14.4）
-        var fallback = f.FallbackApprovers is { } fb && !AnySkipped(fb.Groups) ? Source(fb) : null;
-        var definition = new ApprovalDefinition(f.Shape, When(f.When), f.RejectTo is { } rt ? Option(rt) : null, fallback, stages);
+        var fallback = g.FallbackApprovers is { } fb && !AnySkipped(fb.Groups) ? Source(fb) : null;
+        var definition = new ApprovalDefinition(ApprovalShapes.Graph, When(g.When), g.RejectTo is { } rt ? Option(rt) : null, fallback, [], nodes, edges);
         var input = new ApprovalFlowInput(f.Code, f.Name, Option(f.To), f.Priority, f.Active, definition);
         return errors.Count == 0 ? (input, []) : (null, errors.Distinct().ToList());
     }
+
+    /// <summary>
+    /// 套件層的 sequence → graph（流程圖設計 §7.8）：節點代號與連線代號交給 Domain 的 <see cref="ApprovalGraphConversion.FromSequence"/>
+    /// 用只有關卡代號的骨架算出，再把各關的內容（代號形式）填回對應的簽核節點，所以和資料庫裡轉出的圖逐一對得上。
+    /// 已是 graph、或沒有 stages（結構層會報錯）時原樣回傳。
+    /// </summary>
+    public static AppApprovalFlow AsGraph(AppApprovalFlow f)
+    {
+        if (f.Shape != ApprovalShapes.Sequence || f.Stages is null) return f;
+        var stages = f.Stages.Where(s => s is not null).ToList();
+        var skeleton = ApprovalGraphConversion.FromSequence(new ApprovalDefinition(ApprovalShapes.Sequence, null, null, null,
+            stages.Select(s => new ApprovalStageDef(s.Code, new I18nText(), null, new ApproverSource(""), "", [], null, "")).ToList()));
+        // 骨架節點依序是開始、各關、結束
+        var nodes = skeleton.Nodes!.Select((n, i) => n.Kind == ApprovalNodeKinds.Approval && stages[i - 1] is var s
+            ? new AppApprovalNode(n.Id, n.Kind, s.Name, s.When, s.Approvers, s.Mode, s.EditableFields, s.DueHours, s.OnEmpty)
+            : new AppApprovalNode(n.Id, n.Kind)).ToList();
+        var edges = skeleton.Edges!.Select(e => new AppApprovalEdge(e.Id, e.From, e.To)).ToList();
+        return f with { Shape = ApprovalShapes.Graph, Stages = null, Nodes = nodes, Edges = edges };
+    }
+
+    /// <summary>
+    /// 通知節點收件人被略過的群組（不在 <paramref name="mapped"/>）直接拿掉：群組都被略過的收件人整項拿掉；
+    /// 節點因此沒有任何收件人時略過整個節點（入線改接到它唯一的出線終點），與通知「不擋流程」一致（§12.4）。
+    /// 開啟、預覽、升級比對共用，預覽說的就是開啟做的。
+    /// </summary>
+    public static AppApprovalFlow WithoutSkippedRecipients(AppApprovalFlow g, Func<string, bool> mapped)
+    {
+        if (g.Nodes is null || !g.Nodes.Any(n => n?.Recipients?.Any(r => r?.Groups?.Any(c => !mapped(c)) == true) == true)) return g;
+        // 有 null 項目的套件結構層已擋下，這裡只會拿到通過驗證的內容
+        var nodes = new List<AppApprovalNode>();
+        var edges = g.Edges?.OfType<AppApprovalEdge>().ToList() ?? [];
+        foreach (var n in g.Nodes.OfType<AppApprovalNode>())
+        {
+            if (n.Recipients is null) { nodes.Add(n); continue; }
+            var recipients = n.Recipients.OfType<AppNotifyRecipient>()
+                .Select(r => r.Groups is null ? r : r with { Groups = r.Groups.Where(mapped).ToList() })
+                .Where(r => r.Groups is not { Count: 0 }).ToList();
+            var outs = edges.Where(e => e.From == n.Id).ToList();
+            if (recipients.Count == 0 && outs.Count == 1)
+            {
+                edges.Remove(outs[0]);
+                edges = edges.Select(e => e.To == n.Id ? e with { To = outs[0].To } : e).ToList();
+                continue;
+            }
+            nodes.Add(n with { Recipients = recipients });
+        }
+        return g with { Nodes = nodes, Edges = edges };
+    }
+
+    /// <summary>範本的欄位佔位符 {f:…}；格式同 Domain 的範本語法（大括號內不含大括號）。</summary>
+    [System.Text.RegularExpressions.GeneratedRegex(@"\{f:([^{}]+)\}")]
+    internal static partial System.Text.RegularExpressions.Regex FieldPlaceholder();
 
     /// <summary>
     /// 被略過的群組造成的頂替，每個（關卡、群組、種類）一筆；預覽以 groupMap 的 map／create 為已對應，開啟以實際對應到 Id 的群組為已對應，
@@ -93,13 +158,17 @@ public static partial class AppApprovalFlowCodec
 
         var fallbackSkipped = f.FallbackApprovers is { } fb && Skipped(fb.Groups).Any();
         var by = f.FallbackApprovers is not null && !fallbackSkipped ? ByFlowFallback : ByPolicyDefault;
-        foreach (var s in (f.Stages ?? []).Where(s => s?.Approvers is not null))
+        foreach (var n in (AsGraph(f).Nodes ?? []).Where(n => n is not null))
         {
-            var a = s.Approvers;
-            if (a.Source == ApprovalSources.Group)
-                result.AddRange(Skipped(a.Groups).Select(g => new Substitution(f.Code, f.Name, s.Code, s.Name, g, Name(g), KindApprovers, by)));
-            if (a.Source is ApprovalSources.UserField or ApprovalSources.InitiatorPick)
-                result.AddRange(Skipped(a.CandidateGroups).Select(g => new Substitution(f.Code, f.Name, s.Code, s.Name, g, Name(g), KindCandidates, by)));
+            if (n.Approvers is { } a)
+            {
+                if (a.Source == ApprovalSources.Group)
+                    result.AddRange(Skipped(a.Groups).Select(g => new Substitution(f.Code, f.Name, n.Id, n.Name, g, Name(g), KindApprovers, by)));
+                if (a.Source is ApprovalSources.UserField or ApprovalSources.InitiatorPick)
+                    result.AddRange(Skipped(a.CandidateGroups).Select(g => new Substitution(f.Code, f.Name, n.Id, n.Name, g, Name(g), KindCandidates, by)));
+            }
+            result.AddRange(Skipped((n.Recipients ?? []).SelectMany(r => r?.Groups ?? []))
+                .Select(g => new Substitution(f.Code, f.Name, n.Id, n.Name, g, Name(g), KindNotify, BySkipped)));
         }
         if (fallbackSkipped)
             result.AddRange(Skipped(f.FallbackApprovers!.Groups).Select(g => new Substitution(f.Code, f.Name, null, null, g, Name(g), KindFallback, ByPolicyDefault)));
@@ -109,7 +178,8 @@ public static partial class AppApprovalFlowCodec
     // ---- 匯出方向：Id → 代號 ----
 
     /// <summary>
-    /// 匯出方向：Id → 代號，取流程目前版本的定義。users 來源、對不上的單位、引用停用或未匯出的欄位與選項、已不存在的群組，一律回錯誤
+    /// 匯出方向：Id → 代號，取流程目前版本的定義；一律輸出 graph（sequence 先用 §7.8 轉換，流程圖設計 §13 第 5 點），版面不匯出（§7.5）。
+    /// users 來源與收件人、對不上的單位、引用停用或未匯出的欄位與選項、已不存在的群組，一律回錯誤
     /// （呼叫端讓整份匯出 409，不略過流程：略過會讓 direct 入口在重新匯入後少簽，計畫 U7）。空的可編輯欄位不寫出。
     /// </summary>
     /// <param name="groupCode">群組 Id → 套件群組代號；群組已不存在回 null。</param>
@@ -121,9 +191,7 @@ public static partial class AppApprovalFlowCodec
         ApprovalFlow flow, ApprovalDefinition current, string moduleCode, long statusFieldId, AppReportCodec.Names n, Func<long, string?> groupCode, LocaleContext lc,
         bool compare = false)
     {
-        // 套件格式還沒有流程圖（fg6 升版）：照 stages 匯出會變成沒有關卡的流程，所以整份擋下並指名流程（U3）
-        if (current.Shape == ApprovalShapes.Graph)
-            return (null, [AppMessages.ExportFlowError(flow.NameI18n.Resolve(lc), AppMessages.ExportFlowGraph)]);
+        var graph = ApprovalGraphConversion.FromSequence(current);
         var details = new List<string>();
         string Option(long id) => n.Option(statusFieldId, id) ?? Add(AppMessages.ExportFlowStateMissing);
         string Field(long id) => n.Field(id) ?? Add(AppMessages.ExportFlowFieldMissing);
@@ -143,6 +211,8 @@ public static partial class AppApprovalFlowCodec
             return converted;
         }
         List<string>? Groups(List<long>? ids) => ids?.Select(id => groupCode(id) ?? Add(AppMessages.ExportFlowGroupMissing)).ToList();
+        I18nText Template(I18nText text) => new(text.Values.Select(kv => KeyValuePair.Create(kv.Key,
+            FieldPlaceholder().Replace(kv.Value ?? "", m => long.TryParse(m.Groups[1].Value, out var id) ? $"{{f:{Field(id)}}}" : m.Value))));
 
         AppApproverSource Source(ApproverSource a, string where)
         {
@@ -154,13 +224,24 @@ public static partial class AppApprovalFlowCodec
                 a.Source is ApprovalSources.UserField or ApprovalSources.InitiatorPick ? Groups(a.CandidateGroupIds) : null,
                 a.Min, a.Max);
         }
+        AppNotifyRecipient Recipient(NotifyRecipientDef r, string where)
+        {
+            if (r.Kind == ApprovalNotifyRecipientKinds.Users) Add(AppMessages.ExportFlowUsers(where));
+            return new AppNotifyRecipient(r.Kind, Groups(r.GroupIds), r.Level);
+        }
 
-        var stages = current.Stages.Select(s => new AppApprovalStage(s.Code, s.Name, When(s.When),
-            Source(s.Approvers, AppMessages.ExportFlowStageAt(s.Name.Resolve(lc))), s.Mode,
-            s.EditableFields.Count > 0 ? s.EditableFields.Select(Field).ToList() : null, s.DueHours, s.OnEmpty)).ToList();
-        var fallback = current.FallbackApprovers is { } fb ? Source(fb, AppMessages.ExportFlowFallbackAt) : null;
-        var package = new AppApprovalFlow(flow.Key, flow.NameI18n, flow.Active, moduleCode, Option(flow.ToOptionId), flow.Priority, current.Shape,
-            When(current.When), current.RejectTo is { } rt ? Option(rt) : null, fallback, stages);
+        var nodes = (graph.Nodes ?? []).Select(x =>
+        {
+            var where = AppMessages.ExportFlowStageAt(x.Name?.Resolve(lc) ?? x.Id);
+            return new AppApprovalNode(x.Id, x.Kind, x.Name, When(x.When), x.Approvers is null ? null : Source(x.Approvers, where), x.Mode,
+                x.EditableFields is { Count: > 0 } editable ? editable.Select(Field).ToList() : null, x.DueHours, x.OnEmpty, x.ForkId,
+                x.Recipients?.Select(r => Recipient(r, where)).ToList(),
+                x.Template is null ? null : new AppNotifyTemplate(Template(x.Template.Title), x.Template.Body.Values.Count > 0 ? Template(x.Template.Body) : null));
+        }).ToList();
+        var edges = (graph.Edges ?? []).Select(e => new AppApprovalEdge(e.Id, e.From, e.To, e.Label, When(e.When), e.Order, e.Default)).ToList();
+        var fallback = graph.FallbackApprovers is { } fb ? Source(fb, AppMessages.ExportFlowFallbackAt) : null;
+        var package = new AppApprovalFlow(flow.Key, flow.NameI18n, flow.Active, moduleCode, Option(flow.ToOptionId), flow.Priority, ApprovalShapes.Graph,
+            When(graph.When), graph.RejectTo is { } rt ? Option(rt) : null, fallback, null, nodes, edges);
         if (details.Count == 0) return (package, []);
         var name = flow.NameI18n.Resolve(lc);
         return (null, details.Distinct().Select(d => AppMessages.ExportFlowError(name, d)).ToList());
@@ -198,7 +279,10 @@ public static partial class AppApprovalFlowCodec
     [System.Text.RegularExpressions.GeneratedRegex(@"^opt_(\d+)$")]
     private static partial System.Text.RegularExpressions.Regex OptionId();
 
-    /// <summary>流程引用的欄位（限定欄位名）：流程與關卡條件、使用者欄位、可編輯欄位；開啟時這些欄位不能被排除（§14.4 第一點）。</summary>
+    /// <summary>
+    /// 流程引用的欄位（限定欄位名）：流程、簽核節點與連線的條件、使用者欄位、可編輯欄位、通知範本的欄位佔位符；
+    /// 開啟時這些欄位不能被排除（§14.4 第一點），升級時流程依賴它們。
+    /// </summary>
     public static IEnumerable<string> ReferencedFields(AppApprovalFlow f)
     {
         var names = new List<string>();
@@ -221,13 +305,17 @@ public static partial class AppApprovalFlowCodec
             }
             Walk(JsonNode.Parse(w.GetRawText()));
         }
-        When(f.When);
-        foreach (var s in (f.Stages ?? []).Where(s => s is not null))
+        var g = AsGraph(f);
+        When(g.When);
+        foreach (var n in (g.Nodes ?? []).Where(n => n is not null))
         {
-            When(s.When);
-            if (s.Approvers is { Source: ApprovalSources.UserField, Field: { } field }) names.Add(field);
-            names.AddRange(s.EditableFields ?? []);
+            When(n.When);
+            if (n.Approvers is { Source: ApprovalSources.UserField, Field: { } field }) names.Add(field);
+            names.AddRange(n.EditableFields ?? []);
+            foreach (var text in new[] { n.Template?.Title, n.Template?.Body }.OfType<I18nText>().SelectMany(t => t.Values.Values))
+                names.AddRange(FieldPlaceholder().Matches(text ?? "").Select(m => m.Groups[1].Value));
         }
+        foreach (var e in (g.Edges ?? []).Where(e => e is not null)) When(e.When);
         return names.Distinct();
     }
 }

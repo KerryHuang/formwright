@@ -6,7 +6,7 @@
   "patternProperties": { "^x-": {} },
   "properties": {
     "format": { "const": "formwright-app" },
-    "formatVersion": { "enum": [2, 3, 4, 5, 6, 7, 8] },
+    "formatVersion": { "enum": [2, 3, 4, 5, 6, 7, 8, 9] },
     "manifest": { "$ref": "#/$defs/manifest" },
     "groups": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/group" } },
     "modules": { "type": "array", "minItems": 1, "maxItems": 30 },
@@ -23,7 +23,7 @@
     "integrations": { "type": "array", "maxItems": 20 },
     "contributions": { "type": "array", "maxItems": 20 },
     "taskRules": { "type": "array" },
-    "approvalFlows": { "type": "array", "maxItems": 50 }
+    "approvalFlows": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/approvalFlow" } }
   },
   "$defs": {
     "code": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9_]{0,39}$" },
@@ -71,6 +71,116 @@
       "required": ["code", "name"],
       "additionalProperties": false,
       "properties": { "code": { "$ref": "#/$defs/code" }, "name": { "$ref": "#/$defs/i18n" } }
+    },
+    "nodeId": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,39}$" },
+    "approvalFlow": {
+      "description": "格式 8 用 shape sequence 加 stages；格式 9 用 shape graph 加 nodes、edges（流程圖設計 §13 第 5 點）。欄位寫限定欄位名，群組寫 groups[].code。",
+      "type": "object",
+      "required": ["code", "name", "active", "module", "to", "priority", "shape"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "$ref": "#/$defs/appId" },
+        "name": { "$ref": "#/$defs/i18n" },
+        "active": { "type": "boolean" },
+        "module": { "type": "string" },
+        "to": { "type": "string" },
+        "priority": { "type": "integer", "minimum": 0 },
+        "shape": { "enum": ["sequence", "graph"] },
+        "when": { "type": "object" },
+        "rejectTo": { "type": "string" },
+        "fallbackApprovers": { "$ref": "#/$defs/approverSource" },
+        "stages": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/approvalStage" } },
+        "nodes": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "#/$defs/approvalNode" } },
+        "edges": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/approvalEdge" } }
+      },
+      "oneOf": [
+        { "properties": { "shape": { "const": "sequence" } }, "required": ["stages"], "not": { "anyOf": [{ "required": ["nodes"] }, { "required": ["edges"] }] } },
+        { "properties": { "shape": { "const": "graph" } }, "required": ["nodes", "edges"], "not": { "required": ["stages"] } }
+      ]
+    },
+    "approverSource": {
+      "description": "套件不收 users（帳號屬於資料庫）。",
+      "type": "object",
+      "required": ["source"],
+      "additionalProperties": false,
+      "properties": {
+        "source": { "enum": ["group", "manager", "userField", "initiatorPick"] },
+        "groups": { "type": "array", "items": { "$ref": "#/$defs/code" } },
+        "level": { "type": "integer", "minimum": 1 },
+        "field": { "type": "string" },
+        "candidateGroups": { "type": "array", "items": { "$ref": "#/$defs/code" } },
+        "min": { "type": "integer", "minimum": 1 },
+        "max": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "approvalStage": {
+      "type": "object",
+      "required": ["code", "name", "approvers", "mode"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "$ref": "#/$defs/nodeId" },
+        "name": { "$ref": "#/$defs/i18n" },
+        "when": { "type": "object" },
+        "approvers": { "$ref": "#/$defs/approverSource" },
+        "mode": { "enum": ["all", "any"] },
+        "editableFields": { "type": "array", "items": { "type": "string" } },
+        "dueHours": { "type": "integer", "minimum": 1 },
+        "onEmpty": { "enum": ["fallback", "skip"] }
+      }
+    },
+    "approvalNode": {
+      "description": "依 kind 使用其中的屬性（流程圖設計 §7.2）；template 的欄位佔位符寫 {f:<限定欄位名>}。版面不進套件。",
+      "type": "object",
+      "required": ["id", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/nodeId" },
+        "kind": { "enum": ["start", "end", "approval", "condition", "fork", "join", "notify"] },
+        "name": { "$ref": "#/$defs/i18n" },
+        "when": { "type": "object" },
+        "approvers": { "$ref": "#/$defs/approverSource" },
+        "mode": { "enum": ["all", "any"] },
+        "editableFields": { "type": "array", "items": { "type": "string" } },
+        "dueHours": { "type": "integer", "minimum": 1 },
+        "onEmpty": { "enum": ["fallback", "skip"] },
+        "forkId": { "$ref": "#/$defs/nodeId" },
+        "recipients": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "$ref": "#/$defs/notifyRecipient" } },
+        "template": { "$ref": "#/$defs/notifyTemplate" }
+      }
+    },
+    "approvalEdge": {
+      "type": "object",
+      "required": ["id", "from", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/nodeId" },
+        "from": { "$ref": "#/$defs/nodeId" },
+        "to": { "$ref": "#/$defs/nodeId" },
+        "label": { "$ref": "#/$defs/i18n" },
+        "when": { "type": "object" },
+        "order": { "type": "integer", "minimum": 1 },
+        "default": { "type": "boolean" }
+      }
+    },
+    "notifyRecipient": {
+      "description": "套件只收 group、initiator、initiatorManager（流程圖設計 §12.1）。",
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["group", "initiator", "initiatorManager"] },
+        "groups": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/code" } },
+        "level": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "notifyTemplate": {
+      "type": "object",
+      "required": ["title"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "$ref": "#/$defs/i18n" },
+        "body": { "type": "object", "propertyNames": { "enum": ["zh-TW", "en-US", "th", "vi"] }, "additionalProperties": { "type": "string", "maxLength": 1000 } }
+      }
     }
   }
 }

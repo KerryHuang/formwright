@@ -42,6 +42,22 @@ public class AppSchemaTests
     }
 
     [Fact]
+    public void AppSchema_ApprovalFlowCoversBothShapes()
+    {
+        // 格式 9 的流程圖（fg6）：approvalFlows 的項目、節點、連線、通知收件人與範本也是 additionalProperties: false，record 的屬性都要在
+        var defs = Schema().GetProperty("$defs");
+        Keys(defs.GetProperty("approvalFlow").GetProperty("properties")).Should().Contain(Properties(typeof(AppApprovalFlow)));
+        Keys(defs.GetProperty("approvalStage").GetProperty("properties")).Should().Contain(Properties(typeof(AppApprovalStage)));
+        Keys(defs.GetProperty("approverSource").GetProperty("properties")).Should().Contain(Properties(typeof(AppApproverSource)));
+        Keys(defs.GetProperty("approvalNode").GetProperty("properties")).Should().Contain(Properties(typeof(AppApprovalNode)));
+        Keys(defs.GetProperty("approvalEdge").GetProperty("properties")).Should().Contain(Properties(typeof(AppApprovalEdge)));
+        Keys(defs.GetProperty("notifyRecipient").GetProperty("properties")).Should().Contain(Properties(typeof(AppNotifyRecipient)));
+        Keys(defs.GetProperty("notifyTemplate").GetProperty("properties")).Should().Contain(Properties(typeof(AppNotifyTemplate)));
+        defs.GetProperty("notifyRecipient").GetProperty("properties").GetProperty("kind").GetProperty("enum").EnumerateArray()
+            .Select(v => v.GetString()).Should().Equal("group", "initiator", "initiatorManager");
+    }
+
+    [Fact]
     public void AppSchema_ManifestKind_ListsAppMasterTemplate() =>
         Schema().GetProperty("$defs").GetProperty("manifest").GetProperty("properties").GetProperty("kind").GetProperty("enum")
             .EnumerateArray().Select(v => v.GetString()).Should().Equal("app", "master", "template");

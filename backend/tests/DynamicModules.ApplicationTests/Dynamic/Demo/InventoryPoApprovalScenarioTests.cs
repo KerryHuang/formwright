@@ -60,7 +60,7 @@ public class InventoryPoApprovalScenarioTests(DemoGeneratedFixture fx)
         flow.CurrentVersionId.Should().NotBeNull("已發布第 1 版");
         flow.NameI18n.Resolve("zh-TW").Should().Be("採購單（流程圖範例）");
         flow.NameI18n.Values.Keys.Should().BeEquivalentTo("zh-TW", "en-US", "th", "vi");
-        flow.Priority.Should().Be(0, "排在套件兩條關卡格式流程前面，設計頁試算才會先命中自己");
+        flow.Priority.Should().Be(0, "排在套件兩條流程前面，設計頁試算才會先命中自己");
         ApprovalFlowDraft.TokenOf(flow.DraftJson).Should().NotBeNull();
         ApprovalFlowDraft.TryParse(flow.DraftJson).Should().BeNull("發布後草稿內容已清空");
 
@@ -78,15 +78,23 @@ public class InventoryPoApprovalScenarioTests(DemoGeneratedFixture fx)
     }
 
     [Fact]
-    public async Task ExportInventoryApp_SkipsInactiveGraphFlow_WithWarning()
+    public async Task ExportInventoryApp_IncludesInactiveGraphFlow_AsFormat9Graph()
     {
+        // 流程圖設計 §13 第 5 點、U24 移除：套件格式 9 收流程圖，停用的範例流程照常匯出，不再略過並警告
         fx.Generated();
         var result = await fx.As("admin", new ExportAppRequest("inventory"));
 
-        result.IsSuccess.Should().BeTrue("停用的流程圖流程略過，不再擋下整份匯出");
+        result.IsSuccess.Should().BeTrue(result.Message);
         var export = (AppExportResult)result.Data!;
-        export.Warnings.Should().Contain(w => w.Contains("採購單（流程圖範例）") && w.Contains("已略過"));
-        System.Text.Encoding.UTF8.GetString(export.File.Content).Should().NotContain(InventoryScenario.GraphExampleKey);
+        export.Warnings.Should().NotContain(w => w.Contains("採購單（流程圖範例）"));
+        using var package = System.Text.Json.JsonDocument.Parse(export.File.Content);
+        package.RootElement.GetProperty("formatVersion").GetInt32().Should().Be(9);
+        var example = package.RootElement.GetProperty("approvalFlows").EnumerateArray()
+            .Single(f => f.GetProperty("code").GetString() == InventoryScenario.GraphExampleKey);
+        example.GetProperty("active").GetBoolean().Should().BeFalse();
+        example.GetProperty("shape").GetString().Should().Be("graph");
+        example.GetProperty("nodes").EnumerateArray().Select(n => n.GetProperty("kind").GetString())
+            .Should().BeEquivalentTo(["start", "condition", "fork", "approval", "approval", "join", "approval", "approval", "end"]);
     }
 
     [Fact]

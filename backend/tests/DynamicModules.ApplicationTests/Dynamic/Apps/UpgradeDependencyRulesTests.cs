@@ -65,7 +65,7 @@ public class UpgradeDependencyRulesTests
         UpgradeItems.References(workflow, items["state:po.draft"]).Should().BeTrue();
     }
 
-    /// <summary>T59：簽核人拆成 approvers 屬性，stages 不含簽核人；只改簽核人時 stages 不變。</summary>
+    /// <summary>T59：簽核人拆成 approvers 屬性，nodes 不含簽核人；只改簽核人時 nodes 不變。格式 8 的 stages 比對前先轉成流程圖（fg6）。</summary>
     [Fact]
     public void ApprovalFlow_ApproversAreASeparateProperty()
     {
@@ -75,9 +75,10 @@ public class UpgradeDependencyRulesTests
             var flow = p["approvalFlows"]!.AsArray().First(f => (string?)f!["code"] == "crm-design-case-review")!;
             flow["stages"]![0]!["approvers"]!["level"] = 2;
         })["approvalFlow:crm-design-case-review"];
-        before.Props.Should().ContainKey("approvers");
-        before.Props["stages"]!.ToJsonString().Should().NotContain("approvers");
-        UpgradeItems.Same(before.Props["stages"], after.Props["stages"]).Should().BeTrue();
+        before.Props.Should().ContainKey("approvers").And.ContainKey("nodes").And.ContainKey("edges").And.NotContainKey("stages");
+        before.Props["shape"]!.GetValue<string>().Should().Be("graph");
+        before.Props["nodes"]!.ToJsonString().Should().NotContain("approvers");
+        UpgradeItems.Same(before.Props["nodes"], after.Props["nodes"]).Should().BeTrue();
         UpgradeItems.Same(before.Props["approvers"], after.Props["approvers"]).Should().BeFalse();
     }
 }

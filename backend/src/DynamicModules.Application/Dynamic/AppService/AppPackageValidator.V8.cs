@@ -10,7 +10,7 @@ using static DynamicModules.Application.Dynamic.TemplateService.TemplateGraph;
 
 namespace DynamicModules.Application.Dynamic.AppService;
 
-// 格式 8 的 approvalFlows[]、轉移的 approval、狀態的 editable（簽核設計 §14）。結構層看形狀，數量只用技術上限（PolicyCatalog 的 Max）；
+// 格式 8 的 approvalFlows[]、轉移的 approval、狀態的 editable（簽核設計 §14）；格式 9 的流程圖在 V9。結構層看形狀，數量只用技術上限（PolicyCatalog 的 Max）；
 // 系統層生效值由 ApprovalLimitErrors 在預覽、開啟、匯入時另外檢查，模組層覆寫值由 CreateApprovalFlowRequest 在開啟時檢查。
 // 引用層確認模組、狀態、欄位、群組都在套件內，狀態一致性重用 ApprovalConstraints（以暫時 Id 組出狀態機，錯誤換回代號）；
 // 可編輯欄位的公式閉包（§9.2）與事件不推動需簽核轉移（§5.3）要解析公式與事件，留給開啟時的設計器指令（失敗整批回滾）。
@@ -64,13 +64,23 @@ public static partial class AppPackageValidator
             var at = FlowAt(f, i);
             CheckText(f.Name, $"{at}.name", errors);
             if (f.Priority < 0) errors.Add($"{at}.priority: 優先序不能是負數");
-            if (f.Shape is null) errors.Add($"{at}.shape: 必填");
-            else if (f.Shape != ApprovalShapes.Sequence) errors.Add($"{at}.shape: 格式 8 只支援 sequence");
             if (f.FallbackApprovers is { } fb)
             {
                 if (fb.Source is not (ApprovalSources.Group or ApprovalSources.Manager)) errors.Add($"{at}.fallbackApprovers: {PackageFallbackInvalid}");
                 else if (SourceStructureError(fb) is { } fe) errors.Add($"{at}.fallbackApprovers: {fe}");
             }
+            // 格式 9 起只收流程圖（流程圖設計 §13 第 5 點）；格式 8 只收關卡，nodes、edges 不能出現（舊讀取器讀不懂）
+            if (p.FormatVersion >= 9)
+            {
+                if (f.Shape is null) errors.Add($"{at}.shape: 必填");
+                else if (f.Shape != ApprovalShapes.Graph) errors.Add($"{at}.shape: 格式 9 只支援 graph");
+                if (f.Stages is not null) errors.Add($"{at}.stages: 格式 9 改用 nodes、edges");
+                if (f.Shape == ApprovalShapes.Graph && f.Stages is null) GraphStructure(f, at, errors);
+                continue;
+            }
+            if (f.Shape is null) errors.Add($"{at}.shape: 必填");
+            else if (f.Shape != ApprovalShapes.Sequence) errors.Add($"{at}.shape: 格式 8 只支援 sequence");
+            if (f.Nodes is not null || f.Edges is not null) errors.Add($"{at}.nodes: formatVersion 9 才支援 nodes、edges");
 
             var stages = f.Stages ?? [];
             if (stages.Count == 0 || stages.Count > PolicyCatalog.ApprovalMaxStages.Max)
@@ -133,6 +143,12 @@ public static partial class AppPackageValidator
         {
             if (p.ApprovalFlows[i] is not { } f) continue;
             var at = FlowAt(f, i);
+            if (f.Nodes is not null)
+            {
+                Source(f.FallbackApprovers, $"{at}.fallbackApprovers");
+                GraphLimitErrors(f, at, limits, errors, Source);
+                continue;
+            }
             var stages = f.Stages ?? [];
             if (stages.Count > limits.MaxStages) errors.Add($"{at}.stages: {ApprovalMessages.StagesCount(limits.MaxStages)}");
             Source(f.FallbackApprovers, $"{at}.fallbackApprovers");
@@ -224,6 +240,7 @@ public static partial class AppPackageValidator
 
             When(f.When, $"{at}.when");
             Source(f.FallbackApprovers, $"{at}.fallbackApprovers");
+            if (f.Nodes is not null) GraphReferences(f, at, module, fields, errors, When, Groups, Source);
             foreach (var s in (f.Stages ?? []).Where(s => s is not null))
             {
                 var sat = $"{at}.stages[{s.Code}]";
@@ -283,8 +300,10 @@ public static partial class AppPackageValidator
         var set = flows.Select(f => new FlowState(
             new ApprovalFlow { Key = f.Code, NameI18n = f.Name, ToOptionId = ids[f.To], Priority = f.Priority, Active = f.Active },
             new ApprovalDefinition(ApprovalShapes.Sequence, null, f.RejectTo is { } rt ? ids[rt] : null, null,
-                (f.Stages ?? []).Where(s => s is not null).Select(s => new ApprovalStageDef(s.Code, s.Name, null, new ApproverSource(ApprovalSources.Group),
-                    s.Mode, (s.EditableFields ?? []).Count > 0 ? [-1] : [], null, ApprovalOnEmpty.Fallback)).ToList()),
+                // 兩種格式都看簽核節點（格式 8 的關卡先轉成圖）：只用到可編輯欄位的有無
+                (AppApprovalFlowCodec.AsGraph(f).Nodes ?? []).Where(n => n is { Kind: ApprovalNodeKinds.Approval })
+                    .Select(n => new ApprovalStageDef(n.Id, n.Name ?? new I18nText(), null, new ApproverSource(ApprovalSources.Group),
+                        n.Mode ?? ApprovalModes.Any, (n.EditableFields ?? []).Count > 0 ? [-1] : [], null, ApprovalOnEmpty.Fallback)).ToList()),
             0)).ToList();
 
         // 刻意用繁中（#66）：要和下面 ApprovalConstraints.Validate（沒給語系＝PackageLocale 繁中）產生的訊息逐字比對，兩邊必須同語系。
