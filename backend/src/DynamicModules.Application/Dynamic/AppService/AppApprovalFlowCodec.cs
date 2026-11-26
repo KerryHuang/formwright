@@ -213,6 +213,7 @@ public static partial class AppApprovalFlowCodec
     /// <param name="compare">
     /// 比對模式（升級預覽的現況 C，套件更新設計 T42）：開啟時略過、由備援頂替的群組不算錯，只寫出對應到的群組；
     /// 基準與新版比對前套同一份頂替（<see cref="Upgrade.UpgradeItems"/>），所以兩邊一致。一般匯出仍擋下（重新匯入會少簽）。
+    /// 通知節點的 users 收件人同理：比對模式不算錯、不寫出（主控代做 105）；一般匯出仍整份擋下。
     /// </param>
     public static (AppApprovalFlow? Flow, List<string> Errors) ToPackage(
         ApprovalFlow flow, ApprovalDefinition current, string moduleCode, long statusFieldId, AppReportCodec.Names n, Func<long, string?> groupCode, LocaleContext lc,
@@ -251,10 +252,12 @@ public static partial class AppApprovalFlowCodec
                 a.Source is ApprovalSources.UserField or ApprovalSources.InitiatorPick ? Groups(a.CandidateGroupIds) : null,
                 a.Min, a.Max);
         }
-        AppNotifyRecipient Recipient(NotifyRecipientDef r, string where)
+        AppNotifyRecipient? Recipient(NotifyRecipientDef r, string where)
         {
-            if (r.Kind == ApprovalNotifyRecipientKinds.Users) Add(AppMessages.ExportFlowUsers(where));
-            return new AppNotifyRecipient(r.Kind, Groups(r.GroupIds), r.Level);
+            if (r.Kind != ApprovalNotifyRecipientKinds.Users) return new AppNotifyRecipient(r.Kind, Groups(r.GroupIds), r.Level);
+            // 比對模式：客戶指定的具體使用者不算錯、比對時略過，套用時由 AppFlowUpgrader.MergeDefinition 保留（主控代做 105）
+            if (!compare) Add(AppMessages.ExportFlowUsers(where));
+            return null;
         }
 
         var nodes = (graph.Nodes ?? []).Select(x =>
@@ -262,7 +265,7 @@ public static partial class AppApprovalFlowCodec
             var where = AppMessages.ExportFlowStageAt(x.Name?.Resolve(lc) ?? x.Id);
             return new AppApprovalNode(x.Id, x.Kind, x.Name, When(x.When), x.Approvers is null ? null : Source(x.Approvers, where), x.Mode,
                 x.EditableFields is { Count: > 0 } editable ? editable.Select(Field).ToList() : null, x.DueHours, x.OnEmpty, x.ForkId,
-                x.Recipients?.Select(r => Recipient(r, where)).ToList(),
+                x.Recipients?.Select(r => Recipient(r, where)).OfType<AppNotifyRecipient>().ToList(),
                 x.Template is null ? null : new AppNotifyTemplate(Template(x.Template.Title), x.Template.Body.Values.Count > 0 ? Template(x.Template.Body) : null));
         }).ToList();
         var edges = (graph.Edges ?? []).Select(e => new AppApprovalEdge(e.Id, e.From, e.To, e.Label, When(e.When), e.Order, e.Default)).ToList();

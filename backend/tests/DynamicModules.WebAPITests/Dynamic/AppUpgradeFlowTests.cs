@@ -1058,6 +1058,65 @@ public class AppUpgradeFlowTests : IDisposable
         Reason(transition).Should().Be("dependsOnBlocked");
     }
 
+    /// <summary>格式 9：兩條流程寫成流程圖，檢查簽核在主管之後多一個通知節點（收件人：主管群組）。</summary>
+    private static void Format9WithNotify(JsonObject p)
+    {
+        p["formatVersion"] = 9;
+        p["approvalFlows"] = JsonNode.Parse("""
+            [ { "code": "uf-win", "name": { "zh-TW": "成交簽核" }, "active": true, "module": "deal", "to": "won", "priority": 1, "shape": "graph",
+                "rejectTo": "sent",
+                "nodes": [ { "id": "start", "kind": "start" },
+                           { "id": "lead", "kind": "approval", "name": { "zh-TW": "主管審核" }, "approvers": { "source": "group", "groups": ["sales"] }, "mode": "any" },
+                           { "id": "end", "kind": "end" } ],
+                "edges": [ { "id": "e1", "from": "start", "to": "lead" }, { "id": "e2", "from": "lead", "to": "end" } ] },
+              { "code": "uf-check", "name": { "zh-TW": "檢查簽核" }, "active": true, "module": "deal", "to": "check", "priority": 1, "shape": "graph",
+                "nodes": [ { "id": "start", "kind": "start" },
+                           { "id": "lead", "kind": "approval", "name": { "zh-TW": "主管" }, "approvers": { "source": "group", "groups": ["lead"] }, "mode": "any" },
+                           { "id": "tell", "kind": "notify", "name": { "zh-TW": "知會" }, "recipients": [ { "kind": "group", "groups": ["lead"] } ],
+                             "template": { "title": { "zh-TW": "{title} 已檢查" } } },
+                           { "id": "end", "kind": "end" } ],
+                "edges": [ { "id": "e1", "from": "start", "to": "lead" }, { "id": "e2", "from": "lead", "to": "tell" }, { "id": "e3", "from": "tell", "to": "end" } ] } ]
+            """);
+    }
+
+    [Fact]
+    public async Task CustomerNotifyUsersRecipient_UpgradeNotBlocked_ApplyKeepsUsersRecipient()
+    {
+        // 審查 🟡2（主控代做 105）：客戶在通知節點加了具體使用者；比對模式不算錯、比對時略過，套用新版節點時把客戶的 users 收件人合併回去
+        await OpenAsync(Format9WithNotify);
+        EditDefinition("uf-check", d => d with
+        {
+            Nodes = [.. d.Nodes!.Select(n => n.Id == "tell" ? n with { Recipients = [.. n.Recipients!, new NotifyRecipientDef("users", UserIds: ["ops01"])] } : n)]
+        });
+        await NewVersionAsync(p => Flow(p, "uf-check")["nodes"]![1]!["name"] = new JsonObject { ["zh-TW"] = "主管確認" }, Format9WithNotify);
+
+        var preview = await PreviewAsync();
+        var item = Item(preview, "approvalFlow:uf-check");
+        item.GetProperty("applicable").GetBoolean().Should().BeTrue(item.ToString());
+        item.GetProperty("category").GetString().Should().Be("newOnly", "users 收件人比對時略過，不算客戶改過節點");
+        await ApplyOkAsync(preview, ["approvalFlow:uf-check"]);
+
+        var d = DefinitionOf("uf-check");
+        Step(d).Name.Resolve("zh-TW").Should().Be("主管確認");
+        var tell = d.Nodes!.Single(n => n.Id == "tell");
+        tell.Recipients!.Select(r => r.Kind).Should().Equal("group", "users");
+        tell.Recipients![1].UserIds.Should().Equal("ops01");
+        tell.Recipients![0].GroupIds.Should().Equal(_rig.GroupId("ops-manager"));
+    }
+
+    [Fact]
+    public async Task CustomerNotifyUsersRecipient_PlainExport_Still409()
+    {
+        await OpenAsync(Format9WithNotify);
+        EditDefinition("uf-check", d => d with
+        {
+            Nodes = [.. d.Nodes!.Select(n => n.Id == "tell" ? n with { Recipients = [.. n.Recipients!, new NotifyRecipientDef("users", UserIds: ["ops01"])] } : n)]
+        });
+        var res = await _rig.Admin.GetAsync($"{SharedMasterRig.Apps}/{Id}/export");
+        res.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await res.Content.ReadAsStringAsync()).Should().Contain("簽核流程「檢查簽核」節點「知會」指定了具體使用者");
+    }
+
     private async Task SetPolicyAsync(string key, int value) =>
         (await _rig.Admin.PutAsJsonAsync($"{Base}/system/policies/{key}", new { value })).EnsureSuccessStatusCode();
 

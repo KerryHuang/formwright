@@ -322,13 +322,18 @@ public sealed class AppFlowUpgrader(ISender sender, IModuleRepository modules, I
 
     /// <summary>
     /// 既有流程的定義合併（套用與預覽守衛共用）：兩邊先轉成流程圖（§7.8），以現況 <paramref name="cd"/> 為底，<paramref name="applied"/> 為 true 的屬性取新版 <paramref name="nd"/>；
-    /// 簽核人一律保留現況，依簽核節點代號配上（Q27）。nodes、edges 是兩個屬性：只套一邊而兩邊對不起來時，存檔的結構驗證會擋下（不猜怎麼接）。
+    /// 簽核人一律保留現況，依簽核節點代號配上（Q27）；通知節點上的 users 收件人也保留（主控代做 105）。nodes、edges 是兩個屬性：只套一邊而兩邊對不起來時，存檔的結構驗證會擋下（不猜怎麼接）。
     /// </summary>
     internal static ApprovalDefinition MergeDefinition(ApprovalDefinition cd, ApprovalDefinition nd, Func<string, bool> applied)
     {
         var (c, n) = (ApprovalGraphConversion.FromSequence(cd), ApprovalGraphConversion.FromSequence(nd));
         var approvers = (c.Nodes ?? []).Where(x => x?.Approvers is not null).GroupBy(x => x.Id).ToDictionary(g => g.Key, g => g.First().Approvers!);
+        // 通知節點上客戶指定的具體使用者：套件不收、比對時略過，新版節點仍在時合併回去（主控代做 105）
+        var users = (c.Nodes ?? []).Where(x => x?.Recipients is not null).GroupBy(x => x.Id)
+            .ToDictionary(g => g.Key, g => g.First().Recipients!.Where(r => r.Kind == ApprovalNotifyRecipientKinds.Users).ToList());
         static bool Unmatched(ApproverSource a) => a.UnmatchedGroups is { Count: > 0 } || a.CandidatesUnmatched;
+        ApprovalNodeDef KeepUsers(ApprovalNodeDef x) =>
+            x.Recipients is not null && users.TryGetValue(x.Id, out var u) && u.Count > 0 ? x with { Recipients = [.. x.Recipients, .. u] } : x;
         return c with
         {
             When = applied("when") ? n.When : c.When,
@@ -336,7 +341,7 @@ public sealed class AppFlowUpgrader(ISender sender, IModuleRepository modules, I
             // 略過群組不能變成少簽（簽核設計 §14.4）：保留的簽核人有頂替時，新版的「找不到人就略過」改成交給備援
             Nodes = applied("nodes")
                 ? (n.Nodes ?? []).Select(x => x.Approvers is not null && approvers.TryGetValue(x.Id, out var a)
-                    ? x with { Approvers = a, OnEmpty = Unmatched(a) && x.OnEmpty == ApprovalOnEmpty.Skip ? ApprovalOnEmpty.Fallback : x.OnEmpty } : x).ToList()
+                    ? x with { Approvers = a, OnEmpty = Unmatched(a) && x.OnEmpty == ApprovalOnEmpty.Skip ? ApprovalOnEmpty.Fallback : x.OnEmpty } : KeepUsers(x)).ToList()
                 : c.Nodes,
             Edges = applied("edges") ? n.Edges : c.Edges
         };
