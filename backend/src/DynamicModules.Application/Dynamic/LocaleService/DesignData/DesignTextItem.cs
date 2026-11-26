@@ -31,6 +31,15 @@ public sealed class DesignTextItem(string path, string kind, string? appKey, lon
     /// <summary>群組名稱：同語系不能重複（§23.2）。</summary>
     public bool UniqueGroupName { get; init; }
 
+    /// <summary>
+    /// 路徑不是 <c>local:</c>、但鍵是本系統隨機產生的（使用者自建的群組，<see cref="Domain.Entities.Dynamic.PermissionGroup.GeneratedKeyPrefix"/>；審查 r1 🟡7）：
+    /// 別套系統對不上，樣板一樣標「只在本系統有效」。
+    /// </summary>
+    public bool SystemOnly { get; init; }
+
+    /// <summary>樣板要標「只在本系統有效」：<c>local:</c> 路徑或 <see cref="SystemOnly"/>。</summary>
+    public bool OnlyThisSystem => Local || SystemOnly;
+
     /// <summary>可以多行的文字（欄位規則訊息、檢查的違規訊息、任務說明）；其他名稱類拒收換行與 tab（審查 r1 🟡2）。</summary>
     public bool MultiLine { get; init; }
 

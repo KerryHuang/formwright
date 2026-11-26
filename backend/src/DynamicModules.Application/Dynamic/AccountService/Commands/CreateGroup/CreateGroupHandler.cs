@@ -24,7 +24,7 @@ public class CreateGroupHandler(IAccountRepository accounts, IUnitOfWork uow, Re
         foreach (var required in requiredText.RequiredLocales) text.Set(required, name);
         var group = new PermissionGroup
         {
-            Key = "g-" + RandomNumberGenerator.GetString("abcdefghijklmnopqrstuvwxyz0123456789", 8),
+            Key = PermissionGroup.GeneratedKeyPrefix + RandomNumberGenerator.GetString("abcdefghijklmnopqrstuvwxyz0123456789", 8),
             NameI18n = text
         };
         accounts.AddGroup(group);

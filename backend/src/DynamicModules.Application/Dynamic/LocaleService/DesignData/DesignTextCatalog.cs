@@ -72,15 +72,42 @@ public static class DesignTextSources
 /// </summary>
 public class DesignTextCatalog(IDesignTextRepository repository, ICurrentUser user, IBusinessTime time)
 {
-    public virtual async Task<IReadOnlyList<DesignTextItem>> BuildAsync(CancellationToken ct)
+    /// <summary>追蹤中的項目：套用時經 <see cref="DesignTextTarget.Set"/> 改實體、跟著同一次 SaveChanges 寫入。</summary>
+    public virtual async Task<IReadOnlyList<DesignTextItem>> BuildAsync(CancellationToken ct) => Build(await repository.LoadAsync(ct));
+
+    /// <summary>不追蹤的項目：樣板匯出與預覽只讀（審查 r1 🟡6）。不能拿來寫入。</summary>
+    public async Task<IReadOnlyList<DesignTextItem>> BuildReadOnlyAsync(CancellationToken ct) => Build(await repository.LoadReadOnlyAsync(ct));
+
+    /// <summary>只有應用程式與模組名稱的項目（匯出範圍下拉；審查 r1 🟡6）：綁定規則同 <see cref="BuildAsync"/>，所以分組結果和匯出篩選一致。</summary>
+    public async Task<IReadOnlyList<DesignTextItem>> BuildScopesAsync(CancellationToken ct) => Build(await repository.LoadScopesAsync(ct));
+
+    private IReadOnlyList<DesignTextItem> Build(DesignTextData data)
     {
-        var build = new DesignTextBuild(await repository.LoadAsync(ct), user.UserId, time.Now);
+        var build = new DesignTextBuild(data, user.UserId, time.Now);
         var items = new List<DesignTextItem>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var source in DesignTextSources.All)
             foreach (var item in source.Items(build))
                 if (seen.Add(item.Path)) items.Add(item);
+                else if (LocalFallback(item) is { } local && seen.Add(local.Path)) items.Add(local);
         return items;
+    }
+
+    /// <summary>
+    /// 撞名時後者改用的 <c>local:</c> 路徑（審查 r1 🟡5）：把路徑裡到 <c>{種類}:{代碼}</c>（或 <c>{種類}</c>）那一段為止換成 <c>local:{種類}:{Id}</c>，
+    /// 後面的部分照舊（例：任務 <c>…/taskRule:k/task:c/title</c> → <c>local:taskRule:{規則 Id}/task:c/title</c>）。多目標（選單分區）或找不到那一段時回 null，照舊丟掉。
+    /// </summary>
+    private static DesignTextItem? LocalFallback(DesignTextItem item)
+    {
+        if (item.Local || item.Targets.Count != 1) return null;
+        var segments = item.Path.Split('/');
+        var at = Array.FindLastIndex(segments, s => s == item.Kind || s.StartsWith(item.Kind + ":", StringComparison.Ordinal));
+        if (at < 0) return null;
+        var path = string.Join('/', new[] { $"{DesignTextItem.LocalPrefix}{item.Kind}:{item.Targets[0].Id}" }.Concat(segments[(at + 1)..]));
+        return new DesignTextItem(path, item.Kind, item.AppKey, item.ModuleId, true, item.MaxLength, item.Targets)
+        {
+            TitleOption = item.TitleOption, UniqueGroupName = item.UniqueGroupName, MultiLine = item.MultiLine,
+        };
     }
 }
 
@@ -289,7 +316,11 @@ public sealed class DesignTextBuild
 
     internal IEnumerable<DesignTextItem> Groups() =>
         Data.Groups.Select(g => new DesignTextItem($"group:{g.Key}/name", "group", null, null, false, PermissionGroup.NameMax,
-            [Target(AuditTargets.Group, g.Id, () => g.NameI18n, t => g.NameI18n = t)]) { UniqueGroupName = true });
+            [Target(AuditTargets.Group, g.Id, () => g.NameI18n, t => g.NameI18n = t)])
+            {
+                UniqueGroupName = true,
+                SystemOnly = g.Key.StartsWith(PermissionGroup.GeneratedKeyPrefix, StringComparison.Ordinal),
+            });
 
     internal IEnumerable<DesignTextItem> Departments() =>
         Data.Departments.Select(d => Item($"department:{d.Code}/name", "department", null, null, false,
