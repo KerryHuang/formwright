@@ -47,6 +47,13 @@ function mountPanel(a: RecordApproval, props: Record<string, unknown> = {}) {
 const text = (w: ReturnType<typeof mountPanel>, id: string) => w.find(`[data-testid="${id}"]`).text();
 
 describe('ApprovalPanel', () => {
+  it('titles the stage timeline and the activity log, with a hint on what the log lists', () => {
+    const w = mountPanel(approval(instance()));
+    expect(text(w, 'approval-stages-title')).toBe(zhTW.approval.panel.stagesTitle);
+    expect(text(w, 'approval-log-title')).toBe(zhTW.approval.panel.logTitle);
+    expect(w.text()).toContain(zhTW.approval.panel.logHint);
+  });
+
   it('lists stages in seq order with status labels', () => {
     const w = mountPanel(approval(instance({
       stages: [

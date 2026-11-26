@@ -59,9 +59,9 @@ describe('FormPage', () => {
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   });
 
-  it.each([['/dynamic/m/new', zhTW.dynamic.newTitle], ['/dynamic/m/5/edit', zhTW.dynamic.editTitle]])('heading at %s names the module', async (path, action) => {
+  it.each([['/dynamic/m/new', zhTW.dynamic.newOf], ['/dynamic/m/5/edit', zhTW.dynamic.editOf]])('heading at %s names the module', async (path, pattern) => {
     const w = await mountPage(schema(all), path);
-    expect(w.find('[data-testid="module-title"]').text()).toBe(`模組 · ${action}`);
+    expect(w.find('[data-testid="module-title"]').text()).toBe(pattern.replace('{module}', '模組'));
   });
 
   it('FormPage shows forbidden in edit mode without edit', async () => {

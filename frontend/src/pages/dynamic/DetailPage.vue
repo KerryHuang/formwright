@@ -46,6 +46,7 @@ const schemaQuery = useModuleSchema(moduleKey, computed(() => !viaApproval.value
 const viaGrant = computed(() => viaApproval.value || isForbidden(schemaQuery.error.value));
 const grantSchemaQuery = useRecordScopedSchema(moduleKey, recordId, viaGrant);
 const schema = computed(() => schemaQuery.data.value ?? grantSchemaQuery.data.value);
+const moduleName = computed(() => resolveI18n(schema.value?.name, locale.value));
 // While the plain schema is refused (or skipped), the record-scoped request decides what went wrong.
 const schemaError = computed(() => (viaGrant.value ? grantSchemaQuery.error.value : schemaQuery.error.value));
 const recordQuery = useRecord(recordId);
@@ -131,9 +132,12 @@ async function onDelete() {
     <div v-else-if="recordMissing" class="text-negative">{{ t('dynamic.recordNotFound') }}</div>
     <div v-else-if="failed" class="text-negative">{{ t('dynamic.loadFailed') }}</div>
     <template v-else-if="schema && recordQuery.data.value">
-      <div class="text-h6" data-testid="module-title">{{ resolveI18n(schema.name, locale) }}</div>
+      <!-- 第一列「← 模組名」同時是目前位置與返回列表；第二列紀錄標題是頁面標題 -->
+      <q-btn
+        flat dense no-caps icon="arrow_back" class="q-mb-xs" :label="moduleName" :aria-label="t('dynamic.backTo', { module: moduleName })"
+        :to="`/dynamic/${moduleKey}`" data-testid="module-title"
+      />
       <div class="row items-center q-mb-md q-gutter-sm">
-        <q-btn flat icon="arrow_back" :label="t('dynamic.back')" :to="`/dynamic/${moduleKey}`" />
         <div v-if="schema.titleFieldKey || schema.kind === 'extension'" class="text-h6" style="overflow-wrap: anywhere" data-testid="record-title">{{ recordQuery.data.value.title }}</div>
         <ApprovalBadge v-if="approval" :summary="approval" />
         <q-space />

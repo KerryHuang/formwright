@@ -87,9 +87,12 @@ describe('DetailPage', () => {
     expect(w.text()).not.toContain(zhTW.dynamic.edit);
   });
 
-  it('shows the module name as the page heading above the record title', async () => {
+  it('the back link above the record title names the module and returns to its list', async () => {
     const w = await mountPage(schema({}));
-    expect(w.find('[data-testid="module-title"]').text()).toBe('模組');
+    const back = w.find('[data-testid="module-title"]');
+    expect(back.text()).toContain('模組');
+    expect(back.attributes('aria-label')).toBe(zhTW.dynamic.backTo.replace('{module}', '模組'));
+    expect(back.attributes('href')).toBe('/dynamic/m');
   });
 
   it('renders without a heading when titleFieldKey is null', async () => {

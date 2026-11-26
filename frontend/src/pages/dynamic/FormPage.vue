@@ -149,7 +149,7 @@ async function onSubmit(values: Record<string, unknown>, details: Record<string,
     <div v-else-if="failed" class="text-negative">{{ t('dynamic.loadFailed') }}</div>
     <template v-else-if="ready">
       <div class="row items-center q-mb-md">
-        <div class="text-h6" data-testid="module-title">{{ resolveI18n(schemaQuery.data.value?.name, locale) }} · {{ isEdit ? t('dynamic.editTitle') : t('dynamic.newTitle') }}</div>
+        <div class="text-h6" data-testid="module-title">{{ t(isEdit ? 'dynamic.editOf' : 'dynamic.newOf', { module: resolveI18n(schemaQuery.data.value?.name, locale) }) }}</div>
         <q-space />
         <q-btn flat :label="t('dynamic.cancel')" @click="back" />
       </div>

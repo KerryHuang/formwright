@@ -41,8 +41,15 @@ const earlierStatus = (i: ApprovalInstanceView) => (i.status === 'rerouted' ? t(
       <div class="text-caption text-muted">{{ t('approval.panel.submitted', { time: timeText(main.submittedTime) }) }}</div>
       <ApprovalProgressGraph v-if="main.graph" :graph="main.graph" :stages="main.stages" :actions="main.actions" :schema="schema" :instance-id="main.id" class="q-mt-sm" />
       <div class="row q-col-gutter-x-md" data-testid="approval-columns">
-        <div class="col-12 col-md-6"><ApprovalStageList :stages="main.stages" /></div>
-        <div class="col-12 col-md-6"><ApprovalActionLog :actions="main.actions" :schema="schema" /></div>
+        <div class="col-12 col-md-6">
+          <div class="text-subtitle2 q-mt-md" data-testid="approval-stages-title">{{ t('approval.panel.stagesTitle') }}</div>
+          <ApprovalStageList :stages="main.stages" />
+        </div>
+        <div class="col-12 col-md-6">
+          <div class="text-subtitle2 q-mt-md" data-testid="approval-log-title">{{ t('approval.panel.logTitle') }}</div>
+          <div class="text-caption text-muted q-mb-sm">{{ t('approval.panel.logHint') }}</div>
+          <ApprovalActionLog :actions="main.actions" :schema="schema" />
+        </div>
       </div>
     </q-card-section>
     <q-expansion-item
@@ -56,8 +63,15 @@ const earlierStatus = (i: ApprovalInstanceView) => (i.status === 'rerouted' ? t(
         </div>
         <ApprovalProgressGraph v-if="previousOpen && p.graph" :graph="p.graph" :stages="p.stages" :actions="p.actions" :schema="schema" :instance-id="p.id" />
         <div class="row q-col-gutter-x-md" data-testid="approval-columns">
-          <div class="col-12 col-md-6"><ApprovalStageList :stages="p.stages" /></div>
-          <div class="col-12 col-md-6"><ApprovalActionLog :actions="p.actions" :schema="schema" /></div>
+          <div class="col-12 col-md-6">
+            <div class="text-subtitle2 q-mt-md" data-testid="approval-stages-title">{{ t('approval.panel.stagesTitle') }}</div>
+            <ApprovalStageList :stages="p.stages" />
+          </div>
+          <div class="col-12 col-md-6">
+            <div class="text-subtitle2 q-mt-md" data-testid="approval-log-title">{{ t('approval.panel.logTitle') }}</div>
+            <div class="text-caption text-muted q-mb-sm">{{ t('approval.panel.logHint') }}</div>
+            <ApprovalActionLog :actions="p.actions" :schema="schema" />
+          </div>
         </div>
       </q-card-section>
     </q-expansion-item>
