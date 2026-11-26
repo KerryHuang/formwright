@@ -57,6 +57,8 @@
 | p2、p3 | 設計與處理上限；地區與組織政策 | ✅ 已完成：<br>p2（6d647080，2026-11-20）；<br>p3a（ae542b83，2026-11-20：營運時區、部門層數）；<br>p3b（bc8d7203，2026-11-20：預設、啟用、必填語系，沒指定語系用預設語系；剩 11 行靜態路徑見 #66） | [政策設定](superpowers/specs/2026-11-11-policy-settings-design.md) §9、§3.7 |
 | i3 | 多語系：名稱欄位多語（報表、儀表板、卡片標題、任務看板與甘特檢視），切 i3a（名稱多語＋migration）、i3b（Demo 群組部門與系統程式四語、選單分區 API）、i3c（＝i4f：套件格式 10（9 已給 fg6）、語系鍵改代碼格式、`excludeFromAi`、範本格式 2） | i3a 已上線（2026-11-26，c3111b40：報表、儀表板、卡片標題、看板與甘特名稱多語，migration `NameI18n`；降版會失去繁中以外的譯名、改過卡片標題的儀表板打不開，見設計 §22.2）；i3b、i3c 未開始 | [名稱欄位多語](superpowers/specs/2026-11-21-name-i18n-design.md) |
 | i4 | 語系包與自訂語系（可新增語系、JSON 語系包匯入匯出、內建語系可覆寫、設計資料 Excel 翻譯），切 i4a–i4f（i4d 分 i4d1、i4d2）；段內順序 i4a → i4b／i4c → i3 → i4d1 → i4d2 → i4e；i4f 併進 i3（i3c） | 進行中：<br>i4a 已上線 3d0dd59b；<br>i4b 已上線 7843faa9；<br>i4c 已上線 bf6fef7b；<br>i4d1 已上線 0e42b98e；<br>i4d2 已上線（2026-11-21，028015c5） | [語系包與自訂語系](superpowers/specs/2026-11-17-language-packs-design.md) §20 |
+| lt1 | SQLite 50 人同時使用壓測（一鍵安裝版的前置；不過就把精靈的 PostgreSQL 改成推薦）；在另開的 worktree 和 ERP 主線平行做 | 未開始 | [一鍵安裝版](superpowers/specs/2026-11-26-installer-design.md) |
+| in1 | 一鍵安裝版：Windows 安裝檔、Ubuntu 一行指令、Docker compose，三條路共用瀏覽器設定精靈（設定模式＋一次性設定碼）；跟在 lt1 後面，和 ERP 主線平行 | 未開始 | [一鍵安裝版](superpowers/specs/2026-11-26-installer-design.md) |
 | mcp1a | MCP 後端地基：權杖、範圍、工具分級與確認碼、稽核寫入點、速率限制、12 個唯讀工具；權杖與確認碼的 repository 測試在 PostgreSQL 與 SQLite 各跑一次 | ✅ 已上線（2026-11-21，2c5f921b）：<br>四個子段一起上線（mcp1a-1 權杖與政策、mcp1a-2 帳號連動與 AI 遮罩、mcp1a-3 /mcp 端點與名額、mcp1a-4 確認碼與 12 個唯讀工具）；<br>migration `McpFoundation`（兩表＋欄位旗標），回退到 96081206 以前需先移除這組 migration；<br>Claude Code 實機連線已驗、Codex 實機未驗證 | [MCP server](superpowers/specs/2026-11-11-mcp-server-design.md) §12 |
 | mcp1b | MCP 畫面：個人「AI 存取權杖」頁、管理員「AI 連線」頁、設計器欄位旗標、手冊 | ✅ 已上線（2026-11-21，99129622）：<br>個人「AI 存取權杖」頁、管理員「AI 連線」頁、設計器「不提供給 AI 工具」勾選框、手冊 §24；沒有 migration；<br>Claude Code 實機（curl 建權杖→連上→撤銷後 401）已驗，從畫面建權杖只有 vitest、Codex 實機未驗證 | [MCP server](superpowers/specs/2026-11-11-mcp-server-design.md) §12 |
 | bk1 | 產品內備份：排程備份與立即備份、存放位置（本機目錄、NAS）、O2「備份新鮮度」檢查接上真實時間；雲端隔離儲存拆到 bk2；還原留在階段 5（使用者 11-19、11-21 裁決） | ✅ 已上線（2026-11-22，main 6f5d13b3）：<br>bk1a 後端核心（SQLite）40d350df；<br>bk1b PostgreSQL pg_dump 6f5d13b3；<br>bk1c 備份分頁與 Demo d870fe8c；<br>migration BackupRuns 一支；SQLite、PostgreSQL 手動還原演練通過 | [產品內備份](superpowers/specs/2026-11-21-backup-design.md)、[維運與觀測](superpowers/specs/2026-11-11-ops-observability-design.md) |
@@ -142,6 +144,7 @@ HRM（階段 4）與階段 5 先用佔位列排序，開工前再切成正式工
 - 使用者裁決（2026-11-21）：雲端隔離備份儲存從 bk1 拆成 bk2，排在 bk1 之後、O4 之前，照 11-19「O4–O6 以隔離備份為護欄」的字面當三段共同前置；bk1 不等帳號，地端客戶先有每日備份。
 - 主控判斷（位置）：un1 排在 O1 之後、pg0 之前；pkg1 緊接 O3，不等 O4。
 - 使用者裁決（2026-11-23）：以四套開源 ERP 對照規劃第一版＋長期藍圖（見 [ERP 模組藍圖](superpowers/specs/2026-11-23-erp-module-blueprint-design.md)）；新增 rf1、tx1、tp1 三段：tp1 提前到 s2d-1h 之前，讓純設定的範本先上線，s2d 到會計的前置鏈跟著往後（使用者裁決）；rf1 在 s2d-2 前、tx1 緊接 s2d-2（主控判斷，待確認）。
+- 使用者裁決（2026-11-26）：一鍵安裝版拆成 lt1（SQLite 壓測）→ in1（安裝版本體），另開 worktree 和 ERP 主線平行做，不佔主線順序；設計見[一鍵安裝版](superpowers/specs/2026-11-26-installer-design.md)。
 - 段號命名：MCP 各段一律用 mcp 開頭（mcp1a、mcp1b、mcp2a、mcp2b、mcp3、mcp4、mcpO1、mcpO2），與已上線的多語系 m1（模組選單分區）區隔。
 
 維運與 MCP 兩份設計的 C1–C7 已由使用者 2026-11-12 全部裁決（都選建議方案），紀錄在維運設計 §16、MCP 設計 §20。
