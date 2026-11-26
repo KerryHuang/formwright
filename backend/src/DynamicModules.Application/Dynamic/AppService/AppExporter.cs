@@ -206,7 +206,7 @@ public sealed partial class AppExporter(
         var masterTargets = views.ToDictionary(v => v.Source.Id, v => v.Symbol);
         var workflows = ExportWorkflows(members, codeOfModule, names, GroupCode, warnings);
         var conversionList = await ExportConversionsAsync(members, codeOfModule, masterTargets, names, warnings, ct);
-        var reportList = await ExportReportsAsync(app, names, GroupCode, warnings, ct);
+        var reportList = await ExportReportsAsync(app, names, GroupCode, warnings, compare, ct);
         var printList = await ExportPrintTemplatesAsync(members, codeOfModule, keyToCode, names, warnings, ct);
         var ledgerList = await ExportLedgersAsync(members, codeOfModule, names, warnings, ct);
         var eventList = await ExportEventsAsync(members, keyToCode, names, warnings, excludedEvents, ct);
@@ -607,8 +607,9 @@ public sealed partial class AppExporter(
     }
 
     private async Task<List<AppPackageReport>> ExportReportsAsync(
-        App app, AppReportCodec.Names names, Func<long, string> groupCode, List<string> warnings, CancellationToken ct)
+        App app, AppReportCodec.Names names, Func<long, string> groupCode, List<string> warnings, bool compare, CancellationToken ct)
     {
+        // 比對模式（升級預覽的現況）照資料庫原樣，不補繁中：補了會把其他語系的字當成客戶改過的繁中（i3c 複審 N2）
         var result = new List<AppPackageReport>();
         foreach (var link in app.Reports.OrderBy(r => r.Code, StringComparer.Ordinal))
         {
@@ -626,7 +627,7 @@ public sealed partial class AppExporter(
                 warnings.Add($"報表「{report.NameI18n.Resolve(I18nText.FallbackLocale)}」未匯出（{string.Join("；", errors)}）");
                 continue;
             }
-            result.Add(new AppPackageReport(link.Code, PackageName(report.NameI18n), report.Shares.Select(s => groupCode(s.GroupId)).ToList(), converted));
+            result.Add(new AppPackageReport(link.Code, compare ? report.NameI18n.Compacted() : PackageName(report.NameI18n), report.Shares.Select(s => groupCode(s.GroupId)).ToList(), converted));
         }
         return result;
     }

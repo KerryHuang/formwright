@@ -241,6 +241,37 @@ public class AppUpgradePreviewApiTests : IDisposable
         item.GetProperty("reason").GetString().Should().Be("referenceChanged");
     }
 
+    /// <summary>
+    /// 匯出補繁中報表名稱只在真的匯出時做（i3c 複審 N2）：升級比對的現況不補，否則客戶只存了越南文名稱時，
+    /// 「現況」的繁中會顯示那句越南文、被當成客戶改過的繁中。做法是基準改了繁中（等於新版改了），現況只有越南文。
+    /// </summary>
+    [Fact]
+    public async Task ReportNameWithoutZhTw_UpgradeCompareDoesNotFillZhTw()
+    {
+        const string Vi = "Phân bố cơ hội bán hàng";
+        await OpenCrmAsync();
+        SetOpenedVersion("crm-sales", "1.0.0");
+        using (var scope = _app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<DynamicDbContext>();
+            var app = db.Set<App>().Single(a => a.Key == "crm-sales");
+            var reportId = db.Set<AppReport>().Single(r => r.AppId == app.Id && r.Code == "opportunityByStage").ReportId;
+            db.Set<Report>().Single(r => r.Id == reportId).NameI18n = new I18nText([KeyValuePair.Create("vi", Vi)]);
+            var baseline = db.Set<AppBaseline>().Single(b => b.AppId == app.Id);
+            var package = System.Text.Json.Nodes.JsonNode.Parse(baseline.PackageJson)!;
+            package["reports"]!.AsArray().Single(r => (string?)r!["code"] == "opportunityByStage")!["name"]!["zh-TW"] = "舊版的名稱";
+            baseline.PackageJson = package.ToJsonString();
+            db.SaveChanges();
+        }
+
+        var body = await JsonOf(await Preview());
+        var item = body.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("id").GetString() == "report:opportunityByStage");
+        var zh = item.GetProperty("properties").EnumerateArray()
+            .Single(p => p.GetProperty("name").GetString() == "name" && p.GetProperty("locale").GetString() == "zh-TW");
+        (zh.TryGetProperty("current", out var current) ? current.ValueKind : JsonValueKind.Null)
+            .Should().Be(JsonValueKind.Null, $"現況的繁中不補成越南文：{zh}");
+    }
+
     [Fact]
     public async Task NotSystemAdmin_IsForbidden_A7()
     {
