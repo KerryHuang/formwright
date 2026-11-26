@@ -1,13 +1,24 @@
 # Formwright installer: rebuild the permissions of the data parent directory (run by the installer as administrator, every install).
 # Windows PowerShell 5.1 compatible; ASCII only (5.1 reads BOM-less files as ANSI).
-# Order: (1) lock the parent (one Set-Acl: owner Administrators + protected, brand-new DACL);
+# Order: (0) READ-ONLY PRE-CHECK of the whole existing tree; anything untrusted = refuse (exit 2), nothing has been written yet
+# (no Set-Acl either: it would propagate inheritable ACEs into existing children). Only a passing tree goes on to:
+# (1) lock the parent (one Set-Acl: owner Administrators + protected, brand-new DACL);
 # (2) walk the tree top-down ourselves, one item at a time (icacls never recurses: /T walks into junctions even with /L, CI proved it):
-#     a directory's children are listed only after that directory was reset, so nobody but administrators and the stopped service
-#     can add or rename entries in it. Each child: refuse a link -> owner Administrators and /reset (no /T, /L) -> refuse a link again
-#     (an account with an explicit ACE on that very child could have turned it into a link before the reset; after the reset it cannot)
-#     -> descend. (3) Verify each item against the authoritative expected set (owner Administrators or SYSTEM, non-null DACL, exactly
-#     3 inherited ACEs: SYSTEM and Administrators Full Control, service account Modify; inheritance flags right for files and
-#     directories). A reparse point anywhere = failure, before anything below or behind it is touched.
+#     a directory's children are listed only after that directory was reset. Each child: refuse a link -> owner Administrators and
+#     /reset (no /T, /L) -> refuse a link again -> descend. (3) Verify each item against the authoritative expected set (owner
+#     Administrators or SYSTEM, non-null DACL, exactly 3 inherited ACEs: SYSTEM and Administrators Full Control, service account Modify;
+#     inheritance flags right for files and directories). A reparse point anywhere = failure.
+# Pre-check rules (every item, the parent included; ancestors only: not a reparse point):
+#   - not a reparse point; owner is SYSTEM, Administrators, TrustedInstaller or the service account; DACL exists (not null);
+#   - no Allow ACE with a write-class right (WriteData/AddFile, AppendData/AddSubdirectory, WriteEA, WriteAttributes, Delete, DeleteChild,
+#     WriteDAC, WriteOwner, GenericWrite, GenericAll) for any SID except SYSTEM, Administrators, the service account, and CREATOR OWNER
+#     (only when InheritOnly). Read-class grants to anyone are allowed (the reset below removes them);
+#   - files: hard link count must be 1 (CreateFileW + GetFileInformationByHandle; failing to open or query = refuse).
+# Why this closes the hard-link and existing-handle holes: a passing tree means no account except administrators, SYSTEM and the service
+# account holds write access to anything in it, so nobody can already hold a write handle that survives the ACL reset (an ACL change does
+# not revoke handles that were opened earlier) and plant a junction later. The service is stopped (the installer refuses to run this
+# script otherwise) and the service account has no running process during install. A file with more than one name is refused,
+# so a reset can never change the owner or DACL of the same file seen under a name outside the tree.
 # Any failure exits non-zero (message goes to -LogFile).
 param(
   [Parameter(Mandatory = $true)][string]$Parent,
@@ -25,6 +36,78 @@ $icacls = Join-Path $env:SystemRoot 'System32\icacls.exe'
 $FullMask = 0x1F01FF           # FILE_ALL_ACCESS
 $ModifyRequired = 0x301BF      # Delete + ReadControl + read/write/execute basics (FileSystemRights.Modify without Synchronize)
 $ForbiddenForService = 0xC0000 # WRITE_DAC | WRITE_OWNER
+
+$WriteMask = 0x2 -bor 0x4 -bor 0x10 -bor 0x40 -bor 0x100 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x40000000 -bor 0x10000000
+$sidTrustedInstaller = 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'
+$sidCreatorOwner = 'S-1-3-0'
+
+Add-Type -TypeDefinition @"
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+public static class FwLinks {
+  [StructLayout(LayoutKind.Sequential)]
+  struct FILETIME { public uint Low; public uint High; }
+  [StructLayout(LayoutKind.Sequential)]
+  struct BY_HANDLE_FILE_INFORMATION {
+    public uint dwFileAttributes; public FILETIME ftCreationTime; public FILETIME ftLastAccessTime; public FILETIME ftLastWriteTime;
+    public uint dwVolumeSerialNumber; public uint nFileSizeHigh; public uint nFileSizeLow; public uint nNumberOfLinks;
+    public uint nFileIndexHigh; public uint nFileIndexLow;
+  }
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  static extern IntPtr CreateFileW(string name, uint access, uint share, IntPtr security, uint creation, uint flags, IntPtr template);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  static extern bool GetFileInformationByHandle(IntPtr h, out BY_HANDLE_FILE_INFORMATION info);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  static extern bool CloseHandle(IntPtr h);
+  // Number of names (hard links) of the file itself; a reparse point is opened, not followed. Throws when it cannot be opened or queried.
+  public static uint Count(string path) {
+    // FILE_READ_ATTRIBUTES, share Read|Write|Delete, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS
+    IntPtr h = CreateFileW(path, 0x80, 7, IntPtr.Zero, 3, 0x00200000 | 0x02000000, IntPtr.Zero);
+    if (h == new IntPtr(-1)) throw new Win32Exception(Marshal.GetLastWin32Error(), "cannot open " + path);
+    try {
+      BY_HANDLE_FILE_INFORMATION info;
+      if (!GetFileInformationByHandle(h, out info)) throw new Win32Exception(Marshal.GetLastWin32Error(), "cannot query " + path);
+      return info.nNumberOfLinks;
+    } finally { CloseHandle(h); }
+  }
+}
+"@
+
+# exit 2 = the existing tree is not trustworthy (nothing was changed); the message names the path and the rule
+$script:rejected = $false
+function Reject([string]$Message) { $script:rejected = $true; throw $Message }
+
+# Read-only check of one existing item (see the header for the rules)
+function Test-Trusted($Item, [string[]]$OwnersOk, [string[]]$WriteOk, [string]$ServiceSid) {
+  $path = $Item.FullName
+  if (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Reject "reparse point: $path" }
+  $a = Get-Acl -LiteralPath $path
+  $owner = $a.GetOwner([Security.Principal.SecurityIdentifier]).Value
+  if ($OwnersOk -notcontains $owner) { Reject "untrusted owner ${owner}: $path" }
+  if ([string]::IsNullOrEmpty($a.GetSecurityDescriptorSddlForm('Access'))) { Reject "no DACL (null DACL): $path" }
+  foreach ($r in $a.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
+    if ($r.AccessControlType -ne 'Allow') { continue }
+    if ((([int]$r.FileSystemRights) -band $WriteMask) -eq 0) { continue }
+    $sid = $r.IdentityReference.Value
+    if ($WriteOk -contains $sid) { continue }
+    if ($sid -eq $sidCreatorOwner -and (($r.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) -ne 0)) { continue }
+    Reject "untrusted write ACE for ${sid}: $path"
+  }
+  if (-not $Item.PSIsContainer) {
+    $n = 0
+    try { $n = [FwLinks]::Count($path) } catch { Reject "cannot check hard links ($($_.Exception.Message)): $path" }
+    if ($n -ne 1) { Reject "hard link ($n names): $path" }
+  }
+}
+
+# Whole existing tree, top-down by hand (links are never entered). Writes nothing.
+function Test-Tree([string]$Dir, [string[]]$OwnersOk, [string[]]$WriteOk, [string]$ServiceSid) {
+  foreach ($item in Get-ChildItem -LiteralPath $Dir -Force) {
+    Test-Trusted $item $OwnersOk $WriteOk $ServiceSid
+    if ($item.PSIsContainer) { Test-Tree $item.FullName $OwnersOk $WriteOk $ServiceSid }
+  }
+}
 
 function Test-Reparse([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { return $false }
@@ -66,16 +149,21 @@ try {
   foreach ($p in @($Data, $Backup, $Config)) {
     if (Test-Reparse $p) { throw "reparse point refused: $p" }
   }
+  $sidSystem = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
+  $sidAdmins = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
+  $sidService = (New-Object Security.Principal.NTAccount($ServiceAccount)).Translate([Security.Principal.SecurityIdentifier])
+
+  # 1b. Read-only pre-check of the existing tree (a missing parent = brand new, nothing to check). Untrusted = refuse, change nothing.
   if (Test-Path -LiteralPath $Parent) {
     if (-not (Test-Path -LiteralPath $Parent -PathType Container)) { throw "not a directory: $Parent" }
+    $ownersOk = @($sidSystem.Value, $sidAdmins.Value, $sidTrustedInstaller, $sidService.Value)
+    $writeOk = @($sidSystem.Value, $sidAdmins.Value, $sidService.Value)
+    Test-Trusted (Get-Item -LiteralPath $Parent -Force) $ownersOk $writeOk $sidService.Value
+    Test-Tree $Parent $ownersOk $writeOk $sidService.Value
   } else {
     New-Item -ItemType Directory -Path $Parent | Out-Null
   }
   if (Test-Reparse $Parent) { throw "reparse point refused: $Parent" }
-
-  $sidSystem = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
-  $sidAdmins = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
-  $sidService = (New-Object Security.Principal.NTAccount($ServiceAccount)).Translate([Security.Principal.SecurityIdentifier])
 
   # 2. Lock the parent: ONE Set-Acl with owner + protected brand-new DACL.
   $flags = [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
@@ -161,5 +249,6 @@ try {
   $msg = "set-acl failed: $($_.Exception.Message)"
   [Console]::Error.WriteLine($msg)
   if ($LogFile -ne '') { Set-Content -LiteralPath $LogFile -Value $msg -Encoding ASCII }
+  if ($script:rejected) { exit 2 }
   exit 1
 }
