@@ -311,7 +311,7 @@ public class InventoryAppTests : IDisposable
         await rig.ShipmentDraftAsync(customer, wh, item, 3, keeper);   // 草稿不計入出貨金額
 
         var reports = await JsonOf(await keeper.GetAsync($"{Base}/reports"));
-        var report = reports.EnumerateArray().Single(x => x.GetProperty("name").GetString() == "各客戶出貨金額（未稅）");
+        var report = reports.EnumerateArray().Single(x => x.GetProperty("name").GetProperty("zh-TW").GetString() == "各客戶出貨金額（未稅）");
         var run = await PostOk(keeper, $"{Base}/reports/{Id(report)}/run", new { }, HttpStatusCode.OK);
         run.GetProperty("total").GetProperty("amount").GetDecimal().Should().Be(500m);
 
@@ -329,10 +329,10 @@ public class InventoryAppTests : IDisposable
         var manager = _app.AsUser(Manager);
         var names = new[] { "庫存餘額（品項 × 倉庫）", "月別進出量", "採購單狀態分布", "各供應商採購金額（未稅）", "各客戶出貨金額（未稅）" };
         var reports = (await JsonOf(await manager.GetAsync($"{Base}/reports"))).EnumerateArray().ToList();
-        reports.Select(x => x.GetProperty("name").GetString()).Should().Contain(names);
-        foreach (var r in reports.Where(x => names.Contains(x.GetProperty("name").GetString())))
-            (await manager.PostAsJsonAsync($"{Base}/reports/{Id(r)}/run", new { })).StatusCode.Should().Be(HttpStatusCode.OK, r.GetProperty("name").GetString());
-        var balance = reports.Single(x => x.GetProperty("name").GetString() == names[0]);
+        reports.Select(x => x.GetProperty("name").GetProperty("zh-TW").GetString()).Should().Contain(names);
+        foreach (var r in reports.Where(x => names.Contains(x.GetProperty("name").GetProperty("zh-TW").GetString())))
+            (await manager.PostAsJsonAsync($"{Base}/reports/{Id(r)}/run", new { })).StatusCode.Should().Be(HttpStatusCode.OK, r.GetProperty("name").GetProperty("zh-TW").GetString());
+        var balance = reports.Single(x => x.GetProperty("name").GetProperty("zh-TW").GetString() == names[0]);
         (await PostOk(manager, $"{Base}/reports/{Id(balance)}/run", new { }, HttpStatusCode.OK)).GetProperty("total").GetProperty("qty").GetDecimal().Should().Be(7m);
     }
 

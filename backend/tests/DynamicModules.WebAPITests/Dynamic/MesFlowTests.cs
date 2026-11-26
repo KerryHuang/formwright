@@ -238,7 +238,7 @@ public class MesFlowTests : IDisposable
         await Wo("逾期但還是草稿", "2026-01-06", release: false);
 
         var list = await JsonOf(await planner.GetAsync($"{Base}/reports"));
-        var report = list.EnumerateArray().Single(r => r.GetProperty("name").GetString() == "逾期未完工工令");
+        var report = list.EnumerateArray().Single(r => r.GetProperty("name").GetProperty("zh-TW").GetString() == "逾期未完工工令");
         var run = await planner.PostAsJsonAsync($"{Base}/reports/{report.GetProperty("id").GetInt64()}/run", new { range = (object?)null });
         run.StatusCode.Should().Be(HttpStatusCode.OK, await run.Content.ReadAsStringAsync());
         var body = await run.Content.ReadAsStringAsync();
