@@ -131,9 +131,10 @@ async function onDelete() {
     <div v-else-if="recordMissing" class="text-negative">{{ t('dynamic.recordNotFound') }}</div>
     <div v-else-if="failed" class="text-negative">{{ t('dynamic.loadFailed') }}</div>
     <template v-else-if="schema && recordQuery.data.value">
+      <div class="text-h6" data-testid="module-title">{{ resolveI18n(schema.name, locale) }}</div>
       <div class="row items-center q-mb-md q-gutter-sm">
         <q-btn flat icon="arrow_back" :label="t('dynamic.back')" :to="`/dynamic/${moduleKey}`" />
-        <div v-if="schema.titleFieldKey || schema.kind === 'extension'" class="text-h6" style="overflow-wrap: anywhere">{{ recordQuery.data.value.title }}</div>
+        <div v-if="schema.titleFieldKey || schema.kind === 'extension'" class="text-h6" style="overflow-wrap: anywhere" data-testid="record-title">{{ recordQuery.data.value.title }}</div>
         <ApprovalBadge v-if="approval" :summary="approval" />
         <q-space />
         <q-btn

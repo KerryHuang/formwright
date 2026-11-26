@@ -59,6 +59,11 @@ describe('FormPage', () => {
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   });
 
+  it.each([['/dynamic/m/new', zhTW.dynamic.newTitle], ['/dynamic/m/5/edit', zhTW.dynamic.editTitle]])('heading at %s names the module', async (path, action) => {
+    const w = await mountPage(schema(all), path);
+    expect(w.find('[data-testid="module-title"]').text()).toBe(`模組 · ${action}`);
+  });
+
   it('FormPage shows forbidden in edit mode without edit', async () => {
     const w = await mountPage(schema({ ...all, edit: false }), '/dynamic/m/5/edit');
     expect(w.find('[data-testid="forbidden"]').exists()).toBe(true);

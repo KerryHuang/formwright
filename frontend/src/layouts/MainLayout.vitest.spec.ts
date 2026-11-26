@@ -207,12 +207,18 @@ describe('MainLayout menu', () => {
       setActivePinia(pinia);
       useIdentityStore().setSession('admin');
       http.defaults.adapter = async (config) => ({
-        data: config.url === '/me' ? me(false) : config.url === '/users' ? USERS : [], status: 200, statusText: 'OK', headers: {}, config,
+        data: config.url === '/me' ? me(false) : config.url === '/users' ? USERS
+          : config.url === '/menu' ? [{ key: 'po', name: { 'zh-TW': '採購單' } }] : [],
+        status: 200, statusText: 'OK', headers: {}, config,
       });
       const stub = { template: '<i/>' };
       const router = createRouter({
         history: createMemoryHistory(),
-        routes: [{ path: '/', component: stub }, { path: '/dynamic/:moduleKey', component: stub }, { path: '/reports', component: stub }],
+        routes: [
+          { path: '/', component: stub }, { path: '/dynamic/:moduleKey', component: stub }, { path: '/dynamic/:moduleKey/new', component: stub },
+          { path: '/dynamic/:moduleKey/:id(\\d+)', component: stub }, { path: '/dynamic/:moduleKey/:id(\\d+)/edit', component: stub },
+          { path: '/reports', component: stub }, { path: '/reports/:id(\\d+)', component: stub },
+        ],
       });
       await router.push(path);
       const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
@@ -238,6 +244,18 @@ describe('MainLayout menu', () => {
       await router.push('/reports');
       await flushPromises();
       expect(w.find('[data-testid="home-menu"]').classes()).not.toContain('q-router-link--active');
+    });
+
+    it.each(['/dynamic/po', '/dynamic/po/795', '/dynamic/po/new', '/dynamic/po/795/edit'])('在 %s 時側欄的該模組項目是作用中', async (path) => {
+      const { w } = await mountAt(path);
+      const item = w.findAll('.q-drawer .q-item').find((i) => i.attributes('href') === '/dynamic/po')!;
+      expect(item.classes()).toContain('q-router-link--active');
+      expect(w.find('[data-testid="home-menu"]').classes()).not.toContain('q-router-link--active');
+    });
+
+    it('看單張報表時「我的報表」是作用中', async () => {
+      const { w } = await mountAt('/reports/5');
+      expect(w.find('[data-testid="reports-menu"]').classes()).toContain('q-router-link--active');
     });
 
     it('打開模組時記下最近開過（依使用者區分）', async () => {

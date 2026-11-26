@@ -87,6 +87,11 @@ describe('DetailPage', () => {
     expect(w.text()).not.toContain(zhTW.dynamic.edit);
   });
 
+  it('shows the module name as the page heading above the record title', async () => {
+    const w = await mountPage(schema({}));
+    expect(w.find('[data-testid="module-title"]').text()).toBe('模組');
+  });
+
   it('renders without a heading when titleFieldKey is null', async () => {
     const w = await mountPage(schema({ titleFieldKey: null, blocks: [{ id: 1, label: { 'zh-TW': '區' }, collapsed: false, columns: 2, fields: [field(2, '甲')] }] }));
     expect(w.text()).toContain('甲');
@@ -200,7 +205,7 @@ describe('DetailPage', () => {
     it('extension record shows host title', async () => {
       const [s, r] = withRefs([], {}, {}, { kind: 'extension', hostEntityKey: 'test.entity', titleFieldKey: null });
       const w = await mountPage(s, { ...r, title: 'E-0001 甲號', hostKey: 'E-0001' });
-      expect(w.find('.text-h6').text()).toBe('E-0001 甲號');
+      expect(w.find('[data-testid="record-title"]').text()).toBe('E-0001 甲號');
     });
   });
 

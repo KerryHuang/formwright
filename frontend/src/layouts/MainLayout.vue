@@ -41,11 +41,11 @@
           <q-item-section avatar><q-icon name="home" /></q-item-section>
           <q-item-section>{{ t('menu.home') }}</q-item-section>
         </q-item>
-        <q-item clickable to="/tasks" data-testid="my-tasks-menu">
+        <q-item clickable to="/tasks" v-bind="navActive('/tasks')" data-testid="my-tasks-menu">
           <q-item-section avatar><q-icon name="task_alt" /></q-item-section>
           <q-item-section>{{ t('menu.myTasks') }}</q-item-section>
         </q-item>
-        <q-item clickable to="/approvals" data-testid="approvals-menu">
+        <q-item clickable to="/approvals" v-bind="navActive('/approvals')" data-testid="approvals-menu">
           <q-item-section avatar><q-icon name="fact_check" /></q-item-section>
           <q-item-section>{{ t('menu.approvals') }}</q-item-section>
         </q-item>
@@ -57,6 +57,7 @@
             :key="m.key"
             clickable
             :to="`/dynamic/${m.key}`"
+            v-bind="navActive(`/dynamic/${m.key}`)"
           >
             <q-item-section avatar><q-icon :name="m.icon || 'apps'" /></q-item-section>
             <q-item-section>{{ resolveI18n(m.name, locale) }}</q-item-section>
@@ -65,11 +66,11 @@
 
         <q-separator class="q-my-sm" />
         <q-item-label header>{{ t('menu.reports') }}</q-item-label>
-        <q-item clickable to="/dashboards" data-testid="dashboards-menu">
+        <q-item clickable to="/dashboards" v-bind="navActive('/dashboards')" data-testid="dashboards-menu">
           <q-item-section avatar><q-icon name="dashboard" /></q-item-section>
           <q-item-section>{{ t('menu.dashboards') }}</q-item-section>
         </q-item>
-        <q-item clickable to="/reports" data-testid="reports-menu">
+        <q-item clickable to="/reports" v-bind="navActive('/reports')" data-testid="reports-menu">
           <q-item-section avatar><q-icon name="bar_chart" /></q-item-section>
           <q-item-section>{{ t('menu.myReports') }}</q-item-section>
         </q-item>
@@ -77,7 +78,7 @@
         <template v-if="links.length">
           <q-separator class="q-my-sm" />
           <q-item-label header>{{ t('menu.system') }}</q-item-label>
-          <q-item v-for="l in links" :key="l.to" clickable :to="l.to" :data-testid="l.testid">
+          <q-item v-for="l in links" :key="l.to" clickable :to="l.to" v-bind="navActive(l.to)" :data-testid="l.testid">
             <q-item-section avatar><q-icon :name="l.icon" /></q-item-section>
             <q-item-section>{{ t(l.label) }}</q-item-section>
           </q-item>
@@ -161,6 +162,11 @@ const showAiEntry = computed(() => mcp.data.value?.canUse === true || ['demoSite
   || (needsTokenCheck.value && (ownTokens.value?.length ?? 0) > 0));
 // 首頁的「最近開過」：每次進到某個模組就記一筆
 const route = useRoute();
+/** 明細、新增、編輯與單張報表是和列表並列的路由，vue-router 不會把列表項目算作用中；改用網址前綴判斷，沿用主題的選中樣式。 */
+const navActive = (to: string) => ({
+  active: route.path === to || route.path.startsWith(`${to}/`),
+  activeClass: 'q-router-link--active',
+});
 watch(
   () => [identity.userId, route.params.moduleKey] as const,
   ([userId, key]) => { if (typeof key === 'string') recordRecent(userId, key); },

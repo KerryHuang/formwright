@@ -14,8 +14,9 @@ import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
 import { newIdempotencyKey } from 'src/services/api/idempotency';
 import { isForbidden, type ApiError } from 'src/services/api/http';
 import { joinList } from 'src/i18n/translate';
+import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const $q = useQuasar();
 const route = useRoute();
 const router = useRouter();
@@ -148,7 +149,7 @@ async function onSubmit(values: Record<string, unknown>, details: Record<string,
     <div v-else-if="failed" class="text-negative">{{ t('dynamic.loadFailed') }}</div>
     <template v-else-if="ready">
       <div class="row items-center q-mb-md">
-        <div class="text-h6">{{ isEdit ? t('dynamic.editTitle') : t('dynamic.newTitle') }}</div>
+        <div class="text-h6" data-testid="module-title">{{ resolveI18n(schemaQuery.data.value?.name, locale) }} · {{ isEdit ? t('dynamic.editTitle') : t('dynamic.newTitle') }}</div>
         <q-space />
         <q-btn flat :label="t('dynamic.cancel')" @click="back" />
       </div>

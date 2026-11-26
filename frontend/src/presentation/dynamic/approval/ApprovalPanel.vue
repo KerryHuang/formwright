@@ -28,6 +28,7 @@ const earlierStatus = (i: ApprovalInstanceView) => (i.status === 'rerouted' ? t(
 </script>
 
 <template>
+  <!-- 關卡清單與處理紀錄：1024 以上左右並排、以下上下排（寬螢幕右側不留大片空白） -->
   <q-card v-if="main" flat bordered class="q-mb-md approval-panel" data-testid="approval-panel">
     <q-card-section class="row items-center q-gutter-sm">
       <div class="text-subtitle1">{{ t('approval.panel.title') }}</div>
@@ -39,8 +40,10 @@ const earlierStatus = (i: ApprovalInstanceView) => (i.status === 'rerouted' ? t(
     <q-card-section class="q-pt-none">
       <div class="text-caption text-muted">{{ t('approval.panel.submitted', { time: timeText(main.submittedTime) }) }}</div>
       <ApprovalProgressGraph v-if="main.graph" :graph="main.graph" :stages="main.stages" :actions="main.actions" :schema="schema" :instance-id="main.id" class="q-mt-sm" />
-      <ApprovalStageList :stages="main.stages" />
-      <ApprovalActionLog :actions="main.actions" :schema="schema" />
+      <div class="row q-col-gutter-x-md" data-testid="approval-columns">
+        <div class="col-12 col-md-6"><ApprovalStageList :stages="main.stages" /></div>
+        <div class="col-12 col-md-6"><ApprovalActionLog :actions="main.actions" :schema="schema" /></div>
+      </div>
     </q-card-section>
     <q-expansion-item
       v-if="earlier.length" v-model="previousOpen" :label="t('approval.panel.previous')" :caption="String(earlier.length)" dense-toggle
@@ -52,8 +55,10 @@ const earlierStatus = (i: ApprovalInstanceView) => (i.status === 'rerouted' ? t(
           <span class="text-muted approval-wrap">{{ heading(p) }} · {{ timeText(p.submittedTime) }}</span>
         </div>
         <ApprovalProgressGraph v-if="previousOpen && p.graph" :graph="p.graph" :stages="p.stages" :actions="p.actions" :schema="schema" :instance-id="p.id" />
-        <ApprovalStageList :stages="p.stages" />
-        <ApprovalActionLog :actions="p.actions" :schema="schema" />
+        <div class="row q-col-gutter-x-md" data-testid="approval-columns">
+          <div class="col-12 col-md-6"><ApprovalStageList :stages="p.stages" /></div>
+          <div class="col-12 col-md-6"><ApprovalActionLog :actions="p.actions" :schema="schema" /></div>
+        </div>
       </q-card-section>
     </q-expansion-item>
   </q-card>
