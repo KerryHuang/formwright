@@ -52,7 +52,8 @@ public static class LocalePackMessages
     public static MessageRef NoOverrides => MessageRef.Of(MessageText.LocaleNoOverrides);
     public static MessageRef BooleanCollision(string locale, string other, string word) => MessageRef.Of(MessageText.LocaleBooleanCollision, locale, other, word);
     public static MessageRef TemplateLocaleNotInstalled(string code) => MessageRef.Of(MessageText.LocaleTemplateLocaleNotInstalled, code);
-    public static MessageRef TemplateScopeInvalid => MessageRef.Of(MessageText.LocaleTemplateScopeInvalid);
+    /// <summary>i4e 起範圍含 designData，用新鍵；舊鍵 <c>LocaleTemplateScopeInvalid</c> 保留（語系包契約）。</summary>
+    public static MessageRef TemplateScopeInvalid => MessageRef.Of(MessageText.LocaleTemplateScopeInvalidDesign);
 
     // ── i4e：設計資料與 Excel 樣板（設計 §23） ──
     public static MessageRef XlsxInvalid => MessageRef.Of(MessageText.LocaleXlsxInvalid);

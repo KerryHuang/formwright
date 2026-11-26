@@ -190,5 +190,11 @@
     "en-US": "Rows noted \"Valid only in this system\" can only be imported into the system that produced this file.",
     "th": "แถวที่มีหมายเหตุ \"ใช้ได้เฉพาะในระบบนี้\" นำเข้าได้เฉพาะระบบที่สร้างไฟล์นี้",
     "vi": "Các dòng ghi chú \"Chỉ có hiệu lực trong hệ thống này\" chỉ nhập lại được vào hệ thống đã tạo tệp này."
+  },
+  "LocaleTemplateScopeInvalidDesign": {
+    "zh-TW": "匯出範圍只能是 ui、server、designData，至少要選一個",
+    "en-US": "The export scope must be ui, server and/or designData, with at least one selected",
+    "th": "ขอบเขตการส่งออกต้องเป็น ui, server หรือ designData และต้องเลือกอย่างน้อยหนึ่งรายการ",
+    "vi": "Phạm vi xuất chỉ có thể là ui, server, designData và phải chọn ít nhất một"
   }
 }
