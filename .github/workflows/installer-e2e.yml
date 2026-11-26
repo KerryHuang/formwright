@@ -477,7 +477,7 @@ jobs:
             $j = (Wiz checks $Base (Setup-Code)) | ConvertFrom-Json
             $item = $j.items | Where-Object { $_.key -eq 'backupDirectory' }
             Assert ($null -ne $item -and $item.ok -eq $false) 'backupDirectory 應為紅燈'
-          } finally { Icacls $Backup /remove:d 'NT SERVICE\Formwright' }
+          } finally { Icacls $Backup /remove:d 'NT SERVICE\Formwright'; Icacls $Backup /reset /C /L }   # icacls 改 DACL 時把繼承 ACE 複製成明確 ACE，/reset 才回到只繼承
 
       - name: wizard 與 setup-complete-restarts-service（AC-03、10、04、Review Focus 1、B02）
         run: |
@@ -547,7 +547,7 @@ jobs:
             Wait-Service 'Running'
             Assert ((Get-Service Formwright).StartType -eq 'Automatic') '備份失敗後服務啟動類型應恢復成 Automatic'
             Version-Is $env:V2
-          } finally { Icacls $Backup /remove:d '*S-1-1-0' }
+          } finally { Icacls $Backup /remove:d '*S-1-1-0'; Icacls $Backup /reset /C /L }   # icacls 改 DACL 時把繼承 ACE 複製成明確 ACE，/reset 才回到只繼承
 
       - name: crash-window-upgrade（M03：服務剛崩潰、SCM 已排程重啟時升級）
         run: |
