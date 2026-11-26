@@ -3,7 +3,9 @@
 # 用法：curl -fsSL <Releases 的 install.sh 網址> | sudo bash [-s -- <動作> [選項]]
 #   動作：install（預設，也是升級）、remove、purge
 #   選項：--port <n>（只在全新安裝生效）、--skip-backup、--lang <zh-TW|en>、--yes（purge 用）
-# 環境變數：FORMWRIGHT_PACKAGE（本機 tarball 路徑，給測試用）、FORMWRIGHT_LANG
+# 環境變數：FORMWRIGHT_PACKAGE（本機 tarball 路徑，給測試用）、FORMWRIGHT_LANG、
+#   FORMWRIGHT_DOWNLOAD_BASE（改從鏡像或測試伺服器下載：套件與 SHA256SUMS 兩個檔都從這個位置取；
+#   sudo 預設會清掉環境變數，要寫成 sudo FORMWRIGHT_DOWNLOAD_BASE=… bash install.sh）
 # 結束碼：0 成功；10 不是 root；11 不支援的系統；12 下載或校驗失敗；
 #        20 升級前備份失敗（已中止、舊版照跑）；21 備份位置沒設且沒給 --skip-backup
 set -euo pipefail
@@ -251,19 +253,23 @@ refuse_unsafe_path() {
 #   <state>（/var/lib/formwright）root:root 0755  — 服務帳號不能在裡面換 symlink
 #   <state>/data、<state>/backup  服務帳號 0700
 #   <config dir>（/etc/formwright）root:<服務帳號> 0770 — 後端存設定檔是「同目錄暫存檔再覆蓋」，服務帳號要能在目錄裡建檔
+# 順序：先鎖父目錄（它的上層 /var/lib、/etc 是 root 的，可信），父目錄不再給服務帳號寫入之後，
+# 才檢查子目錄並對它們 mkdir／chown／chmod；否則舊配置（父目錄屬服務帳號）下，檢查之後、收緊之前子目錄可被換成 symlink。
 ensure_dirs() {
   local state_dir config_dir
   state_dir=$(dirname "$FW_DATA_DIR"); config_dir=$(dirname "$FW_CONFIG_FILE")
-  local p
-  for p in "$state_dir" "$FW_DATA_DIR" "$FW_BACKUP_DIR" "$config_dir"; do refuse_unsafe_path "$p"; done
+  refuse_unsafe_path "$state_dir"
+  refuse_unsafe_path "$config_dir"
   mkdir -p "$state_dir" "$config_dir"
   chown root:root "$state_dir"
   chmod 0755 "$state_dir"
+  chown "root:$FW_SERVICE_USER" "$config_dir"
+  chmod 0770 "$config_dir"
+  refuse_unsafe_path "$FW_DATA_DIR"
+  refuse_unsafe_path "$FW_BACKUP_DIR"
   mkdir -p "$FW_DATA_DIR" "$FW_BACKUP_DIR"
   chown "$FW_SERVICE_USER:$FW_SERVICE_USER" "$FW_DATA_DIR" "$FW_BACKUP_DIR"
   chmod 0700 "$FW_DATA_DIR" "$FW_BACKUP_DIR"
-  chown "root:$FW_SERVICE_USER" "$config_dir"
-  chmod 0770 "$config_dir"
 }
 
 # 低於主機「非特權 port 起點」的 port，服務帳號要有綁定權限（M6）；只有需要時才加
@@ -304,9 +310,18 @@ wait_active() { # 最多 60 秒
   return 1
 }
 
+# 設定檔在服務帳號可替換的目錄裡（symlink、FIFO 都換得進來），root 不直接開它：
+# 以服務帳號讀，限時限量（FIFO 會被 timeout 擋住，指向 root 才讀得到的檔會因權限讀不到）；帳號不存在就當讀不到
+read_config() {
+  id "$FW_SERVICE_USER" >/dev/null 2>&1 || return 0
+  timeout 5 runuser -u "$FW_SERVICE_USER" -- head -c 65536 -- "$FW_CONFIG_FILE" 2>/dev/null || true
+}
+
 config_port() {
   local p
-  p=$(sed -n 's/.*"Port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$FW_CONFIG_FILE" 2>/dev/null | head -n 1)
+  p=$(read_config | sed -n 's/.*"Port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1 || true)
+  case "$p" in ''|*[!0-9]*) p="" ;; esac
+  if [ -n "$p" ] && { [ "${#p}" -gt 5 ] || [ "$p" -lt 1 ] || [ "$p" -gt 65535 ]; }; then p=""; fi
   echo "${p:-$FW_PORT}"
 }
 
@@ -383,6 +398,8 @@ do_upgrade() {
     abort21) systemctl start formwright || true; rm -rf "${FW_PROGRAM_DIR}.new"; die 21 backup_not_configured ;;
     abort20) systemctl start formwright || true; rm -rf "${FW_PROGRAM_DIR}.new"; die 20 backup_failed ;;
   esac
+  # 舊配置的主機在這裡一併收緊權限；失敗（例如目錄是 symlink）就把舊版服務拉起來、不換程式
+  (ensure_dirs) || { systemctl start formwright || true; rm -rf "${FW_PROGRAM_DIR}.new"; exit 1; }
   swap_program
   write_unit
   systemctl start formwright || true
@@ -411,9 +428,9 @@ do_purge() {
     read -r answer < /dev/tty || true
     [ "$answer" = yes ] || { msg purge_cancelled; exit 1; }
   fi
-  if [ -r "$FW_CONFIG_FILE" ]; then
-    backup_root=$(sed -n 's/.*"Root"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$FW_CONFIG_FILE" | head -n 1 || true)
-  fi
+  # Backup 區段裡的 Root（Attachments 也有 Root，不能取第一個）
+  backup_root=$(read_config | awk '/"Backup"[[:space:]]*:/ { f = 1 } f && /"Root"/ { print; exit }' \
+    | sed -n 's/.*"Root"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)
   do_remove >/dev/null
   rm -rf "$state_dir" "$config_dir"
   if id "$FW_SERVICE_USER" >/dev/null 2>&1; then userdel "$FW_SERVICE_USER" || true; fi

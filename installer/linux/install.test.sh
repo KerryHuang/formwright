@@ -141,7 +141,10 @@ for victim in data backup state config; do
   rc=$(run_rc ensure_in "$r")
   check "ensure_dirs 拒絕 $victim 是 symlink（exit 1）" "1" "$rc"
   check "ensure_dirs $victim symlink：目標 mode 不變" "711" "$(mode_of "$r/target")"
-  check "ensure_dirs $victim symlink：沒有 chown" "0" "$(wc -l < "$chown_log" | tr -d ' ')"
+  # 先鎖父目錄：data／backup 是 symlink 時父目錄與設定目錄已先 chown（2 次），但絕不碰 symlink 與它的目標；state／config 本身是 symlink 就一次都不 chown
+  case "$victim" in data|backup) want=2 ;; *) want=0 ;; esac
+  check "ensure_dirs $victim symlink：chown 次數" "$want" "$(wc -l < "$chown_log" | tr -d ' ')"
+  check "ensure_dirs $victim symlink：沒有 chown 到目標或子目錄" "0" "$(grep -c "target\|/data\|/backup" "$chown_log")"
   case "$(cat "$out")" in *"$r"*) ok "ensure_dirs $victim symlink：訊息含路徑";; *) bad "ensure_dirs $victim symlink：訊息含路徑" "$(cat "$out")";; esac
 done
 r=$(dirs_case file); mkdir -p "$r/state"; : > "$r/state/data"
@@ -160,6 +163,19 @@ check "ensure_dirs config 目錄 0770" "770" "$(mode_of "$r/etc")"
 check "ensure_dirs state 給 root" "1" "$(grep -c "chown root:root $r/state\$" "$chown_log")"
 check "ensure_dirs data／backup 給服務帳號" "1" "$(grep -c "chown svc:svc $r/state/data $r/state/backup" "$chown_log")"
 check "ensure_dirs config 目錄 root:服務帳號" "1" "$(grep -c "chown root:svc $r/etc\$" "$chown_log")"
+
+# M1-A：舊配置（父目錄屬服務帳號）要先收緊父目錄，之後才檢查子目錄
+eval "$(declare -f refuse_unsafe_path | sed '1s/refuse_unsafe_path/orig_refuse_unsafe_path/')"
+refuse_unsafe_path() { echo "refuse $1" >> "$chown_log"; orig_refuse_unsafe_path "$1"; }
+r=$(dirs_case legacy); mkdir -p "$r/state/data" "$r/state/backup" "$r/etc"; chmod 0700 "$r/state"
+: > "$chown_log"; ensure_in "$r" >/dev/null 2>&1
+lock_line=$(grep -n "chown root:root $r/state\$" "$chown_log" | head -n 1 | cut -d: -f1)
+data_line=$(grep -n "refuse $r/state/data\$" "$chown_log" | head -n 1 | cut -d: -f1)
+backup_line=$(grep -n "refuse $r/state/backup\$" "$chown_log" | head -n 1 | cut -d: -f1)
+check "ensure_dirs 舊配置：父目錄先 chown root，之後才檢查 data" "yes" "$([ -n "$lock_line" ] && [ -n "$data_line" ] && [ "$lock_line" -lt "$data_line" ] && echo yes || echo no)"
+check "ensure_dirs 舊配置：父目錄先收緊，之後才檢查 backup" "yes" "$([ -n "$lock_line" ] && [ -n "$backup_line" ] && [ "$lock_line" -lt "$backup_line" ] && echo yes || echo no)"
+check "ensure_dirs 舊配置：父目錄被收緊成 0755" "755" "$(mode_of "$r/state")"
+refuse_unsafe_path() { orig_refuse_unsafe_path "$@"; }
 unset -f chown
 
 # --- 低 port 的綁定權限（M6） ---
@@ -167,7 +183,8 @@ unit_for() { # <port> <ip_unprivileged_port_start 或 ->
   local r="$tmp/unit-$1-$2"; rm -rf "$r"; mkdir -p "$r/proc/sys/net/ipv4"
   [ "$2" = "-" ] || echo "$2" > "$r/proc/sys/net/ipv4/ip_unprivileged_port_start"
   printf '{"Server":{"Port":%s}}\n' "$1" > "$r/cfg.json"
-  ( systemctl() { :; }; FW_ROOT="$r" FW_CONFIG_FILE="$r/cfg.json" FW_UNIT_FILE="$r/unit" write_unit; cat "$r/unit" )
+  ( systemctl() { :; }; id() { return 0; }; timeout() { shift; "$@"; }; runuser() { shift 3; "$@"; }
+    FW_ROOT="$r" FW_CONFIG_FILE="$r/cfg.json" FW_UNIT_FILE="$r/unit" write_unit; cat "$r/unit" )
 }
 has_cap() { case "$1" in *AmbientCapabilities=CAP_NET_BIND_SERVICE*) echo yes;; *) echo no;; esac; }
 check "unit：port 80、門檻 1024 → 加 CAP_NET_BIND_SERVICE" "yes" "$(has_cap "$(unit_for 80 1024)")"
@@ -217,5 +234,27 @@ check "下載失敗不動舊版" "v-old" "$(cat "$tmp/prog/VERSION")"
 # shellcheck disable=SC2034  # FW_LANG 由子 shell 內的 msg 讀取
 case "$(FW_LANG=en; DL_MODE=badhash; ( FW_VERSION=1.2.3 FW_REPO=o/r FORMWRIGHT_PACKAGE="" fetch_package ) 2>&1)" in *"Checksum verification failed"*) ok "下載：hash 不符的訊息";; *) bad "下載：hash 不符的訊息" "";; esac
 unset -f curl
+
+# --- 設定檔不以 root 直接開（M1-B）：改以服務帳號限時限量讀取 ---
+rc_log="$tmp/rc.log"
+cfg_stub() { # 替身：記錄 timeout／runuser 的參數，真的讀檔
+  id() { return 0; }
+  timeout() { echo "timeout $*" >> "$rc_log"; shift; "$@"; }
+  runuser() { echo "runuser $*" >> "$rc_log"; shift 3; "$@"; }
+}
+printf '{"Server":{"Port":8088},"Attachments":{"Root":"/a"},"Backup":{"Root":"/b"}}\n' > "$tmp/c.json"
+: > "$rc_log"
+check "config_port 讀到設定的 port" "8088" "$(cfg_stub; FW_CONFIG_FILE="$tmp/c.json" FW_SERVICE_USER=svc config_port)"
+check "read_config 用服務帳號、timeout 5、限 64KB" "yes" "$(grep -q 'timeout 5 runuser -u svc -- head -c 65536 -- ' "$rc_log" && echo yes || echo no)"
+check "config_port 帳號不存在 → 預設值" "$FW_PORT" "$( (id() { return 1; }; FW_CONFIG_FILE="$tmp/c.json" config_port) )"
+for bad in 0 99999 123456789012 70000; do
+  printf '{"Server":{"Port":%s}}\n' "$bad" > "$tmp/bad.json"
+  check "config_port 非法 port $bad → 預設值" "$FW_PORT" "$(cfg_stub; FW_CONFIG_FILE="$tmp/bad.json" FW_SERVICE_USER=svc config_port)"
+done
+check "config_port 讀檔失敗 → 預設值" "$FW_PORT" "$(cfg_stub; FW_CONFIG_FILE="$tmp/none.json" FW_SERVICE_USER=svc config_port)"
+check "purge 取 Backup 區段的 Root（不是 Attachments 的）" "/b" "$(cfg_stub; FW_CONFIG_FILE="$tmp/c.json" FW_SERVICE_USER=svc read_config | awk '/"Backup"[[:space:]]*:/ { f = 1 } f && /"Root"/ { print; exit }' | sed -n 's/.*"Root"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+# shellcheck disable=SC2016  # 要比對字面的 $FW_CONFIG_FILE
+check "root 不直接 sed 設定檔" "0" "$(grep -cE 'sed .*"\$FW_CONFIG_FILE"' "$here/install.sh")"
+check "install.sh 檔頭列出 FORMWRIGHT_DOWNLOAD_BASE" "yes" "$(head -n 12 "$here/install.sh" | grep -q FORMWRIGHT_DOWNLOAD_BASE && echo yes || echo no)"
 
 exit $fail
