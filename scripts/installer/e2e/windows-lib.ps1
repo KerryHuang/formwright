@@ -56,7 +56,17 @@ function Wiz { $o = & pwsh -NoProfile -File scripts/installer/e2e/wizard.ps1 @ar
 
 function Setup-Code { (Get-Content -Raw "$Data\setup-code").Trim() }
 
-# 資料庫檔（含 -wal、-shm）的雜湊；呼叫前要先停服務，否則運作中的檔不穩定或被鎖
+# 資料庫主檔的 hash（同 Linux 的 db_hash）：服務必須已停；以 sqlite3 checkpoint 把 WAL 回填主檔，
+# 結果列「busy|WAL 頁數|已回填頁數」必須是 0|0|0；主檔必須存在且是一般檔案；只 hash 主檔（-wal／-shm 不納入）。任何一步失敗都 throw。
 function Db-Hash {
-  Get-ChildItem $Data -Filter 'formwright.db*' | Sort-Object Name | ForEach-Object { "$($_.Name) $((Get-FileHash $_.FullName -Algorithm SHA256).Hash)" }
+  $svc = Get-Service Formwright -ErrorAction SilentlyContinue
+  Assert ($null -ne $svc -and $svc.Status -eq 'Stopped') '取資料庫 hash 前服務必須已停止'
+  $db = "$Data\formwright.db"
+  $item = Get-Item -LiteralPath $db -ErrorAction Stop
+  Assert (-not $item.PSIsContainer -and -not $item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) "$db 不是一般檔案"
+  $ck = (& sqlite3 $db 'PRAGMA wal_checkpoint(TRUNCATE);' | Out-String).Trim()
+  Assert ($LASTEXITCODE -eq 0) 'sqlite3 失敗'
+  Assert ($ck -ceq '0|0|0') "wal_checkpoint 結果應為 0|0|0、實得 $ck"
+  Assert (Test-Path -LiteralPath $db -PathType Leaf) 'checkpoint 後主檔不見了'
+  (Get-FileHash -LiteralPath $db -Algorithm SHA256).Hash
 }

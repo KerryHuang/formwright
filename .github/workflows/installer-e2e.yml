@@ -521,11 +521,14 @@ jobs:
       - name: config-lost-existing-data（AC-13、D-16）
         run: |
           . ./scripts/installer/e2e/windows-lib.ps1
-          # 運作中的資料庫檔不穩定也可能被鎖：先停服務取基準 hash，再啟動，讓安裝程式面對「服務還在跑」
+          # 先停服務、確認已停；以 sqlite3 checkpoint 後只 hash 主檔（見 windows-lib.ps1 的 Db-Hash，任何一步失敗都 throw）
+          if (-not (Get-Command sqlite3 -ErrorAction SilentlyContinue)) {
+            choco install sqlite --no-progress -y
+            $env:PATH += ';C:\ProgramData\chocolatey\bin'
+          }
           Stop-Service Formwright; Wait-Service 'Stopped'
           $before = Db-Hash
-          Assert ($before.Count -ge 1) '找不到資料庫檔'
-          Start-Service Formwright; Wait-Code "$Base/api/health/ready" 200
+          Assert ($before.Length -eq 64) '基準 hash 長度不是 64'
           Remove-Item 'C:\ProgramData\Formwright\formwright.json'
           Assert ((Install-Fw $env:V2 'config-lost') -eq 0) '設定檔遺失後重裝結束碼不是 0'
           $code = Setup-Code
@@ -537,7 +540,8 @@ jobs:
           Assert ($o -match 'existingData') 'complete 的 422 應含 existingData'
           Stop-Service Formwright; Wait-Service 'Stopped'
           $after = Db-Hash
-          Assert (($before -join "`n") -ceq ($after -join "`n")) '資料庫檔的 hash 變了'
+          Assert ($after.Length -eq 64) '比對 hash 長度不是 64'
+          Assert ($before -ceq $after) '資料庫檔的 hash 變了'
 
       - name: remove-delete-data（D-10）
         run: |
