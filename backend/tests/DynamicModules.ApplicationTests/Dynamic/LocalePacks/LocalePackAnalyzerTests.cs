@@ -294,7 +294,7 @@ public class LocalePackAnalyzerTests
     }
 
     [Fact]
-    public void DesignData_CountedNotApplied()
+    public void DesignData_Counted_NotInOverlayPlan()
     {
         var a = Ok(Parse("{\"format\":\"formwright-langpack\",\"formatVersion\":1,\"locale\":{\"code\":\"th\"},\"designData\":{\"a\":{},\"b\":{},\"c\":{}}}"), World());
         a.Report!.DesignData.Count.Should().Be(3);

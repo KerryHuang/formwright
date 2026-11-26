@@ -94,6 +94,7 @@ public static class DependencyInjection
         services.AddScoped<IOpsLockRepository, OpsLockRepository>();
         services.AddScoped<ILocaleRepository, LocaleRepository>();
         services.AddScoped<ILocalePackRepository, LocalePackRepository>();
+        services.AddScoped<IDesignTextRepository, DesignTextRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IOrganizationRepository, OrganizationRepository>();
         services.AddScoped<IApprovalFlowRepository, ApprovalFlowRepository>();

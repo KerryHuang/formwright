@@ -2,6 +2,7 @@ using System.Text.Json;
 using DynamicModules.Application.Common;
 using DynamicModules.Application.Common.Audit;
 using DynamicModules.Application.Common.Security;
+using DynamicModules.Application.Dynamic.LocaleService.DesignData;
 using DynamicModules.Application.Dynamic.LocaleService.Packs;
 using DynamicModules.Application.Dynamic.PolicyService;
 using DynamicModules.Domain.Entities.Dynamic;
@@ -13,14 +14,15 @@ namespace DynamicModules.Application.Dynamic.LocaleService.Commands.ApplyLocaleP
 
 /// <summary>
 /// 交易內（i4d1 計畫判斷 16）：取預覽（不存在、過期、不是自己的 → 404）→ 檔案雜湊 → 該語系的內容指紋與目前版 Id（預覽後被改 → 409）→
-/// 用交易內最新的 <see cref="LocaleWorld"/> 重驗上層語系圖、A39（→ 400）與是／否撞字（結果和預覽不同 → 409，Q11）→ 寫語系列 →
-/// 目前版覆寫層＋計畫的句子組新版本（覆寫層沒變就不加版本）→ 刪預覽 → <see cref="IUnitOfWork.CommitAsync"/> → 稽核補充；
+/// 用交易內最新的 <see cref="LocaleWorld"/> 重驗上層語系圖、A39（→ 400）與是／否撞字（結果和預覽不同 → 409，Q11）→
+/// <c>designData</c> 各目標的內容指紋（i4e，不一致 → 409）→ 寫語系列 → 目前版覆寫層＋計畫的句子組新版本（覆寫層沒變就不加版本）→
+/// 寫設計資料（每個目標一筆 <c>design.translate</c> 稽核）→ 刪預覽 → <see cref="IUnitOfWork.CommitAsync"/> → 稽核補充；
 /// 快照的失效登記在 <see cref="AfterCommitActions"/>，回滾就不執行。句子不重驗：計畫是預覽時驗過的，該語系的基底由第 2 步保證沒變。
 /// </summary>
 public sealed class ApplyLocalePackHandler(
     LocaleWorldReader worlds, ILocaleRepository locales, ILocalePackRepository packs, IPolicyReader policies, IUnitOfWork uow,
     TimeProvider time, ICurrentUser current, AuditContext audit, AfterCommitActions afterCommit, LocaleRegistry registry,
-    LocalePackSettings settings) : IRequestHandler<ApplyLocalePackRequest, ServiceResult>
+    LocalePackSettings settings, DesignDataApplier design) : IRequestHandler<ApplyLocalePackRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(ApplyLocalePackRequest request, CancellationToken ct)
     {
@@ -43,6 +45,9 @@ public sealed class ApplyLocalePackHandler(
         if (recheck.Invalid is not null)
             return ServiceResult.Invalid(LocalePackMessages.FileField, recheck.Invalid, LocalePackMessages.CodeInvalid);
         if (recheck.BooleanChanged) return Stale();
+        // designData（i4e，§23.2）：寫入任何東西之前先比對各目標的內容指紋與群組撞名，不一致回 409
+        var prepared = await design.PrepareAsync(plan.Code, plan.DesignData, request.ApplySourceChanged, ct);
+        if (prepared is null) return Stale();
 
         // 語系列：新安裝，或既有的匯入語系有欄位變動（內建語系的計畫不會帶 Locale，Q3）
         if (plan.Locale is { } l)
@@ -79,6 +84,7 @@ public sealed class ApplyLocalePackHandler(
             };
             packs.AddVersion(next, currentPack, await packs.PreviousAsync(plan.Code, ct), now);
         }
+        design.Apply(plan.Code, prepared);
         packs.RemovePreview(preview);
         await uow.CommitAsync(ct);
 
@@ -88,14 +94,21 @@ public sealed class ApplyLocalePackHandler(
         audit.Detail("fileName", preview.FileName);
         audit.Detail("fileHash", preview.FileHash);
         audit.Detail("isNew", plan.IsNew);
-        audit.Detail("noChanges", plan.NoChanges);
+        var noChanges = plan.NoChanges && prepared.Rows.Count == 0;
+        audit.Detail("noChanges", noChanges);
         audit.Detail("ui", Counts(report.Ui));
         audit.Detail("server", Counts(report.Server));
-        audit.Detail("designData", new { count = report.DesignData.Count, applied = 0 });
+        audit.Detail("designData", new
+        {
+            count = report.DesignData.Count, applied = prepared.Rows.Count, sourceChangedApplied = prepared.Rows.Count(r => r.Row.SourceChanged),
+        });
         afterCommit.Add("locale-registry", registry.Invalidate);
 
         var enabled = (await worlds.ReadAsync(ct)).Enabled.Contains(plan.Code);
-        return ServiceResult.Success(new ApplyLocalePackResponse(plan.Code, plan.IsNew, plan.NoChanges, next?.Id ?? currentPack?.Id, enabled));
+        return ServiceResult.Success(new ApplyLocalePackResponse(plan.Code, plan.IsNew, noChanges, next?.Id ?? currentPack?.Id, enabled)
+        {
+            DesignDataApplied = prepared.Rows.Count,
+        });
     }
 
     private static ServiceResult Stale() => ServiceResult.Conflict(LocalePackMessages.Stale, LocalePackMessages.CodeStale);

@@ -206,8 +206,10 @@ public class LocaleTemplateBuilderTests
         Err(world, Opt("id", nativeName: "Bahasa", fallback: "xb")).Should().BeNull();
         Err(world, Opt("th", source: "ko")).Should().Be("語系 ko 沒有安裝");
         Err(world, Opt("th", reference: "ko")).Should().Be("語系 ko 沒有安裝");
-        Err(world, Opt("th", [])).Should().Be("匯出範圍只能是 ui、server，至少要選一個");
-        Err(world, Opt("th", ["ui", "designData"])).Should().Be("匯出範圍只能是 ui、server，至少要選一個");
+        Err(world, Opt("th", [])).Should().Be("匯出範圍只能是 ui、server、designData，至少要選一個");
+        Err(world, Opt("th", ["ui", "records"])).Should().Be("匯出範圍只能是 ui、server、designData，至少要選一個");
+        Err(world, Opt("th", ["ui", "designData"])).Should().BeNull();
+        Err(world, Opt("id", ["designData"], nativeName: "Bahasa")).Should().Be("設計資料只能匯出已安裝的語系");
         Err(world, Opt("th", reference: "")).Should().BeNull();
         Err(world, Opt("th", nativeName: new string('a', 51))).Should().BeNull("已安裝的語系不看 locale 欄位");
     }

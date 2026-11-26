@@ -9,7 +9,8 @@ namespace DynamicModules.Application.Dynamic.LocaleService.Commands.ApplyLocaleP
 /// 套用預覽過的語系包（<c>POST i18n/packs/apply</c>；語系包設計 §6.3 第 3 步、i4d1 計畫判斷 16）。稽核宣告 <c>locale.pack.import</c>，
 /// 新安裝時 handler 換成 <c>locale.install</c>（判斷 17）。
 /// </summary>
-public sealed record ApplyLocalePackRequest(string PreviewId, string FileHash)
+/// <param name="ApplySourceChanged">預覽頁勾了「仍套用這些列」：原文已改的 <c>designData</c> 列也寫（U8、§23.2）。</param>
+public sealed record ApplyLocalePackRequest(string PreviewId, string FileHash, bool ApplySourceChanged = false)
     : IRequest<ServiceResult>, ITransactionalRequest, ISystemAdminRequest, IAuditedRequest
 {
     public AuditAction Audit => AuditAction.For("locale.pack.import", AuditTargets.Locale, null);
