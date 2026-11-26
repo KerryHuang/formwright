@@ -605,7 +605,7 @@ i3b 背景實作（2026-11-26）時自己定的技術做法與代做的使用者
 ### 23.1 技術類
 
 1. **驗證放 `ModuleRules.ValidModuleSection`**（建立、修改兩個 validator 共用）：順序是語系鍵格式 → null 值（訊息沿用 `I18nNameRules.NullValue`）→ 每語 ≤ 100 → 有非空值時繁中必填。全部語系都空白視同不分區，不報錯。
-2. **去空字串語系在 `Module.SetSection`**（Domain）：丟掉空字串與空白的語系；繁中空白仍清成不分區。
+2. **正規化在 `Module`**（Domain）：`SetSection` 用 `I18nText.Compacted()` 去前後空白、丟空白語系，繁中空白仍清成不分區；`SectionText()` 讀取端同樣去掉 null 與空白語系，升級前存進去的 null 值不再擋住同一模組不相干的修改（政策調嚴不溯及既有資料）。長度檢查算去前後空白後的字數，同 `I18nNameRules.TooLong`。
 3. **API 收字串**：`CreateModuleBody.Section`、`UpdateModuleBody.Section` 掛通用的 `I18nTextOrStringJsonConverter`（讀字串＝只有繁中）。
 4. **群組、部門譯名**放 `DemoPeople` 的靜態表（`Name(zh, en, th, vi)` 小函式），照 §11.1 的表；`EnsureAsync`、`EnsureOrganizationAsync` 建立時整包寫入，「已存在的不覆寫」不變。
 5. **`DYN00000` 補譯**：`SeedData` 以「名稱只有 `zh-TW` 一個語系且值是出廠值」判定為出廠；多一個語系或任一格不同都不動。
@@ -617,6 +617,8 @@ i3b 背景實作（2026-11-26）時自己定的技術做法與代做的使用者
 
 ### 23.3 已知限制與交給 i3c
 
-- 套件與範本開啟時走 `CreateModuleRequest`：格式內若有「只有其他語系、沒有繁中」的 `section`，現在會在開啟時被擋（以前是靜默丟掉）。驗證器的預先檢查（§9 第 1 點）是 i3c 的範圍，在 i3c 上線前，這種套件要到開啟才報錯。`backend/apps/*.app.json` 全部 7 份的 `section` 都有繁中（腳本逐份檢查，`AppCatalogChecks` 通過）。
+- 套件與範本開啟時走 `CreateModuleRequest`：格式內若有「只有其他語系、沒有繁中」的 `section`，現在會在開啟時被擋（以前是靜默丟掉）。驗證器的預先檢查（§9 第 1 點）是 i3c 的範圍，在 i3c 上線前，這種套件要到開啟才報錯。套件升級（`AppUpgrader`，走 `UpdateModuleRequest`）與重新套用範本（`TemplateInstantiator`）缺繁中時同樣會被擋，i3c 補驗證器時這兩條要一起納入測試。`backend/apps/*.app.json` 全部 7 份的 `section` 都有繁中（腳本逐份檢查，`AppCatalogChecks` 通過）。
 - 沒有新增寫死項目：長度 100 與「分區有值必須有繁中」都已在 §15。
+- **缺繁中訊息進 `IMessageCatalog`**（審查修正）：鍵 `ModuleSectionZhRequired`，四語在 `MessageText`，基準檔 `ServerTextBaseline/module-section.json`；`CreateModuleValidator`、`UpdateModuleValidator` 注入 `IMessageCatalog` 與 `RequestLocale`，依請求語系取用。同檔其餘模組設計器訊息（「選單分區不能超過 100 字」「不支援的語系」等）不搬，範圍不擴大。
+- **審查建議未收**：`DemoPeople.Groups`／`Departments` 公開靜態陣列裡的可變 `I18nText`（目前呼叫端都有複製）、DYN00000 譯名與 `shared/i18n/*/ui.json` 兩份來源的比對測試。
 
