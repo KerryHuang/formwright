@@ -6,13 +6,21 @@ using DynamicModules.Domain.ValueObjects;
 
 namespace DynamicModules.Application.Dynamic.TemplateService.Data;
 
-// 第 8 階段決策 1 的範本格式（formatVersion 1）。範本內以代號互相引用，套用時才配發 id。
+// 第 8 階段決策 1 的範本格式（formatVersion 1、2）。範本內以代號互相引用，套用時才配發 id。
 // 集合屬性在 JSON 缺漏時視為空清單；Config 缺漏時視為空物件。
 
+/// <summary>
+/// 1：語系鍵只收四語（同套件格式 2–9）。
+/// 2：語系鍵改只驗代碼格式、欄位可帶 excludeFromAi（同套件格式 10，名稱多語設計 §8.1、§9 第 5 點）。
+/// 範本讀取器不拒絕未知屬性，舊版程式讀到格式 2 會因版號整份擋下，不會靜默丟掉旗標；匯出一律寫目前版本。
+/// </summary>
 public record TemplatePackage(
     int FormatVersion, string Key, I18nText Name, I18nText? Description,
     List<TemplateModule> Modules, List<string>? Warnings)
 {
+    public const int CurrentFormatVersion = 2;
+    public const int MinFormatVersion = 1;
+
     public List<TemplateModule> Modules { get; init; } = Modules ?? [];
 }
 
@@ -45,8 +53,11 @@ public record TemplateBlock(string Code, I18nText Label, bool Collapsed, List<Te
 /// <summary>
 /// Config 是 FieldConfig 的 JSON，但 formula、選項、rollup、parentDefaultField 用代號；替換在套用時做。
 /// Active 是 false 代表客戶停用了這個欄位（應用程式套件格式 6，只用在主檔模組與貢獻欄位）；省略時為啟用。
+/// ExcludeFromAi 是「不提供給 AI」旗標（應用程式套件格式 10、範本格式 2；名稱多語設計 §8.1）：省略等於 false，匯出只寫 true；
+/// 套用時寫入 true 要權限設定，只加不減（重新套用不清掉既有的 true）。
 /// </summary>
-public record TemplateField(string Code, FieldType Type, I18nText Label, JsonElement Config, List<TemplateOption> Options, bool? Active = null)
+public record TemplateField(
+    string Code, FieldType Type, I18nText Label, JsonElement Config, List<TemplateOption> Options, bool? Active = null, bool? ExcludeFromAi = null)
 {
     private static readonly JsonElement EmptyObject = JsonDocument.Parse("{}").RootElement.Clone();
 

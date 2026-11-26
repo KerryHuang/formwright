@@ -37,9 +37,13 @@ public static partial class TemplateValidator
             return errors;
         }
 
-        if (p.FormatVersion != 1) errors.Add($"formatVersion 必須是 1（目前是 {p.FormatVersion}）");
+        if (p.FormatVersion is < TemplatePackage.MinFormatVersion or > TemplatePackage.CurrentFormatVersion)
+            errors.Add($"formatVersion 必須是 {TemplatePackage.MinFormatVersion} 或 {TemplatePackage.CurrentFormatVersion}（目前是 {p.FormatVersion}）");
         if (!ModuleKey().IsMatch(p.Key ?? "")) errors.Add($"範本代號 {p.Key} 格式錯誤（小寫英文、數字、連字號，2 到 40 字，英文開頭）");
         if (!HasZhTw(p.Name)) errors.Add("範本名稱必須有繁體中文");
+        var codeFormat = p.FormatVersion >= TemplatePackage.CurrentFormatVersion;
+        CheckLocales(p.Name, "範本名稱", codeFormat, errors);
+        CheckLocales(p.Description, "範本說明", codeFormat, errors);
         if (p.Modules.Count == 0) errors.Add("範本至少要有一個模組");
 
         var modules = new Dictionary<string, TemplateModule>();
@@ -52,7 +56,7 @@ public static partial class TemplateValidator
             else if (!keys.Add(m.Key!)) errors.Add($"{m.Code}: 模組代碼重複 {m.Key}");
         }
 
-        foreach (var m in p.Modules) ValidateModule(m, modules, errors);
+        foreach (var m in p.Modules) ValidateModule(m, modules, errors, codeFormat);
 
         var graph = Build(p);
         if (graph.HasCycle)
@@ -79,10 +83,12 @@ public static partial class TemplateValidator
         }
     }
 
-    private static void ValidateModule(TemplateModule m, Dictionary<string, TemplateModule> modules, List<string> errors)
+    private static void ValidateModule(TemplateModule m, Dictionary<string, TemplateModule> modules, List<string> errors, bool codeFormat)
     {
         var mc = m.Code;
         if (!HasZhTw(m.Name)) errors.Add($"{mc}: 名稱必須有繁體中文");
+        CheckLocales(m.Name, $"{mc}.name", codeFormat, errors);
+        if (m.Section is { } section) CheckSection(section, $"{mc}.section", codeFormat, errors);
         if (!Enum.IsDefined(m.Kind)) errors.Add($"{mc}: 模組種類不正確");
         if (m.Blocks.Count == 0) errors.Add($"{mc}: 至少要有一個區塊");
 
@@ -94,6 +100,7 @@ public static partial class TemplateValidator
             if (!Code().IsMatch(b.Code ?? "")) errors.Add($"{mc}: 區塊代號 {b.Code} 格式錯誤");
             else if (!blockCodes.Add(b.Code!)) errors.Add($"{mc}: 區塊代號重複 {b.Code}");
             if (!HasZhTw(b.Label)) errors.Add($"{mc}: 區塊 {b.Code} 的名稱必須有繁體中文");
+            CheckLocales(b.Label, $"{mc}.blocks.{b.Code}.label", codeFormat, errors);
             // 技術範圍（null 合法：開啟時用新區塊的欄數）；生效的上限在開啟時夾
             if (b.Columns is { } cols && (cols < 1 || cols > PolicyCatalog.FormMaxColumns.Max))
                 errors.Add($"{mc}: 區塊 {b.Code} 的每列欄數必須是 1 到 {PolicyCatalog.FormMaxColumns.Max}");
@@ -105,12 +112,17 @@ public static partial class TemplateValidator
                 else if (!fields.TryAdd(f.Code!, f)) errors.Add($"{at}: 欄位代號重複");
                 if (!Enum.IsDefined(f.Type)) errors.Add($"{at}: 欄位型別不正確");
                 if (!HasZhTw(f.Label)) errors.Add($"{at}: 標籤必須有繁體中文");
+                CheckLocales(f.Label, $"{at}.label", codeFormat, errors);
+                // 舊版程式讀範本不拒絕未知屬性，格式 1 帶了旗標會被靜默丟掉（欄位變成 AI 看得到），所以整份拒絕（名稱多語設計 §8.1）
+                if (f.ExcludeFromAi is not null && !codeFormat)
+                    errors.Add($"{at}.excludeFromAi: 範本格式 {TemplatePackage.CurrentFormatVersion} 才支援");
                 if (f.Config.ValueKind != JsonValueKind.Object) errors.Add($"{at}: 設定必須是物件");
                 foreach (var o in f.Options)
                 {
                     if (!OptionCode().IsMatch(o.Code ?? "")) errors.Add($"{at}: 選項代號 {o.Code} 格式錯誤");
                     else if (!optionCodes.Add(o.Code!)) errors.Add($"{at}: 選項代號重複 {o.Code}");
                     if (!HasZhTw(o.Label)) errors.Add($"{at}: 選項 {o.Code} 的名稱必須有繁體中文");
+                    CheckLocales(o.Label, $"{at}.options.{o.Code}", codeFormat, errors);
                 }
             }
         }
@@ -130,13 +142,17 @@ public static partial class TemplateValidator
             ValidateFieldConfig(m, f, fields, modules, errors);
 
         for (var i = 0; i < m.Rules.Count; i++)
+        {
             ValidateRule(m, m.Rules[i], $"{mc}: 規則 {i + 1}", fields, blockCodes, errors);
+            CheckLocales(m.Rules[i].Message, $"{mc}.rules[{i}].message", codeFormat, errors);
+        }
 
         foreach (var v in m.Views)
         {
             // 刻意用繁中（#66）：範本驗證是靜態檢查，套件文字以繁中為準（判斷 12），同一批錯誤句全是繁中固定句。
             var at = $"{mc}: 檢視「{v.Name?.Resolve(I18nText.FallbackLocale)}」";
             if (!HasZhTw(v.Name)) errors.Add($"{at}的名稱必須有繁體中文");
+            CheckLocales(v.Name, $"{mc}.views", codeFormat, errors);
             foreach (var c in v.Columns.Where(c => !fields.ContainsKey(c)))
                 errors.Add($"{at}的欄 {c} 不存在");
             foreach (var s in v.Sort)
@@ -311,6 +327,35 @@ public static partial class TemplateValidator
         var fields = new Dictionary<string, TemplateField>();
         foreach (var f in module.Blocks.SelectMany(b => b.Fields).Where(f => f.Code is not null)) fields.TryAdd(f.Code, f);
         return fields;
+    }
+
+    /// <summary>
+    /// 語系鍵（名稱多語設計 §9 第 5 點，與套件同一規則）：範本格式 1 只收四語（同套件格式 2–9 的 <see cref="AppService.AppPackageValidator.FormatLocales"/>），
+    /// 格式 2 只驗語系代碼格式（同套件格式 10，沒安裝的語系也收）。null 值也在這裡擋。
+    /// </summary>
+    private static void CheckLocales(I18nText? text, string at, bool codeFormat, List<string> errors)
+    {
+        if (text is null) return;
+        if (text.Values.FirstOrDefault(kv => kv.Value is null) is { Key: { } nullKey }) errors.Add($"{at}: {Common.I18nNameRules.NullValue(nullKey)}");
+        else if (UnsupportedLocale(text, codeFormat) is { } unknown) errors.Add($"{at}: 不支援的語系：{unknown}");
+    }
+
+    private static string? UnsupportedLocale(I18nText text, bool codeFormat) => codeFormat
+        ? I18nText.InvalidLocale(text.Values.Keys)
+        : text.Values.Keys.FirstOrDefault(k => !AppService.AppPackageValidator.FormatLocales.Contains(k));
+
+    /// <summary>
+    /// 模組的選單分區（名稱多語設計 §9 第 1 點；套件與範本共用）：選填，但有任何非空值時繁中必填（分組鍵是繁中）；語系鍵依格式、拒收 null 值、
+    /// 語系鍵最多 <see cref="Common.I18nNameRules.MaxLocales"/> 個、每語系不超過 <see cref="ModuleRules.SectionMaxLength"/> 字。空字串的語系開啟時丟掉，不算錯。
+    /// </summary>
+    internal static void CheckSection(I18nText section, string at, bool codeFormat, List<string> errors)
+    {
+        if (section.Values.FirstOrDefault(kv => kv.Value is null) is { Key: { } nullKey }) { errors.Add($"{at}: {Common.I18nNameRules.NullValue(nullKey)}"); return; }
+        if (section.Values.Count > Common.I18nNameRules.MaxLocales) { errors.Add($"{at}: {Common.I18nNameRules.TooManyLocales}"); return; }
+        if (UnsupportedLocale(section, codeFormat) is { } unknown) { errors.Add($"{at}: 不支援的語系：{unknown}"); return; }
+        if (section.Values.Values.Any(v => v.Trim().Length > 0) && !HasZhTw(section)) errors.Add($"{at}: {I18nText.FallbackLocale} 為必填");
+        foreach (var (locale, _) in section.Values.Where(kv => kv.Value.Trim().Length > ModuleRules.SectionMaxLength))
+            errors.Add($"{at}: {locale} 不能超過 {ModuleRules.SectionMaxLength} 字");
     }
 
     private static bool HasZhTw(I18nText? text) =>

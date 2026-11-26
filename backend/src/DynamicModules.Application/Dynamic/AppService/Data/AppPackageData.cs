@@ -1,11 +1,12 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using DynamicModules.Application.Dynamic.TemplateService.Data;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.ValueObjects;
 
 namespace DynamicModules.Application.Dynamic.AppService.Data;
 
-// 應用程式套件格式（formatVersion 2 到 9）。modules 直接重用範本的 TemplateModule；
+// 應用程式套件格式（formatVersion 2 到 10）。modules 直接重用範本的 TemplateModule；
 // 保留的 section（dashboards）目前只能是空陣列，讀進來的值不解讀，非空一律整份拒絕（fail-closed，見 AppPackageValidator）。
 
 public record AppPackageData(
@@ -26,8 +27,9 @@ public record AppPackageData(
     /// 7：taskRules 與模組的 tasksEnabled 可用（6 以下的檔案這些必須是空的／不存在）。
     /// 8：approvalFlows、轉移的 approval、狀態的 editable 可用（7 以下的檔案這些必須是空的／不存在）。
     /// 9：approvalFlows 改用流程圖（shape graph 加 nodes、edges）；stages 只在 8 出現，讀進來時轉成 graph（流程圖設計 §13 第 5 點）。
+    /// 10：語系鍵改只驗語系代碼格式（i4f）、reports[].name 可寫多語物件、欄位可帶 excludeFromAi（名稱多語設計 §8；9 以下不放寬）。
     /// </summary>
-    public const int CurrentFormatVersion = 9;
+    public const int CurrentFormatVersion = 10;
     public const int MinFormatVersion = 2;
 
     public List<AppGroup> Groups { get; init; } = Groups ?? [];
@@ -155,8 +157,12 @@ public record AppPrintTemplate(string Module, string Code, I18nText Name, bool A
 /// <summary>From、To 都是限定欄位名。</summary>
 public record AppCopy(string From, string To);
 
-/// <summary>報表。Name 不分語系（同 Report.Name）；ShareWith 是 groups[].code。</summary>
-public record AppPackageReport(string Code, string Name, List<string> ShareWith, AppReportDefinition Definition)
+/// <summary>
+/// 報表。Name 是多語名稱（同 Report.NameI18n）：JSON 可以是字串（＝只有繁中）或多語物件，格式 10 起才收繁中以外的語系；
+/// 匯出時只有繁中寫字串，和格式 9 以前一字不差（名稱多語設計 §8）。ShareWith 是 groups[].code。
+/// </summary>
+public record AppPackageReport(
+    string Code, [property: JsonConverter(typeof(SectionTextJsonConverter))] I18nText Name, List<string> ShareWith, AppReportDefinition Definition)
 {
     public List<string> ShareWith { get; init; } = ShareWith ?? [];
 }

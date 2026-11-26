@@ -1,3 +1,4 @@
+using DynamicModules.Application.Common;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -330,7 +331,7 @@ public class AdminGroupsApiTests
         {
             var report = new Report
             {
-                OwnerUserId = "sales01", Name = "月營收", DefinitionJson = "{}", RowVersion = Guid.NewGuid().ToString(),
+                OwnerUserId = "sales01", NameI18n = I18nNameRules.ZhOnly("月營收"), DefinitionJson = "{}", RowVersion = Guid.NewGuid().ToString(),
                 Shares = [new ReportShare { GroupId = id }, new ReportShare { GroupId = other }]
             };
             db.Set<Report>().Add(report);

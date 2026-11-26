@@ -26,7 +26,7 @@ public sealed partial class TemplateExporter(IModuleRepository modules, IPermiss
                 members.Add(full);
 
         var exported = await ExportMembersAsync(members, m => m.Key, null, ct);
-        return new TemplatePackage(1, module.Key, module.NameI18n, null, exported.Modules,
+        return new TemplatePackage(TemplatePackage.CurrentFormatVersion, module.Key, module.NameI18n, null, exported.Modules,
             exported.Warnings.Count > 0 ? exported.Warnings : null);
     }
 
@@ -51,7 +51,7 @@ public sealed partial class TemplateExporter(IModuleRepository modules, IPermiss
                 ctx.FieldsOf(b).Where(f => ctx.Exported.Contains(f.Id))
                     .Select(f => new TemplateField(ctx.FieldCode(f), f.Type, f.LabelI18n, ctx.Config(f), ActiveOptions(f)
                         .Select(o => new TemplateOption(ctx.OptionCode(o.Id), o.LabelI18n, o.Color)).ToList(),
-                        f.Status == FieldStatus.Active ? null : false)).ToList(), b.Columns)).ToList();
+                        f.Status == FieldStatus.Active ? null : false, f.ExcludeFromAi ? true : null)).ToList(), b.Columns)).ToList();
             var rules = m.Rules.OrderBy(r => r.Sequence).Select((r, i) => ctx.Rule(m, r, i)).OfType<TemplateRule>().ToList();
             var shared = (await views.ListByScopeAsync(m.Id, null, ct)).OrderBy(v => v.Id).Select(ctx.View).ToList();
             var title = m.TitleFieldId is { } t && ctx.Exported.Contains(t) ? ctx.FieldCode(ctx.Fields[t]) : null;

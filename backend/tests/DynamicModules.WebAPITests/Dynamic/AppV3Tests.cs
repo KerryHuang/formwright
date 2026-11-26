@@ -158,7 +158,7 @@ public class AppV3Tests : IDisposable
         Db(db => db.Set<Conversion>().Count(c => c.Key == "sales-quote-to-order")).Should().Be(1);
         Db(db => db.Set<AppReport>().Count()).Should().Be(1);
         var report = Db(db => db.Set<Report>().Include(r => r.Shares).Single());
-        report.Name.Should().Be("報價狀態分布");
+        report.NameI18n.Resolve("zh-TW").Should().Be("報價狀態分布");
         report.Shares.Should().HaveCount(1);
     }
 
@@ -167,7 +167,7 @@ public class AppV3Tests : IDisposable
     {
         await ImportAndOpen(_admin, AppTestPackagesV3.Sales(), "sales-flow");
         var exported = await ExportOk("sales-flow");
-        exported.GetProperty("formatVersion").GetInt32().Should().Be(9);
+        exported.GetProperty("formatVersion").GetInt32().Should().Be(10);
         exported.GetProperty("workflows").GetArrayLength().Should().Be(1);
         exported.GetProperty("conversions").GetArrayLength().Should().Be(1);
         exported.GetProperty("reports").GetArrayLength().Should().Be(1);
@@ -386,7 +386,7 @@ public class AppV3Tests : IDisposable
         (await blocked.Content.ReadAsStringAsync()).Should().Contain("業務看板");
         var blocker = JsonDocument.Parse(await blocked.Content.ReadAsStringAsync()).RootElement.GetProperty("blockers").EnumerateArray()
             .Single(b => b.GetProperty("kind").GetString() == "dashboard");
-        blocker.GetProperty("reportName").GetString().Should().Be(Db(db => db.Set<Report>().Single(r => r.Id == reportId).Name), "帶出報表名，畫面才寫得出「報表『○○』還在儀表板『△△』上」");
+        blocker.GetProperty("reportName").GetString().Should().Be(Db(db => db.Set<Report>().Single(r => r.Id == reportId).NameI18n.Resolve("zh-TW")), "帶出報表名，畫面才寫得出「報表『○○』還在儀表板『△△』上」");
         Db(db => db.Set<Report>().Count()).Should().BeGreaterThan(0);
 
         (await _admin.DeleteAsync($"{DashboardTestKit.AdminDashboards}/{dashboard}")).EnsureSuccessStatusCode();

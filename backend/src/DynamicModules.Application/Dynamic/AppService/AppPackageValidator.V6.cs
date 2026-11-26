@@ -111,17 +111,18 @@ public static partial class AppPackageValidator
             else
             {
                 if (!Code().IsMatch(c.Block.Code ?? "")) errors.Add($"{at}.block.code: 格式錯誤");
-                CheckText(c.Block.Name, $"{at}.block.name", errors);
+                CheckText(c.Block.Name, $"{at}.block.name", errors, p.FormatVersion);
             }
             if (c.Fields.Count > MaxContributionFields) errors.Add($"{at}.fields: 最多 {MaxContributionFields} 個");
             foreach (var f in c.Fields)
             {
                 if (f is null) { errors.Add($"{at}.fields: 不能有 null"); continue; }
                 var fat = $"{at}.fields[{f.Code}]";
-                CheckText(f.Label, $"{fat}.label", errors);
+                CheckText(f.Label, $"{fat}.label", errors, p.FormatVersion);
                 if (f.Options.Any(o => o is null)) errors.Add($"{fat}.options: 不能有 null");
-                foreach (var o in f.Options.Where(o => o is not null)) CheckText(o.Label, $"{fat}.options.{o.Code}", errors);
+                foreach (var o in f.Options.Where(o => o is not null)) CheckText(o.Label, $"{fat}.options.{o.Code}", errors, p.FormatVersion);
                 CheckConfigKeys($"{at}.fields", f, p.FormatVersion, errors);
+                CheckExcludeFromAi(f, fat, errors, p.FormatVersion);
                 // 規則和設計器在貢獻者區塊加欄位共用（ContributionFieldRules）
                 var hasConfig = f.Config.ValueKind == JsonValueKind.Object;
                 var shape = ContributionFieldRules.ShapeErrors(f.Type,

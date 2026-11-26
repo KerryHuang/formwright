@@ -108,12 +108,12 @@ public class UpgradeClassifierTests
             names.Should().BeSubsetOf(UpgradeItems.ComparedProperties(reached[type]).Select(p => p.Name), type);
     }
 
-    /// <summary>覆蓋率測試自己會擋：手工比對的 record 多一個沒歸類的屬性就要紅（模擬 i3c 在欄位上加 excludeFromAi，§13）。</summary>
+    /// <summary>覆蓋率測試自己會擋：手工比對的 record 多一個沒歸類的屬性就要紅（i3c 的 excludeFromAi 已歸類；這裡模擬之後再加一個沒歸類的屬性，§13）。</summary>
     [Fact]
     public void Coverage_FlagsAnUnlistedProperty_OnAHandComparedRecord()
     {
         var (_, problems) = Coverage(typeof(Fake.TemplateField), t => t == typeof(Fake.TemplateField) || InPackage(t));
-        problems.Should().Equal("TemplateField.ExcludeFromAi 沒有歸類");
+        problems.Should().Equal("TemplateField.FutureFlag 沒有歸類");
     }
 
     private static bool InPackage(Type t) => t.Namespace?.StartsWith("DynamicModules.Application.Dynamic") == true;
@@ -145,6 +145,6 @@ public class UpgradeClassifierTests
     private static class Fake
     {
         public sealed record TemplateField(string Code, DynamicModules.Domain.Entities.Dynamic.FieldType Type, DynamicModules.Domain.ValueObjects.I18nText Label,
-            JsonElement Config, List<TemplateOption> Options, bool? Active, bool ExcludeFromAi);
+            JsonElement Config, List<TemplateOption> Options, bool? Active, bool? ExcludeFromAi, bool FutureFlag);
     }
 }

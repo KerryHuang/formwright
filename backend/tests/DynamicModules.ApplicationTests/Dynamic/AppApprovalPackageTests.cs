@@ -152,9 +152,9 @@ public class AppApprovalPackageTests
     }
 
     [Fact]
-    public void Format10_Parse_NeedsNewerVersion()
+    public void Format11_Parse_NeedsNewerVersion()
     {
-        AppJson.Parse(Package(GraphFlow, formatVersion: 10)).Errors.Should().ContainSingle()
+        AppJson.Parse(Package(GraphFlow, formatVersion: 11)).Errors.Should().ContainSingle()
             .Which.Should().Be("這個套件需要較新版本的 Formwright");
     }
 

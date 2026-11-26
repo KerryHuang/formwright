@@ -62,7 +62,8 @@ public static class UpgradeItems
                 ("Views", "逐檢視展開"), ("Permissions", "展開成模組權限項目"),
                 ("Extensible", "不存資料庫，執行期直接讀目前套件；現況匯出也取自候選新版，比了永遠一致（審查 S3）")),
             [nameof(TemplateBlock)] = Reasons(("Code", "識別"), ("Fields", "逐欄位展開；欄位所在區塊與排序不比（T7）")),
-            [nameof(TemplateField)] = Reasons(("Code", "識別"), ("Options", "逐選項展開；選項排序不比（T7）")),
+            [nameof(TemplateField)] = Reasons(("Code", "識別"), ("Options", "逐選項展開；選項排序不比（T7）"),
+                ("ExcludeFromAi", "只在開啟與從範本建立時寫入、只加不減（名稱多語設計 §8.1）；升級不比、不改客戶現值，新增的欄位照套件寫入")),
             [nameof(TemplateOption)] = Reasons(("Code", "識別")),
             [nameof(TemplateView)] = Reasons(),
             [nameof(TemplatePermission)] = Reasons(("Group", "換成客戶群組 id 當識別（§6.2.1）")),
@@ -176,7 +177,7 @@ public static class UpgradeItems
         {
             var props = Generic(r with { ShareWith = [] });
             props["shareWith"] = Normalize(JsonSerializer.SerializeToNode(GroupSet(r.ShareWith, groupOf)));
-            Add(new UpgradeItem($"report:{r.Code}", "reports", r.Definition.MainModule, new I18nText([KeyValuePair.Create(I18nText.FallbackLocale, r.Name)]), props)
+            Add(new UpgradeItem($"report:{r.Code}", "reports", r.Definition.MainModule, r.Name, props)
                 { Refs = RefsOf(r.Definition) });
         }
 

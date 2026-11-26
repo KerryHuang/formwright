@@ -4,11 +4,7 @@ using DynamicModules.Domain.ValueObjects;
 namespace DynamicModules.Domain.Repositories.Dynamic;
 
 /// <summary>某張儀表板（或個人版）上有卡片引用某報表；OwnerUserId 為 null 是指派版。</summary>
-public record DashboardReportReference(long DashboardId, I18nText DashboardNameI18n, string? OwnerUserId, bool IsPersonalVersion, string? PersonalUserId)
-{
-    /// <summary>繁中名稱：只給刪除應用程式的檢查用（AppService，另段改成依請求語系）；其他地方用 <see cref="DashboardNameI18n"/> 依請求語系解析。</summary>
-    public string DashboardName => DashboardNameI18n.Resolve(I18nText.FallbackLocale);
-}
+public record DashboardReportReference(long DashboardId, I18nText DashboardNameI18n, string? OwnerUserId, bool IsPersonalVersion, string? PersonalUserId);
 
 public interface IDashboardRepository
 {

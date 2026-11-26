@@ -54,7 +54,7 @@ public class EventNoticeFlowScenarioTests(DemoGeneratedFixture fx)
         result.IsSuccess.Should().BeTrue(result.Message);
         var export = (DynamicModules.Application.Dynamic.AppService.Queries.AppExportResult)result.Data!;
         using var package = System.Text.Json.JsonDocument.Parse(export.File.Content);
-        package.RootElement.GetProperty("formatVersion").GetInt32().Should().Be(9);
+        package.RootElement.GetProperty("formatVersion").GetInt32().Should().Be(10);
         var flow = package.RootElement.GetProperty("approvalFlows").EnumerateArray()
             .Single(f => f.GetProperty("code").GetString() == EventRegistrationScenario.NoticeFlowKey);
         flow.GetProperty("shape").GetString().Should().Be("graph");

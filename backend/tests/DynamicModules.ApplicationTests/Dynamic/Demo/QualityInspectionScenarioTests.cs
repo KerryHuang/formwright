@@ -65,7 +65,7 @@ public class QualityInspectionScenarioTests(DemoGeneratedFixture fx)
     public async Task ResultStatsReport_HasData()
     {
         fx.Generated();
-        var report = (await fx.Host.Db.Context.Set<Report>().AsNoTracking().ToListAsync()).Single(r => r.Name == "檢驗結果統計");
+        var report = (await fx.Host.Db.Context.Set<Report>().AsNoTracking().ToListAsync()).Single(r => r.NameI18n.Resolve("zh-TW") == "檢驗結果統計");
         var run = (ReportResult)(await fx.As("qa01", new RunReportRequest(report.Id, null, "zh-TW"))).Data!;
         run.State.Should().Be("ok", run.Message);
         run.Groups.Should().NotBeEmpty();

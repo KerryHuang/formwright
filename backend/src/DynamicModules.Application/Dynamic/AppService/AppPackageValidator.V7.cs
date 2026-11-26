@@ -50,7 +50,7 @@ public static partial class AppPackageValidator
             if (!AppId().IsMatch(r.Code ?? "")) errors.Add($"taskRules[{i}].code: 格式錯誤（小寫英文、數字、連字號，2 到 40 字，英文開頭）");
             else if (!codes.Add(r.Code!)) errors.Add($"taskRules[{i}].code: 任務規則代號重複 {r.Code}");
             var at = TaskRuleAt(r, i);
-            CheckText(r.Name, $"{at}.name", errors);
+            CheckText(r.Name, $"{at}.name", errors, p.FormatVersion);
             if (r.Repeat is not (null or AppTaskRule.Once or AppTaskRule.EveryTime)) errors.Add($"{at}.repeat: 必須是 once 或 everyTime");
             if (r.Trigger is null) { errors.Add($"{at}.trigger: 缺少觸發設定"); continue; }
             if (!TaskTriggerKinds.Contains(r.Trigger.On)) errors.Add($"{at}.trigger.on: {TaskRuleMessages.BadTriggerOn}");
@@ -69,8 +69,8 @@ public static partial class AppPackageValidator
                 var tat = $"{at}.tasks[{t.Code ?? j.ToString()}]";
                 if (!Code().IsMatch(t.Code ?? "")) errors.Add($"{tat}.code: {TaskRuleMessages.BadTaskCode}");
                 else if (!taskCodes.Add(t.Code!)) errors.Add($"{tat}.code: {TaskRuleMessages.DuplicateTaskCode}");
-                CheckText(t.Title, $"{tat}.title", errors);
-                if (t.Description is not null) CheckDescription(t.Description, $"{tat}.description", errors);
+                CheckText(t.Title, $"{tat}.title", errors, p.FormatVersion);
+                if (t.Description is not null) CheckDescription(t.Description, $"{tat}.description", errors, p.FormatVersion);
                 if (t.Assignee is null) errors.Add($"{tat}.assignee: {TaskRuleMessages.AssigneeField}");
                 if (t.Due is { } due && (due.Field is null || due.OffsetDays is < -TaskRuleValidator.MaxOffsetDays or > TaskRuleValidator.MaxOffsetDays))
                     errors.Add($"{tat}.due: {(due.Field is null ? TaskRuleMessages.DueField : TaskRuleMessages.DueOffsetRange)}");
@@ -81,9 +81,9 @@ public static partial class AppPackageValidator
     private static bool IsEmpty(JsonElement? value) => value is null or { ValueKind: JsonValueKind.Null or JsonValueKind.Undefined };
 
     /// <summary>說明和設計器的 CheckText(required:false) 同一套規則：zh-TW 可以不填，只擋不支援的語系、null 值、超過 4000 字。</summary>
-    private static void CheckDescription(I18nText text, string at, List<string> errors)
+    private static void CheckDescription(I18nText text, string at, List<string> errors, int version)
     {
-        if (NonFormatLocale(text) is { } unknown) { errors.Add($"{at}: 不支援的語系：{unknown}"); return; }
+        if (UnsupportedLocale(text, version) is { } unknown) { errors.Add($"{at}: 不支援的語系：{unknown}"); return; }
         foreach (var (locale, value) in text.Values)
             if (value is null) errors.Add($"{at}: 語系 {locale} 的文字不能是空值");
             else if (value.Trim().Length > TaskEditParser.DescriptionMax) errors.Add($"{at}: {locale} 不能超過 {TaskEditParser.DescriptionMax} 字");

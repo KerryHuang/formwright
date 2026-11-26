@@ -55,7 +55,7 @@ public static partial class AppPackageValidator
             if (g is null) { errors.Add($"{at}: 不能是 null"); continue; }
             if (!Code().IsMatch(g.Code ?? "")) errors.Add($"{at}.code: 格式錯誤");
             else if (!integrationCodes.Add(g.Code!)) errors.Add($"{at}.code: 整合代號重複 {g.Code}");
-            CheckText(g.Name, $"{at}.name", errors);
+            CheckText(g.Name, $"{at}.name", errors, p.FormatVersion);
             if (g.OnPartnerClosed is not (null or "skip" or "block")) errors.Add($"{at}.onPartnerClosed: 必須是 skip 或 block");
 
             // ---- with ----
@@ -83,7 +83,7 @@ public static partial class AppPackageValidator
                 else if (fields.ContainsKey(Qualify(f.Module, f.Code)) || ownFields.ContainsKey(Qualify(f.Module, f.Code)))
                     errors.Add($"{fat}.code: 與模組既有欄位重複");
                 else ownFields[Qualify(f.Module, f.Code)] = f.Type;
-                CheckText(f.Label, $"{fat}.label", errors);
+                CheckText(f.Label, $"{fat}.label", errors, p.FormatVersion);
                 if (!IntegrationFieldTypes.Contains(f.Type)) errors.Add($"{fat}.type: 整合欄位只能是文字、整數、小數、日期或參照");
                 IntegrationFieldConfig(fat, f, partners, scope, errors);
             }
@@ -122,7 +122,7 @@ public static partial class AppPackageValidator
                 if (e is null) { errors.Add($"{at}.events: 不能有 null"); continue; }
                 if (!AppId().IsMatch(e.Code ?? "")) errors.Add($"{eat}.code: 格式錯誤");
                 else if (!usedCodes.Add(e.Code!)) errors.Add($"{eat}.code: 事件代號與套件內其他事件或檢查重複");
-                CheckText(e.Name, $"{eat}.name", errors);
+                CheckText(e.Name, $"{eat}.name", errors, p.FormatVersion);
                 if (e.Trigger is null || e.Effects.Count == 0) { errors.Add($"{eat}: 缺少觸發設定或效果"); continue; }
                 if (!modules.ContainsKey(e.Source ?? "")) { errors.Add($"{eat}.source: 事件的來源必須是擁有者的模組"); continue; }
                 if (e.Effects.Any(x => x is null || x.Kind == "custom")) { errors.Add($"{eat}.effects: 不收自訂效果，也不能有 null"); continue; }
@@ -138,7 +138,7 @@ public static partial class AppPackageValidator
                 if (c is null) { errors.Add($"{at}.checks: 不能有 null"); continue; }
                 if (!AppId().IsMatch(c.Code ?? "")) errors.Add($"{cat}.code: 格式錯誤");
                 else if (!usedCodes.Add(c.Code!)) errors.Add($"{cat}.code: 檢查代號與套件內其他事件或檢查重複");
-                CheckText(c.Name, $"{cat}.name", errors);
+                CheckText(c.Name, $"{cat}.name", errors, p.FormatVersion);
                 if (c.Assert?.Limit is null) { errors.Add($"{cat}.assert: 缺少上限設定"); continue; }
                 if (!modules.ContainsKey(c.Module ?? "")) { errors.Add($"{cat}.module: 檢查的模組必須是擁有者的模組"); continue; }
                 foreach (var error in AppEffectsCodec.ToInput(c, lookups).Errors) errors.Add($"{cat}: {error}");
