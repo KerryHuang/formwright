@@ -8,8 +8,7 @@ on:
     tags: ['v*.*.*']
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -30,6 +29,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: 版號（取自 tag，不含開頭的 v）
         run: |
           v="${GITHUB_REF_NAME#v}"
@@ -47,6 +48,17 @@ jobs:
           bun install --frozen-lockfile --ignore-scripts
           bunx quasar prepare
           APP_VERSION="$VERSION" bunx quasar build
+      - name: source map 移出前端輸出（同 Dockerfile，不進安裝包與 Release）
+        run: |
+          mkdir -p "$RUNNER_TEMP/sourcemaps"
+          (cd frontend/dist/spa && find . -name '*.map' -exec cp --parents {} "$RUNNER_TEMP/sourcemaps" \;)
+          find frontend/dist/spa -name '*.map' -delete
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-sourcemaps
+          path: ${{ runner.temp }}/sourcemaps
+          retention-days: 90
+          if-no-files-found: warn
       - name: 帶入版號與來源 repo 到 install.sh、docker-compose.yml
         run: node scripts/installer/render-defaults.mjs --version "$VERSION" --repo "$GITHUB_REPOSITORY"
       - name: 發佈 linux-x64 並打包
@@ -79,6 +91,8 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: 版號（取自 tag，不含開頭的 v）
         run: |
           $v = $env:GITHUB_REF_NAME -replace '^v', ''
@@ -118,8 +132,13 @@ jobs:
   image:
     needs: e2e
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: 版號與映像位址（owner 轉小寫）
         run: |
           v="${GITHUB_REF_NAME#v}"
@@ -136,18 +155,19 @@ jobs:
         with:
           context: .
           push: true
-          tags: |
-            ${{ env.IMAGE }}:${{ env.VERSION }}
-            ${{ env.IMAGE }}:latest
+          tags: ${{ env.IMAGE }}:${{ env.VERSION }}
           build-args: |
             APP_VERSION=${{ env.VERSION }}
             GIT_COMMIT=${{ github.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ env.VERSION }}
 
   release:
     needs: [artifacts, windows-installer, image]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -166,3 +186,38 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             formwright-*-linux-x64.tar.gz Formwright-Setup-*.exe install.sh docker-compose.yml SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --title "Formwright ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag
+
+  # Release 建好、版號映像也推好之後才提升 latest（不重建，只加 tag）；
+  # 跨 tag 序列化，且不用舊版蓋掉較新的 latest。
+  promote-latest:
+    needs: [release, image]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: release-latest
+      cancel-in-progress: false
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: 提升 latest
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || { echo "tag 格式不對：$GITHUB_REF_NAME"; exit 1; }
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/formwright"
+          current=""
+          if docker buildx imagetools inspect "$image:latest" >/dev/null 2>&1; then
+            current=$(docker buildx imagetools inspect "$image:latest" --format '{{json .Image}}' \
+              | jq -r '(.. | objects | .config? | .Labels? // empty | .["org.opencontainers.image.version"]?) // empty' | head -n 1)
+          fi
+          if [ -n "$current" ] && [ "$(printf '%s\n%s\n' "$current" "$v" | sort -V | tail -n 1)" != "$v" ]; then
+            echo "latest 目前是 $current，比本版 $v 新，不覆蓋。"
+            exit 0
+          fi
+          echo "latest：${current:-（尚無）} → $v"
+          docker buildx imagetools create -t "$image:latest" "$image:$v"
