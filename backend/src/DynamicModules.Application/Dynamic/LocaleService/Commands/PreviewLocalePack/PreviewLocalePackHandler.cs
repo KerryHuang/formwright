@@ -46,7 +46,7 @@ public sealed class PreviewLocalePackHandler(
         var plan = analysis.Plan!;
         var instance = pack.DesignDataCount == 0 ? null : await systemSettings.GetValueAsync(SystemSetting.InstanceId, ct);
         var sameSystem = instance is { Length: > 0 } && string.Equals(pack.Instance, instance, StringComparison.Ordinal);
-        var design = DesignDataAnalyzer.Analyze(pack, pack.DesignDataCount == 0 || plan.IsNew ? [] : await catalog.BuildAsync(ct), pack.Code, plan.IsNew,
+        var design = DesignDataAnalyzer.Analyze(pack, pack.DesignDataCount == 0 || plan.IsNew ? [] : await catalog.BuildReadOnlyAsync(ct), pack.Code, plan.IsNew,
             pack.BaseLocale is { } b && LocaleCode.TryNormalize(b, out var nb) && world.Installed.Any(i => i.Code == nb) ? nb : I18nText.FallbackLocale,
             world.DefaultLocale, sameSystem);
         plan = plan with { DesignData = design.Plan };

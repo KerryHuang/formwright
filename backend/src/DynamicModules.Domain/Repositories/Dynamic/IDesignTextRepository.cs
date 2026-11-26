@@ -3,12 +3,19 @@ using DynamicModules.Domain.Entities.Dynamic;
 namespace DynamicModules.Domain.Repositories.Dynamic;
 
 /// <summary>
-/// 設計資料翻譯（語系包設計 §10.2、§23.1）一次讀齊所有可翻譯的設計物件。<b>追蹤中</b>：套用時直接改這些實體、跟著同一次 SaveChanges 寫入。
+/// 設計資料翻譯（語系包設計 §10.2、§23.1）一次讀齊所有可翻譯的設計物件。
 /// 只在系統管理員的語系包預覽、套用與樣板匯出用（全庫讀一次，物件數是設計規模，不是記錄規模）。
 /// </summary>
 public interface IDesignTextRepository
 {
+    /// <summary><b>追蹤中</b>：套用時直接改這些實體、跟著同一次 SaveChanges 寫入。</summary>
     Task<DesignTextData> LoadAsync(CancellationToken ct);
+
+    /// <summary>同 <see cref="LoadAsync"/> 但不追蹤：樣板匯出與預覽只讀不寫（審查 r1 🟡6）。</summary>
+    Task<DesignTextData> LoadReadOnlyAsync(CancellationToken ct);
+
+    /// <summary>匯出範圍下拉用：只讀應用程式（含成員模組）與模組本身（不含區塊、欄位、選項、規則），其他清單是空的；不追蹤（審查 r1 🟡6）。</summary>
+    Task<DesignTextData> LoadScopesAsync(CancellationToken ct);
 }
 
 /// <summary>

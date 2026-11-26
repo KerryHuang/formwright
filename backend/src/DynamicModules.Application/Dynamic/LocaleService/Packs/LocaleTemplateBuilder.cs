@@ -134,7 +134,7 @@ public static class LocaleTemplateBuilder
                     w.WriteStartObject(item.Path);
                     w.WriteString("text", item.Text.Values.GetValueOrDefault(code) ?? "");
                     w.WriteString("source", DesignDataAnalyzer.SourceText(item.Text, options.Source));
-                    if (item.Local) w.WriteBoolean("local", true);
+                    if (item.OnlyThisSystem) w.WriteBoolean("local", true);
                     w.WriteEndObject();
                 }
                 w.WriteEndObject();
@@ -223,7 +223,7 @@ public static class LocaleTemplateBuilder
             sheets.Add(new LocalePackXlsx.Sheet(DesignDataScope, sheetNames[DesignDataScope], items.Select(i => new LocalePackXlsx.Row(
                 i.Path, i.Kind, DesignDataAnalyzer.SourceText(i.Text, options.Source),
                 options.Reference.Length > 0 ? DesignReference(i, options.Reference) : "", i.Text.Values.GetValueOrDefault(code) ?? "", "",
-                i.Local ? notes.Local : "")).ToList()));
+                i.OnlyThisSystem ? notes.Local : "")).ToList()));
         }
 
         var fallback = info is not null ? info.FallbackCode : options.Fallback is { } f && LocaleCode.TryNormalize(f, out var nf) ? nf : null;
