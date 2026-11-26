@@ -630,6 +630,39 @@ jobs:
               $l.Stop()
             }
           } finally { Cleanup 'inject-port' }
+          # 1b) 另一個程序占著埠，還回「同版號的 /api/version」與「setup 200」：就緒檢查必須綁本次服務程序，不能被它騙過，安裝程式必須以 20 結束
+          $fake = Join-Path $env:RUNNER_TEMP 'fake-site.ps1'
+          Set-Content -Path $fake -Value @'
+          param([string]$Ver)
+          $l = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Any, 8080)
+          $l.Start()
+          while ($true) {
+            $c = $l.AcceptTcpClient()
+            try {
+              $st = $c.GetStream()
+              $buf = New-Object byte[] 4096
+              $n = $st.Read($buf, 0, $buf.Length)
+              $req = [Text.Encoding]::ASCII.GetString($buf, 0, $n)
+              $body = if ($req -match 'GET /api/version') { '{"version":"' + $Ver + '"}' } else { '{}' }
+              $out = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 OK`r`nContent-Type: application/json`r`nContent-Length: $($body.Length)`r`nConnection: close`r`n`r`n$body")
+              $st.Write($out, 0, $out.Length)
+            } catch { } finally { $c.Close() }
+          }
+          '@
+          $fp = Start-Process pwsh -ArgumentList @('-NoProfile', '-File', $fake, $env:V1) -PassThru -WindowStyle Hidden
+          try {
+            try {
+              Wait-Code "$Base/api/version" 200 30
+              $rc = Install-Fw $env:V1 'inject-fakesite'
+              Assert ($rc -eq 20) "別的程序假冒就緒時結束碼應為 20、實得 $rc"
+              Assert ((Log-Text 'setup-inject-fakesite.log') -match 'Setup did not complete: service readiness') 'log 缺「service readiness」失敗'
+              $s = Get-Service Formwright
+              Assert ($s.StartType -eq 'Disabled' -and $s.Status -eq 'Stopped') "失敗後服務應為 Disabled／Stopped、實得 $($s.StartType)／$($s.Status)"
+            } finally {
+              Quiesce-Fw
+              Stop-Process -Id $fp.Id -Force -ErrorAction SilentlyContinue
+            }
+          } finally { Cleanup 'inject-fakesite' }
           # 2) 資料目錄裡有 junction：安裝程式必須拒絕（不跟隨），以 20 結束；目標的內容與權限不能變
           $target = Join-Path $env:RUNNER_TEMP 'junction-target'
           New-Item -ItemType Directory -Force -Path $target | Out-Null
