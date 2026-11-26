@@ -253,6 +253,8 @@ export interface OpenPreview {
   unbound?: string[];
   /** Approval sources whose group would be skipped and replaced by fallback approvers (warning only). */
   approvalSubstitutions?: ApprovalSubstitution[];
+  /** Fields this open would create marked "hide from AI" (name i18n design §8.1, §24); `field` is the qualified field name. */
+  aiExcludedFields?: { field: string; module: I18nText; label: I18nText }[];
 }
 export interface GroupSuggestion { code: string; name: I18nText; suggestion: 'map' | 'create' | 'skip'; suggestedGroupId?: number }
 export type GroupMap = Record<string, { mode: 'map' | 'create' | 'skip'; groupId?: number }>;
