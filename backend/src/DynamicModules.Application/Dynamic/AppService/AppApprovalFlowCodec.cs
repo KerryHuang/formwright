@@ -157,8 +157,7 @@ public static partial class AppApprovalFlowCodec
             // 條件節點只剩預設線（各路都到同一個終點）：條件節點本身也是直通，一起跳過
             if (es.Count(x => x.From == e.From) == 1)
             {
-                if (Bypass(ns, es.Select(x => x.From == e.From ? x with { When = null, Order = null, Default = null, Label = null } : x).ToList(), e.From) is not { } inner)
-                    return null;
+                if (Bypass(ns, es, e.From) is not { } inner) return null;
                 (ns, es) = inner;
             }
         }
