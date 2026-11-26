@@ -9,12 +9,14 @@ DURATION="${2:-10m}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 WORK="${WORK:-$ROOT/.tmp/load-site}"          # .tmp/ 已被 git 忽略
 APP="$WORK/app"; DATA="$WORK/data"
-PORT_URL="http://127.0.0.1:5180"              # 後端沒設 PORT 時固定聽這裡
+LOAD_PORT="${LOAD_PORT:-5380}"                # 不用 5180／9180：那是本機 Demo 走查獨占的埠
+PORT_URL="http://127.0.0.1:$LOAD_PORT"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 RUN="$WORK/runs/$STAMP-${VUS}u-${DURATION}"
 mkdir -p "$RUN" "$DATA"
 
 site_env() {
+  export PORT="$LOAD_PORT"                           # 設了 PORT 後端就聽 0.0.0.0:<PORT>
   export ConnectionStrings__Dynamic="Data Source=$DATA/poc.db"
   export ASPNETCORE_ENVIRONMENT=Production
   export Demo__LoginEnabled=true

@@ -5,7 +5,7 @@
 ## 前置
 
 - 裝好 [k6](https://k6.io/)（`k6 version`）與 .NET 8 SDK。
-- 本機 5180 埠空著（後端沒設 `PORT` 時固定聽 `127.0.0.1:5180`）。
+- 本機 5380 埠空著（`run-sqlite.sh` 以 `PORT` 讓站台聽 5380，可用 `LOAD_PORT` 改）。不要用 5180／9180：那是本機 Demo 走查獨占的埠，佔用時別的 session 的走查會接到壓測站台。
 - 跑之前記一次 `uptime`：機器上有別的程式吃 CPU 會讓延遲變大，負載要連同結果一起記。腳本會自動在開跑前後各記一次。
 
 ## 一條龍
@@ -30,7 +30,7 @@ scripts/load/run-sqlite.sh 50 10m    # 正式：50 人 10 分鐘（預設值）
 站台已經在跑時：
 
 ```bash
-k6 run -e BASE_URL=http://127.0.0.1:5180 -e VUS=50 -e DURATION=10m -e OUT=/tmp/summary.json scripts/load/sqlite-50users.js
+k6 run -e BASE_URL=http://127.0.0.1:5380 -e VUS=50 -e DURATION=10m -e OUT=/tmp/summary.json scripts/load/sqlite-50users.js
 ```
 
 ## 情境

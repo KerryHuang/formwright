@@ -4,7 +4,7 @@ import http from 'k6/http'
 import { check, sleep } from 'k6'
 import { Counter, Rate } from 'k6/metrics'
 
-const BASE = (__ENV.BASE_URL || 'http://127.0.0.1:5180') + '/api/v3/dynamic'
+const BASE = (__ENV.BASE_URL || 'http://127.0.0.1:5380') + '/api/v3/dynamic'
 const VUS = Number(__ENV.VUS || 50)
 const DURATION = __ENV.DURATION || '10m'
 
@@ -43,9 +43,9 @@ const READ_USERS = [
 const ACTIVITY_USERS = ['sales01', 'sales02', 'sales03', 'manager01']
 const PO_USERS = ['buyer01', 'ops01']
 
-// 每個 VU 用自己的來源 IP（站台設 Auth__ClientIpHeader=X-Forwarded-For 才採用）：Demo 一鍵登入對每個來源 IP
+// 每個 VU 用自己的來源 IP（198.18.0.0/15 是 RFC 2544 保留給效能測試的位址；站台設 Auth__ClientIpHeader=X-Forwarded-For 才採用）：Demo 一鍵登入對每個來源 IP
 // 15 分鐘內限 30 次，50 個 VU 共用 127.0.0.1 會被擋，後續請求全部 401。
-const clientIp = () => `10.20.${Math.floor(__VU / 250)}.${(__VU % 250) + 1}`
+const clientIp = () => `198.18.${Math.floor(__VU / 250)}.${(__VU % 250) + 1}`
 const JSON_HEADERS = () => ({ 'Content-Type': 'application/json', 'X-Forwarded-For': clientIp() })
 const rnd = (n) => Math.floor(Math.random() * n)
 const pick = (a) => a[rnd(a.length)]
