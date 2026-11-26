@@ -69,7 +69,7 @@ public class DesignCaseFlowTests(DemoGeneratedFixture fx)
             .Where(p => DemoCatalog.AppIds.Contains(p.Manifest.Id)).SelectMany(p => p.ApprovalFlows).Select(f => f.Code).ToList();
         expected.Should().Contain(DesignCaseFlowKey);
         expected.Add(InventoryScenario.GraphExampleKey); // fg3d：Demo 另建的停用範例
-        expected.Add(InventoryScenario.NoticeFlowKey); // fg5e：Demo 另建的啟用中通知節點示範，其餘仍只有套件流程
+        expected.Add(EventRegistrationScenario.NoticeFlowKey); // fg5e：Demo 另建的啟用中通知節點示範，其餘仍只有套件流程
         var keys = await fx.Host.Db.Context.Set<ApprovalFlow>().AsNoTracking().Select(f => f.Key).ToListAsync();
         keys.Should().BeEquivalentTo(expected);
     }
