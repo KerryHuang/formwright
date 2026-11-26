@@ -29,8 +29,7 @@ public static class LocalePackLimits
 
     // ── i4e：設計資料與 Excel 樣板（語系包設計 §23.2、§23.4） ──
 
-    /// <summary>設計資料每語最長字元數（§10.1 沿用套件與既有驗證的 200 字；報表、儀表板另用各自較小的上限）。</summary>
-    public const int MaxDesignTextLength = 200;
+    // 設計資料每語的長度上限不在這裡：每種來源引用該物件存檔驗證的常數（§23.2；審查 r1 🔴1）。
     /// <summary>Excel 樣板最多幾張工作表。</summary>
     public const int MaxXlsxSheets = 10;
     /// <summary>Excel 樣板每張工作表最多幾列（不含欄名列；匯出超過時要縮小範圍）。</summary>

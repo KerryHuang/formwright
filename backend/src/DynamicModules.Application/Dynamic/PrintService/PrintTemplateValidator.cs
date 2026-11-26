@@ -13,8 +13,8 @@ public class PrintTemplateValidator(IModuleRepository modules)
         var errors = new Dictionary<string, string[]>();
         if (isNew && !PrintTemplateRules.KeyPattern().IsMatch(input.Key ?? ""))
             errors["key"] = ["代碼格式錯誤（小寫英文、數字、連字號，2 到 40 字，英文開頭）"];
-        if (input.Name is null || input.Name.Values.Values.All(string.IsNullOrWhiteSpace) || input.Name.Values.Values.Any(v => v is { Length: > 100 }))
-            errors["name"] = ["名稱必填，每個語系最多 100 字"];
+        if (input.Name is null || input.Name.Values.Values.All(string.IsNullOrWhiteSpace) || input.Name.Values.Values.Any(v => v is { Length: > PrintTemplateRules.MaxNameLength }))
+            errors["name"] = [$"名稱必填，每個語系最多 {PrintTemplateRules.MaxNameLength} 字"];
         if (string.IsNullOrWhiteSpace(input.Body))
             errors["body"] = ["範本內容必填"];
         else if (input.Body.Length > PrintTemplateRules.MaxBodyLength)

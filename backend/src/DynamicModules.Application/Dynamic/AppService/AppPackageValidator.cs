@@ -203,8 +203,8 @@ public static partial class AppPackageValidator
     /// <summary>語系鍵改只驗代碼格式、報表名稱可多語、欄位可帶 excludeFromAi 的格式版號（名稱多語設計 §8；格式 9 是流程圖，不放寬這些）。</summary>
     public const int LocaleCodeFormatVersion = 10;
 
-    /// <summary>一般文字（名稱、標籤）每語系的字數上限：套件格式的技術限制（設計 §10）。</summary>
-    private const int MaxTextLength = 200;
+    /// <summary>一般文字（名稱、標籤）每語系的字數上限：套件格式的技術限制（設計 §10）。沒有自己存檔上限的設計物件（語系包 designData）也以它為準，免得翻譯後匯出的套件匯不回來。</summary>
+    public const int MaxTextLength = 200;
 
     /// <summary>格式不收的第一個語系鍵；全部收回 null。</summary>
     private static string? NonFormatLocale(I18nText text) => text.Values.Keys.FirstOrDefault(k => !FormatLocales.Contains(k));

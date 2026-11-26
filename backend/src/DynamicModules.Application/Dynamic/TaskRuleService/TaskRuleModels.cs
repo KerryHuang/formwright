@@ -38,7 +38,9 @@ public static class TaskRuleMessages
     public const string KeyImmutable = "規則代碼不能更改";
     public const string BadKey = "規則代碼只能用小寫英文、數字、連字號，2 到 40 字，英文開頭";
     public const string DetailModule = "明細模組不能設定任務規則";
-    public const string NameLength = "名稱每個語系必須是 1 到 200 字";
+    /// <summary>規則名稱每語最長字元數（存檔驗證與語系包 designData 共用；技術限制）。</summary>
+    public const int NameMaxLength = 200;
+    public static readonly string NameLength = $"名稱每個語系必須是 1 到 {NameMaxLength} 字";
     public const string BadTriggerOn = "觸發種類必須是 onCreate、onUpdateMatch、onFieldBecomes 或 manual";
     public const string UpdateMatchNeedsWhen = "記錄變成符合條件時觸發，條件必填";
     public const string TriggerFieldKind = "指定值觸發只支援下拉或是非欄位";
