@@ -496,14 +496,22 @@ jobs:
       - name: upgrade（AC-06、M02、M05、M06）
         run: |
           . ./scripts/installer/e2e/windows-lib.ps1
-          # M02 回歸：升級前人為留下既有授權與一般使用者擁有的子項，升級後必須被收斂
+          # M02 回歸：升級前人為留下既有的讀取授權（不擋，升級後必須被清掉）
           Icacls $Data /grant 'BUILTIN\Users:(OI)(CI)R'
-          Icacls $Data /setowner 'BUILTIN\Users'
           Icacls 'C:\ProgramData\Formwright\formwright.json' /grant 'BUILTIN\Users:R'
-          # M06 回歸：先手動放一條舊版留下的寬規則（只有 port、不限來源與程式），不帶參數升級後必須被收斂成一條受限的規則
-          New-NetFirewallRule -DisplayName Formwright -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8080 | Out-Null
+          # 備份差集的起點要在被拒絕的那次升級之前取（拒絕之後服務是停用的，API 不通）；被拒絕那次自己的備份由 $start 排除
           $before = @((Wiz backups $Base) | ConvertFrom-Json)
           $beforeIds = @($before | ForEach-Object { [long]$_.id })
+          # 寫入前預檢：資料目錄由一般使用者擁有 → 安裝程式必須拒絕（結束碼 20、log 有 untrusted owner、服務停用）；改回後再升級必須成功
+          Icacls $Data /setowner 'BUILTIN\Users'
+          $rc = Install-Fw $env:V2 'upgrade-untrusted-owner'
+          Assert ($rc -eq 20) "資料目錄擁有者是 Users 時結束碼應為 20、實得 $rc"
+          Assert ((Log-Text 'setup-upgrade-untrusted-owner.log') -match 'untrusted owner') 'log 缺「untrusted owner」'
+          $s = Get-Service Formwright
+          Assert ($s.StartType -eq 'Disabled' -and $s.Status -eq 'Stopped') "預檢拒絕後服務應為 Disabled／Stopped、實得 $($s.StartType)／$($s.Status)"
+          Icacls $Data /setowner '*S-1-5-32-544'
+          # M06 回歸：先手動放一條舊版留下的寬規則（只有 port、不限來源與程式），不帶參數升級後必須被收斂成一條受限的規則
+          New-NetFirewallRule -DisplayName Formwright -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8080 | Out-Null
           $start = Now-Utc
           Assert ((Install-Fw $env:V2 'upgrade') -eq 0) '升級結束碼不是 0'
           Version-Is $env:V2
@@ -669,13 +677,13 @@ jobs:
           Set-Content -Path "$target\sentinel.txt" -Value 'sentinel'
           $aclBefore = (Get-Acl -LiteralPath $target).Sddl
           $sentinelBefore = (Get-Acl -LiteralPath "$target\sentinel.txt").Sddl
-          New-Item -ItemType Directory -Force -Path $Data | Out-Null
+          New-LockedData   # 父目錄先鎖成只有 SYSTEM／Administrators，預檢才會在 junction 上停下，而不是先被 ProgramData 繼承的 Users 權限擋掉
           try {
             New-Item -ItemType Junction -Path "$Data\evil" -Target $target | Out-Null
             try {
               $rc = Install-Fw $env:V1 'inject-junction'
               Assert ($rc -eq 20) "junction 時結束碼應為 20、實得 $rc"
-              Assert ((Log-Text 'setup-inject-junction.log') -match 'reparse point refused') 'log 缺「reparse point refused」'
+              Assert ((Log-Text 'setup-inject-junction.log') -match 'reparse point') 'log 缺「reparse point」'
               $s = Get-Service Formwright -ErrorAction SilentlyContinue
               Assert ($null -ne $s -and $s.StartType -eq 'Disabled' -and $s.Status -eq 'Stopped') 'junction 失敗後服務應為 Disabled／Stopped'
               Assert ((Get-Content "$target\sentinel.txt") -eq 'sentinel') 'junction 目標的哨兵檔內容變了'
@@ -687,6 +695,58 @@ jobs:
             }
           } finally {
             try { Cleanup 'inject-junction' } finally { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue }
+          }
+
+          # 3) 資料目錄裡有指向樹外檔案的 hardlink：預檢必須拒絕（結束碼 20、log 有 hard link），樹外檔案的擁有者與 ACL 不能變
+          #    樹外哨兵放在 C: 磁碟（hardlink 不能跨磁碟；RUNNER_TEMP 在 D:）
+          $hl = 'C:\fw-e2e-hardlink'
+          New-Item -ItemType Directory -Force -Path $hl | Out-Null
+          Set-Content -Path "$hl\sentinel.txt" -Value 'sentinel'
+          $hlBefore = (Get-Acl -LiteralPath "$hl\sentinel.txt").Sddl
+          New-LockedData
+          try {
+            New-Item -ItemType HardLink -Path "$Data\linked.txt" -Target "$hl\sentinel.txt" | Out-Null
+            try {
+              $rc = Install-Fw $env:V1 'inject-hardlink'
+              Assert ($rc -eq 20) "hardlink 時結束碼應為 20、實得 $rc"
+              Assert ((Log-Text 'setup-inject-hardlink.log') -match 'hard link') 'log 缺「hard link」'
+              $s = Get-Service Formwright -ErrorAction SilentlyContinue
+              Assert ($null -ne $s -and $s.StartType -eq 'Disabled' -and $s.Status -eq 'Stopped') 'hardlink 失敗後服務應為 Disabled／Stopped'
+              Assert ((Get-Content "$hl\sentinel.txt") -eq 'sentinel') 'hardlink 哨兵檔內容變了'
+              Assert ((Get-Acl -LiteralPath "$hl\sentinel.txt").Sddl -ceq $hlBefore) 'hardlink 哨兵檔的擁有者或 ACL 變了'
+            } finally {
+              Quiesce-Fw
+              if (Test-Path -LiteralPath "$Data\linked.txt") { Remove-Item -LiteralPath "$Data\linked.txt" -Force }
+            }
+          } finally {
+            try { Cleanup 'inject-hardlink' } finally { Remove-Item -LiteralPath $hl -Recurse -Force -ErrorAction SilentlyContinue }
+          }
+          # 4) 資料目錄的子目錄被加上 Users 寫入（Modify）：預檢必須拒絕（結束碼 20、log 有 untrusted write ACE），外部不動；清掉該授權後同一個安裝程式必須成功
+          $ext = 'C:\fw-e2e-external'
+          New-Item -ItemType Directory -Force -Path $ext | Out-Null
+          Set-Content -Path "$ext\sentinel.txt" -Value 'sentinel'
+          $extBefore = (Get-Acl -LiteralPath $ext).Sddl
+          $extFileBefore = (Get-Acl -LiteralPath "$ext\sentinel.txt").Sddl
+          New-LockedData
+          try {
+            New-Item -ItemType Directory -Force -Path "$Data\sub" | Out-Null
+            Icacls "$Data\sub" /grant 'BUILTIN\Users:(OI)(CI)M'
+            try {
+              $rc = Install-Fw $env:V1 'inject-userwrite'
+              Assert ($rc -eq 20) "子目錄有 Users 寫入時結束碼應為 20、實得 $rc"
+              Assert ((Log-Text 'setup-inject-userwrite.log') -match 'untrusted write ACE') 'log 缺「untrusted write ACE」'
+              $s = Get-Service Formwright -ErrorAction SilentlyContinue
+              Assert ($null -ne $s -and $s.StartType -eq 'Disabled' -and $s.Status -eq 'Stopped') '預檢拒絕後服務應為 Disabled／Stopped'
+              Assert ((Get-Acl -LiteralPath $ext).Sddl -ceq $extBefore -and (Get-Acl -LiteralPath "$ext\sentinel.txt").Sddl -ceq $extFileBefore) '外部目錄或檔案的 ACL 變了'
+              Icacls "$Data\sub" /remove 'BUILTIN\Users'
+              Quiesce-Fw
+              Assert ((Install-Fw $env:V1 'inject-userwrite-fixed') -eq 0) '清掉 Users 寫入後安裝應成功'
+              Wait-Code "$Base/api/version" 200
+              Assert (((Invoke-RestMethod "$Base/api/version").version) -ceq $env:V1) '清掉後安裝的版本不對'
+              Assert-AclState -AllowServiceOwner
+            } finally { Quiesce-Fw }
+          } finally {
+            try { Cleanup 'inject-userwrite' } finally { Remove-Item -LiteralPath $ext -Recurse -Force -ErrorAction SilentlyContinue }
           }
 
       - name: 失敗時收集事件記錄與服務狀態

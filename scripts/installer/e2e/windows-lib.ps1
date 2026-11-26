@@ -92,6 +92,15 @@ function Assert-FwGone {
   Assert ($null -eq (Get-NetFirewallRule -DisplayName Formwright -ErrorAction SilentlyContinue)) '防火牆規則還在'
 }
 
+# 預檢類失敗注入的起點：資料父目錄先鎖成只有 SYSTEM／Administrators（否則 ProgramData 繼承來的 Users 權限會讓預檢先停在父目錄），再建 data
+function New-LockedData {
+  $parent = 'C:\ProgramData\Formwright'
+  New-Item -ItemType Directory -Force -Path $parent | Out-Null
+  Icacls $parent /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F'
+  Icacls $parent /setowner '*S-1-5-32-544'
+  New-Item -ItemType Directory -Force -Path $Data | Out-Null
+}
+
 # 靜默執行安裝程式，回傳結束碼；log 落在 $LogDir\setup-<名稱>.log
 function Install-Fw([string]$Version, [string]$Name, [string[]]$Extra = @()) {
   $exe = Join-Path $Pkg "Formwright-Setup-$Version.exe"
