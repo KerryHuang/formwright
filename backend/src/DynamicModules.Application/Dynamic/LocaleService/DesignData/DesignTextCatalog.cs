@@ -1,10 +1,14 @@
 using DynamicModules.Application.Common.Audit;
 using DynamicModules.Application.Common.Security;
 using DynamicModules.Application.Common.Time;
+using DynamicModules.Application.Dynamic.AppService;
+using DynamicModules.Application.Dynamic.ModuleService.Data;
+using DynamicModules.Application.Dynamic.PrintService;
 using DynamicModules.Application.Dynamic.ReportService.Data;
+using DynamicModules.Application.Dynamic.TaskRuleService;
+using DynamicModules.Application.Dynamic.TaskService;
 using DynamicModules.Domain.Authorization;
 using DynamicModules.Domain.Entities.Dynamic;
-using DynamicModules.Domain.Localization;
 using DynamicModules.Domain.Repositories.Dynamic;
 using DynamicModules.Domain.ValueObjects;
 
@@ -31,7 +35,8 @@ public static class DesignTextSources
         new("checkMessage", ["ModuleCheck.Definition.Message"], b => b.CheckMessages()),
         new("event", ["ModuleEvent.NameI18n"], b => b.Keyed("event", b.Data.Events, e => e.Id, e => e.Key, e => e.SourceModuleId, e => e.NameI18n, (e, t) => e.NameI18n = t)),
         new("conversion", ["Conversion.NameI18n"], b => b.Keyed("conversion", b.Data.Conversions, c => c.Id, c => c.Key, c => c.SourceModuleId, c => c.NameI18n, (c, t) => c.NameI18n = t)),
-        new("print", ["PrintTemplate.NameI18n"], b => b.Keyed("print", b.Data.PrintTemplates, p => p.Id, p => p.Key, p => p.ModuleId, p => p.NameI18n, (p, t) => p.NameI18n = t)),
+        new("print", ["PrintTemplate.NameI18n"], b => b.Keyed("print", b.Data.PrintTemplates, p => p.Id, p => p.Key, p => p.ModuleId, p => p.NameI18n, (p, t) => p.NameI18n = t,
+            PrintTemplateRules.MaxNameLength)),
         new("taskRule", ["TaskRule.NameI18n", "TaskRuleTask.TitleI18n", "TaskRuleTask.DescriptionI18n"], b => b.TaskRules()),
         new("approvalFlow", ["ApprovalFlow.NameI18n"], b => b.Keyed("approvalFlow", b.Data.ApprovalFlows, f => f.Id, f => f.Key, f => f.ModuleId, f => f.NameI18n, (f, t) => f.NameI18n = t)),
         new("view", ["ListView.NameI18n"], b => b.Views()),
@@ -135,8 +140,12 @@ public sealed class DesignTextBuild
     private static DesignTextTarget Target(string kind, long id, Func<I18nText?> get, Action<I18nText> set) =>
         new(kind, id.ToString(System.Globalization.CultureInfo.InvariantCulture), get, set);
 
+    /// <summary>
+    /// <paramref name="max"/> 引用該物件存檔驗證的常數（審查 r1 🔴1）；沒有自己上限的物件用套件格式的文字上限
+    /// （<see cref="AppPackageValidator.MaxTextLength"/>），翻譯後匯出的套件才匯得回來。
+    /// </summary>
     private static DesignTextItem Item(string path, string kind, string? app, long? moduleId, bool local, DesignTextTarget target,
-        int max = LocalePackLimits.MaxDesignTextLength) => new(path, kind, app, moduleId, local, max, [target]);
+        int max = AppPackageValidator.MaxTextLength) => new(path, kind, app, moduleId, local, max, [target]);
 
     // ── 各來源 ──
 
@@ -155,7 +164,7 @@ public sealed class DesignTextBuild
     internal IEnumerable<DesignTextItem> Sections() =>
         Data.Modules.Where(m => !string.IsNullOrEmpty(m.Section)).GroupBy(m => m.Section!, StringComparer.Ordinal)
             .OrderBy(g => g.Key, StringComparer.Ordinal)
-            .Select(g => new DesignTextItem($"section:{g.Key}/name", "section", null, null, false, LocalePackLimits.MaxDesignTextLength,
+            .Select(g => new DesignTextItem($"section:{g.Key}/name", "section", null, null, false, ModuleRules.SectionMaxLength,
                 g.Select(m => Target(AuditTargets.Module, m.Id, m.SectionText, t => { m.SetSection(t); m.TouchVersion(_userId, _now); })).ToList()));
 
     internal IEnumerable<DesignTextItem> Blocks() =>
@@ -206,14 +215,14 @@ public sealed class DesignTextBuild
 
     /// <summary>有 <c>Key</c> 的模組內物件：模組有應用程式綁定才用代碼（§23.1）。</summary>
     internal IEnumerable<DesignTextItem> Keyed<T>(string kind, IEnumerable<T> rows, Func<T, long> id, Func<T, string> key, Func<T, long> moduleId,
-        Func<T, I18nText> get, Action<T, I18nText> set) where T : class =>
+        Func<T, I18nText> get, Action<T, I18nText> set, int max = AppPackageValidator.MaxTextLength) where T : class =>
         rows.Select(row =>
         {
             var m = moduleId(row);
             var target = Target(AuditKindOf(kind), id(row), () => get(row), t => { set(row, t); Stamp(row); });
             return ModulePrefix(m) is { } prefix && key(row).Length > 0
-                ? Item($"{prefix}/{kind}:{key(row)}/name", kind, AppOfModule(m), m, false, target)
-                : Item($"local:{kind}:{id(row)}/name", kind, AppOfModule(m), m, true, target);
+                ? Item($"{prefix}/{kind}:{key(row)}/name", kind, AppOfModule(m), m, false, target, max)
+                : Item($"local:{kind}:{id(row)}/name", kind, AppOfModule(m), m, true, target, max);
         });
 
     /// <summary>檢查的違規訊息（§10.2 <c>check:{code}/message</c>）：定義是值物件，換一份新的 record 讓 EF 偵測得到。</summary>
@@ -243,16 +252,16 @@ public sealed class DesignTextBuild
             var list = new List<DesignTextItem>
             {
                 Item($"{root}/name", "taskRule", app, r.ModuleId, !bound,
-                    Target(AuditTargets.TaskRule, r.Id, () => r.NameI18n, t => { r.NameI18n = t; Stamp(r); })),
+                    Target(AuditTargets.TaskRule, r.Id, () => r.NameI18n, t => { r.NameI18n = t; Stamp(r); }), TaskRuleMessages.NameMaxLength),
             };
             foreach (var task in r.Tasks.OrderBy(t => t.SortOrder).ThenBy(t => t.Id))
             {
                 var taskRoot = $"{root}/task:{(task.Code.Length > 0 ? task.Code : task.Id.ToString(System.Globalization.CultureInfo.InvariantCulture))}";
                 list.Add(Item($"{taskRoot}/title", "taskRule", app, r.ModuleId, !bound,
-                    Target(AuditTargets.TaskRule, r.Id, () => task.TitleI18n, t => { task.TitleI18n = t; Stamp(r); })));
+                    Target(AuditTargets.TaskRule, r.Id, () => task.TitleI18n, t => { task.TitleI18n = t; Stamp(r); }), TaskEditParser.TitleMax));
                 if (task.DescriptionI18n is not null)
                     list.Add(Item($"{taskRoot}/description", "taskRule", app, r.ModuleId, !bound,
-                        Target(AuditTargets.TaskRule, r.Id, () => task.DescriptionI18n, t => { task.DescriptionI18n = t; Stamp(r); })));
+                        Target(AuditTargets.TaskRule, r.Id, () => task.DescriptionI18n, t => { task.DescriptionI18n = t; Stamp(r); }), TaskEditParser.DescriptionMax));
             }
             return list;
         });
@@ -279,7 +288,7 @@ public sealed class DesignTextBuild
             Target(AuditTargets.Dashboard, d.Id, () => d.NameI18n, t => { d.NameI18n = t; d.Version++; Stamp(d); }), ReportRules.MaxNameLength));
 
     internal IEnumerable<DesignTextItem> Groups() =>
-        Data.Groups.Select(g => new DesignTextItem($"group:{g.Key}/name", "group", null, null, false, LocalePackLimits.MaxDesignTextLength,
+        Data.Groups.Select(g => new DesignTextItem($"group:{g.Key}/name", "group", null, null, false, PermissionGroup.NameMax,
             [Target(AuditTargets.Group, g.Id, () => g.NameI18n, t => g.NameI18n = t)]) { UniqueGroupName = true });
 
     internal IEnumerable<DesignTextItem> Departments() =>

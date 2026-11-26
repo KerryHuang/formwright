@@ -17,6 +17,8 @@ public record PrintedDocument(string Html);
 public static partial class PrintTemplateRules
 {
     public const int MaxBodyLength = 100_000;
+    /// <summary>範本名稱每語最長字元數（存檔驗證與語系包 designData 共用；技術限制）。</summary>
+    public const int MaxNameLength = 100;
     public const string NotFound = "找不到列印範本";
 
     [GeneratedRegex(@"^[a-z][a-z0-9-]{1,39}$")]

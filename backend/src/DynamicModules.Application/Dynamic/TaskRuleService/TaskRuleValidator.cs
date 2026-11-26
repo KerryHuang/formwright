@@ -39,7 +39,7 @@ public sealed class TaskRuleValidator(
 
         if (!Regex.IsMatch(input.Key ?? "", ModuleRules.ModuleKeyPattern)) Err("key", TaskRuleMessages.BadKey);
         if (requiredText.Check(input.Name, existing?.NameI18n, "名稱") is { } nameError) Err("name", nameError);
-        else if (input.Name.Values.Values.Any(v => v is null || v.Length is 0 or > 200)) Err("name", TaskRuleMessages.NameLength);
+        else if (input.Name.Values.Values.Any(v => v is null || v.Length is 0 or > TaskRuleMessages.NameMaxLength)) Err("name", TaskRuleMessages.NameLength);
         if (input.Trigger is null) Err("trigger", TaskRuleMessages.BadTriggerOn);
         if (input.Tasks is null || input.Tasks.Count == 0
             || (input.Tasks.Count > maxTasks && input.Tasks.Count > (existing?.Tasks.Count ?? 0)))
