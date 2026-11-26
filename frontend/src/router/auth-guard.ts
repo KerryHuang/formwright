@@ -61,6 +61,8 @@ export function installAuthGuard(router: Router) {
     if (to.path === SERVICE_UNAVAILABLE) return true;
     // 設定精靈與維護頁：只在後端真的處於那個模式時停留，否則回登入頁；不碰 /me
     if (to.meta.setup || to.meta.maintenance) {
+      // 這兩種模式的 auth/options 回 503：結果是離線四語，語系切換元件才有選項（D-20）
+      await loadLocaleSettings();
       try {
         const inMode = to.meta.setup ? (await setupApi.getStatus()) === 'pending' : (await setupApi.getMaintenance()) !== null;
         return inMode ? true : '/login';

@@ -37,6 +37,7 @@ describe('四語系訊息檔', () => {
     'apps.upgrade.masterVersion', 'apps.upgrade.masterName', // 引號加佔位符
     'apps.aiExcludedItem', // 純佔位符加分隔符號
     'localePacks.export.formatJson', 'localePacks.export.formatXlsx', // 格式名與副檔名
+    'setup.database.postgres', // 產品名
   ]);
   it.each([['th', th], ['vi', vi]])('%s 的文案不得直接放英文（縮寫與格式名除外）', (_name, msgs) => {
     const same = Object.entries(leaves(msgs)).filter(([k, v]) => v === en[k] && !UNTRANSLATED_OK.has(k)).map(([k]) => k);

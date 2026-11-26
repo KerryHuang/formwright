@@ -10,7 +10,7 @@ import { cacheCurrent, ensureCurrentMessages, installUiMessages, loadedHash, rea
 
 export interface StartupOutcome { options: AuthOptions | null }
 
-let started: { fetch: Promise<AuthOptions>; outcome: Promise<StartupOutcome> } | undefined;
+let started: { fetch: Promise<AuthOptions>; outcome: Promise<StartupOutcome>; failed: boolean } | undefined;
 let untaken: AuthOptions | undefined;
 const noop = () => {};
 
@@ -18,11 +18,15 @@ function start() {
   if (started) return started;
   const fetch = dynamicApi.getAuthOptions();
   fetch.then((o) => { untaken = o; }, noop);
+  const state = { failed: false } as { fetch: Promise<AuthOptions>; outcome: Promise<StartupOutcome>; failed: boolean };
   const outcome = new Promise<StartupOutcome>((resolve) => {
     const timer = setTimeout(() => resolve({ options: null }), STARTUP_BUDGET_MS);
-    fetch.then((o) => resolve({ options: o }), () => resolve({ options: null })).finally(() => clearTimeout(timer));
+    // failed：請求確實失敗（設定模式、維護模式的 503 立刻 reject），和「預算內沒回來」分開
+    fetch.then((o) => resolve({ options: o }), () => { state.failed = true; resolve({ options: null }); }).finally(() => clearTimeout(timer));
   });
-  started = { fetch, outcome };
+  state.fetch = fetch;
+  state.outcome = outcome;
+  started = state;
   return started;
 }
 
@@ -113,6 +117,14 @@ export async function startLocale(i18n: I18nLike): Promise<void> {
   }
   const c = code;
   if (!options) {
+    // 請求確實失敗（設定／維護模式的 503）：沒有線上分支的 settle 可等，直接載入內建文字；預算逾時（還沒回）維持繁中、交給背景
+    if (s.failed && c !== FALLBACK_LOCALE) {
+      const offlineLoad = ensureCurrentMessages(i18n, c).then(() => true, () => false);
+      await Promise.race([offlineLoad, budget]);
+      applyLocale(c, locale, false);
+      void offlineLoad.then((ok) => { if (ok && locale.value === c) cacheCurrent(i18n); });
+      return;
+    }
     applyLocale(c, locale, false);
     // 預算用完才回來：照常交給背景
     s.fetch.then((o) => settle(i18n, o, c, !stored), noop);

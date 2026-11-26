@@ -237,6 +237,17 @@ describe('startLocale：沒有快取', () => {
     expect(i18n.global.t('menu.home')).toBe(HOME['zh-TW']);
   });
 
+  it('OptionsFail_StoredLocale_LoadsBuiltinText：設定／維護模式的 503 也載入記住的語系文字（in1b D-20）', async () => {
+    localStorage.setItem(LOCALE_KEY, 'en-US');
+    getOptions().mockRejectedValue(new Error('503'));
+    serve();
+    const i18n = newI18n();
+    await startLocale(i18n);
+    expect(i18n.global.locale.value).toBe('en-US');
+    expect(i18n.global.t('menu.home')).toBe(HOME['en-US']);
+    expect(readUiCache()?.code).toBe('en-US');
+  });
+
   it('ZhTw_FetchedForOverrides：繁中也取一次，期間顯示打包的繁中', async () => {
     localStorage.setItem(LOCALE_KEY, 'zh-TW');
     getOptions().mockResolvedValue(options('zh-TW', ['zh-TW', 'en-US']));
