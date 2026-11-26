@@ -60,7 +60,7 @@ function Assert-AclState([string]$Parent = 'C:\ProgramData\Formwright', [switch]
     Assert (-not $a.AreAccessRulesProtected) "$p 的權限不繼承"
     Assert (-not [string]::IsNullOrEmpty($a.GetSecurityDescriptorSddlForm('Access'))) "$p 沒有 DACL"
     $rs = @($a.GetAccessRules($true, $true, $sid))
-    Assert ($rs.Count -eq 3) "$p 應有 3 個 ACE、實得 $($rs.Count)"
+    Assert ($rs.Count -eq 3) "$p 應有 3 個 ACE、實得 $($rs.Count)；SDDL：$($a.Sddl)；父目錄 SDDL：$((Get-Acl -LiteralPath (Split-Path -Parent $p)).Sddl)"
     $wf = if ($item.PSIsContainer) { $dirFlags } else { $fileFlags }
     foreach ($r in $rs) { Assert-AclRule $r $p $svc $wf $true }
     Assert (@($rs | ForEach-Object { $_.IdentityReference.Value } | Sort-Object -Unique).Count -eq 3) "$p 的三個 ACE 主體不是 SYSTEM、Administrators、服務帳號"
