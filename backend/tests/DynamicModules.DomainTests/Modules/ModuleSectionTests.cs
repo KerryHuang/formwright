@@ -66,4 +66,25 @@ public class ModuleSectionTests
 
         m.SectionI18n!.Values.Keys.Should().Equal("zh-TW");
     }
+
+    // 審查 🟡1：升級前存進去的 null 值，讀取端去掉，不讓它流到 API 回應、匯出與升級
+    [Fact]
+    public void SectionText_StoredNullOrBlankValue_IsDropped()
+    {
+        var m = new Module { Section = "主檔", SectionI18n = new I18nText(new Dictionary<string, string> { ["zh-TW"] = "主檔", ["en-US"] = null!, ["th"] = "  " }) };
+
+        m.SectionText()!.Values.Keys.Should().Equal("zh-TW");
+    }
+
+    // 審查 🟢3：前後空白不進分組鍵
+    [Fact]
+    public void SetSection_TrimsWhitespace()
+    {
+        var m = new Module();
+
+        m.SetSection(Make(("zh-TW", " 主檔 "), ("en-US", " Master ")));
+
+        m.Section.Should().Be("主檔");
+        m.SectionI18n!.Resolve("en-US").Should().Be("Master");
+    }
 }

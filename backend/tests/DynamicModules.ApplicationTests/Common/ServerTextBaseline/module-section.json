@@ -1,0 +1,8 @@
+{
+  "ModuleSectionZhRequired": {
+    "zh-TW": "選單分區有其他語系時必須有繁體中文",
+    "en-US": "The menu section must have Traditional Chinese when other languages are filled in",
+    "th": "เมื่อกรอกส่วนเมนูในภาษาอื่น ต้องมีภาษาจีนตัวเต็มด้วย",
+    "vi": "Khi nhập phần menu bằng ngôn ngữ khác, phải có tiếng Trung phồn thể"
+  }
+}

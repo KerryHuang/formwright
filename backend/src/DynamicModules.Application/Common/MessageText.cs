@@ -91,6 +91,8 @@ public static class MessageText
         TaskGanttConfigNotObject = nameof(TaskGanttConfigNotObject),
         // 任務檢視另存的名稱後綴（名稱多語設計 §7.3 Q3，每個語系各加自己語言的後綴）
         TaskViewCopySuffix = nameof(TaskViewCopySuffix),
+        // 模組選單分區（名稱多語設計 §9 第 4 點；模組設計器其餘驗證訊息仍是字面值）
+        ModuleSectionZhRequired = nameof(ModuleSectionZhRequired),
         // 甘特設定的驗證錯誤（鍵同 Domain 的 TaskGanttConfigErrors）
         TaskGanttConfigFormat = nameof(TaskGanttConfigFormat), TaskGanttConfigRequired = nameof(TaskGanttConfigRequired),
         TaskGanttConfigVersion = nameof(TaskGanttConfigVersion), TaskGanttGroupByInvalid = nameof(TaskGanttGroupByInvalid),
@@ -490,6 +492,8 @@ public static class MessageText
         [TaskViewKindInvalid] = ("檢視種類必須是 board 或 gantt", "View kind must be board or gantt",
             "ประเภทมุมมองต้องเป็น board หรือ gantt", "Loại chế độ xem phải là board hoặc gantt"),
         [TaskViewCopySuffix] = ("（副本）", " (copy)", " (สำเนา)", " (bản sao)"),
+        [ModuleSectionZhRequired] = ("選單分區有其他語系時必須有繁體中文", "The menu section must have Traditional Chinese when other languages are filled in",
+            "เมื่อกรอกส่วนเมนูในภาษาอื่น ต้องมีภาษาจีนตัวเต็มด้วย", "Khi nhập phần menu bằng ngôn ngữ khác, phải có tiếng Trung phồn thể"),
         [TaskGanttNameRequired] = ("甘特圖名稱必填", "Gantt chart name is required", "ต้องระบุชื่อแผนภูมิแกนต์", "Tên biểu đồ Gantt là bắt buộc"),
         [TaskGanttNameTooLong] = ("甘特圖名稱最多 {0} 字", "Gantt chart name can be at most {0} characters",
             "ชื่อแผนภูมิแกนต์ยาวได้ไม่เกิน {0} ตัวอักษร", "Tên biểu đồ Gantt tối đa {0} ký tự"),
