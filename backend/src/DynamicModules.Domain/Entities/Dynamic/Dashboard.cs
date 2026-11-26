@@ -1,3 +1,5 @@
+using DynamicModules.Domain.ValueObjects;
+
 namespace DynamicModules.Domain.Entities.Dynamic;
 
 /// <summary>
@@ -8,7 +10,8 @@ public class Dashboard : AuditableEntity
 {
     public long Id { get; set; }
     public string? OwnerUserId { get; set; }
-    public string Name { get; set; } = "";
+    /// <summary>多語名稱（名稱多語設計 §5.1）；每語去空白後最多 100 字。</summary>
+    public I18nText NameI18n { get; set; } = new();
     public string LayoutJson { get; set; } = "{\"cards\":[]}";
     public int Version { get; set; } = 1;
     /// <summary>指派版的顯示順序，小的在前；自己的儀表板不用。</summary>

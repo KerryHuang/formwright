@@ -313,25 +313,25 @@ public class DeletePlanner(IDeletionRepository data, IApprovalFlowRepository app
         }
     }
 
-    private static void AddReportBlockers(List<Report> reports, IReadOnlySet<long> fieldIds, IReadOnlyCollection<string> moduleKeys, List<DeleteBlocker> blockers)
+    private void AddReportBlockers(List<Report> reports, IReadOnlySet<long> fieldIds, IReadOnlyCollection<string> moduleKeys, List<DeleteBlocker> blockers)
     {
         foreach (var r in reports)
         {
             var refs = ReportReferences.TryOf(r.DefinitionJson);
             // 定義讀不出來時無法證明沒引用，視為引用（fail-closed）
             if (refs is null || refs.FieldIds.Overlaps(fieldIds) || moduleKeys.Any(refs.ModuleKeys.Contains))
-                blockers.Add(new(DeleteBlockerKind.Report, null, r.Id, r.Name));
+                blockers.Add(new(DeleteBlockerKind.Report, null, r.Id, Name(r.NameI18n, $"#{r.Id}")));
         }
     }
 
     /// <summary>儀表板卡片的排序鍵可指向欄位；指派版、自己的儀表板、個人版都算。版面讀不出來時視為引用（fail-closed）。</summary>
-    private static void AddDashboardBlockers(List<DashboardLayoutSource> dashboards, IReadOnlySet<long> fieldIds, List<DeleteBlocker> blockers)
+    private void AddDashboardBlockers(List<DashboardLayoutSource> dashboards, IReadOnlySet<long> fieldIds, List<DeleteBlocker> blockers)
     {
         foreach (var d in dashboards)
         {
             var refs = DashboardReferences.TryFieldIdsOf(d.LayoutJson);
             if (refs is null || refs.Overlaps(fieldIds))
-                blockers.Add(new(d.IsPersonal ? DeleteBlockerKind.PersonalDashboard : DeleteBlockerKind.Dashboard, null, d.Id, d.Name));
+                blockers.Add(new(d.IsPersonal ? DeleteBlockerKind.PersonalDashboard : DeleteBlockerKind.Dashboard, null, d.Id, Name(d.Name, $"#{d.Id}")));
         }
     }
 

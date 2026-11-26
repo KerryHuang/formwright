@@ -11,6 +11,8 @@ using DynamicModules.Application.Dynamic.DashboardService.Queries.AdminPreviewCa
 using DynamicModules.Domain.Reports;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json.Serialization;
+using DynamicModules.Domain.ValueObjects;
 
 namespace DynamicModules.WebAPI.Controllers.v3.Dynamic;
 
@@ -19,9 +21,10 @@ namespace DynamicModules.WebAPI.Controllers.v3.Dynamic;
 [Route("api/v3/dynamic/admin/dashboards")]
 public class AdminDashboardsController(IMediator mediator) : ControllerBase
 {
-    public record CreateBody(string? Name, JsonElement? Layout);
+    /// <summary>Name 收多語物件，或字串（＝只有繁中，舊畫面相容，名稱多語設計 §6.1）。</summary>
+    public record CreateBody([property: JsonConverter(typeof(I18nTextOrStringJsonConverter))] I18nText? Name, JsonElement? Layout);
 
-    public record UpdateBody(string? Name, JsonElement? Layout, int? Version);
+    public record UpdateBody([property: JsonConverter(typeof(I18nTextOrStringJsonConverter))] I18nText? Name, JsonElement? Layout, int? Version);
 
     public record AssignmentsBody(List<long>? GroupIds);
 
@@ -39,7 +42,7 @@ public class AdminDashboardsController(IMediator mediator) : ControllerBase
     public async Task<IActionResult> Create(CreateBody body) =>
         DashboardsController.ParseLayout(body.Layout) is not { } layout
             ? DashboardsController.Bad(this, "layout", "版面格式錯誤")
-            : (await mediator.Send(new AdminCreateDashboardRequest(body.Name ?? "", layout))).ToActionResult(this);
+            : (await mediator.Send(new AdminCreateDashboardRequest(body.Name, layout))).ToActionResult(this);
 
     [HttpPut("{id:long}")]
     public async Task<IActionResult> Update(long id, UpdateBody body) =>
@@ -47,7 +50,7 @@ public class AdminDashboardsController(IMediator mediator) : ControllerBase
             ? DashboardsController.Bad(this, "layout", "版面格式錯誤")
             : body.Version is not { } version
                 ? DashboardsController.Bad(this, "version", "必填")
-                : (await mediator.Send(new AdminUpdateDashboardRequest(id, body.Name ?? "", layout, version))).ToActionResult(this);
+                : (await mediator.Send(new AdminUpdateDashboardRequest(id, body.Name, layout, version))).ToActionResult(this);
 
     [HttpDelete("{id:long}")]
     public async Task<IActionResult> Delete(long id) => (await mediator.Send(new AdminDeleteDashboardRequest(id))).ToActionResult(this);

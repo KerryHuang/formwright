@@ -51,14 +51,14 @@ public record ReportColumn(string Key, string Label, string Role, string ValueTy
 public record ReportAppliedRange(DateOnly From, DateOnly To, string Kind, int? N);
 
 /// <summary>報表清單一筆；SharedGroupIds 對非擁有者也照實回傳。</summary>
-public record ReportItem(long Id, string Name, string OwnerName, bool IsOwner, List<long> SharedGroupIds, string MainModuleKey);
+public record ReportItem(long Id, I18nText Name, string OwnerName, bool IsOwner, List<long> SharedGroupIds, string MainModuleKey);
 
 /// <summary>分享對話框的群組選項。</summary>
 public record ReportShareTarget(long Id, I18nText Name);
 
 /// <summary>單張報表；Definition 是儲存的定義原樣（被分享者唯讀）。CanExport 與匯出同一套判斷：涉及的模組都有 PrintExport。</summary>
 public record ReportDetail(
-    long Id, string Name, string OwnerName, bool IsOwner, List<long> SharedGroupIds, string MainModuleKey, JsonElement Definition,
+    long Id, I18nText Name, string OwnerName, bool IsOwner, List<long> SharedGroupIds, string MainModuleKey, JsonElement Definition,
     bool CanExport);
 
 /// <summary>下鑽結果：同 <see cref="ReportResult"/>，明細最多到下鑽上限（政策 report.drillLimit）列，超過時 Truncated 為 true。</summary>
@@ -71,7 +71,7 @@ public sealed record DrillResult : ReportResult
 public static class ReportMapper
 {
     public static ReportItem ToItem(this Report r, ReportViewer viewer, IReadOnlyDictionary<string, string> names) =>
-        new(r.Id, r.Name, names.GetValueOrDefault(r.OwnerUserId, r.OwnerUserId), r.OwnerUserId == viewer.UserId,
+        new(r.Id, r.NameI18n, names.GetValueOrDefault(r.OwnerUserId, r.OwnerUserId), r.OwnerUserId == viewer.UserId,
             r.Shares.Select(s => s.GroupId).Order().ToList(), MainKeyOf(r));
 
     /// <param name="definition">依觀看者遮蔽後的定義（<see cref="ReportMasking.Mask"/>）。</param>

@@ -3,6 +3,7 @@ using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.Reports;
 using DynamicModules.Domain.Repositories.Dynamic;
 using Microsoft.EntityFrameworkCore;
+using DynamicModules.Domain.ValueObjects;
 
 namespace DynamicModules.Persistence.Repositories.Dynamic;
 
@@ -32,8 +33,10 @@ public class DashboardRepository(DynamicDbContext db) : IDashboardRepository
     public async Task<int> MaxSequenceAsync(CancellationToken ct) =>
         await db.Set<Dashboard>().Where(d => d.OwnerUserId == null).MaxAsync(d => (int?)d.Sequence, ct) ?? 0;
 
-    public Task<bool> AssignedNameExistsAsync(string name, CancellationToken ct) =>
-        db.Set<Dashboard>().AnyAsync(d => d.OwnerUserId == null && d.Name == name, ct);
+    // 名稱是 JSON 文字（中文存成 \uXXXX），不能在資料庫端比對；載入後比繁中值（只在產生 Demo 前跑一次，名稱多語設計 §11.3）
+    public async Task<bool> AssignedNameExistsAsync(string name, CancellationToken ct) =>
+        (await db.Set<Dashboard>().AsNoTracking().Where(d => d.OwnerUserId == null).Select(d => d.NameI18n).ToListAsync(ct))
+        .Any(n => n.Resolve(I18nText.FallbackLocale) == name);
 
     // 版面是 JSON，沒有可靠的 SQL 查法（不假設格式化方式），逐筆解析；儀表板與個人版的數量遠小於記錄數
     public async Task<List<DashboardReportReference>> ListReferencesAsync(long reportId, CancellationToken ct)
@@ -41,11 +44,11 @@ public class DashboardRepository(DynamicDbContext db) : IDashboardRepository
         var refs = new List<DashboardReportReference>();
         var dashboards = await db.Set<Dashboard>().AsNoTracking().OrderBy(d => d.Id).ToListAsync(ct);
         refs.AddRange(dashboards.Where(d => References(d.LayoutJson, reportId))
-            .Select(d => new DashboardReportReference(d.Id, d.Name, d.OwnerUserId, false, null)));
-        var names = dashboards.ToDictionary(d => d.Id, d => d.Name);
+            .Select(d => new DashboardReportReference(d.Id, d.NameI18n, d.OwnerUserId, false, null)));
+        var names = dashboards.ToDictionary(d => d.Id, d => d.NameI18n);
         var personal = await db.Set<DashboardPersonalVersion>().AsNoTracking().OrderBy(p => p.DashboardId).ThenBy(p => p.UserId).ToListAsync(ct);
         refs.AddRange(personal.Where(p => References(p.LayoutJson, reportId))
-            .Select(p => new DashboardReportReference(p.DashboardId, names.GetValueOrDefault(p.DashboardId, ""), null, true, p.UserId)));
+            .Select(p => new DashboardReportReference(p.DashboardId, names.GetValueOrDefault(p.DashboardId) ?? new I18nText(), null, true, p.UserId)));
         return refs;
     }
 

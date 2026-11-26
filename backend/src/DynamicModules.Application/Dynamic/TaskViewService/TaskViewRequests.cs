@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DynamicModules.Application.Common;
+using DynamicModules.Domain.ValueObjects;
 using MediatR;
 
 namespace DynamicModules.Application.Dynamic.TaskViewService;
@@ -7,17 +8,17 @@ namespace DynamicModules.Application.Dynamic.TaskViewService;
 /// <summary>Kind 收 board、gantt，其他 400。成功時 Data 是 <see cref="TaskViewListResponse"/>。</summary>
 public sealed record GetTaskViewsRequest(string? Kind) : IRequest<ServiceResult>;
 
-/// <summary>Kind 決定 Config 的格式（board：<see cref="Domain.Tasks.TaskBoardConfig"/>；gantt：<see cref="Domain.Tasks.TaskGanttConfig"/>）；沒給時存該種的預設。</summary>
-public sealed record CreateTaskViewRequest(string? Kind, string? Name, JsonElement? Config) : IRequest<ServiceResult>, ITransactionalRequest;
+/// <summary>Name 是多語名稱（舊畫面送的字串當繁中，名稱多語設計 §6.1）。Kind 決定 Config 的格式（board：<see cref="Domain.Tasks.TaskBoardConfig"/>；gantt：<see cref="Domain.Tasks.TaskGanttConfig"/>）；沒給時存該種的預設。</summary>
+public sealed record CreateTaskViewRequest(string? Kind, I18nText? Name, JsonElement? Config) : IRequest<ServiceResult>, ITransactionalRequest;
 
 public sealed record GetTaskViewRequest(long Id) : IRequest<ServiceResult>;
 
 /// <summary>RowVersion 不符回 409（code stale）。</summary>
-public sealed record UpdateTaskViewRequest(long Id, string? Name, JsonElement? Config, string? RowVersion) : IRequest<ServiceResult>, ITransactionalRequest;
+public sealed record UpdateTaskViewRequest(long Id, I18nText? Name, JsonElement? Config, string? RowVersion) : IRequest<ServiceResult>, ITransactionalRequest;
 
 public sealed record DeleteTaskViewRequest(long Id) : IRequest<ServiceResult>, ITransactionalRequest;
 
-/// <summary>看得到就能另存：設定照抄、擁有者換成自己、不帶分享。</summary>
+/// <summary>看得到就能另存：設定照抄、擁有者換成自己、不帶分享；名稱每個語系各加自己語言的「（副本）」。</summary>
 public sealed record CopyTaskViewRequest(long Id) : IRequest<ServiceResult>, ITransactionalRequest;
 
 /// <summary>整批取代。Kind 是 user、group、department；Id 是使用者帳號或群組、部門的 Id。</summary>

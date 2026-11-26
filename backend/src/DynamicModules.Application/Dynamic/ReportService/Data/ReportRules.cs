@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using DynamicModules.Application.Common;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.FieldTypes;
 using DynamicModules.Domain.Modules;
@@ -45,8 +46,14 @@ public static class ReportRules
     public static Dictionary<string, string[]> ToErrors(string key, IReadOnlyList<string> messages) =>
         new() { [key] = messages.ToArray() };
 
-    public static string? CheckName(string? name) =>
-        string.IsNullOrWhiteSpace(name) ? "名稱必填" : name.Trim().Length > MaxNameLength ? $"名稱最多 {MaxNameLength} 個字" : null;
+    public static readonly string NameTooLong = $"名稱最多 {MaxNameLength} 個字";
+
+    /// <summary>
+    /// 報表與儀表板名稱（名稱多語設計 §7.1）：語系鍵格式、拒收 null 值、每語去空白後最多 <see cref="MaxNameLength"/> 字，必填語系照政策；
+    /// <paramref name="stored"/> 是修改前的名稱（新增傳 null），沒改就不檢查新增的必填語系。
+    /// </summary>
+    public static string? CheckName(RequiredTextGuard guard, I18nText? name, I18nText? stored) =>
+        I18nNameRules.CheckRequired(guard, name, stored, "名稱", MaxNameLength, NameTooLong);
 
     /// <summary>日期區間：種類合法，N 給了就必須 1 到 maxDays（政策 report.maxRangeDays，出廠 3650）。覆寫用的區間（run、drill）也走這裡。</summary>
     public static string? CheckRange(ReportDateRange? r, int maxDays)

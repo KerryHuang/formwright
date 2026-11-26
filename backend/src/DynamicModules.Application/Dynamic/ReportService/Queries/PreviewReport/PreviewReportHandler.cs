@@ -9,7 +9,7 @@ public class PreviewReportHandler(ReportDefinitionValidator validator, ReportRun
 {
     public async Task<ServiceResult> Handle(PreviewReportRequest request, CancellationToken ct)
     {
-        var (definition, failure) = await validator.ValidateAsync(null, request.Definition, ct);
+        var (definition, failure) = await validator.ValidateAsync(request.Definition, ct);
         if (definition is null) return failure!;
         var result = await runner.RunAsync(definition, new ReportRunOptions(null, null, request.Locale), ct);
         return ServiceResult.Success(ReportRules.CapDetail(result, (await limitReader.GetAsync(ct)).DetailLimit));

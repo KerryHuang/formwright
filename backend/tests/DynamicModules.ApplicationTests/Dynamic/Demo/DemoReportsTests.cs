@@ -14,6 +14,7 @@ using DynamicModules.Domain.Repositories.Dynamic;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using DynamicModules.Application.Common;
 
 namespace DynamicModules.ApplicationTests.Dynamic.Demo;
 
@@ -42,13 +43,13 @@ public class DemoReportsTests(DemoGeneratedFixture fx)
 
         foreach (var spec in DemoReports.All)
         {
-            var report = reports.Single(r => r.Name == spec.Name);
-            report.Shares.Select(s => groups[s.GroupId]).Should().BeEquivalentTo(spec.GroupKeys, spec.Name);
+            var report = reports.Single(r => r.NameI18n.SameAs(spec.Name));
+            report.Shares.Select(s => groups[s.GroupId]).Should().BeEquivalentTo(spec.GroupKeys, Zh(spec.Name));
 
             // 定義本身通過存檔驗證的結構規則，並以主管身分實際執行
-            ReportRules.CheckShape(ReportDefinition.Parse(report.DefinitionJson), int.Parse(PolicyCatalog.ReportMaxRangeDays.Factory)).Should().BeEmpty(spec.Name);
+            ReportRules.CheckShape(ReportDefinition.Parse(report.DefinitionJson), int.Parse(PolicyCatalog.ReportMaxRangeDays.Factory)).Should().BeEmpty(Zh(spec.Name));
             var run = (ReportResult)(await fx.As(Managers[spec.GroupKeys[0]], new RunReportRequest(report.Id, null, "zh-TW"))).Data!;
-            run.State.Should().Be("ok", $"{spec.Name}：{run.Message}");
+            run.State.Should().Be("ok", $"{Zh(spec.Name)}：{run.Message}");
         }
     }
 
@@ -56,8 +57,8 @@ public class DemoReportsTests(DemoGeneratedFixture fx)
     public async Task Generate_OrderMergedReport_GroupsByCustomerTitle()
     {
         fx.Generated();
-        var spec = DemoReports.All.Single(s => s.Name == "近 90 天各客戶訂單金額");
-        var definition = ReportDefinition.Parse((await StoredReports()).Single(r => r.Name == spec.Name).DefinitionJson);
+        var spec = DemoReports.All.Single(s => Zh(s.Name) == "近 90 天各客戶訂單金額");
+        var definition = ReportDefinition.Parse((await StoredReports()).Single(r => r.NameI18n.SameAs(spec.Name)).DefinitionJson);
         definition.Child.Should().NotBeNull();
         definition.Groups.Single().Field.ViaFieldId.Should().NotBeNull();
         definition.Measures.Select(m => m.Id).Should().Equal("count", "amount");
@@ -146,7 +147,7 @@ public class DemoReportsTests(DemoGeneratedFixture fx)
     {
         await using var host = await DemoTestHost.CreateAsync();
         var name = DemoReports.Names[0];
-        host.Db.Context.Set<Report>().Add(new Report { OwnerUserId = "admin", Name = name, RowVersion = "x" });
+        host.Db.Context.Set<Report>().Add(new Report { OwnerUserId = "admin", NameI18n = I18nNameRules.ZhOnly(name), RowVersion = "x" });
         await host.Db.Context.SaveChangesAsync();
 
         var conflicts = await host.Services.GetRequiredService<DemoPreflight>().ConflictsAsync(CancellationToken.None);
@@ -198,6 +199,8 @@ public class DemoReportsTests(DemoGeneratedFixture fx)
             .SetAsync(SystemSetting.DemoGeneratedOn, value, CancellationToken.None);
         await host.Db.Context.SaveChangesAsync();
     }
+
+    private static string Zh(DynamicModules.Domain.ValueObjects.I18nText t) => t.Resolve("zh-TW");
 }
 
 /// <summary>產生 Demo 資料後再過 120 天跑報表，基準日看是否開 Demo 登入。兩個案例各自一個類別（各產生一次），才不在同一類別內串行。</summary>
@@ -216,7 +219,7 @@ internal static class DemoReportsAfter120Days
         var host = demoLogin ? await DemoTestHost.CreateAsync(configure: Configure) : await DemoSnapshot.CreateHostAsync(configure: Configure);
         await using var _host = host;
         if (demoLogin) (await host.Send(new GenerateDemoDataRequest(DemoTestHost.Today))).IsSuccess.Should().BeTrue();
-        var report = await host.Db.Context.Set<Report>().AsNoTracking().SingleAsync(r => r.Name == "近 90 天訂單狀態分布");
+        var report = (await host.Db.Context.Set<Report>().AsNoTracking().ToListAsync()).Single(r => r.Name == "近 90 天訂單狀態分布");
 
         clock.Today = DemoTestHost.Today.AddDays(120);
         using var _ = ActingScope.Begin("manager01");
@@ -244,4 +247,5 @@ public class DemoReportsDemoLoginOffTests
 {
     [Fact]
     public Task Run_120DaysAfterGeneration_DemoLoginOff_UsesToday() => DemoReportsAfter120Days.Run(false, "empty", false);
+
 }

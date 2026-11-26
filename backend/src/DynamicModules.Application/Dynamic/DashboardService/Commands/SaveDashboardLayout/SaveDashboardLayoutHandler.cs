@@ -11,7 +11,7 @@ using MediatR;
 namespace DynamicModules.Application.Dynamic.DashboardService.Commands.SaveDashboardLayout;
 
 public class SaveDashboardLayoutHandler(IDashboardRepository dashboards, IUnitOfWork uow, IBusinessTime time, DashboardAccess access, ReportAccess reportAccess,
-    ReportLimitReader limitReader)
+    ReportLimitReader limitReader, RequiredTextGuard requiredText)
     : IRequestHandler<SaveDashboardLayoutRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(SaveDashboardLayoutRequest request, CancellationToken ct)
@@ -21,7 +21,7 @@ public class SaveDashboardLayoutHandler(IDashboardRepository dashboards, IUnitOf
         if (scope is null) return ServiceResult.NotFound(DashboardRules.NotFound);
 
         var errors = DashboardRules.CheckLayout(request.Layout, await limitReader.GetAsync(ct), await limitReader.MaxCardsAsync(ct), scope.EffectiveLayout.Cards.Count);
-        if (!scope.IsAssigned && request.Name is not null && ReportRules.CheckName(request.Name) is { } nameError) errors.Add(nameError);
+        if (!scope.IsAssigned && request.Name is not null && ReportRules.CheckName(requiredText, request.Name, scope.Dashboard.NameI18n) is { } nameError) errors.Add(nameError);
         if (errors.Count == 0)
         {
             // 原本就在版面裡的報表不重驗可見性（取消分享後的卡片、指派版的卡片）
@@ -40,11 +40,12 @@ public class SaveDashboardLayoutHandler(IDashboardRepository dashboards, IUnitOf
             scope.IsAssigned && scope.Personal is not null
                 ? DashboardLayout.Parse(scope.Personal.LayoutJson).Cards.Where(c => c.FromAssigned).Select(c => c.ReportId)
                 : []).ToHashSet();
-        var json = DashboardLayout.Serialize(scope.IsAssigned ? request.Layout.WithFromAssigned(c => trusted.Contains(c.ReportId)) : request.Layout.WithoutFromAssigned());
+        var layout = request.Layout.WithCleanTitles();
+        var json = DashboardLayout.Serialize(scope.IsAssigned ? layout.WithFromAssigned(c => trusted.Contains(c.ReportId)) : layout.WithoutFromAssigned());
         if (!scope.IsAssigned)
         {
             d.LayoutJson = json;
-            if (request.Name is not null) d.Name = request.Name.Trim();
+            if (request.Name is not null) d.NameI18n = request.Name.Compacted();
             d.StampModified(viewer.UserId, time.Now);
             await uow.CommitAsync(ct);
             return ServiceResult.Success(await access.DetailAsync(scope, viewer, ct));

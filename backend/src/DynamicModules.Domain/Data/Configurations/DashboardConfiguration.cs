@@ -11,7 +11,7 @@ public class DashboardConfiguration : IEntityTypeConfiguration<Dashboard>
         b.ToTable("Dynamic_Dashboard");
         b.HasKey(x => x.Id);
         b.Property(x => x.OwnerUserId).HasMaxLength(50);
-        b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+        b.Property(x => x.NameI18n).HasJsonConversion();
         b.Property(x => x.LayoutJson).IsRequired();
         b.HasIndex(x => x.OwnerUserId);
         b.HasMany(x => x.Assignments).WithOne().HasForeignKey(x => x.DashboardId).OnDelete(DeleteBehavior.Cascade);

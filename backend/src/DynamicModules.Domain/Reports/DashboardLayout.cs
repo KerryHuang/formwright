@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using DynamicModules.Domain.ValueObjects;
 
 namespace DynamicModules.Domain.Reports;
 
@@ -14,14 +16,25 @@ public record DashboardLayout(List<DashboardCard> Cards)
 
     public static string Serialize(DashboardLayout layout) => JsonSerializer.Serialize(layout, Options);
 
-    /// <summary>缺 cards 當空版面，卡片缺 options 補預設值。</summary>
+    /// <summary>缺 cards 當空版面，卡片缺 options 補預設值；舊版面的字串標題讀成只有繁中，空白標題當沒有標題（名稱多語設計 §5.3）。</summary>
     public static DashboardLayout Parse(string json)
     {
         var layout = JsonSerializer.Deserialize<DashboardLayout>(json, Options) ?? throw new JsonException("儀表板版面不可為 null。");
         return layout.Cards is null
             ? Empty
-            : new DashboardLayout(layout.Cards.Select(c => (object?)c.Options is null ? c with { Options = CardOptions.None } : c).ToList());
+            : new DashboardLayout(layout.Cards.Select(c => ((object?)c.Options is null ? c with { Options = CardOptions.None } : c) with { Title = CleanTitle(c.Title) }).ToList());
     }
+
+    /// <summary>
+    /// 存檔前的卡片標題正規化（§7.2）：各語系去前後空白、去掉空白語系；全部空白就當沒有標題（null），LayoutJson 不殘留 {} 或 {"zh-TW":""}。
+    /// 驗證（<c>DashboardRules.CheckLayout</c>）要在這之前做，空值語系才擋得到。
+    /// </summary>
+    public DashboardLayout WithCleanTitles() => new(Cards.Select(c => c is null ? c! : c with { Title = CleanTitle(c.Title) }).ToList());
+
+    // 有 null 值的標題原樣保留，交給驗證拒收（「語系 xx 的文字不能是空值」）；存進去的版面不會有 null 值
+    private static I18nText? CleanTitle(I18nText? title) =>
+        title is not null && title.Values.Values.Any(v => v is null) ? title
+        : title?.Compacted() is { Values.Count: > 0 } clean ? clean : null;
 
     public IReadOnlySet<long> ReportIds() => Cards.Select(c => c.ReportId).ToHashSet();
 
@@ -37,8 +50,9 @@ public record DashboardLayout(List<DashboardCard> Cards)
 /// FromAssigned 只由伺服器決定（spec §7）：個人版上這張卡片的報表來自指派版（放上時在指派版面內，或之前已帶此旗標），
 /// 所以指派版後來移除這張報表，個人版保留的卡片仍可載入，不需要另外分享。使用者自己靠分享加入的卡片永遠是 false。
 /// 存檔時一律由伺服器覆寫，client 送的值無效。
+/// Title 是多語卡片標題（選填，null 時顯示報表名稱）：讀取收字串（＝只有繁中，舊版面）或物件，寫出一律是物件（名稱多語設計 §5.3）。
 /// </summary>
-public record DashboardCard(string Id, long ReportId, string? Title, string Viz, int X, int Y, int W, int H, CardOptions Options, bool FromAssigned = false);
+public record DashboardCard(string Id, long ReportId, [property: JsonConverter(typeof(I18nTextOrStringJsonConverter))] I18nText? Title, string Viz, int X, int Y, int W, int H, CardOptions Options, bool FromAssigned = false);
 
 /// <summary>
 /// 卡片自己的選項（spec §4）。Range 是卡片自己的日期區間；TopN 不併「其他」；Cumulative 只限長條；ComparePeriods 只限指標卡且報表要有主要日期欄位；

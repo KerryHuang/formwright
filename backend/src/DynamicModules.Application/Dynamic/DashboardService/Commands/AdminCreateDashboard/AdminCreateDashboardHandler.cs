@@ -1,4 +1,5 @@
 using DynamicModules.Application.Common;
+using DynamicModules.Application.Common.Audit;
 using DynamicModules.Application.Common.Time;
 using DynamicModules.Application.Dynamic.DashboardService.Data;
 using DynamicModules.Application.Dynamic.ReportService;
@@ -12,25 +13,26 @@ namespace DynamicModules.Application.Dynamic.DashboardService.Commands.AdminCrea
 
 /// <summary>建立指派版（還沒指派給任何群組，沒人看得到）；排在現有指派版的最後。</summary>
 public class AdminCreateDashboardHandler(IDashboardRepository dashboards, IUnitOfWork uow, IBusinessTime time, DashboardAccess access, ReportAccess reportAccess,
-    ReportLimitReader limitReader)
+    ReportLimitReader limitReader, RequiredTextGuard requiredText, RequestLocale requestLocale, AuditContext audit)
     : IRequestHandler<AdminCreateDashboardRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(AdminCreateDashboardRequest request, CancellationToken ct)
     {
         var viewer = await reportAccess.ViewerAsync(ct);
         var errors = DashboardRules.CheckLayout(request.Layout, await limitReader.GetAsync(ct), await limitReader.MaxCardsAsync(ct));
-        if (ReportRules.CheckName(request.Name) is { } nameError) errors.Add(nameError);
+        if (ReportRules.CheckName(requiredText, request.Name, null) is { } nameError) errors.Add(nameError);
         if (errors.Count == 0 && await access.CheckReportsAsync(request.Layout, [], viewer, ct) is { } reportError) errors.Add(reportError);
         if (errors.Count > 0) return ServiceResult.Invalid(ReportRules.ToErrors("layout", errors));
 
         var dashboard = new Dashboard
         {
-            OwnerUserId = null, Name = request.Name.Trim(), LayoutJson = DashboardLayout.Serialize(request.Layout.WithoutFromAssigned()),
+            OwnerUserId = null, NameI18n = request.Name!.Compacted(), LayoutJson = DashboardLayout.Serialize(request.Layout.WithCleanTitles().WithoutFromAssigned()),
             Version = 1, Sequence = await dashboards.MaxSequenceAsync(ct) + 1
         };
         dashboard.StampCreated(viewer.UserId, time.Now);
         dashboards.Add(dashboard);
         await uow.CommitAsync(ct);
+        audit.Target(label: dashboard.NameI18n.Resolve(requestLocale.SystemDefault));
         return ServiceResult.Created(dashboard.ToAdminDetail());
     }
 }

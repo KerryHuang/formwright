@@ -11,7 +11,8 @@ public class ReportConfiguration : IEntityTypeConfiguration<Report>
         b.ToTable("Dynamic_Report");
         b.HasKey(x => x.Id);
         b.Property(x => x.OwnerUserId).HasMaxLength(50).IsRequired();
-        b.Property(x => x.Name).HasMaxLength(200).IsRequired();
+        b.Property(x => x.NameI18n).HasJsonConversion();
+        b.Ignore(x => x.Name);
         b.Property(x => x.DefinitionJson).IsRequired();
         b.Property(x => x.RowVersion).HasMaxLength(36).IsRequired().IsConcurrencyToken();
         b.HasIndex(x => x.OwnerUserId);

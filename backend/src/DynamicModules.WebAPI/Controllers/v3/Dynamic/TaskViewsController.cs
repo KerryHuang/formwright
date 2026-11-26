@@ -2,6 +2,8 @@ using System.Text.Json;
 using DynamicModules.Application.Dynamic.TaskViewService;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json.Serialization;
+using DynamicModules.Domain.ValueObjects;
 
 namespace DynamicModules.WebAPI.Controllers.v3.Dynamic;
 
@@ -10,9 +12,10 @@ namespace DynamicModules.WebAPI.Controllers.v3.Dynamic;
 [Route("api/v3/dynamic/task-views")]
 public class TaskViewsController(IMediator mediator) : ControllerBase
 {
-    public sealed record CreateBody(string? Kind, string? Name, JsonElement? Config);
+    /// <summary>Name 收多語物件，或字串（＝只有繁中，舊畫面相容，名稱多語設計 §6.1）。</summary>
+    public sealed record CreateBody(string? Kind, [property: JsonConverter(typeof(I18nTextOrStringJsonConverter))] I18nText? Name, JsonElement? Config);
 
-    public sealed record UpdateBody(string? Name, JsonElement? Config, string? RowVersion);
+    public sealed record UpdateBody([property: JsonConverter(typeof(I18nTextOrStringJsonConverter))] I18nText? Name, JsonElement? Config, string? RowVersion);
 
     [HttpGet]
     public async Task<IActionResult> List([FromQuery] string kind = "board") =>

@@ -17,10 +17,10 @@ public class UpdateReportHandler(
         if (report is null) return ServiceResult.NotFound(ReportRules.ReportNotFound);
         if (report.OwnerUserId != viewer.UserId) return ServiceResult.Forbidden();
 
-        var (definition, failure) = await validator.ValidateAsync(request.Name, request.Definition, ct);
+        var (definition, failure) = await validator.ValidateAsync(request.Name, report.NameI18n, request.Definition, ct);
         if (definition is null) return failure!;
 
-        report.Name = request.Name.Trim();
+        report.NameI18n = request.Name!.Compacted();
         report.DefinitionJson = ReportDefinition.Serialize(definition);
         report.RowVersion = Guid.NewGuid().ToString();
         report.StampModified(viewer.UserId, time.Now);

@@ -104,10 +104,11 @@ public class AccountRepository(DynamicDbContext db) : IAccountRepository
             .AsNoTracking().ToListAsync(ct);
         var blocking = rows.Select(r => new BlockingOption(r.Module.Resolve(lc), r.Field.Resolve(lc), r.Option.Resolve(lc))).ToList();
         var reports = await db.Set<Report>().AsNoTracking()
-            .Where(r => r.Shares.Any(s => s.GroupId == groupId)).OrderBy(r => r.Id).Select(r => r.Name).ToListAsync(ct);
+            .Where(r => r.Shares.Any(s => s.GroupId == groupId)).OrderBy(r => r.Id).Select(r => r.NameI18n).ToListAsync(ct);
         var dashboards = await db.Set<Dashboard>().AsNoTracking()
-            .Where(d => d.Assignments.Any(a => a.GroupId == groupId)).OrderBy(d => d.Id).Select(d => d.Name).ToListAsync(ct);
-        return new GroupImpact(members, modules, fieldPerms, scopes, blocking, reports, dashboards);
+            .Where(d => d.Assignments.Any(a => a.GroupId == groupId)).OrderBy(d => d.Id).Select(d => d.NameI18n).ToListAsync(ct);
+        return new GroupImpact(members, modules, fieldPerms, scopes, blocking,
+            reports.Select(n => n.Resolve(lc)).ToList(), dashboards.Select(n => n.Resolve(lc)).ToList());
     }
 
     public async Task DeleteGroupAsync(PermissionGroup group, CancellationToken ct)

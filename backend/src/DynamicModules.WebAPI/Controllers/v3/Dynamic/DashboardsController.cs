@@ -11,6 +11,8 @@ using DynamicModules.Application.Dynamic.DashboardService.Queries.RunCard;
 using DynamicModules.Domain.Reports;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json.Serialization;
+using DynamicModules.Domain.ValueObjects;
 
 namespace DynamicModules.WebAPI.Controllers.v3.Dynamic;
 
@@ -19,9 +21,10 @@ namespace DynamicModules.WebAPI.Controllers.v3.Dynamic;
 [Route("api/v3/dynamic/dashboards")]
 public class DashboardsController(IMediator mediator) : ControllerBase
 {
-    public record CreateBody(string? Name, JsonElement? Layout);
+    /// <summary>Name 收多語物件，或字串（＝只有繁中，舊畫面相容，名稱多語設計 §6.1）。</summary>
+    public record CreateBody([property: JsonConverter(typeof(I18nTextOrStringJsonConverter))] I18nText? Name, JsonElement? Layout);
 
-    public record SaveBody(string? Name, JsonElement? Layout, int? Version);
+    public record SaveBody([property: JsonConverter(typeof(I18nTextOrStringJsonConverter))] I18nText? Name, JsonElement? Layout, int? Version);
 
     public record RunBody(ReportDateRange? FilterRange);
 
@@ -47,7 +50,7 @@ public class DashboardsController(IMediator mediator) : ControllerBase
     public async Task<IActionResult> Create(CreateBody body) =>
         ParseLayout(body.Layout) is not { } layout
             ? Bad(this, "layout", "版面格式錯誤")
-            : (await mediator.Send(new CreateDashboardRequest(body.Name ?? "", layout))).ToActionResult(this);
+            : (await mediator.Send(new CreateDashboardRequest(body.Name, layout))).ToActionResult(this);
 
     [HttpDelete("{id:long}")]
     public async Task<IActionResult> Delete(long id) => (await mediator.Send(new DeleteDashboardRequest(id))).ToActionResult(this);

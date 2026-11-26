@@ -235,7 +235,7 @@ public class ReportsApiTests
         var copy = await JsonOf(res);
         copy.GetProperty("id").GetInt64().Should().NotBe(id);
         copy.GetProperty("isOwner").GetBoolean().Should().BeTrue();
-        copy.GetProperty("name").GetString().Should().Be("月報");
+        copy.GetProperty("name").GetProperty("zh-TW").GetString().Should().Be("月報");
         copy.GetProperty("sharedGroupIds").GetArrayLength().Should().Be(0);
         var original = await JsonOf(await admin.GetAsync($"{Reports}/{id}"));
         original.GetProperty("sharedGroupIds").GetArrayLength().Should().Be(1);
@@ -474,7 +474,7 @@ public class ReportsApiTests
         // 預覽不看名稱；只有名稱錯的案例預覽照常可跑
         if (!name.StartsWith("name-"))
             preview.StatusCode.Should().Be(HttpStatusCode.BadRequest, name + " preview " + await preview.Content.ReadAsStringAsync());
-        (await JsonOf(await admin.GetAsync($"{Reports}/{existing}"))).GetProperty("name").GetString().Should().Be("月報");
+        (await JsonOf(await admin.GetAsync($"{Reports}/{existing}"))).GetProperty("name").GetProperty("zh-TW").GetString().Should().Be("月報");
     }
 
     [Fact]
@@ -633,7 +633,7 @@ public class ReportsApiTests
     {
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<DynamicDbContext>();
-        var d = new Dashboard { OwnerUserId = owner, Name = name, LayoutJson = layoutJson, Assignments = [.. groupIds.Select(g => new DashboardAssignment { GroupId = g })] };
+        var d = new Dashboard { OwnerUserId = owner, NameI18n = DynamicModules.Application.Common.I18nNameRules.ZhOnly(name), LayoutJson = layoutJson, Assignments = [.. groupIds.Select(g => new DashboardAssignment { GroupId = g })] };
         db.Set<Dashboard>().Add(d);
         db.SaveChanges();
         return d.Id;
@@ -916,7 +916,7 @@ public class ReportsApiTests
 
         var item = (await JsonOf(await admin.GetAsync(Reports))).EnumerateArray().Single();
         item.GetProperty("id").GetInt64().Should().Be(id);
-        item.GetProperty("name").GetString().Should().Be("月報");
+        item.GetProperty("name").GetProperty("zh-TW").GetString().Should().Be("月報");
         item.GetProperty("isOwner").GetBoolean().Should().BeTrue();
         item.GetProperty("mainModuleKey").GetString().Should().Be(w.Main);
         item.GetProperty("sharedGroupIds").GetArrayLength().Should().Be(0);
@@ -1449,7 +1449,7 @@ public class ReportsApiTests
 
         put.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         Stored().Should().Be(before);
-        (await JsonOf(await owner.GetAsync($"{Reports}/{id}"))).GetProperty("name").GetString().Should().Be("月報");
+        (await JsonOf(await owner.GetAsync($"{Reports}/{id}"))).GetProperty("name").GetProperty("zh-TW").GetString().Should().Be("月報");
     }
 
     [Fact]

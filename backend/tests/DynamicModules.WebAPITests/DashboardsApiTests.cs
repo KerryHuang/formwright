@@ -99,7 +99,7 @@ public class DashboardsApiTests
         mine.GetProperty("adjusted").GetBoolean().Should().BeTrue();
         var untouched = await GetDashboard(app.AsUser("sales02"), id);
         CardReportIds(untouched).Should().Equal(r1, r2);
-        untouched.GetProperty("name").GetString().Should().Be("業務總覽 v2");
+        untouched.GetProperty("name").GetProperty("zh-TW").GetString().Should().Be("業務總覽 v2");
     }
 
     [Fact]
@@ -159,7 +159,7 @@ public class DashboardsApiTests
         var stale = await admin.PutAsJsonAsync($"{AdminDashboards}/{id}", new { name = "改二", layout = Layout(), version = 1 });
 
         stale.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await GetDashboard(app.AsUser("sales01"), id)).GetProperty("name").GetString().Should().Be("改一");
+        (await GetDashboard(app.AsUser("sales01"), id)).GetProperty("name").GetProperty("zh-TW").GetString().Should().Be("改一");
     }
 
     [Fact]
@@ -212,7 +212,7 @@ public class DashboardsApiTests
         (await JsonOf(await app.AsUser("sales02").GetAsync(Dashboards))).GetProperty("mine").GetArrayLength().Should().Be(0);
         // 管理員也看不到別人自己的
         (await app.AsUser().GetAsync($"{Dashboards}/{id}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
-        (await JsonOf(await sales01.GetAsync(Dashboards))).GetProperty("mine")[0].GetProperty("name").GetString().Should().Be("我的看板");
+        (await JsonOf(await sales01.GetAsync(Dashboards))).GetProperty("mine")[0].GetProperty("name").GetProperty("zh-TW").GetString().Should().Be("我的看板");
     }
 
     [Fact]
@@ -228,7 +228,7 @@ public class DashboardsApiTests
 
         saved.StatusCode.Should().Be(HttpStatusCode.OK);
         var detail = await GetDashboard(sales01, id);
-        detail.GetProperty("name").GetString().Should().Be("改名");
+        detail.GetProperty("name").GetProperty("zh-TW").GetString().Should().Be("改名");
         detail.GetProperty("kind").GetString().Should().Be("mine");
         CardReportIds(detail).Should().Equal(r1, r2);
         (await sales01.DeleteAsync($"{Dashboards}/{id}")).StatusCode.Should().Be(HttpStatusCode.OK);
@@ -252,8 +252,8 @@ public class DashboardsApiTests
 
         var names = (await GetDashboard(sales01, id)).GetProperty("reportNames");
 
-        names.GetProperty(shared.ToString()).GetString().Should().Be("共用報表");   // 指派版放上的卡片
-        names.GetProperty(unshared.ToString()).GetString().Should().Be("未分享報表"); // 指派版放上的卡片，雖然沒分享
+        names.GetProperty(shared.ToString()).GetProperty("zh-TW").GetString().Should().Be("共用報表");   // 指派版放上的卡片
+        names.GetProperty(unshared.ToString()).GetProperty("zh-TW").GetString().Should().Be("未分享報表"); // 指派版放上的卡片，雖然沒分享
         (await GetDashboard(sales01, own)).GetProperty("reportNames").EnumerateObject().Should().BeEmpty();
     }
 

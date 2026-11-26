@@ -134,18 +134,18 @@ public class TaskBoardScenarioTests(DemoGeneratedFixture fx)
         fx.Generated();
         var mine = (await ViewsOf("manager01")).Mine;
 
-        mine.Select(v => v.Name).Should().BeEquivalentTo(["業務部負載", "業務部任務"]);
-        mine.Single(v => v.Name == "業務部負載").ShareCount.Should().Be(0);
-        mine.Single(v => v.Name == "業務部任務").ShareCount.Should().Be(1);
+        mine.Select(v => v.Name.Resolve("zh-TW")).Should().BeEquivalentTo(["業務部負載", "業務部任務"]);
+        mine.Single(v => v.Name.Resolve("zh-TW") == "業務部負載").ShareCount.Should().Be(0);
+        mine.Single(v => v.Name.Resolve("zh-TW") == "業務部任務").ShareCount.Should().Be(1);
 
-        var load = await DetailOf("manager01", mine.Single(v => v.Name == "業務部負載").Id);
+        var load = await DetailOf("manager01", mine.Single(v => v.Name.Resolve("zh-TW") == "業務部負載").Id);
         load.Config.GetProperty("groupBy").GetString().Should().Be("assignee");
         load.Config.GetProperty("scope").GetString().Should().Be("subordinates");
         var columns = load.Config.GetProperty("columns");
         columns.GetProperty("assignees").EnumerateArray().Select(e => e.GetString()).Should().Equal("sales01", "sales02", "sales03");
         columns.GetProperty("autoAppendAssignees").GetBoolean().Should().BeTrue();
 
-        var tasks = await DetailOf("manager01", mine.Single(v => v.Name == "業務部任務").Id);
+        var tasks = await DetailOf("manager01", mine.Single(v => v.Name.Resolve("zh-TW") == "業務部任務").Id);
         tasks.Config.GetProperty("groupBy").GetString().Should().Be("status");
         tasks.Config.GetProperty("scope").GetString().Should().Be("visible");
         tasks.Config.GetProperty("filters").GetProperty("assigneeUserIds").EnumerateArray().Select(e => e.GetString())
@@ -162,9 +162,9 @@ public class TaskBoardScenarioTests(DemoGeneratedFixture fx)
         var views = await ViewsOf("sales01");
 
         views.Mine.Should().BeEmpty();
-        var shared = views.Shared.Should().ContainSingle(v => v.Name == "業務部任務").Subject;
+        var shared = views.Shared.Should().ContainSingle(v => v.Name.Resolve("zh-TW") == "業務部任務").Subject;
         shared.OwnerUserId.Should().Be("manager01");
-        views.Shared.Should().NotContain(v => v.Name == "業務部負載");
+        views.Shared.Should().NotContain(v => v.Name.Resolve("zh-TW") == "業務部負載");
 
         var r = await fx.As("sales01", new GetTaskBoardColumnsRequest(shared.Id, null));
         r.IsSuccess.Should().BeTrue(r.Message);

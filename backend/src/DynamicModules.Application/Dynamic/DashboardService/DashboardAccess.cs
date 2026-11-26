@@ -3,6 +3,7 @@ using DynamicModules.Application.Dynamic.ReportService;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.Reports;
 using DynamicModules.Domain.Repositories.Dynamic;
+using DynamicModules.Domain.ValueObjects;
 
 namespace DynamicModules.Application.Dynamic.DashboardService;
 
@@ -47,12 +48,12 @@ public class DashboardAccess(IDashboardRepository dashboards, IReportRepository 
         var layout = scope.EffectiveLayout;
         var assigned = scope.AssignedReportIds();
         var fromAssigned = layout.Cards.Where(c => scope.IsFromAssigned(c, assigned)).Select(c => c.ReportId).ToHashSet();
-        var names = new Dictionary<long, string>();
+        var names = new Dictionary<long, I18nText>();
         foreach (var id in layout.ReportIds())
             if (await reports.GetAsync(id, ct) is { } r && (fromAssigned.Contains(id) || ReportAccess.CanView(r, viewer)))
-                names[id] = r.Name;
+                names[id] = r.NameI18n;
         var d = scope.Dashboard;
-        return new DashboardDetail(d.Id, d.Name, scope.IsAssigned ? "assigned" : "mine", d.Version, scope.Personal is not null, scope.HasUpdate, layout, names);
+        return new DashboardDetail(d.Id, d.NameI18n, scope.IsAssigned ? "assigned" : "mine", d.Version, scope.Personal is not null, scope.HasUpdate, layout, names);
     }
 
     /// <summary>觀看者看得到定義的報表 id：自己的、分享給他的群組的；管理員另含所有有分享的。</summary>

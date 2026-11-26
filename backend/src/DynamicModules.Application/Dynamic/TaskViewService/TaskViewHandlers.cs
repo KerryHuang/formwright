@@ -1,10 +1,12 @@
 using System.Globalization;
 using System.Text.Json;
 using DynamicModules.Application.Common;
+using DynamicModules.Application.Common.Localization;
 using DynamicModules.Application.Common.Time;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.Repositories.Dynamic;
 using DynamicModules.Domain.Tasks;
+using DynamicModules.Domain.ValueObjects;
 using MediatR;
 
 namespace DynamicModules.Application.Dynamic.TaskViewService;
@@ -18,12 +20,19 @@ public static class TaskViewRules
     public static ServiceResult? KindError(string? kind) =>
         kind is TaskViewKinds.Board or TaskViewKinds.Gantt ? null : ServiceResult.Invalid("kind", MessageRef.Of(MessageText.TaskViewKindInvalid));
 
-    public static (string? Name, ServiceResult? Error) Name(string? name, string kind = TaskViewKinds.Board)
+    /// <summary>
+    /// 多語名稱（名稱多語設計 §7.1）：完全沒有文字回原本分種類的「必填」訊息；語系鍵格式、空值、每語長度不對回 400；
+    /// 再照政策 locale.requiredText 檢查必填語系（<paramref name="stored"/> 是修改前的名稱，沒改就不檢查）。通過回去空白後的名稱。
+    /// </summary>
+    public static (I18nText? Name, ServiceResult? Error) Name(RequiredTextGuard guard, I18nText? name, I18nText? stored, string kind = TaskViewKinds.Board)
     {
-        var trimmed = name?.Trim();
-        if (string.IsNullOrEmpty(trimmed)) return (null, ServiceResult.Invalid("name", TaskViewMessages.NameRequiredOf(kind)));
-        if (trimmed.Length > MaxName) return (null, ServiceResult.Invalid("name", TaskViewMessages.NameTooLongOf(kind, MaxName)));
-        return (trimmed, null);
+        // 完全沒有文字（沒送、空物件、全是空白）：沿用分種類的「必填」訊息（甘特圖有四語）
+        if (name is null || name.Values.All(kv => kv.Value is not null && string.IsNullOrWhiteSpace(kv.Value)))
+            return (null, ServiceResult.Invalid("name", TaskViewMessages.NameRequiredOf(kind)));
+        if (I18nNameRules.FormatError(name) is { } format) return (null, Bad("name", format));
+        if (I18nNameRules.TooLong(name, MaxName)) return (null, ServiceResult.Invalid("name", TaskViewMessages.NameTooLongOf(kind, MaxName)));
+        if (guard.Check(name, stored, TaskViewMessages.NameSubjectOf(kind)) is { } missing) return (null, Bad("name", missing));
+        return (name.Compacted(), null);
     }
 
     /// <summary>看板設定：沒給時用 fallback（新增時是預設看板）；給了就嚴格驗證，錯了回 400（鍵 config）。</summary>
@@ -63,10 +72,15 @@ public static class TaskViewRules
     public static string ReadConfig(TaskView v) =>
         v.Kind == TaskViewKinds.Gantt ? TaskGanttConfig.Read(v.ConfigJson).Serialize() : TaskBoardConfig.Read(v.ConfigJson).Serialize();
 
-    /// <summary>名稱加「（副本）」；超過上限時截短原名稱，保留後綴（不切斷代理字元對）。</summary>
-    public static string CopyName(string name)
+    /// <summary>
+    /// 另存的名稱：每個有值的語系各加 <paramref name="suffixOf"/> 給的該語系「（副本）」後綴（名稱多語設計 §7.3 Q3）。
+    /// </summary>
+    public static I18nText CopyName(I18nText name, Func<string, string> suffixOf) =>
+        new(name.Compacted().Values.Select(kv => KeyValuePair.Create(kv.Key, CopyName(kv.Value, suffixOf(kv.Key)))));
+
+    /// <summary>名稱加後綴；超過上限時截短原名稱，保留後綴（不切斷代理字元對）。</summary>
+    public static string CopyName(string name, string suffix)
     {
-        var suffix = TaskViewMessages.CopySuffix;
         if (name.Length + suffix.Length <= MaxName) return name + suffix;
         var cut = MaxName - suffix.Length;
         if (char.IsHighSurrogate(name[cut - 1])) cut--;
@@ -91,14 +105,14 @@ public class GetTaskViewsHandler(ITaskViewRepository views, TaskViewAccess acces
     }
 }
 
-public class CreateTaskViewHandler(ITaskViewRepository views, TaskViewAccess access, IUnitOfWork uow, IBusinessTime time)
+public class CreateTaskViewHandler(ITaskViewRepository views, TaskViewAccess access, IUnitOfWork uow, IBusinessTime time, RequiredTextGuard requiredText)
     : IRequestHandler<CreateTaskViewRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(CreateTaskViewRequest request, CancellationToken ct)
     {
         if (TaskViewRules.KindError(request.Kind) is { } badKind) return badKind;
         var kind = request.Kind!;
-        var (name, badName) = TaskViewRules.Name(request.Name, kind);
+        var (name, badName) = TaskViewRules.Name(requiredText, request.Name, null, kind);
         if (badName is not null) return badName;
         var (config, badConfig) = TaskViewRules.ConfigJson(kind, request.Config, null);
         if (badConfig is not null) return badConfig;
@@ -106,7 +120,7 @@ public class CreateTaskViewHandler(ITaskViewRepository views, TaskViewAccess acc
         var viewer = await access.ViewerAsync(ct);
         var view = new TaskView
         {
-            Kind = kind, OwnerUserId = viewer.UserId, Name = name!, ConfigJson = config!,
+            Kind = kind, OwnerUserId = viewer.UserId, NameI18n = name!, ConfigJson = config!,
             RowVersion = Guid.NewGuid().ToString()
         };
         view.StampCreated(viewer.UserId, time.Now);
@@ -126,7 +140,8 @@ public class GetTaskViewHandler(TaskViewAccess access) : IRequestHandler<GetTask
 }
 
 /// <summary>只有建立者能改（系統管理員也不能改別人的，§6.2）；不能改種類。</summary>
-public class UpdateTaskViewHandler(TaskViewAccess access, IUnitOfWork uow, IBusinessTime time) : IRequestHandler<UpdateTaskViewRequest, ServiceResult>
+public class UpdateTaskViewHandler(TaskViewAccess access, IUnitOfWork uow, IBusinessTime time, RequiredTextGuard requiredText)
+    : IRequestHandler<UpdateTaskViewRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(UpdateTaskViewRequest request, CancellationToken ct)
     {
@@ -135,12 +150,12 @@ public class UpdateTaskViewHandler(TaskViewAccess access, IUnitOfWork uow, IBusi
         if (view.OwnerUserId != viewer.UserId) return ServiceResult.Forbidden();
         if (view.RowVersion != request.RowVersion) return ServiceResult.Stale();
         // 種類不能改：依資料列的 Kind 驗證設定（GT-T9）
-        var (name, badName) = TaskViewRules.Name(request.Name, view.Kind);
+        var (name, badName) = TaskViewRules.Name(requiredText, request.Name, view.NameI18n, view.Kind);
         if (badName is not null) return badName;
         var (config, badConfig) = TaskViewRules.ConfigJson(view.Kind, request.Config, view.ConfigJson);
         if (badConfig is not null) return badConfig;
 
-        view.Name = name!;
+        view.NameI18n = name!;
         view.ConfigJson = config!;
         view.RowVersion = Guid.NewGuid().ToString();
         view.StampModified(viewer.UserId, time.Now);
@@ -163,7 +178,8 @@ public class DeleteTaskViewHandler(ITaskViewRepository views, TaskViewAccess acc
     }
 }
 
-public class CopyTaskViewHandler(ITaskViewRepository views, TaskViewAccess access, IUnitOfWork uow, IBusinessTime time)
+public class CopyTaskViewHandler(ITaskViewRepository views, TaskViewAccess access, IUnitOfWork uow, IBusinessTime time, IMessageCatalog messages,
+    PolicyService.CachedSystemPolicy policy)
     : IRequestHandler<CopyTaskViewRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(CopyTaskViewRequest request, CancellationToken ct)
@@ -172,7 +188,9 @@ public class CopyTaskViewHandler(ITaskViewRepository views, TaskViewAccess acces
         if (source is null) return ServiceResult.NotFound(TaskViewMessages.NotFound);
         var copy = new TaskView
         {
-            Kind = source.Kind, OwnerUserId = viewer.UserId, Name = TaskViewRules.CopyName(source.Name),
+            // 後綴沿該語系的退回鏈取（語系 → 上層語系 → 系統預設語系 → 繁中）；自訂語系沒有這句時退回預設語系的後綴，不丟例外（§7.3）
+            Kind = source.Kind, OwnerUserId = viewer.UserId,
+            NameI18n = TaskViewRules.CopyName(source.NameI18n, l => messages.Get(new LocaleContext(l, policy.FallbacksFor(l)), MessageText.TaskViewCopySuffix)),
             ConfigJson = TaskViewRules.ReadConfig(source), RowVersion = Guid.NewGuid().ToString()
         };
         copy.StampCreated(viewer.UserId, time.Now);

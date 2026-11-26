@@ -7,7 +7,7 @@ using MediatR;
 namespace DynamicModules.Application.Dynamic.ReportService.Commands.DeleteReport;
 
 /// <summary>被他人的儀表板、指派版或任何人的個人版引用時不能刪（列出引用，spec §7）；只有刪除者自己的儀表板與個人版引用時一併移除卡片。</summary>
-public class DeleteReportHandler(IReportRepository reports, IDashboardRepository dashboards, IUnitOfWork uow, ReportAccess access)
+public class DeleteReportHandler(IReportRepository reports, IDashboardRepository dashboards, IUnitOfWork uow, ReportAccess access, RequestLocale requestLocale)
     : IRequestHandler<DeleteReportRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(DeleteReportRequest request, CancellationToken ct)
@@ -27,7 +27,7 @@ public class DeleteReportHandler(IReportRepository reports, IDashboardRepository
                 r.IsPersonalVersion ? names.GetValueOrDefault(r.PersonalUserId!, r.PersonalUserId!)
                 : r.OwnerUserId is null ? "" : names.GetValueOrDefault(r.OwnerUserId, r.OwnerUserId);
             return ServiceResult.ConflictWith("報表還有儀表板在使用，不能刪除",
-                new { References = others.Select(r => new ReportReference(r.DashboardName, Owner(r), r.OwnerUserId is null, r.IsPersonalVersion)).ToList() });
+                new { References = others.Select(r => new ReportReference(r.DashboardNameI18n.Resolve(requestLocale.Current), Owner(r), r.OwnerUserId is null, r.IsPersonalVersion)).ToList() });
         }
 
         var (owned, personal) = await dashboards.ListOwnReferencingTrackedAsync(report.Id, viewer.UserId, ct);
@@ -40,5 +40,5 @@ public class DeleteReportHandler(IReportRepository reports, IDashboardRepository
     }
 }
 
-/// <summary>刪除報表被擋時列出的引用：儀表板名稱、擁有者（指派版為空白）、是否指派版、是否某人的個人版。</summary>
+/// <summary>刪除報表被擋時列出的引用：儀表板名稱（依請求語系）、擁有者（指派版為空白）、是否指派版、是否某人的個人版。</summary>
 public record ReportReference(string DashboardName, string OwnerName, bool IsAssigned, bool IsPersonalVersion);

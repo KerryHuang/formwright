@@ -1,3 +1,4 @@
+using DynamicModules.Application.Common;
 using DynamicModules.Application.Dynamic.ReportService;
 using DynamicModules.Application.Dynamic.ReportService.Data;
 using DynamicModules.Domain.Reports;
@@ -10,6 +11,8 @@ public static class DashboardRules
     public const string NotFound = "儀表板不存在", BadVersion = "版本不正確，請重新載入後再改";
     /// <summary>技術限制（設計 §10）；卡片數是政策 A24（dashboard.maxCards），由呼叫端傳入。</summary>
     public const int Columns = 12, MaxHeight = 40, MaxTitleLength = 100;
+
+    public static readonly string TitleTooLong = $"卡片標題最多 {MaxTitleLength} 個字";
 
     private static readonly string[] Vizs = ["table", "indicator", "line", "bar", "donut"];
 
@@ -29,7 +32,8 @@ public static class DashboardRules
         {
             if (!Vizs.Contains(c.Viz)) errors.Add("圖表種類不合法");
             if (c.X < 0 || c.Y < 0 || c.W < 1 || c.H < 1 || c.X + c.W > Columns || c.H > MaxHeight) errors.Add("卡片位置或大小不合法");
-            if (c.Title is { Length: > MaxTitleLength }) errors.Add($"卡片標題最多 {MaxTitleLength} 個字");
+            // 卡片標題選填多語：只檢查格式與長度，不檢查必填語系（名稱多語設計 §7.2 T7）
+            if (c.Title is { } title && I18nNameRules.CheckShape(title, MaxTitleLength, TitleTooLong) is { } titleError) errors.Add(titleError);
             CheckOptions(c, limits, errors);
         }
         return errors.Distinct().ToList();

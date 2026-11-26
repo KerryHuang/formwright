@@ -35,7 +35,7 @@ public class DashboardReviewFixesApiTests
     private static string StateOf(JsonElement result) => result.GetProperty("state").GetString()!;
 
     private static string[] NamesOf(JsonElement detail) =>
-        detail.GetProperty("reportNames").EnumerateObject().Select(p => p.Value.GetString()!).Order().ToArray();
+        detail.GetProperty("reportNames").EnumerateObject().Select(p => p.Value.GetProperty("zh-TW").GetString()!).Order().ToArray();
 
     [Fact]
     public async Task AdminRemovesReport_PersonalKeepsCard_StillRunsDrillsAndHasName()

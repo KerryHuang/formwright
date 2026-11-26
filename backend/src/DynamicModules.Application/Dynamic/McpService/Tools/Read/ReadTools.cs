@@ -153,7 +153,7 @@ public sealed class ListReportsTool(ISender sender)
     {
         var r = await Sender.Send(new GetReportsRequest(), ct);
         if (!r.IsSuccess) return Fail(r);
-        var items = ((IEnumerable<ReportItem>)r.Data!).Select(x => new { id = x.Id, name = x.Name, moduleKey = x.MainModuleKey }).ToList();
+        var items = ((IEnumerable<ReportItem>)r.Data!).Select(x => new { id = x.Id, name = x.Name.Resolve(call.Locale), moduleKey = x.MainModuleKey }).ToList();
         return McpToolOutcome.Ok(items) with { ResultCount = items.Count };
     }
 }

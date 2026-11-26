@@ -17,6 +17,8 @@ using DynamicModules.Application.Dynamic.ReportService.Queries.RunReport;
 using DynamicModules.Domain.Reports;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json.Serialization;
+using DynamicModules.Domain.ValueObjects;
 
 namespace DynamicModules.WebAPI.Controllers.v3.Dynamic;
 
@@ -25,7 +27,8 @@ namespace DynamicModules.WebAPI.Controllers.v3.Dynamic;
 [Route("api/v3/dynamic/reports")]
 public class ReportsController(IMediator mediator) : ControllerBase
 {
-    public record SaveBody(string? Name, JsonElement? Definition);
+    /// <summary>Name 收多語物件，或字串（＝只有繁中，舊畫面相容，名稱多語設計 §6.1）。</summary>
+    public record SaveBody([property: JsonConverter(typeof(I18nTextOrStringJsonConverter))] I18nText? Name, JsonElement? Definition);
 
     public record SharesBody(List<long>? GroupIds);
 
@@ -74,13 +77,13 @@ public class ReportsController(IMediator mediator) : ControllerBase
     public async Task<IActionResult> Create(SaveBody body) =>
         ParseDefinition(body.Definition) is not { } d
             ? Bad("definition", "報表定義格式錯誤")
-            : (await mediator.Send(new CreateReportRequest(body.Name ?? "", d))).ToActionResult(this);
+            : (await mediator.Send(new CreateReportRequest(body.Name, d))).ToActionResult(this);
 
     [HttpPut("{id:long}")]
     public async Task<IActionResult> Update(long id, SaveBody body) =>
         ParseDefinition(body.Definition) is not { } d
             ? Bad("definition", "報表定義格式錯誤")
-            : (await mediator.Send(new UpdateReportRequest(id, body.Name ?? "", d))).ToActionResult(this);
+            : (await mediator.Send(new UpdateReportRequest(id, body.Name, d))).ToActionResult(this);
 
     [HttpDelete("{id:long}")]
     public async Task<IActionResult> Delete(long id) => (await mediator.Send(new DeleteReportRequest(id))).ToActionResult(this);

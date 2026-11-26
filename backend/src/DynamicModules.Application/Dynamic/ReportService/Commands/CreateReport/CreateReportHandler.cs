@@ -15,12 +15,12 @@ public class CreateReportHandler(
 {
     public async Task<ServiceResult> Handle(CreateReportRequest request, CancellationToken ct)
     {
-        var (definition, failure) = await validator.ValidateAsync(request.Name, request.Definition, ct);
+        var (definition, failure) = await validator.ValidateAsync(request.Name, null, request.Definition, ct);
         if (definition is null) return failure!;
 
         var report = new Report
         {
-            OwnerUserId = user.UserId, Name = request.Name.Trim(), DefinitionJson = ReportDefinition.Serialize(definition),
+            OwnerUserId = user.UserId, NameI18n = request.Name!.Compacted(), DefinitionJson = ReportDefinition.Serialize(definition),
             RowVersion = Guid.NewGuid().ToString()
         };
         report.StampCreated(user.UserId, time.Now);

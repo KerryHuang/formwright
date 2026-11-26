@@ -1683,9 +1683,8 @@ namespace DynamicModules.Persistence.Postgres.Migrations
                         .HasColumnType("text")
                         .UseCollation("C");
 
-                    b.Property<string>("Name")
+                    b.Property<string>("NameI18n")
                         .IsRequired()
-                        .HasMaxLength(200)
                         .HasColumnType("text")
                         .UseCollation("C");
 
@@ -3818,9 +3817,8 @@ namespace DynamicModules.Persistence.Postgres.Migrations
                         .HasColumnType("text")
                         .UseCollation("C");
 
-                    b.Property<string>("Name")
+                    b.Property<string>("NameI18n")
                         .IsRequired()
-                        .HasMaxLength(200)
                         .HasColumnType("text")
                         .UseCollation("C");
 
@@ -4499,9 +4497,8 @@ namespace DynamicModules.Persistence.Postgres.Migrations
                         .HasColumnType("text")
                         .UseCollation("C");
 
-                    b.Property<string>("Name")
+                    b.Property<string>("NameI18n")
                         .IsRequired()
-                        .HasMaxLength(100)
                         .HasColumnType("text")
                         .UseCollation("C");
 

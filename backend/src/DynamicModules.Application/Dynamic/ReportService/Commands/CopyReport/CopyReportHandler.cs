@@ -20,11 +20,11 @@ public class CopyReportHandler(IReportRepository reports, IUnitOfWork uow, IBusi
         if (source is null) return ServiceResult.NotFound(ReportRules.ReportNotFound);
 
         // 另存要求看得到定義裡的一切：看不全就拒絕，不剝除條件另存；訊息不點名欄位
-        var (valid, failure) = await validator.ValidateAsync(null, ReportDefinition.Parse(source.DefinitionJson), ct);
+        var (valid, failure) = await validator.ValidateAsync(ReportDefinition.Parse(source.DefinitionJson), ct);
         if (valid is null)
             return failure is { IsForbidden: true } ? failure : ServiceResult.Invalid(ReportRules.ToErrors("definition", [UnseeableMessage]));
 
-        var copy = new Report { OwnerUserId = viewer.UserId, Name = source.Name, DefinitionJson = source.DefinitionJson, RowVersion = Guid.NewGuid().ToString() };
+        var copy = new Report { OwnerUserId = viewer.UserId, NameI18n = source.NameI18n.Compacted(), DefinitionJson = source.DefinitionJson, RowVersion = Guid.NewGuid().ToString() };
         copy.StampCreated(viewer.UserId, time.Now);
         reports.Add(copy);
         await uow.CommitAsync(ct);

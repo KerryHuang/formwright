@@ -2,6 +2,7 @@ using DynamicModules.Application.Dynamic.TaskViewService;
 using DynamicModules.Domain.Entities.Dynamic;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using static DynamicModules.Application.Common.I18nNameRules;
 
 namespace DynamicModules.ApplicationTests.Dynamic.Tasks;
 
@@ -12,7 +13,7 @@ public class TaskViewTests : TaskViewTestBase
     public async Task Create_Read_Update_Delete_ByOwner()
     {
         var created = await CreateView("manager01", "  業務部任務  ");
-        created.Name.Should().Be("業務部任務");
+        created.Name.Resolve("zh-TW").Should().Be("業務部任務");
         created.Kind.Should().Be("board");
         created.IsOwner.Should().BeTrue();
         created.CanEdit.Should().BeTrue();
@@ -22,11 +23,11 @@ public class TaskViewTests : TaskViewTestBase
         read.IsSuccess.Should().BeTrue();
         (await ListViews("manager01")).Mine.Should().ContainSingle(v => v.Id == created.Id);
 
-        var updated = await SendAs("manager01", new UpdateTaskViewRequest(created.Id, "業務部負載",
+        var updated = await SendAs("manager01", new UpdateTaskViewRequest(created.Id, ZhOnly("業務部負載"),
             J("""{"version":1,"groupBy":"assignee","scope":"subordinates"}"""), created.RowVersion));
         updated.IsSuccess.Should().BeTrue(updated.Message);
         var detail = (TaskViewDetail)updated.Data!;
-        detail.Name.Should().Be("業務部負載");
+        detail.Name.Resolve("zh-TW").Should().Be("業務部負載");
         detail.Config.GetProperty("scope").GetString().Should().Be("subordinates");
         detail.RowVersion.Should().NotBe(created.RowVersion);
 
@@ -38,13 +39,13 @@ public class TaskViewTests : TaskViewTestBase
     public async Task Update_StaleRowVersion_409()
     {
         var v = await CreateView("manager01");
-        (await SendAs("manager01", new UpdateTaskViewRequest(v.Id, "第一次", J(StatusConfig), v.RowVersion))).IsSuccess.Should().BeTrue();
+        (await SendAs("manager01", new UpdateTaskViewRequest(v.Id, ZhOnly("第一次"), J(StatusConfig), v.RowVersion))).IsSuccess.Should().BeTrue();
 
-        var stale = await SendAs("manager01", new UpdateTaskViewRequest(v.Id, "第二次", J(StatusConfig), v.RowVersion));
+        var stale = await SendAs("manager01", new UpdateTaskViewRequest(v.Id, ZhOnly("第二次"), J(StatusConfig), v.RowVersion));
 
         stale.IsConflict.Should().BeTrue();
         stale.Code.Should().Be("stale");
-        (await Db.Context.Set<TaskView>().AsNoTracking().SingleAsync(x => x.Id == v.Id)).Name.Should().Be("第一次");
+        (await Db.Context.Set<TaskView>().AsNoTracking().SingleAsync(x => x.Id == v.Id)).NameI18n.Resolve("zh-TW").Should().Be("第一次");
     }
 
     [Fact]
@@ -53,7 +54,7 @@ public class TaskViewTests : TaskViewTestBase
         var v = await CreateView("manager01");
         (await Share("manager01", v.Id, ("user", "sales01"))).IsSuccess.Should().BeTrue();
 
-        (await SendAs("sales01", new UpdateTaskViewRequest(v.Id, "改名", J(StatusConfig), v.RowVersion))).IsForbidden.Should().BeTrue();
+        (await SendAs("sales01", new UpdateTaskViewRequest(v.Id, ZhOnly("改名"), J(StatusConfig), v.RowVersion))).IsForbidden.Should().BeTrue();
         (await SendAs("sales01", new DeleteTaskViewRequest(v.Id))).IsForbidden.Should().BeTrue();
         (await SendAs("sales01", new SetTaskViewSharesRequest(v.Id, []))).IsForbidden.Should().BeTrue();
         var detail = (TaskViewDetail)(await SendAs("sales01", new GetTaskViewRequest(v.Id))).Data!;
@@ -76,7 +77,7 @@ public class TaskViewTests : TaskViewTestBase
         var detail = (TaskViewDetail)(await SendAs("admin", new GetTaskViewRequest(v.Id))).Data!;
         detail.CanEdit.Should().BeFalse();
         detail.CanDelete.Should().BeTrue();
-        (await SendAs("admin", new UpdateTaskViewRequest(v.Id, "管理員改", J(StatusConfig), detail.RowVersion))).IsForbidden.Should().BeTrue();
+        (await SendAs("admin", new UpdateTaskViewRequest(v.Id, ZhOnly("管理員改"), J(StatusConfig), detail.RowVersion))).IsForbidden.Should().BeTrue();
         (await SendAs("admin", new DeleteTaskViewRequest(v.Id))).IsSuccess.Should().BeTrue();
         (await Db.Context.Set<TaskView>().AsNoTracking().AnyAsync(x => x.Id == v.Id)).Should().BeFalse();
         (await Db.Context.Set<TaskViewShare>().AsNoTracking().AnyAsync(x => x.ViewId == v.Id)).Should().BeFalse();
@@ -105,7 +106,7 @@ public class TaskViewTests : TaskViewTestBase
         copy.OwnerUserId.Should().Be("sales01");
         copy.IsOwner.Should().BeTrue();
         copy.Shares.Should().BeEmpty();
-        copy.Name.Should().HaveLength(100).And.EndWith("（副本）");
+        copy.Name.Resolve("zh-TW").Should().HaveLength(100).And.EndWith("（副本）");
         copy.Config.GetProperty("groupBy").GetString().Should().Be("dueBucket");
         (await ListViews("sales01")).Mine.Should().ContainSingle(x => x.Id == copy.Id);
         (await SendAs("sales02", new CopyTaskViewRequest(v.Id))).IsNotFound.Should().BeTrue();
@@ -114,17 +115,17 @@ public class TaskViewTests : TaskViewTestBase
     [Fact]
     public async Task Name_BlankOrOver100_400()
     {
-        (await SendAs("manager01", new CreateTaskViewRequest("board", "   ", J(StatusConfig)))).Errors.Should().ContainKey("name");
-        (await SendAs("manager01", new CreateTaskViewRequest("board", new string('名', 101), J(StatusConfig)))).Errors.Should().ContainKey("name");
-        (await SendAs("manager01", new CreateTaskViewRequest("board", new string('名', 100), J(StatusConfig)))).IsCreated.Should().BeTrue();
+        (await SendAs("manager01", new CreateTaskViewRequest("board", ZhOnly("   "), J(StatusConfig)))).Errors.Should().ContainKey("name");
+        (await SendAs("manager01", new CreateTaskViewRequest("board", ZhOnly(new string('名', 101)), J(StatusConfig)))).Errors.Should().ContainKey("name");
+        (await SendAs("manager01", new CreateTaskViewRequest("board", ZhOnly(new string('名', 100)), J(StatusConfig)))).IsCreated.Should().BeTrue();
         var v = await CreateView("manager01");
-        (await SendAs("manager01", new UpdateTaskViewRequest(v.Id, "", J(StatusConfig), v.RowVersion))).Errors.Should().ContainKey("name");
+        (await SendAs("manager01", new UpdateTaskViewRequest(v.Id, ZhOnly(""), J(StatusConfig), v.RowVersion))).Errors.Should().ContainKey("name");
     }
 
     [Fact]
     public async Task Kind_Unknown_400()
     {
-        var r = await SendAs("manager01", new CreateTaskViewRequest("list", "清單", J(StatusConfig)));
+        var r = await SendAs("manager01", new CreateTaskViewRequest("list", ZhOnly("清單"), J(StatusConfig)));
 
         r.Errors.Should().ContainKey("kind");
         r.Errors["kind"].Should().Equal("檢視種類必須是 board 或 gantt");
@@ -135,13 +136,13 @@ public class TaskViewTests : TaskViewTestBase
     [Fact]
     public async Task Config_UnknownProperty_400()
     {
-        var r = await SendAs("manager01", new CreateTaskViewRequest("board", "看板",
+        var r = await SendAs("manager01", new CreateTaskViewRequest("board", ZhOnly("看板"),
             J("""{"version":1,"groupBy":"status","scope":"assigned","colums":{}}""")));
 
         r.Errors.Should().ContainKey("config");
         r.Errors["config"][0].Should().Contain("colums");
         var v = await CreateView("manager01");
-        (await SendAs("manager01", new UpdateTaskViewRequest(v.Id, "看板", J("""{"version":1,"groupBy":"status"}"""), v.RowVersion)))
+        (await SendAs("manager01", new UpdateTaskViewRequest(v.Id, ZhOnly("看板"), J("""{"version":1,"groupBy":"status"}"""), v.RowVersion)))
             .Errors.Should().ContainKey("config");
     }
 

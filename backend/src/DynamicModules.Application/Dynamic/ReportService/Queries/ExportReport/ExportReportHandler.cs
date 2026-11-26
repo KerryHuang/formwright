@@ -52,7 +52,7 @@ public class ExportReportHandler(ReportAccess access, ReportModuleLoader loader,
             rows.Add([]);
             rows.Add([messages.Get(requestLocale.For(request.Locale), ReportText.DedupedNote)]);
         }
-        var content = XlsxWriter.Write(report.Name, header, rows);
+        var content = XlsxWriter.Write(report.NameI18n.Resolve(requestLocale.For(request.Locale)), header, rows);
         return ServiceResult.Success(new ExportFile($"report-{report.Id}-{time.Now:yyyyMMdd-HHmm}.xlsx", XlsxType, content));
     }
 

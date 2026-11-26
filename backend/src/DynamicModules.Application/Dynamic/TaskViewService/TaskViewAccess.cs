@@ -53,14 +53,14 @@ public sealed class TaskViewAccess(ITaskViewRepository views, IPermissionReposit
         var isOwner = v.OwnerUserId == viewer.UserId;
         IReadOnlyList<TaskViewShareResponse> shares = isOwner || viewer.IsAdmin ? await SharesAsync(v, users, ct) : [];
         var config = JsonDocument.Parse(TaskViewRules.ReadConfig(v)).RootElement.Clone();
-        return new TaskViewDetail(v.Id, v.Kind, v.Name, v.OwnerUserId, owner?.DisplayName, owner is { IsActive: true }, isOwner,
+        return new TaskViewDetail(v.Id, v.Kind, v.NameI18n, v.OwnerUserId, owner?.DisplayName, owner is { IsActive: true }, isOwner,
             isOwner, CanDelete(v, viewer), config, shares, v.RowVersion);
     }
 
     public static TaskViewSummary Summary(TaskView v, TaskViewViewer viewer, IReadOnlyDictionary<string, AppUser> users)
     {
         var owner = users.GetValueOrDefault(v.OwnerUserId);
-        return new TaskViewSummary(v.Id, v.Kind, v.Name, v.OwnerUserId, owner?.DisplayName, owner is { IsActive: true },
+        return new TaskViewSummary(v.Id, v.Kind, v.NameI18n, v.OwnerUserId, owner?.DisplayName, owner is { IsActive: true },
             v.OwnerUserId == viewer.UserId, v.Shares.Count, v.ModifiedTime ?? v.CreatedTime);
     }
 
