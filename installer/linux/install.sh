@@ -45,6 +45,7 @@ need_tool=缺少必要指令：%s
 installing=正在安裝 Formwright %s …
 upgrading=正在升級 Formwright：%s → %s
 backup_running=升級前先備份資料 …
+unsafe_path=拒絕處理：%s 是符號連結或不是目錄，沒有做任何變更。請確認後手動處理再重跑。
 backup_failed=升級前備份失敗，升級已中止，舊版照常執行。
 backup_not_configured=備份位置沒有設定，升級已中止；確定不備份就加 --skip-backup 重跑。
 upgraded=已升級到版本 %s。
@@ -70,6 +71,7 @@ need_tool=Required command not found: %s
 installing=Installing Formwright %s ...
 upgrading=Upgrading Formwright: %s -> %s
 backup_running=Backing up data before the upgrade ...
+unsafe_path=Refusing to continue: %s is a symbolic link or not a directory. Nothing was changed; fix it manually and re-run.
 backup_failed=Pre-upgrade backup failed; the upgrade was cancelled and the current version is still running.
 backup_not_configured=No backup location is configured, so the upgrade was cancelled. Re-run with --skip-backup if you are sure you want to upgrade without a backup.
 upgraded=Upgraded to version %s.
@@ -202,10 +204,16 @@ fetch_package() { # 設 PACKAGE_FILE、PACKAGE_VERSION
   fi
   need_tool curl; need_tool sha256sum
   local name="formwright-${FW_VERSION}-linux-x64.tar.gz"
-  local base="https://github.com/${FW_REPO}/releases/download/v${FW_VERSION}"
+  # FORMWRIGHT_DOWNLOAD_BASE：改從鏡像或測試用的伺服器下載（SHA256SUMS 與套件同一個位置）
+  local base="${FORMWRIGHT_DOWNLOAD_BASE:-https://github.com/${FW_REPO}/releases/download/v${FW_VERSION}}"
   curl -fsSL -o "$WORK_DIR/$name" "$base/$name" || die 12 download_failed "$base/$name"
   curl -fsSL -o "$WORK_DIR/SHA256SUMS" "$base/SHA256SUMS" || die 12 download_failed "$base/SHA256SUMS"
-  (cd "$WORK_DIR" && grep -F " $name" SHA256SUMS | sed 's/ \*/  /' | sha256sum -c --status -) || die 12 checksum_failed "$name"
+  # 精確比對檔名（text 格式「<hash>  名稱」與 binary 格式「<hash> *名稱」都認），必須剛好一筆
+  local expected actual
+  expected=$(awk -v n="$name" '{ f = $2; sub(/^\*/, "", f); if (f == n) print tolower($1) }' "$WORK_DIR/SHA256SUMS")
+  [ -n "$expected" ] && [ "$(printf '%s\n' "$expected" | wc -l)" -eq 1 ] || die 12 checksum_failed "$name"
+  actual=$(sha256sum "$WORK_DIR/$name" | awk '{ print tolower($1) }')
+  [ "$actual" = "$expected" ] || die 12 checksum_failed "$name"
   PACKAGE_FILE="$WORK_DIR/$name"
   PACKAGE_VERSION="$FW_VERSION"
 }
@@ -234,15 +242,40 @@ ensure_user() {
   fi
 }
 
+# 拒絕符號連結與非目錄（M1）：root 對服務帳號可能換掉的路徑做 mkdir／chown／chmod 之前先擋，擋到就什麼都不改
+refuse_unsafe_path() {
+  if [ -L "$1" ] || { [ -e "$1" ] && [ ! -d "$1" ]; }; then die 1 unsafe_path "$1"; fi
+}
+
+# 權限設計（M1）：
+#   <state>（/var/lib/formwright）root:root 0755  — 服務帳號不能在裡面換 symlink
+#   <state>/data、<state>/backup  服務帳號 0700
+#   <config dir>（/etc/formwright）root:<服務帳號> 0770 — 後端存設定檔是「同目錄暫存檔再覆蓋」，服務帳號要能在目錄裡建檔
 ensure_dirs() {
   local state_dir config_dir
   state_dir=$(dirname "$FW_DATA_DIR"); config_dir=$(dirname "$FW_CONFIG_FILE")
-  mkdir -p "$FW_DATA_DIR" "$FW_BACKUP_DIR" "$config_dir"
-  chown "$FW_SERVICE_USER:$FW_SERVICE_USER" "$state_dir" "$FW_DATA_DIR" "$FW_BACKUP_DIR" "$config_dir"
-  chmod 0700 "$state_dir" "$FW_DATA_DIR" "$FW_BACKUP_DIR" "$config_dir"
+  local p
+  for p in "$state_dir" "$FW_DATA_DIR" "$FW_BACKUP_DIR" "$config_dir"; do refuse_unsafe_path "$p"; done
+  mkdir -p "$state_dir" "$config_dir"
+  chown root:root "$state_dir"
+  chmod 0755 "$state_dir"
+  mkdir -p "$FW_DATA_DIR" "$FW_BACKUP_DIR"
+  chown "$FW_SERVICE_USER:$FW_SERVICE_USER" "$FW_DATA_DIR" "$FW_BACKUP_DIR"
+  chmod 0700 "$FW_DATA_DIR" "$FW_BACKUP_DIR"
+  chown "root:$FW_SERVICE_USER" "$config_dir"
+  chmod 0770 "$config_dir"
+}
+
+# 低於主機「非特權 port 起點」的 port，服務帳號要有綁定權限（M6）；只有需要時才加
+needs_bind_capability() {
+  local start=1024 f="${FW_ROOT}/proc/sys/net/ipv4/ip_unprivileged_port_start" v
+  if [ -r "$f" ]; then v=$(cat "$f"); case "$v" in ''|*[!0-9]*) ;; *) start="$v" ;; esac; fi
+  [ "$(config_port)" -lt "$start" ]
 }
 
 write_unit() {
+  local caps=""
+  if needs_bind_capability; then caps=$'AmbientCapabilities=CAP_NET_BIND_SERVICE\n'; fi
   cat > "$FW_UNIT_FILE" <<UNIT
 [Unit]
 Description=Formwright
@@ -256,7 +289,7 @@ ExecStart=$FW_PROGRAM_DIR/DynamicModules.WebAPI --Install:ConfigFile=$FW_CONFIG_
 Restart=always
 RestartSec=5
 Environment=DOTNET_ENVIRONMENT=Production
-
+${caps}
 [Install]
 WantedBy=multi-user.target
 UNIT
@@ -299,10 +332,10 @@ do_fresh() {
   msg installing "$PACKAGE_VERSION"
   ensure_user
   if service_is_active; then systemctl stop formwright; fi
+  ensure_dirs
   stage_package
   swap_program
   rm -rf "${FW_PROGRAM_DIR}.old"
-  ensure_dirs
   local port="${OPT_PORT:-$FW_PORT}" init_out
   init_out=$(cd "$FW_PROGRAM_DIR" && as_service ./DynamicModules.WebAPI --install-init \
     "--Install:ConfigFile=$FW_CONFIG_FILE" "--Install:DataDirectory=$FW_DATA_DIR" \
@@ -324,6 +357,7 @@ do_fresh() {
 do_reinstall() {
   msg installing "$PACKAGE_VERSION"
   ensure_user
+  ensure_dirs
   stage_package
   swap_program
   rm -rf "${FW_PROGRAM_DIR}.old"

@@ -111,7 +111,108 @@ for k in $used; do
 done
 check "msg 腳本用到的鍵都在表裡" "" "$missing"
 check "msg 英文" "Pre-upgrade backup failed" "$(FW_LANG=en msg backup_failed | cut -c1-25)"
-check "msg 繁中" "升級前備份失敗" "$(FW_LANG=zh-TW msg backup_failed | cut -c1-7)"
+# 不用 cut -c：GNU cut 的 -c 目前按 byte 切，會切壞 UTF-8
+zh_out=$(FW_LANG=zh-TW msg backup_failed)
+case "$zh_out" in 升級前備份失敗*) ok "msg 繁中";; *) bad "msg 繁中" "（實得 [$zh_out]）";; esac
 check "msg 帶參數" "http://192.0.2.1:8080/" "$(FW_LANG=en msg open_url http://192.0.2.1:8080/ | grep -o 'http://[^ ]*')"
+
+# --- ensure_dirs（M1）：symlink 與非目錄一律拒絕，目標的 owner／mode 不變，也不呼叫 chown ---
+chown_log="$tmp/chown.log"
+chown() { echo "chown $*" >> "$chown_log"; }          # 替身：不需要 root、也記錄有沒有被呼叫
+dirs_case() { # <名稱> ：建一組暫存目錄，回傳其根目錄
+  local r="$tmp/dirs-$1"; rm -rf "$r"; mkdir -p "$r"; echo "$r"
+}
+mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
+ensure_in() { # <根目錄>
+  ( FW_DATA_DIR="$1/state/data" FW_BACKUP_DIR="$1/state/backup" FW_CONFIG_FILE="$1/etc/formwright.json" \
+    FW_SERVICE_USER=svc ensure_dirs )
+}
+for victim in data backup state config; do
+  r=$(dirs_case "sym-$victim"); mkdir -p "$r/target" "$r/state" "$r/etc"; chmod 0711 "$r/target"
+  case "$victim" in
+    data) ln -s "$r/target" "$r/state/data" ;;
+    backup) ln -s "$r/target" "$r/state/backup" ;;
+    state) rmdir "$r/state"; ln -s "$r/target" "$r/state" ;;
+    config) rmdir "$r/etc"; ln -s "$r/target" "$r/etc" ;;
+  esac
+  : > "$chown_log"
+  rc=$(run_rc ensure_in "$r")
+  check "ensure_dirs 拒絕 $victim 是 symlink（exit 1）" "1" "$rc"
+  check "ensure_dirs $victim symlink：目標 mode 不變" "711" "$(mode_of "$r/target")"
+  check "ensure_dirs $victim symlink：沒有 chown" "0" "$(wc -l < "$chown_log" | tr -d ' ')"
+  case "$(cat "$out")" in *"$r"*) ok "ensure_dirs $victim symlink：訊息含路徑";; *) bad "ensure_dirs $victim symlink：訊息含路徑" "$(cat "$out")";; esac
+done
+r=$(dirs_case file); mkdir -p "$r/state"; : > "$r/state/data"
+check "ensure_dirs 拒絕 data 是一般檔案" "1" "$(run_rc ensure_in "$r")"
+# 一個路徑不安全時，其他路徑也不能被改（先全部檢查再動手）
+r=$(dirs_case allcheck); mkdir -p "$r/state" "$r/target"; ln -s "$r/target" "$r/state/backup"
+: > "$chown_log"; run_rc ensure_in "$r" > /dev/null
+check "ensure_dirs 有一個不安全就整批不動（data 沒被建立）" "no" "$([ -e "$r/state/data" ] && echo yes || echo no)"
+r=$(dirs_case ok)
+: > "$chown_log"
+check "ensure_dirs 正常路徑通過" "0" "$(run_rc ensure_in "$r")"
+check "ensure_dirs state 0755" "755" "$(mode_of "$r/state")"
+check "ensure_dirs data 0700" "700" "$(mode_of "$r/state/data")"
+check "ensure_dirs backup 0700" "700" "$(mode_of "$r/state/backup")"
+check "ensure_dirs config 目錄 0770" "770" "$(mode_of "$r/etc")"
+check "ensure_dirs state 給 root" "1" "$(grep -c "chown root:root $r/state\$" "$chown_log")"
+check "ensure_dirs data／backup 給服務帳號" "1" "$(grep -c "chown svc:svc $r/state/data $r/state/backup" "$chown_log")"
+check "ensure_dirs config 目錄 root:服務帳號" "1" "$(grep -c "chown root:svc $r/etc\$" "$chown_log")"
+unset -f chown
+
+# --- 低 port 的綁定權限（M6） ---
+unit_for() { # <port> <ip_unprivileged_port_start 或 ->
+  local r="$tmp/unit-$1-$2"; rm -rf "$r"; mkdir -p "$r/proc/sys/net/ipv4"
+  [ "$2" = "-" ] || echo "$2" > "$r/proc/sys/net/ipv4/ip_unprivileged_port_start"
+  printf '{"Server":{"Port":%s}}\n' "$1" > "$r/cfg.json"
+  ( systemctl() { :; }; FW_ROOT="$r" FW_CONFIG_FILE="$r/cfg.json" FW_UNIT_FILE="$r/unit" write_unit; cat "$r/unit" )
+}
+has_cap() { case "$1" in *AmbientCapabilities=CAP_NET_BIND_SERVICE*) echo yes;; *) echo no;; esac; }
+check "unit：port 80、門檻 1024 → 加 CAP_NET_BIND_SERVICE" "yes" "$(has_cap "$(unit_for 80 1024)")"
+check "unit：port 80、門檻 0 → 不加"                          "no"  "$(has_cap "$(unit_for 80 0)")"
+check "unit：port 8080、門檻 1024 → 不加"                     "no"  "$(has_cap "$(unit_for 8080 1024)")"
+check "unit：port 80、沒有 sysctl 檔（當 1024）→ 加"          "yes" "$(has_cap "$(unit_for 80 -)")"
+check "unit：port 1024、門檻 1024 → 不加"                     "no"  "$(has_cap "$(unit_for 1024 1024)")"
+case "$(unit_for 80 1024)" in *"[Install]"*"WantedBy=multi-user.target"*) ok "unit 結構完整";; *) bad "unit 結構完整" "";; esac
+
+# --- 下載與 SHA256（S1）：用 curl／sha256sum 替身，不連網 ---
+if ! command -v sha256sum >/dev/null 2>&1; then sha256sum() { shasum -a 256 "$@"; }; fi
+dl="$tmp/dl"; mkdir -p "$dl"
+NAME=formwright-1.2.3-linux-x64.tar.gz
+printf 'package-bytes' > "$dl/$NAME"
+GOOD=$(sha256sum "$dl/$NAME" | awk '{print $1}')
+mkdir -p "$tmp/prog"; echo v-old > "$tmp/prog/VERSION"   # 舊版哨兵：下載階段不能動到
+DL_MODE=ok
+curl() { # 只處理 -o <檔> <網址>
+  local outf="" url=""
+  while [ $# -gt 0 ]; do case "$1" in -o) outf="$2"; shift ;; -*) ;; *) url="$1" ;; esac; shift; done
+  case "$DL_MODE:$url" in
+    interrupt:*) return 18 ;;
+    notfound:*"$NAME") return 22 ;;
+    *"/SHA256SUMS") cp "$dl/sums.$DL_MODE" "$outf" ;;
+    *) cp "$dl/$NAME" "$outf" ;;
+  esac
+}
+printf '%s  %s\n' "$GOOD" "$NAME" > "$dl/sums.ok"
+printf '%s *%s\n' "$GOOD" "$NAME" > "$dl/sums.binary"
+printf '%s  %s\n' "$(printf 'x' | sha256sum | awk '{print $1}')" "$NAME" > "$dl/sums.badhash"
+printf '%s  other-%s\n' "$GOOD" "$NAME" > "$dl/sums.missing"
+printf '%s  %s.sig\n' "$GOOD" "$NAME" > "$dl/sums.suffix"
+printf '%s  %s\n%s  %s\n' "$GOOD" "$NAME" "$GOOD" "$NAME" > "$dl/sums.dup"
+fetch_in() { # <mode>
+  DL_MODE="$1"
+  ( FW_VERSION=1.2.3 FW_REPO=o/r FORMWRIGHT_PACKAGE="" fetch_package; echo "$PACKAGE_FILE" ) 
+}
+for mode in ok binary; do
+  check "下載：$mode 格式的正確 hash 通過" "0" "$(run_rc fetch_in $mode)"
+done
+for mode in badhash missing suffix dup; do
+  check "下載：$mode → exit 12" "12" "$(run_rc fetch_in $mode)"
+done
+check "下載：404 → exit 12" "12" "$(run_rc fetch_in notfound)"
+check "下載：中斷 → exit 12" "12" "$(run_rc fetch_in interrupt)"
+check "下載失敗不動舊版" "v-old" "$(cat "$tmp/prog/VERSION")"
+case "$(FW_LANG=en; DL_MODE=badhash; ( FW_VERSION=1.2.3 FW_REPO=o/r FORMWRIGHT_PACKAGE="" fetch_package ) 2>&1)" in *"Checksum verification failed"*) ok "下載：hash 不符的訊息";; *) bad "下載：hash 不符的訊息" "";; esac
+unset -f curl
 
 exit $fail
