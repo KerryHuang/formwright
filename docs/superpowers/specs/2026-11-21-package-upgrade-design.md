@@ -508,6 +508,7 @@ pkg1c 實作補記（2026-11-22）：
   - 只改關卡名稱、條件等其他內容，而且關卡代號集合相同 → 照一般規則可勾。`approvers` 只有客戶改時保留客戶的：套用時依關卡代號逐關把 N 的其他內容配上 C 的簽核人。
 - **簽核流程的屬性拆法**（T59，主控已定，可推翻；複核 N3）：`AppApprovalFlow` 留在 `UpgradeItems.AutoCompared`（`UpgradeItems.cs:111`），比照報表 `shareWith` 的做法（`:176-177`）：
   - `Generic(f with { FallbackApprovers = null, Stages = 每關 s with { Approvers = 空值 } })` 產生流程的其他屬性，其中 `stages` 是每關去掉簽核人後的內容；關卡的其他屬性（含 `code`）跟著序列化自動比，之後 fg6 或任何一段替關卡加屬性也不會被漏掉。
+  - fg6 起（流程圖設計 §25）：比對前格式 8 的 `stages` 先轉成流程圖，`stages` 屬性改成 `nodes`（每個節點去掉簽核人）加上連線；`approvers` 以簽核節點代號為鍵，下一條與 Q27 的「關卡代號集合」都改讀成簽核節點代號集合。
   - `approvers` 另外算，形狀是 `{ <關卡代號>: 該關的 approvers, "$fallback": fallbackApprovers }`，以關卡代號為鍵；`Normalize` 會排序鍵，原廠調整關卡順序不會被誤判成改了簽核人。群組先經 §6.2.1 正規化與 T42 的備援頂替。
   - 不移進 `HandCompared`：手工清單裡的 record，覆蓋率測試只沿「不比對」的屬性往下走（`UpgradeClassifierTests.cs:125-140`），`AppApprovalStage`、`AppApproverSource` 會從此不受覆蓋率保護；手列關卡內容（名稱、條件、模式…）也會在之後加屬性時被基準換新默默吞掉，正是 §13 要擋的事。覆蓋率測試不必改，U1 照跑。
 - 被用過的流程新版改了目標狀態 → 無法套用（`flowInUse`，設計器指令會擋）。
