@@ -138,6 +138,8 @@ public sealed partial class AppOpenPlanner(
         var substitutions = package.ApprovalFlows.SelectMany(f => AppApprovalFlowCodec.Substitutions(f, mappedCodes, package.Groups)).ToList();
         warnings.AddRange(substitutions.Select(s => AppMessages.ApprovalSubstituted(s, requestLocale.Current)));
         errors.AddRange(RejectTransitionErrors(package, mappedCodes));
+        // 通知收件人群組略過後的流程圖再驗一次結構（拿掉節點可能產生重複的線、留下沒有收件人的節點）：預覽就列出，不等開啟才失敗
+        errors.AddRange(package.ApprovalFlows.SelectMany(f => AppPackageValidator.SkippedGroupErrors(f, mappedCodes)));
         // 同一個應用程式重開：型別不同、不會接回的孤兒欄位先在預覽警告（§7 刪除第 6 點）
         if (package.Contributions.Count > 0) warnings.AddRange((await orphans.MatchAsync(package, ct)).Warnings);
         warnings.AddRange(await TasksAutoEnableAsync(package, knownMasters, body.ExcludeFields.ToHashSet(), ct));

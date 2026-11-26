@@ -341,6 +341,43 @@ public class AppFormat8Tests : IDisposable
         AssertNothingCreated();
     }
 
+    /// <summary>格式 9：並行兩條分支都只有通知採購人員（buyers）的節點，之後採購主管核准。</summary>
+    private const string ParallelNotifyFlow = """
+        [ { "code": "t8-po-notify", "name": { "zh-TW": "採購單（知會）" }, "active": true,
+            "module": "po", "to": "confirmed", "priority": 1, "shape": "graph",
+            "nodes": [
+              { "id": "start", "kind": "start" },
+              { "id": "split", "kind": "fork", "name": { "zh-TW": "同時知會" } },
+              { "id": "n1", "kind": "notify", "name": { "zh-TW": "知會一" }, "recipients": [ { "kind": "group", "groups": ["buyers"] } ],
+                "template": { "title": { "zh-TW": "{title}" } } },
+              { "id": "n2", "kind": "notify", "name": { "zh-TW": "知會二" }, "recipients": [ { "kind": "group", "groups": ["buyers"] } ],
+                "template": { "title": { "zh-TW": "{title}" } } },
+              { "id": "merge", "kind": "join", "mode": "all", "forkId": "split" },
+              { "id": "lead", "kind": "approval", "name": { "zh-TW": "採購主管" }, "approvers": { "source": "group", "groups": ["purchaseLead"] }, "mode": "any" },
+              { "id": "end", "kind": "end" } ],
+            "edges": [
+              { "id": "e1", "from": "start", "to": "split" }, { "id": "e2", "from": "split", "to": "n1" }, { "id": "e3", "from": "split", "to": "n2" },
+              { "id": "e4", "from": "n1", "to": "merge" }, { "id": "e5", "from": "n2", "to": "merge" },
+              { "id": "e6", "from": "merge", "to": "lead" }, { "id": "e7", "from": "lead", "to": "end" } ] } ]
+        """;
+
+    [Fact]
+    public async Task Preview_NotifyGroupSkipped_GraphBroken_PreviewErrorMatchesOpen()
+    {
+        // 審查 🟡1：略過收件人群組後兩個通知節點都拿掉會變成兩條 split→merge，第二個保留、沒有收件人；預覽就列出，與開啟一致
+        await _rig.ImportAsync(Package(9, ParallelNotifyFlow));
+        var preview = await PreviewAsync(Body("buyers"));
+        preview.GetProperty("canOpen").GetBoolean().Should().BeFalse(preview.GetRawText());
+        const string error = "approvalFlows[t8-po-notify].nodes.n2.recipients: 通知收件人設定必須有 1 到 20 項（略過群組後）";
+        preview.GetProperty("errors").EnumerateArray().Select(e => e.GetString()).Should().Contain(error);
+        var res = await _rig.OpenAsync(AppId, Body("buyers"));
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await res.Content.ReadAsStringAsync()).Should().Contain(error);
+        AssertNothingCreated();
+
+        await _rig.OpenOkAsync(AppId, Body());
+    }
+
     [Fact]
     public async Task Open_SkippedGroup_OnEmptySkip_StoredAsFallback()
     {

@@ -51,6 +51,20 @@ public static partial class AppPackageValidator
             errors.Add($"{at}.{issue.Key}: {ApprovalMessages.Graph(issue.Code, PolicyCatalog.ApprovalMaxStages.Max, PolicyCatalog.ApprovalMaxBranches.Max)}");
     }
 
+    /// <summary>
+    /// 略過群組之後的流程圖（通知收件人拿掉、節點可能跳過，<see cref="AppApprovalFlowCodec.WithoutSkippedRecipients"/>）再跑一次結構驗證，
+    /// 開啟預覽就列出開啟時會被擋的錯誤；錯誤後面加「（略過群組後）」。沒有略過任何收件人群組時不重驗（套件匯入時已驗過）。
+    /// </summary>
+    public static IReadOnlyList<string> SkippedGroupErrors(AppApprovalFlow f, IReadOnlySet<string> mappedCodes)
+    {
+        var graph = AppApprovalFlowCodec.AsGraph(f);
+        var skipped = AppApprovalFlowCodec.WithoutSkippedRecipients(graph, mappedCodes.Contains);
+        if (ReferenceEquals(skipped, graph)) return [];
+        var errors = new List<string>();
+        GraphStructure(skipped, $"approvalFlows[{f.Code}]", errors);
+        return errors.Select(e => $"{e}（略過群組後）").ToList();
+    }
+
     /// <summary>收件人 1 到技術上限項、只收 group（至少一個群組）、initiator、initiatorManager（層數在技術上限內）；範本標題必填、語法正確。</summary>
     private static void NotifyStructure(AppApprovalNode n, string nat, List<string> errors)
     {

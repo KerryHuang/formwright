@@ -116,31 +116,58 @@ public static partial class AppApprovalFlowCodec
     /// <summary>
     /// 通知節點收件人被略過的群組（不在 <paramref name="mapped"/>）直接拿掉：群組都被略過的收件人整項拿掉；
     /// 節點因此沒有任何收件人時略過整個節點（入線改接到它唯一的出線終點），與通知「不擋流程」一致（§12.4）。
-    /// 開啟、預覽、升級比對共用，預覽說的就是開啟做的。
+    /// 改接會和來源既有的線重複時（G1）：來源是條件節點、而且刪掉改接的那條語意不變（見 <see cref="DropsSafely"/>）就刪掉它，
+    /// 條件節點因此只剩一條預設線時連條件節點一起跳過；其他情況（例如並行分支兩條都只剩通知節點）保留這個沒有收件人的節點，
+    /// 交給驗證回報（<see cref="AppPackageValidator.SkippedGroupErrors"/>，預覽與開啟一致）。開啟、預覽、升級比對共用，預覽說的就是開啟做的。
     /// </summary>
     public static AppApprovalFlow WithoutSkippedRecipients(AppApprovalFlow g, Func<string, bool> mapped)
     {
         if (g.Nodes is null || !g.Nodes.Any(n => n?.Recipients?.Any(r => r?.Groups?.Any(c => !mapped(c)) == true) == true)) return g;
         // 有 null 項目的套件結構層已擋下，這裡只會拿到通過驗證的內容
-        var nodes = new List<AppApprovalNode>();
+        var nodes = g.Nodes.OfType<AppApprovalNode>().ToList();
         var edges = g.Edges?.OfType<AppApprovalEdge>().ToList() ?? [];
-        foreach (var n in g.Nodes.OfType<AppApprovalNode>())
+        foreach (var n in nodes.ToList())
         {
-            if (n.Recipients is null) { nodes.Add(n); continue; }
+            if (n.Recipients is null) continue;
             var recipients = n.Recipients.OfType<AppNotifyRecipient>()
                 .Select(r => r.Groups is null ? r : r with { Groups = r.Groups.Where(mapped).ToList() })
                 .Where(r => r.Groups is not { Count: 0 }).ToList();
-            var outs = edges.Where(e => e.From == n.Id).ToList();
-            if (recipients.Count == 0 && outs.Count == 1)
-            {
-                edges.Remove(outs[0]);
-                edges = edges.Select(e => e.To == n.Id ? e with { To = outs[0].To } : e).ToList();
-                continue;
-            }
-            nodes.Add(n with { Recipients = recipients });
+            if (recipients.Count == 0 && Bypass(nodes, edges, n.Id) is { } done) { (nodes, edges) = done; continue; }
+            nodes[nodes.FindIndex(x => x.Id == n.Id)] = n with { Recipients = recipients };
         }
         return g with { Nodes = nodes, Edges = edges };
     }
+
+    /// <summary>跳過只有一條出線的節點：入線改接到出線終點。會產生無法化解的重複線時回 null，呼叫端保留原圖。</summary>
+    private static (List<AppApprovalNode>, List<AppApprovalEdge>)? Bypass(List<AppApprovalNode> nodes, List<AppApprovalEdge> edges, string id)
+    {
+        if (edges.Where(e => e.From == id).ToList() is not [var outEdge]) return null;
+        var (ns, es) = (nodes.Where(x => x.Id != id).ToList(), edges.Where(e => e.Id != outEdge.Id).ToList());
+        foreach (var e in es.Where(e => e.To == id).ToList())
+        {
+            var duplicate = es.FirstOrDefault(x => x.From == e.From && x.To == outEdge.To && x.Id != e.Id);
+            if (duplicate is null) { es[es.FindIndex(x => x.Id == e.Id)] = e with { To = outEdge.To }; continue; }
+            if (ns.FirstOrDefault(x => x.Id == e.From)?.Kind != ApprovalNodeKinds.Condition || !DropsSafely(es, e, duplicate, outEdge.To)) return null;
+            es.RemoveAll(x => x.Id == e.Id);
+            // 條件節點只剩預設線（各路都到同一個終點）：條件節點本身也是直通，一起跳過
+            if (es.Count(x => x.From == e.From) == 1)
+            {
+                if (Bypass(ns, es.Select(x => x.From == e.From ? x with { When = null, Order = null, Default = null, Label = null } : x).ToList(), e.From) is not { } inner)
+                    return null;
+                (ns, es) = inner;
+            }
+        }
+        return (ns, es);
+    }
+
+    /// <summary>
+    /// 條件節點的出線依 order 比對、預設線最後（§7.4）。改接後的線 <paramref name="e"/> 和既有的線都到 <paramref name="target"/>：
+    /// 既有的是預設線、而且 <paramref name="e"/> 之後比對的條件線也都到 <paramref name="target"/> 時，符合 <paramref name="e"/> 的單照樣落到 target，刪掉不改語意。
+    /// 其餘情況（例如既有的那條是條件線、中間有別的條件線分走）不保證等價，不刪。
+    /// </summary>
+    private static bool DropsSafely(List<AppApprovalEdge> edges, AppApprovalEdge e, AppApprovalEdge existing, string target) =>
+        existing.Default == true && e.Default != true
+        && edges.Where(x => x.From == e.From && x.Default != true && x.Id != e.Id && x.Order > e.Order).All(x => x.To == target);
 
     /// <summary>範本的欄位佔位符 {f:…}；格式同 Domain 的範本語法（大括號內不含大括號）。</summary>
     [System.Text.RegularExpressions.GeneratedRegex(@"\{f:([^{}]+)\}")]

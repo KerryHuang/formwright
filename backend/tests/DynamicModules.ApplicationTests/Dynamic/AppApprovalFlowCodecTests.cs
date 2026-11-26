@@ -299,6 +299,76 @@ public class AppApprovalFlowCodecTests
         ApprovalGraphValidator.Check(d, new GraphPolicyLimits(20, 10), null).Errors.Should().BeEmpty();
     }
 
+    private static AppApprovalNode Tell(string id) =>
+        new(id, "notify", T("知會"), Recipients: [new("group", ["buyers"])], Template: new AppNotifyTemplate(T("{title}")));
+
+    private static AppApprovalFlow Graph(List<AppApprovalNode> nodes, List<AppApprovalEdge> edges) =>
+        new("t8-po-large", T("採購單（大額）"), true, "po", "confirmed", 1, "graph", null, "draft", null, null, nodes, edges);
+
+    private static readonly JsonElement Big = Json("""{ "all": [ { "field": "po.total", "op": "gte", "value": 100000 } ] }""");
+    private static readonly JsonElement Mid = Json("""{ "all": [ { "field": "po.total", "op": "gte", "value": 10000 } ] }""");
+
+    private static void ShouldBeValid(AppApprovalFlow f)
+    {
+        var (input, errors) = AppApprovalFlowCodec.ToInput(f, Lookups, Without("buyers"), GroupName);
+        errors.Should().BeEmpty();
+        ApprovalGraphValidator.Check(input!.Definition, new GraphPolicyLimits(20, 10), null).Errors.Should().BeEmpty();
+        AppPackageValidator.SkippedGroupErrors(f, Without("buyers").Keys.ToHashSet()).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Graph_NotifySkipped_ConditionAlreadyHasEdgeToTarget_ReroutedEdgeDropped()
+    {
+        // 審查 🟡1 情境 1：中額知會、大額過董事會、其他直接結束；知會被拿掉後 amount→end 會重複，刪掉改接的那條（落到預設線，同樣到 end）
+        var f = Graph(
+            [new("start", "start"), new("amount", "condition", T("金額")), new("board", "approval", T("董事會"), null, Group("board"), "any", null, null, "fallback"),
+             Tell("tell"), new("end", "end")],
+            [new("e1", "start", "amount"), new("e2", "amount", "board", null, Big, 1), new("e3", "amount", "tell", null, Mid, 2),
+             new("e4", "amount", "end", Default: true), new("e5", "board", "end"), new("e6", "tell", "end")]);
+
+        var g = AppApprovalFlowCodec.WithoutSkippedRecipients(f, c => c != "buyers");
+
+        g.Nodes!.Select(n => n.Id).Should().Equal("start", "amount", "board", "end");
+        g.Edges!.Select(e => (e.Id, e.From, e.To)).Should().Equal(("e1", "start", "amount"), ("e2", "amount", "board"), ("e4", "amount", "end"), ("e5", "board", "end"));
+        ShouldBeValid(f);
+    }
+
+    [Fact]
+    public void Graph_NotifySkipped_ConditionLeftWithOnlyDefault_ConditionBypassed()
+    {
+        // 「大額知會、其他直接結束」：刪掉改接的線後條件節點只剩預設線（兩路都到 end），條件節點也跳過，前一個節點直接接 end
+        var f = Graph(
+            [new("start", "start"), new("lead", "approval", T("主管"), null, Group("purchaseLead"), "any", null, null, "fallback"),
+             new("amount", "condition", T("金額")), Tell("tell"), new("end", "end")],
+            [new("e1", "start", "lead"), new("e2", "lead", "amount"), new("e3", "amount", "tell", null, Big, 1),
+             new("e4", "amount", "end", Default: true), new("e5", "tell", "end")]);
+
+        var g = AppApprovalFlowCodec.WithoutSkippedRecipients(f, c => c != "buyers");
+
+        g.Nodes!.Select(n => n.Id).Should().Equal("start", "lead", "end");
+        g.Edges!.Select(e => (e.Id, e.From, e.To)).Should().Equal(("e1", "start", "lead"), ("e2", "lead", "end"));
+        ShouldBeValid(f);
+    }
+
+    [Fact]
+    public void Graph_NotifySkipped_ParallelBranchesBothNotify_NodeKept_PreviewListsError()
+    {
+        // 審查 🟡1 情境 2：並行兩條分支都只有通知節點；拿掉兩個會變成兩條 split→merge，所以第二個保留、交給驗證回報，預覽就列出
+        var f = Graph(
+            [new("start", "start"), new("split", "fork", T("同時知會")), Tell("n1"), Tell("n2"), new("merge", "join", Mode: "all", ForkId: "split"),
+             new("lead", "approval", T("主管"), null, Group("purchaseLead"), "any", null, null, "fallback"), new("end", "end")],
+            [new("e1", "start", "split"), new("e2", "split", "n1"), new("e3", "split", "n2"), new("e4", "n1", "merge"), new("e5", "n2", "merge"),
+             new("e6", "merge", "lead"), new("e7", "lead", "end")]);
+
+        var g = AppApprovalFlowCodec.WithoutSkippedRecipients(f, c => c != "buyers");
+
+        g.Edges!.GroupBy(e => (e.From, e.To)).Should().OnlyContain(x => x.Count() == 1, "不產生重複的線");
+        g.Nodes!.Should().ContainSingle(n => n.Kind == "notify").Which.Recipients.Should().BeEmpty();
+        AppPackageValidator.SkippedGroupErrors(f, Without("buyers").Keys.ToHashSet())
+            .Should().Contain("approvalFlows[t8-po-large].nodes.n2.recipients: 通知收件人設定必須有 1 到 20 項（略過群組後）");
+        AppPackageValidator.SkippedGroupErrors(f, AllGroups.Keys.ToHashSet()).Should().BeEmpty("沒有略過群組時不重驗");
+    }
+
     [Fact]
     public void ReferencedFields_IncludeEdgeConditionsAndTemplate()
     {
