@@ -6,9 +6,9 @@
     "vi": "Ngôn ngữ {0} chưa được cài đặt"
   },
   "LocaleTemplateScopeInvalid": {
-    "zh-TW": "匯出範圍只能是 ui、server、designData，至少要選一個",
-    "en-US": "The export scope must be ui, server and/or designData, with at least one selected",
-    "th": "ขอบเขตการส่งออกต้องเป็น ui, server หรือ designData และต้องเลือกอย่างน้อยหนึ่งรายการ",
-    "vi": "Phạm vi xuất chỉ có thể là ui, server, designData và phải chọn ít nhất một"
+    "zh-TW": "匯出範圍只能是 ui、server，至少要選一個",
+    "en-US": "The export scope must be ui and/or server, with at least one selected",
+    "th": "ขอบเขตการส่งออกต้องเป็น ui หรือ server และต้องเลือกอย่างน้อยหนึ่งรายการ",
+    "vi": "Phạm vi xuất chỉ có thể là ui, server và phải chọn ít nhất một"
   }
 }
