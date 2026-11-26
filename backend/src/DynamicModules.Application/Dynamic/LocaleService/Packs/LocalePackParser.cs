@@ -9,7 +9,7 @@ namespace DynamicModules.Application.Dynamic.LocaleService.Packs;
 /// 語系包位元組 → <see cref="ParsedLocalePack"/>（語系包設計 §5.1、§13.1；i4d1 計畫判斷 1、2、5）。只做整包層級的檢查（格式、版本、代碼、
 /// <c>locale</c>／<c>pack</c> 欄位、段落形狀、鍵數），逐句的語法交給 <see cref="LocalePackAnalyzer"/>。
 /// 段落自己沿 <see cref="JsonElement.EnumerateObject"/> 走（不用 <c>UiTextMerge.Flatten</c>）：重複的屬性與巢狀／扁平撞在一起的路徑兩筆都不收（<c>duplicate</c>），
-/// 非字串值記 <c>notString</c>，其他鍵照收。
+/// 非字串值記 <c>notString</c>，其他鍵照收。Excel 樣板（zip 簽章）先經 <see cref="LocalePackXlsx"/> 轉成同形狀的物件再走同一套檢查（i4e）。
 /// </summary>
 public static class LocalePackParser
 {
@@ -19,7 +19,13 @@ public static class LocalePackParser
     public static (ParsedLocalePack? Pack, MessageRef? Error) Parse(ReadOnlyMemory<byte> bytes)
     {
         var span = bytes.Span;
-        if (span.StartsWith("PK\u0003\u0004"u8)) return (null, LocalePackMessages.ExcelNotYet);
+        if (LocalePackXlsx.IsXlsx(span))
+        {
+            // Excel 樣板（i4e，§23.4）：轉成同形狀的物件後走同一套檢查；公式、重複鍵等逐列問題併進各段的拒收清單
+            var (root, problems, xlsxError) = LocalePackXlsx.Read(bytes);
+            if (xlsxError is not null) return (null, xlsxError);
+            return Read(System.Text.Json.JsonSerializer.SerializeToElement(root), problems);
+        }
         if (span.StartsWith("﻿"u8)) bytes = bytes[3..];
         var first = FirstNonWhitespace(bytes.Span);
         if (first != (byte)'{') return (null, LocalePackMessages.NotJson);
@@ -55,7 +61,7 @@ public static class LocalePackParser
         catch (JsonException) { return false; }
     }
 
-    private static (ParsedLocalePack?, MessageRef?) Read(JsonElement root)
+    private static (ParsedLocalePack?, MessageRef?) Read(JsonElement root, LocalePackXlsx.Problems? xlsx = null)
     {
         if (!root.TryGetProperty("format", out var format) || format.ValueKind != JsonValueKind.String || format.GetString() != Format)
             return (null, LocalePackMessages.FormatUnknown);
@@ -101,20 +107,61 @@ public static class LocalePackParser
                 return (null, error);
         }
 
-        var ui = new Section();
+        var ui = new Section(xlsx?.Ui);
         if (!ReadSection(root, "ui", nested: true, ui, BuiltinLocaleResources.BaseKeys.Count, out error)) return (null, error);
-        var server = new Section();
+        var server = new Section(xlsx?.Server);
         if (!ReadSection(root, "server", nested: false, server, BuiltinServerText.BaseKeys.Count, out error)) return (null, error);
 
-        var designData = 0;
+        var design = new Dictionary<string, DesignDataEntry>(StringComparer.Ordinal);
+        var designProblems = new List<RejectedItem>(xlsx?.DesignData ?? []);
         if (root.TryGetProperty("designData", out var dd) && dd.ValueKind != JsonValueKind.Null)
         {
             if (dd.ValueKind != JsonValueKind.Object) return (null, LocalePackMessages.SectionNotObject("designData"));
-            designData = dd.EnumerateObject().Count();
+            ReadDesignData(dd, design, designProblems);
         }
 
         return (new ParsedLocalePack(code, nativeName, quasar, fallback, packVersion, builtFor, baseLocale, note,
-            ui.Values, ui.Problems(), server.Values, server.Problems(), designData), null);
+            ui.Values, ui.Problems(), server.Values, server.Problems(), design.Count + designProblems.Count)
+        {
+            DesignData = design, DesignDataProblems = designProblems.OrderBy(r => r.Key, StringComparer.Ordinal).ToList(),
+        }, null);
+    }
+
+    /// <summary>
+    /// <c>designData</c>（§5.1、§23.2）：每列是 <c>{ text, source }</c> 物件；不是物件 → <c>notObject</c>；<c>text</c>、<c>source</c> 有帶但不是字串 →
+    /// <c>notString</c>；沒帶 <c>text</c> 當空字串（略過）。同一路徑出現兩次兩筆都不收（<c>duplicate</c>）。其他屬性（樣板的 <c>local</c>）略過。
+    /// </summary>
+    private static void ReadDesignData(JsonElement dd, Dictionary<string, DesignDataEntry> entries, List<RejectedItem> problems)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var duplicate = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var prop in dd.EnumerateObject())
+        {
+            var path = prop.Name;
+            if (duplicate.Contains(path)) continue;
+            if (!seen.Add(path))
+            {
+                duplicate.Add(path);
+                entries.Remove(path);
+                problems.RemoveAll(p => p.Key == path);
+                problems.Add(new RejectedItem(path, LocalePackReasons.Duplicate, []));
+                continue;
+            }
+            var v = prop.Value;
+            if (v.ValueKind != JsonValueKind.Object)
+            {
+                problems.Add(new RejectedItem(path, LocalePackReasons.NotObject, []));
+                continue;
+            }
+            var hasText = v.TryGetProperty("text", out var text) && text.ValueKind != JsonValueKind.Null;
+            var hasSource = v.TryGetProperty("source", out var source) && source.ValueKind != JsonValueKind.Null;
+            if ((hasText && text.ValueKind != JsonValueKind.String) || (hasSource && source.ValueKind != JsonValueKind.String))
+            {
+                problems.Add(new RejectedItem(path, LocalePackReasons.NotString, []));
+                continue;
+            }
+            entries[path] = new DesignDataEntry(hasText ? text.GetString()! : "", hasSource ? source.GetString() : null);
+        }
     }
 
     /// <summary>選填的文字欄：沒帶、null、空白當成沒帶；非字串、控制字元或超長是整包錯誤。</summary>
@@ -163,8 +210,9 @@ public static class LocalePackParser
     }
 
     /// <summary>一段的累計：壓平後的路徑第二次出現就兩筆都不收。</summary>
-    private sealed class Section
+    private sealed class Section(IReadOnlyList<RejectedItem>? extra = null)
     {
+        private readonly IReadOnlyList<RejectedItem> _extra = extra ?? [];
         private readonly HashSet<string> _seen = new(StringComparer.Ordinal), _duplicate = new(StringComparer.Ordinal), _notString = new(StringComparer.Ordinal);
 
         public Dictionary<string, string> Values { get; } = new(StringComparer.Ordinal);
@@ -188,6 +236,7 @@ public static class LocalePackParser
         public IReadOnlyList<RejectedItem> Problems() =>
             _duplicate.Select(k => new RejectedItem(k, LocalePackReasons.Duplicate, []))
                 .Concat(_notString.Select(k => new RejectedItem(k, LocalePackReasons.NotString, [])))
+                .Concat(_extra)
                 .OrderBy(r => r.Key, StringComparer.Ordinal).ToList();
     }
 }

@@ -1,0 +1,194 @@
+{
+  "LocaleXlsxInvalid": {
+    "zh-TW": "這不是 Formwright 翻譯樣板（第一張工作表找不到格式資訊）",
+    "en-US": "This is not a Formwright translation template (the first sheet has no format information)",
+    "th": "ไฟล์นี้ไม่ใช่แม่แบบการแปลของ Formwright (แผ่นงานแรกไม่มีข้อมูลรูปแบบ)",
+    "vi": "Đây không phải mẫu dịch của Formwright (trang tính đầu tiên không có thông tin định dạng)"
+  },
+  "LocaleXlsxSheetMissing": {
+    "zh-TW": "找不到工作表「{0}」，請不要改工作表名稱",
+    "en-US": "The sheet \"{0}\" was not found. Do not rename the sheets",
+    "th": "ไม่พบแผ่นงาน \"{0}\" โปรดอย่าเปลี่ยนชื่อแผ่นงาน",
+    "vi": "Không tìm thấy trang tính \"{0}\", vui lòng không đổi tên trang tính"
+  },
+  "LocaleXlsxUnsafe": {
+    "zh-TW": "Excel 檔解壓後過大或壓縮比異常，已拒收",
+    "en-US": "The Excel file is too large when decompressed or has an abnormal compression ratio and was rejected",
+    "th": "ไฟล์ Excel มีขนาดใหญ่เกินไปเมื่อคลายการบีบอัด หรืออัตราการบีบอัดผิดปกติ จึงถูกปฏิเสธ",
+    "vi": "Tệp Excel quá lớn khi giải nén hoặc có tỷ lệ nén bất thường nên đã bị từ chối"
+  },
+  "LocaleXlsxTooManySheets": {
+    "zh-TW": "Excel 檔最多 {0} 張工作表",
+    "en-US": "An Excel file can have at most {0} sheets",
+    "th": "ไฟล์ Excel มีแผ่นงานได้ไม่เกิน {0} แผ่น",
+    "vi": "Tệp Excel có tối đa {0} trang tính"
+  },
+  "LocaleXlsxTooManyRows": {
+    "zh-TW": "工作表「{0}」超過 {1} 列",
+    "en-US": "The sheet \"{0}\" has more than {1} rows",
+    "th": "แผ่นงาน \"{0}\" มีเกิน {1} แถว",
+    "vi": "Trang tính \"{0}\" vượt quá {1} dòng"
+  },
+  "LocaleTemplateDesignTooMany": {
+    "zh-TW": "設計資料超過 {0} 列，請選應用程式或模組縮小範圍",
+    "en-US": "Design data exceeds {0} rows. Choose an app or module to narrow the scope",
+    "th": "ข้อมูลการออกแบบเกิน {0} แถว โปรดเลือกแอปหรือโมดูลเพื่อจำกัดขอบเขต",
+    "vi": "Dữ liệu thiết kế vượt quá {0} dòng, vui lòng chọn ứng dụng hoặc mô-đun để thu hẹp phạm vi"
+  },
+  "LocaleTemplateDesignNewLocale": {
+    "zh-TW": "設計資料只能匯出已安裝的語系",
+    "en-US": "Design data can only be exported for installed locales",
+    "th": "ส่งออกข้อมูลการออกแบบได้เฉพาะภาษาที่ติดตั้งแล้ว",
+    "vi": "Chỉ có thể xuất dữ liệu thiết kế cho ngôn ngữ đã cài đặt"
+  },
+  "LocaleTemplateDesignScopeInvalid": {
+    "zh-TW": "找不到應用程式或模組「{0}」",
+    "en-US": "The app or module \"{0}\" was not found",
+    "th": "ไม่พบแอปหรือโมดูล \"{0}\"",
+    "vi": "Không tìm thấy ứng dụng hoặc mô-đun \"{0}\""
+  },
+  "LocaleTemplateFormatInvalid": {
+    "zh-TW": "格式只能是 json 或 xlsx",
+    "en-US": "The format must be json or xlsx",
+    "th": "รูปแบบต้องเป็น json หรือ xlsx",
+    "vi": "Định dạng chỉ có thể là json hoặc xlsx"
+  },
+  "LocaleXlsxSheetHelp": {
+    "zh-TW": "說明",
+    "en-US": "Instructions",
+    "th": "คำอธิบาย",
+    "vi": "Hướng dẫn"
+  },
+  "LocaleXlsxSheetUi": {
+    "zh-TW": "介面文字",
+    "en-US": "Interface text",
+    "th": "ข้อความอินเทอร์เฟซ",
+    "vi": "Văn bản giao diện"
+  },
+  "LocaleXlsxSheetServer": {
+    "zh-TW": "系統訊息",
+    "en-US": "System messages",
+    "th": "ข้อความระบบ",
+    "vi": "Thông báo hệ thống"
+  },
+  "LocaleXlsxSheetDesign": {
+    "zh-TW": "設計資料",
+    "en-US": "Design data",
+    "th": "ข้อมูลการออกแบบ",
+    "vi": "Dữ liệu thiết kế"
+  },
+  "LocaleXlsxColKey": {
+    "zh-TW": "鍵",
+    "en-US": "Key",
+    "th": "คีย์",
+    "vi": "Khóa"
+  },
+  "LocaleXlsxColCategory": {
+    "zh-TW": "分類",
+    "en-US": "Category",
+    "th": "หมวดหมู่",
+    "vi": "Phân loại"
+  },
+  "LocaleXlsxColSource": {
+    "zh-TW": "原文",
+    "en-US": "Source text",
+    "th": "ข้อความต้นฉบับ",
+    "vi": "Văn bản gốc"
+  },
+  "LocaleXlsxColReference": {
+    "zh-TW": "參考",
+    "en-US": "Reference",
+    "th": "อ้างอิง",
+    "vi": "Tham khảo"
+  },
+  "LocaleXlsxColCurrent": {
+    "zh-TW": "目前譯文",
+    "en-US": "Current translation",
+    "th": "คำแปลปัจจุบัน",
+    "vi": "Bản dịch hiện tại"
+  },
+  "LocaleXlsxColTranslation": {
+    "zh-TW": "譯文（填這欄）",
+    "en-US": "Translation (fill in this column)",
+    "th": "คำแปล (กรอกคอลัมน์นี้)",
+    "vi": "Bản dịch (điền cột này)"
+  },
+  "LocaleXlsxColPlaceholders": {
+    "zh-TW": "佔位符",
+    "en-US": "Placeholders",
+    "th": "ตัวยึดตำแหน่ง",
+    "vi": "Chỗ giữ chỗ"
+  },
+  "LocaleXlsxColNote": {
+    "zh-TW": "備註",
+    "en-US": "Note",
+    "th": "หมายเหตุ",
+    "vi": "Ghi chú"
+  },
+  "LocaleXlsxNoteBaseChanged": {
+    "zh-TW": "原文已更新",
+    "en-US": "Source text updated",
+    "th": "ข้อความต้นฉบับมีการอัปเดต",
+    "vi": "Văn bản gốc đã cập nhật"
+  },
+  "LocaleXlsxNoteParamsChanged": {
+    "zh-TW": "參數不符，需要重翻",
+    "en-US": "Parameters do not match; translate again",
+    "th": "พารามิเตอร์ไม่ตรงกัน ต้องแปลใหม่",
+    "vi": "Tham số không khớp, cần dịch lại"
+  },
+  "LocaleXlsxNoteLocal": {
+    "zh-TW": "只在本系統有效",
+    "en-US": "Valid only in this system",
+    "th": "ใช้ได้เฉพาะในระบบนี้",
+    "vi": "Chỉ có hiệu lực trong hệ thống này"
+  },
+  "LocaleXlsxHelpKey": {
+    "zh-TW": "項目（請勿修改）",
+    "en-US": "Item (do not change)",
+    "th": "รายการ (ห้ามแก้ไข)",
+    "vi": "Mục (không được sửa)"
+  },
+  "LocaleXlsxHelpValue": {
+    "zh-TW": "值",
+    "en-US": "Value",
+    "th": "ค่า",
+    "vi": "Giá trị"
+  },
+  "LocaleXlsxHelpRules": {
+    "zh-TW": "填寫規則",
+    "en-US": "How to fill in",
+    "th": "วิธีกรอก",
+    "vi": "Cách điền"
+  },
+  "LocaleXlsxRule1": {
+    "zh-TW": "只填「譯文（填這欄）」那一欄；其他欄只供參考，匯入時不讀。",
+    "en-US": "Fill in only the \"Translation (fill in this column)\" column; the other columns are for reference and are not read on import.",
+    "th": "กรอกเฉพาะคอลัมน์ \"คำแปล (กรอกคอลัมน์นี้)\" คอลัมน์อื่นใช้อ้างอิงเท่านั้นและจะไม่ถูกอ่านตอนนำเข้า",
+    "vi": "Chỉ điền cột \"Bản dịch (điền cột này)\"; các cột khác chỉ để tham khảo và không được đọc khi nhập."
+  },
+  "LocaleXlsxRule2": {
+    "zh-TW": "譯文空白代表沒翻，匯入時略過。",
+    "en-US": "A blank translation means not translated and is skipped on import.",
+    "th": "คำแปลที่เว้นว่างหมายถึงยังไม่แปลและจะถูกข้ามตอนนำเข้า",
+    "vi": "Bản dịch để trống nghĩa là chưa dịch và sẽ được bỏ qua khi nhập."
+  },
+  "LocaleXlsxRule3": {
+    "zh-TW": "不要改工作表名稱、不要刪掉「鍵」欄；含公式的格子整列不收。",
+    "en-US": "Do not rename sheets or delete the Key column; rows with formula cells are rejected.",
+    "th": "อย่าเปลี่ยนชื่อแผ่นงานหรือลบคอลัมน์คีย์ แถวที่มีเซลล์สูตรจะถูกปฏิเสธ",
+    "vi": "Không đổi tên trang tính, không xóa cột Khóa; dòng có ô công thức sẽ bị từ chối."
+  },
+  "LocaleXlsxRule4": {
+    "zh-TW": "佔位符（大括號包住的部分）要原樣保留。",
+    "en-US": "Keep placeholders (the parts wrapped in braces) exactly as they are.",
+    "th": "คงตัวยึดตำแหน่ง (ส่วนที่อยู่ในวงเล็บปีกกา) ไว้ตามเดิม",
+    "vi": "Giữ nguyên các chỗ giữ chỗ (phần nằm trong dấu ngoặc nhọn)."
+  },
+  "LocaleXlsxRule5": {
+    "zh-TW": "備註寫「只在本系統有效」的列，只能匯回產生這份檔的系統。",
+    "en-US": "Rows noted \"Valid only in this system\" can only be imported into the system that produced this file.",
+    "th": "แถวที่มีหมายเหตุ \"ใช้ได้เฉพาะในระบบนี้\" นำเข้าได้เฉพาะระบบที่สร้างไฟล์นี้",
+    "vi": "Các dòng ghi chú \"Chỉ có hiệu lực trong hệ thống này\" chỉ nhập lại được vào hệ thống đã tạo tệp này."
+  }
+}
