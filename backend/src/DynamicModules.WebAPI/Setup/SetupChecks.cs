@@ -168,10 +168,16 @@ public sealed class SetupChecks(IConfiguration configuration, IHostEnvironment e
         int? client;
         try
         {
-            using var p = Process.Start(new ProcessStartInfo(pgDump) { ArgumentList = { "--version" }, RedirectStandardOutput = true, UseShellExecute = false })!;
+            // 管理員身分執行時（例如管理員直接用 CLI 啟動設定模式）：只執行 Program Files 底下的工具，開檔持有到 --version 跑完
+            using var lease = PgToolTrust.Acquire([pgDump]);
+            using var p = Process.Start(new ProcessStartInfo(lease.Paths[0]) { ArgumentList = { "--version" }, RedirectStandardOutput = true, UseShellExecute = false })!;
             var output = p.StandardOutput.ReadToEnd();
             if (!p.WaitForExit(5000)) { try { p.Kill(true); } catch { /* 已結束 */ } }
             client = PostgresDatabaseBackup.ParseMajor(output);
+        }
+        catch (BackupFailure f) when (f.Code == "pgDumpConfig")
+        {
+            return new SetupCheckItem("pgDump", false, pgDump, "pgDumpMissing", new Dictionary<string, string> { ["detail"] = "notInProgramFiles" });
         }
         catch { client = null; }
         if (client is null) return new SetupCheckItem("pgDump", false, pgDump, "pgDumpMissing");

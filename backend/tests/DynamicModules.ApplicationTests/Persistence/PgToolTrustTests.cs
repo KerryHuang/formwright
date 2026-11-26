@@ -5,120 +5,149 @@ using FluentAssertions;
 namespace DynamicModules.ApplicationTests.Persistence;
 
 /// <summary>
-/// 管理員執行 pg_dump／pg_restore 前的可信檢查（安裝程式升級前備份的安全守衛）。
-/// 判斷規則用替身讀取器在任何平台測；實際 ACL 讀取只在 Windows 管理員執行時才用（CI 的 Windows 升級步驟會走到）。
+/// 管理員執行 pg_dump／pg_restore 前的信任邊界：只用 Program Files 底下的工具（以 handle 解析的最終路徑判斷）。
+/// 判斷規則用替身開檔器在任何平台測；實際 handle 解析只在 Windows 管理員執行時才用（CI 的 Windows 升級步驟會走到）。
 /// </summary>
 public sealed class PgToolTrustTests
 {
-    private const string Users = "S-1-5-32-545";
-    private const string Service = "S-1-5-80-1111111111-2222222222-3333333333-4444444444-5555555555";
-    private const string Tool = "/opt/pg/bin/pg_dump";
-    private const string Restore = "/opt/pg/bin/pg_restore";
+    private static readonly string[] Roots = [@"C:\Program Files", @"C:\Program Files (x86)"];
 
-    private sealed class FakeReader : IPathSecurityReader
+    private sealed class FakeHandle(string finalPath, Action onDispose) : IToolHandle
     {
-        public Dictionary<string, PathSecurity> Paths { get; } = new(StringComparer.OrdinalIgnoreCase);
-        public HashSet<string> ReparseAncestors { get; } = new(StringComparer.OrdinalIgnoreCase);
-        public HashSet<string> Unreadable { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public string FinalPath { get; } = finalPath;
 
-        public PathSecurity Read(string path)
+        public void Dispose() => onDispose();
+    }
+
+    /// <summary>真實路徑表：沒列的路徑回傳原字串；<see cref="Unopenable"/> 的路徑開檔就丟例外。</summary>
+    private sealed class FakeOpener : IToolOpener
+    {
+        public Dictionary<string, string> Final { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public HashSet<string> Unopenable { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public int Open_ { get; private set; }
+        public int Disposed { get; private set; }
+
+        public IToolHandle Open(string path)
         {
-            if (Unreadable.Contains(path)) throw new UnauthorizedAccessException("拒絕存取");
-            return Paths.TryGetValue(path, out var p) ? p : Trusted();
+            if (Unopenable.Contains(path)) throw new UnauthorizedAccessException("拒絕存取");
+            Open_++;
+            return new FakeHandle(Final.TryGetValue(path, out var f) ? f : path, () => Disposed++);
         }
-
-        public bool IsReparsePoint(string path) => ReparseAncestors.Contains(path);
     }
 
-    private static PathSecurity Trusted(params AllowedAccess[] extra) =>
-        new(false, PgToolTrust.AdministratorsSid,
-            [new AllowedAccess(PgToolTrust.SystemSid, true), new AllowedAccess(PgToolTrust.AdministratorsSid, true),
-             new AllowedAccess(PgToolTrust.TrustedInstallerSid, true), new AllowedAccess(Users, false), ..extra]);
+    private const string Dump = @"C:\Program Files\PostgreSQL\16\bin\pg_dump.exe";
+    private const string Restore = @"C:\Program Files\PostgreSQL\16\bin\pg_restore.exe";
 
-    private static string? Problem(FakeReader reader) => PgToolTrust.FindProblem([Tool, Restore], reader);
+    private static ToolLease Acquire(FakeOpener opener, params string[] tools) => PgToolTrust.Acquire(tools, opener, Roots);
 
     [Fact]
-    public void SystemAdministratorsTrustedInstaller_WriteAndUsersReadOnly_IsTrusted() =>
-        Problem(new FakeReader()).Should().BeNull();
-
-    [Theory]
-    [InlineData("/opt/pg/bin/pg_dump")]
-    [InlineData("/opt/pg/bin/pg_restore")]
-    [InlineData("/opt/pg/bin")]
-    public void ReparsePoint_FileOrDirectory_IsRejected_AndNamesThePath(string path)
+    public void ProgramFilesAndX86_AreTrusted_AndPathsComeBackInOrder()
     {
-        var reader = new FakeReader();
-        reader.Paths[path] = new PathSecurity(true, PgToolTrust.SystemSid, []);
-        Problem(reader).Should().Contain(path).And.Contain("reparse point");
+        var x86 = @"C:\Program Files (x86)\Pg\pg_restore.exe";
+        using var lease = Acquire(new FakeOpener(), Dump, x86);
+        lease.Paths.Should().Equal(Dump, x86);
     }
 
     [Fact]
-    public void ReparsePointFurtherUp_IsRejected()
+    public void LowercaseAndMixedCase_AreTrusted()
     {
-        var reader = new FakeReader();
-        reader.ReparseAncestors.Add("/opt");
-        Problem(reader).Should().Contain("/opt").And.Contain("reparse point");
+        using var lease = Acquire(new FakeOpener(), @"c:\PROGRAM FILES\pg\bin\pg_dump.exe");
+        lease.Paths.Should().HaveCount(1);
     }
 
     [Theory]
-    [InlineData("/opt/pg/bin/pg_dump")]
-    [InlineData("/opt/pg/bin")]
-    public void OtherSidWithWriteRights_IsRejected_AndNamesPathAndSid(string path)
+    [InlineData(@"D:\tools\pg\bin\pg_dump.exe")]
+    [InlineData(@"C:\staging\pg\bin\pg_dump.exe")]
+    [InlineData(@"C:\Program Files Evil\pg_dump.exe")]
+    [InlineData(@"C:\Program Files (x86) Evil\pg_dump.exe")]
+    [InlineData(@"C:\Program Files")]
+    public void OutsideProgramFiles_IsRejected_WithExplanation(string path)
     {
-        var reader = new FakeReader();
-        reader.Paths[path] = Trusted(new AllowedAccess(Service, true));
-        Problem(reader).Should().Contain(path).And.Contain(Service);
+        var act = () => Acquire(new FakeOpener(), path);
+        act.Should().Throw<BackupFailure>().Where(f => f.Code == "pgDumpConfig" && f.Message.Contains("Program Files") && f.Message.Contains(path));
     }
 
     [Fact]
-    public void OtherSidWithReadOnly_IsTrusted()
+    public void LinkInsideProgramFiles_PointingOutside_IsRejected_ByFinalPath()
     {
-        var reader = new FakeReader();
-        reader.Paths["/opt/pg/bin"] = Trusted(new AllowedAccess(Service, false));
-        Problem(reader).Should().BeNull();
-    }
-
-    [Theory]
-    [InlineData(Users)]
-    [InlineData(Service)]
-    [InlineData(null)]
-    public void UntrustedOrUnknownOwner_IsRejected(string? owner)
-    {
-        var reader = new FakeReader();
-        reader.Paths[Tool] = new PathSecurity(false, owner, []);
-        Problem(reader).Should().Contain(Tool).And.Contain("擁有者");
+        var opener = new FakeOpener();
+        opener.Final[Dump] = @"C:\staging\evil\pg_dump.exe";
+        var act = () => Acquire(opener, Dump);
+        act.Should().Throw<BackupFailure>().Where(f => f.Code == "pgDumpConfig" && f.Message.Contains(@"C:\staging\evil\pg_dump.exe"));
     }
 
     [Fact]
-    public void UnreadableSecurity_FailsClosed()
+    public void LinkOutside_PointingIntoProgramFiles_IsAllowed_AndStartsFromFinalPath()
     {
-        var reader = new FakeReader();
-        reader.Unreadable.Add("/opt/pg/bin");
-        Problem(reader).Should().Contain("/opt/pg/bin").And.Contain("讀不到");
+        var opener = new FakeOpener();
+        opener.Final[@"D:\shortcut\pg_dump.exe"] = Dump;
+        using var lease = Acquire(opener, @"D:\shortcut\pg_dump.exe");
+        lease.Paths.Should().Equal(Dump);
     }
 
     [Fact]
-    public void EnsureTrusted_Untrusted_ThrowsPgDumpConfig_WithPath()
+    public void Unopenable_FailsClosed()
     {
-        var reader = new FakeReader();
-        reader.Paths["/opt/pg/bin"] = Trusted(new AllowedAccess(Users, true));
-        var act = () => PgToolTrust.EnsureTrusted([Tool, Restore], reader, isWindowsElevated: true);
-        act.Should().Throw<BackupFailure>().Where(f => f.Code == "pgDumpConfig" && f.Message.Contains("/opt/pg/bin") && f.Message.Contains(PgDumpSettings.Key));
+        var opener = new FakeOpener();
+        opener.Unopenable.Add(Restore);
+        var act = () => Acquire(opener, Dump, Restore);
+        act.Should().Throw<BackupFailure>().Where(f => f.Code == "pgDumpConfig" && f.Message.Contains(Restore) && f.Message.Contains("開不了"));
     }
 
     [Fact]
-    public void EnsureTrusted_NotElevatedOrNotWindows_DoesNotCheck()
+    public void EmptyFinalPath_FailsClosed()
     {
-        var reader = new FakeReader();
-        reader.Paths[Tool] = new PathSecurity(true, Users, [new AllowedAccess(Users, true)]);
-        var act = () => PgToolTrust.EnsureTrusted([Tool, Restore], reader, isWindowsElevated: false);
-        act.Should().NotThrow();
+        var opener = new FakeOpener();
+        opener.Final[Dump] = "";
+        var act = () => Acquire(opener, Dump);
+        act.Should().Throw<BackupFailure>().Where(f => f.Code == "pgDumpConfig");
     }
 
     [Fact]
-    public void EnsureTrusted_RealReader_OnNonWindows_DoesNothing()
+    public void NoProgramFilesRoots_FailsClosed()
+    {
+        var act = () => PgToolTrust.Acquire([Dump], new FakeOpener(), []);
+        act.Should().Throw<BackupFailure>().Where(f => f.Code == "pgDumpConfig");
+    }
+
+    [Fact]
+    public void Rejection_ReleasesHandlesAlreadyOpened()
+    {
+        var opener = new FakeOpener();
+        var act = () => Acquire(opener, Dump, @"D:\evil\pg_restore.exe");
+        act.Should().Throw<BackupFailure>();
+        opener.Disposed.Should().Be(opener.Open_);
+    }
+
+    [Fact]
+    public void Dispose_ReleasesHandles_OnlyAfterLeaseEnds()
+    {
+        var opener = new FakeOpener();
+        var lease = Acquire(opener, Dump, Restore);
+        opener.Disposed.Should().Be(0, "啟動工具期間要一直持有檔案");
+        lease.Dispose();
+        opener.Disposed.Should().Be(2);
+    }
+
+    [Fact]
+    public void NotElevatedOrNotWindows_NoCheck_PathsUnchanged()
+    {
+        using var lease = PgToolTrust.Acquire([@"D:\anywhere\pg_dump.exe"], opener: null, Roots);
+        lease.Paths.Should().Equal(@"D:\anywhere\pg_dump.exe");
+    }
+
+    [Fact]
+    public void RealAcquire_OnNonWindows_DoesNothing()
     {
         if (OperatingSystem.IsWindows()) return;
-        PgToolTrust.EnsureTrusted(["/definitely/not/there/pg_dump"]);
+        using var lease = PgToolTrust.Acquire(["/definitely/not/there/pg_dump"]);
+        lease.Paths.Should().Equal("/definitely/not/there/pg_dump");
+    }
+
+    [Fact]
+    public void FindProblem_DoesNotMatchSiblingDirectoryWithSamePrefix()
+    {
+        PgToolTrust.FindProblem("x", @"C:\Program FilesX\pg_dump.exe", Roots).Should().NotBeNull();
+        PgToolTrust.FindProblem("x", @"C:\Program Files\pg_dump.exe", Roots).Should().BeNull();
     }
 }

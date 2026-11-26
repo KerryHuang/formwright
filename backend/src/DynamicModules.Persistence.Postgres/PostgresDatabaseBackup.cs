@@ -51,8 +51,10 @@ public sealed partial class PostgresDatabaseBackup(DynamicDbContext db, PgDumpSe
     public async Task SnapshotAsync(string path, CancellationToken ct)
     {
         ClearStalePassfiles();
-        var (pgDump, pgRestore) = ResolveTools(settings);
-        PgToolTrust.EnsureTrusted([pgDump, pgRestore]);
+        var (requestedDump, requestedRestore) = ResolveTools(settings);
+        // 管理員身分：只用 Program Files 底下的工具，開檔持有到 pg_dump 跑完，並用解析出的最終路徑啟動
+        using var lease = PgToolTrust.Acquire([requestedDump, requestedRestore]);
+        var pgDump = lease.Paths[0];
         var connection = PgDumpConnection.From(ConnectionString);
         await CheckVersionAsync(pgDump, ct);
         var passfile = connection.Password is { } password ? WritePassfile(password) : null;
@@ -77,8 +79,9 @@ public sealed partial class PostgresDatabaseBackup(DynamicDbContext db, PgDumpSe
     /// </summary>
     public async Task VerifyAsync(string path, string expectedMigration, CancellationToken ct)
     {
-        var (pgDump, pgRestore) = ResolveTools(settings);
-        PgToolTrust.EnsureTrusted([pgDump, pgRestore]);
+        var (requestedDump, requestedRestore) = ResolveTools(settings);
+        using var lease = PgToolTrust.Acquire([requestedDump, requestedRestore]);
+        var pgRestore = lease.Paths[1];
         var result = await RunAsync(pgRestore, ["--list", "--no-password", path], new Dictionary<string, string>(), ct);
         if (result.ExitCode != 0) throw new InvalidDataException($"pg_restore --list 結束代碼 {result.ExitCode}：{result.Error.Trim()}");
         var tables = result.Output.Split('\n')
