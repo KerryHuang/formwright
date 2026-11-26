@@ -74,7 +74,7 @@ public sealed partial class ApprovalDefinitionValidator
         if (recipients is null || recipients.Count == 0 || recipients.Count > ApprovalGraphLimits.MaxNotifyRecipients)
             x.Err($"{p}.recipients", ApprovalMessages.NotifyRecipientsCount(ApprovalGraphLimits.MaxNotifyRecipients));
         // 改嚴只管之後：主管層數超過政策但不比舊版同一節點的大就放行
-        var oldLevel = (before?.Recipients ?? []).Where(o => o is { Kind: ApprovalNotifyRecipientKinds.InitiatorManager }).Select(o => o.Level ?? 0).DefaultIfEmpty(0).Max();
+        var oldLevel = (before?.Recipients ?? []).Where(o => o is { Kind: ApprovalNotifyRecipientKinds.InitiatorManager }).Select(o => o.Level ?? 1).DefaultIfEmpty(0).Max();
         foreach (var r in recipients ?? [])
             if (RecipientError(x, r, oldLevel) is { } re) x.Err($"{p}.recipients", re);
 

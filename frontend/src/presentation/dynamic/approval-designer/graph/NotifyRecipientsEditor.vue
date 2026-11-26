@@ -20,7 +20,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: NotifyRecipientDef[]] }>
 const { t, locale } = useI18n();
 
 const KINDS: NotifyRecipientKind[] = ['initiator', 'initiatorManager', 'users', 'group'];
-const kindOptions = KINDS.map((value) => ({ value, label: t(`approval.designer.graph.notify.kind.${value}`) }));
+const kindOptions = computed(() => KINDS.map((value) => ({ value, label: t(`approval.designer.graph.notify.kind.${value}`) })));
 
 const users = useUsers({ enabled: () => props.modelValue.some((r) => r.kind === 'users') });
 const groups = useGroups({ enabled: () => props.modelValue.some((r) => r.kind === 'group') });
@@ -36,9 +36,10 @@ const groupOptions = (sel: number[] | null | undefined) => withMissing(groupBase
 const levels = computed(() => levelOptions(props.maxManagerLevel, props.savedLevel)
   .map((o) => ({ value: o.value, label: t(o.legacy ? 'approval.designer.source.levelOptionLegacy' : 'approval.designer.source.levelOption', { n: o.value }) })));
 
-const filter = ref('');
-const shown = (opts: Opt[]) => { const q = filter.value.trim().toLowerCase(); return q ? opts.filter((o) => o.label.toLowerCase().includes(q)) : opts; };
-function onFilter(v: string, update: (fn: () => void) => void) { update(() => { filter.value = v; }); }
+// 搜尋字每一列各自一份：一列的輸入不影響其他列的選項
+const filters = ref<Record<number, string>>({});
+const shown = (i: number, opts: Opt[]) => { const q = (filters.value[i] ?? '').trim().toLowerCase(); return q ? opts.filter((o) => o.label.toLowerCase().includes(q)) : opts; };
+const onFilter = (i: number, v: string, update: (fn: () => void) => void) => { update(() => { filters.value = { ...filters.value, [i]: v }; }); };
 
 const patch = (i: number, r: NotifyRecipientDef) => emit('update:modelValue', props.modelValue.map((x, j) => (j === i ? r : x)));
 const setKind = (i: number, kind: NotifyRecipientKind) => {
@@ -46,7 +47,7 @@ const setKind = (i: number, kind: NotifyRecipientKind) => {
   patch(i, kind === 'users' ? { kind, userIds: [] } : kind === 'group' ? { kind, groupIds: [] } : kind === 'initiatorManager' ? { kind, level: 1 } : { kind });
 };
 const add = () => emit('update:modelValue', [...props.modelValue, { kind: 'initiator' }]);
-const remove = (i: number) => emit('update:modelValue', props.modelValue.filter((_, j) => j !== i));
+const remove = (i: number) => { filters.value = {}; emit('update:modelValue', props.modelValue.filter((_, j) => j !== i)); };
 const num = (v: string | number | null) => (v === null || v === '' ? null : Number(v));
 </script>
 
@@ -65,13 +66,13 @@ const num = (v: string | number | null) => (v === null || v === '' ? null : Numb
         />
       </div>
       <q-select
-        v-if="r.kind === 'users'" :model-value="r.userIds ?? []" :options="shown(userOptions(r.userIds))" :label="t('approval.designer.source.users')"
-        multiple use-chips use-input emit-value map-options dense outlined :disable="disable" :data-testid="`notify-users-${i}`" @filter="onFilter"
+        v-if="r.kind === 'users'" :model-value="r.userIds ?? []" :options="shown(i, userOptions(r.userIds))" :label="t('approval.designer.source.users')"
+        multiple use-chips use-input emit-value map-options dense outlined :disable="disable" :data-testid="`notify-users-${i}`" @filter="(v: string, update: (fn: () => void) => void) => onFilter(i, v, update)"
         @update:model-value="(v: string[]) => patch(i, { kind: 'users', userIds: v })"
       />
       <q-select
-        v-else-if="r.kind === 'group'" :model-value="r.groupIds ?? []" :options="shown(groupOptions(r.groupIds))" :label="t('approval.designer.source.groups')"
-        multiple use-chips use-input emit-value map-options dense outlined :disable="disable" :data-testid="`notify-groups-${i}`" @filter="onFilter"
+        v-else-if="r.kind === 'group'" :model-value="r.groupIds ?? []" :options="shown(i, groupOptions(r.groupIds))" :label="t('approval.designer.source.groups')"
+        multiple use-chips use-input emit-value map-options dense outlined :disable="disable" :data-testid="`notify-groups-${i}`" @filter="(v: string, update: (fn: () => void) => void) => onFilter(i, v, update)"
         @update:model-value="(v: number[]) => patch(i, { kind: 'group', groupIds: v })"
       />
       <template v-else-if="r.kind === 'initiatorManager'">
