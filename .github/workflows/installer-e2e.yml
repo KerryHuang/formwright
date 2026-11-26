@@ -105,6 +105,10 @@ jobs:
           test "$(systemctl is-active formwright)" = active
           test "$(systemctl is-enabled formwright)" = enabled
           test "$(stat -c %U /var/lib/formwright/data)" = formwright
+          # M1：父目錄 root 擁有，服務帳號不能在裡面換 symlink
+          test "$(stat -c '%U %a' /var/lib/formwright)" = 'root 755'
+          test "$(stat -c '%U %a' /var/lib/formwright/data)" = 'formwright 700'
+          test "$(stat -c '%U:%G %a' /etc/formwright)" = 'root:formwright 770'
           grep -q 'http://' out.txt
           grep -q '^FORMWRIGHT_SETUP_CODE=' out.txt
           ss -ltn > listen.txt; grep -q '0.0.0.0:8080' listen.txt
@@ -128,7 +132,7 @@ jobs:
           bash "$W" backups "$URL" > before.json
           start=$(date -u +%Y-%m-%dT%H:%M:%S)
           sudo FORMWRIGHT_PACKAGE="$P2" bash installer/linux/install.sh
-          curl -fsS "$URL/api/version" > v.json; grep -q "$V2" v.json
+          curl -fsS "$URL/api/version" > v.json; jq -e --arg v "$V2" '.version == $v' v.json
           bash "$W" verify-kept "$URL"
           bash "$W" backups "$URL" > after.json
           jq -e --arg s "$start" '[.[] | select((.trigger|tostring|ascii_downcase)=="manual" and .requestedUserId == null
@@ -143,7 +147,7 @@ jobs:
           rc=0; sudo FORMWRIGHT_PACKAGE="$P3" bash installer/linux/install.sh --lang zh-TW > zh.txt 2>&1 || rc=$?
           cat zh.txt; test "$rc" = 20; grep -q '升級前備份失敗' zh.txt
           test "$(systemctl is-active formwright)" = active
-          curl -fsS "$URL/api/version" > v.json; grep -q "$V2" v.json
+          curl -fsS "$URL/api/version" > v.json; jq -e --arg v "$V2" '.version == $v' v.json
           sudo chown formwright:formwright /var/lib/formwright/backup
           sudo chmod 0700 /var/lib/formwright/backup
 
@@ -161,7 +165,12 @@ jobs:
 
       - name: config-lost-existing-data（AC-13、D-16）
         run: |
-          before=$(sudo sha256sum /var/lib/formwright/data/formwright.db | cut -d' ' -f1)
+          # M4：先停服務、確認已停，再取基準 hash（WAL 模式下運作中的主檔不穩定；-wal／-shm 若存在一併納入）
+          sudo systemctl stop formwright
+          test "$(systemctl is-active formwright || true)" = inactive
+          db_hash() { sudo sh -c 'cd /var/lib/formwright/data && for f in formwright.db formwright.db-wal formwright.db-shm; do [ -e "$f" ] && sha256sum "$f"; done; true'; }
+          before=$(db_hash)
+          test -n "$before"
           sudo rm /etc/formwright/formwright.json
           sudo FORMWRIGHT_PACKAGE="$P2" bash installer/linux/install.sh | tee out3.txt
           code=$(grep '^FORMWRIGHT_SETUP_CODE=' out3.txt | cut -d= -f2)
@@ -172,7 +181,9 @@ jobs:
           rc=0; bash "$W" complete-expect "$URL" "$code" 422 | tee complete.json || rc=$?
           test "$rc" = 0
           grep -q existingData complete.json
-          after=$(sudo sha256sum /var/lib/formwright/data/formwright.db | cut -d' ' -f1)
+          sudo systemctl stop formwright
+          test "$(systemctl is-active formwright || true)" = inactive
+          after=$(db_hash)
           test "$before" = "$after"
 
       - name: purge（D-10）
@@ -190,7 +201,44 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/setup/status")" = 200
           sudo cat /var/lib/formwright/data/setup-code > code-after.txt
           diff code-before.txt code-after.txt
-          curl -fsS "$URL/api/version" > v.json; grep -q "$V2" v.json
+          curl -fsS "$URL/api/version" > v.json; jq -e --arg v "$V2" '.version == $v' v.json
+
+      - name: fresh-refuses-symlink（M1）
+        run: |
+          sudo bash installer/linux/install.sh purge --yes
+          sudo mkdir -p /var/lib/formwright /opt/victim
+          sudo chmod 0711 /opt/victim
+          sudo ln -s /opt/victim /var/lib/formwright/data
+          rc=0; sudo FORMWRIGHT_PACKAGE="$P1" bash installer/linux/install.sh > sym.txt 2>&1 || rc=$?
+          cat sym.txt; test "$rc" != 0
+          test "$(stat -c '%U %a' /opt/victim)" = 'root 711'
+          sudo rm -rf /var/lib/formwright /opt/victim /etc/formwright /opt/formwright
+          sudo userdel formwright || true
+
+      - name: download-and-checksum（S1，本機 HTTP 伺服器）
+        run: |
+          # 先裝好 e2e.1，再用「像 Releases 的」下載路徑升級，驗各種壞下載都不動舊版
+          sudo FORMWRIGHT_PACKAGE="$P1" bash installer/linux/install.sh
+          srv="$RUNNER_TEMP/srv"; mkdir -p "$srv"
+          cp "$P2" "$srv/"
+          name="formwright-$V2-linux-x64.tar.gz"
+          good=$(sha256sum "$srv/$name" | cut -d' ' -f1)
+          (cd "$srv" && python3 -m http.server 8099 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          sleep 1
+          # 模擬 Releases 下載的腳本：寫入版本與來源
+          sed -e "s|^FW_VERSION=.*|FW_VERSION='$V2'|" -e "s|^FW_REPO=.*|FW_REPO='o/r'|" installer/linux/install.sh > "$RUNNER_TEMP/install-rel.sh"
+          run_dl() { sudo FORMWRIGHT_DOWNLOAD_BASE=http://127.0.0.1:8099 bash "$RUNNER_TEMP/install-rel.sh" "$@"; }
+          still_old() { test "$(sudo cat /opt/formwright/VERSION)" = "$V1"; test "$(systemctl is-active formwright)" = active; }
+          rc=0; printf '%s  %s\n' "$(printf x | sha256sum | cut -d' ' -f1)" "$name" > "$srv/SHA256SUMS"; run_dl || rc=$?; test "$rc" = 12; still_old
+          rc=0; printf '%s  other.tar.gz\n' "$good" > "$srv/SHA256SUMS"; run_dl || rc=$?; test "$rc" = 12; still_old
+          rc=0; rm -f "$srv/SHA256SUMS"; run_dl || rc=$?; test "$rc" = 12; still_old
+          printf '%s  %s\n' "$good" "$name" > "$srv/SHA256SUMS"
+          mv "$srv/$name" "$srv/hidden.tgz"
+          rc=0; run_dl || rc=$?; test "$rc" = 12; still_old
+          mv "$srv/hidden.tgz" "$srv/$name"
+          run_dl
+          test "$(sudo cat /opt/formwright/VERSION)" = "$V2"
+          pkill -f 'http.server 8099' || true
 
       - name: 失敗時收集 journal 與設定檔
         if: failure()
@@ -207,6 +255,7 @@ jobs:
             out*.txt
             en.txt
             zh.txt
+            sym.txt
           if-no-files-found: ignore
 
   docker:
@@ -249,7 +298,7 @@ jobs:
           for _ in $(seq 1 120); do
             [ "$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/health/ready")" = 200 ] && break; sleep 1
           done
-          curl -fsS "$URL/api/version" > v.json; grep -q "$V2" v.json
+          curl -fsS "$URL/api/version" > v.json; jq -e --arg v "$V2" '.version == $v' v.json
           bash "$W" verify-kept "$URL"
           bash "$W" backups "$URL" > after.json
           jq -e --arg s "$start" '[.[] | select((.trigger|tostring|ascii_downcase)=="manual" and .requestedUserId == null
@@ -263,7 +312,7 @@ jobs:
             if [ "$(curl -s -o m.json -w '%{http_code}' "$URL/api/maintenance")" = 200 ]; then ok=1; break; fi; sleep 1
           done
           test "$ok" = 1
-          jq -e --arg v "$V3" --arg p "$V2" '.reason == "preUpgradeBackupFailed" and .errorCode != null
+          jq -e --arg v "$V3" --arg p "$V2" '.reason == "preUpgradeBackupFailed" and (.errorCode | type == "string" and length > 0)
             and .version == $v and .previousVersion == $p' m.json
           for path in / /maintenance; do
             curl -s -D h.txt -o page.html "$URL$path"
@@ -278,8 +327,9 @@ jobs:
           curl -s -D h.txt -o me.json "$URL/api/v3/dynamic/me"
           head -n 1 h.txt | grep -q ' 503'
           jq -e '.code == "maintenance"' me.json
-          $C logs formwright > logs.txt 2>&1
-          grep -qiE '備份|backup' logs.txt
+          # override 把 console log 改成 JSON：找 LogLevel 是 Error 且是升級前備份失敗的那一行
+          $C logs --no-log-prefix formwright > logs.txt 2>&1
+          grep '^{' logs.txt | jq -s -e '[.[] | select(.LogLevel == "Error" and (.Message | contains("升級前備份失敗")))] | length >= 1'
           sleep 30
           cid=$($C ps -q formwright)
           test "$(docker inspect -f '{{.State.Running}}' "$cid")" = true
@@ -292,7 +342,7 @@ jobs:
             [ "$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/health/ready")" = 200 ] && break; sleep 1
           done
           test "$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/maintenance")" = 404
-          curl -fsS "$URL/api/version" > v.json; grep -q "$V2" v.json
+          curl -fsS "$URL/api/version" > v.json; jq -e --arg v "$V2" '.version == $v' v.json
           bash "$W" verify-kept "$URL"
 
       - name: 失敗時收集 compose logs

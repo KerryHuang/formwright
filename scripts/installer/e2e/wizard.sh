@@ -90,7 +90,9 @@ cmd_verify_kept() { # verify-kept <base>
   local code
   code=$(http GET "$1$API/modules/$MODULE/records/paged?currentPage=1&pagesSize=50")
   expect "記錄清單" 200 "$code"
-  grep -q "$RECORD_TITLE" "$BODY" || fail "記錄 $RECORD_TITLE 不見了"
+  # 精確比對：某筆記錄的 values 裡有一個值剛好等於標題
+  jq -e --arg t "$RECORD_TITLE" '[.. | objects | select(has("values")) | .values | to_entries[] | .value] | index($t) != null' "$BODY" >/dev/null \
+    || { cat "$BODY" >&2; fail "記錄 $RECORD_TITLE 不見了"; }
   code=$(http GET "$1$API/system/ops/backups")
   expect "備份清單" 200 "$code"
   echo "成功備份份數：$(jq '[.runs[] | select((.status|tostring|ascii_downcase)=="succeeded")] | length' "$BODY")"

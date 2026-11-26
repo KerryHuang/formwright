@@ -4,3 +4,6 @@ services:
   formwright:
     volumes:
       - formwright-backup:/backup:ro
+    environment:
+      # AC-12 要從 log 找 Error 事件：改成 JSON 格式才能解析 LogLevel
+      Logging__Console__FormatterName: json
