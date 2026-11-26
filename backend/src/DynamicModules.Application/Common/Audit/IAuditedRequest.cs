@@ -32,5 +32,7 @@ public static class AuditTargets
         TaskRule = "taskRule", Workflow = "workflow", ApprovalFlow = "approvalFlow", PrintTemplate = "printTemplate",
         Conversion = "conversion", Dashboard = "dashboard", Department = "department", Template = "template", Theme = "theme",
         Integration = "integration", HealthCheck = "healthCheck", Incident = "incident", Channel = "channel",
-        MailSettings = "mailSettings", Locale = "locale", Backup = "backup";
+        MailSettings = "mailSettings", Locale = "locale", Backup = "backup",
+        // i4e 設計資料翻譯（design.translate）的目標：共用清單檢視、應用程式報表、權限目錄項目
+        View = "view", Report = "report", Program = "program";
 }
