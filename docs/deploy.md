@@ -109,6 +109,12 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 | `Database__Provider` | 資料庫種類：`Sqlite`（預設）或 `Postgres`，其他值拒絕啟動。`Postgres` 時 `ConnectionStrings__Dynamic` 是 Npgsql 連線字串，目標資料庫要先建好（不存在就拒絕啟動，系統不代建）。報表在兩種資料庫行為相同（能在資料庫端聚合就走 SQL 路徑） |
 | `Database__LockTimeoutSeconds` | 只在 `Postgres` 生效：寫入排隊與全庫寫入鎖各自的等待上限（秒），預設 `30`，逾時回 503；`0` 是不設上限 |
 | `DataProtection__KeysDirectory` | 加密金鑰的存放目錄（相對路徑以站台目錄解析）：登入 cookie、寄信設定的 SMTP 密碼、雙因素驗證的金鑰都靠它。沒設時，SQLite 檔案資料庫放在資料庫檔案旁的 `keys`；其他情況（PostgreSQL、記憶體資料庫、`file:` 開頭的連線字串）在 Development 以外的環境**拒絕啟動**。Development 環境允許不落地，但雙因素驗證不能啟用，並開「伺服器沒有保存加密金鑰」事件。金鑰目錄要和資料庫一起備份；換成空目錄啟動且資料庫裡已有雙因素或 SMTP 密碼的密文時，開「金鑰可能遺失」事件 |
+| `Install__ConfigFile` | 安裝版設定檔的路徑（對應設定鍵 `Install:ConfigFile`）；有設就以這份 JSON 為最高優先的設定來源，優先於環境變數與命令列。沒設的部署（Demo、`docker run`、開發）行為不變 |
+| `Install__InitIfMissing` | 只有 Docker compose 設：設定檔不存在時容器啟動自動建立並產生設定碼 |
+| `Install__DataDirectory`、`Install__BackupDirectory` | 安裝版的資料與備份位置，精靈的環境檢查用它檢查可寫與是否重疊 |
+| `Install__BackupBeforeUpgrade` | 只有 Docker compose 設（`true`）：換映像後第一次啟動先備份再升級，失敗進維護模式。Windows 與 Ubuntu 由安裝程式在升級前備份，不用這個鍵 |
+| `Setup__Pending` | 設定模式旗標：精靈完成前為 `true`，站台只開精靈；由安裝程式寫入設定檔，精靈完成後自動移除 |
+| `Server__Port` | 站台聽的連接埠，安裝版預設 8080 |
 
 `Auth__InitialAdminPassword` 只在資料庫還沒有可用的管理員時有效，之後改它不會覆寫既有密碼。`Auth__ResetAdminPassword` 至少 8 碼，會重設 `admin` 的密碼、啟用、解鎖、要求改密碼並讓所有 session 失效；它也會清掉 `admin` 的雙因素驗證（金鑰、復原碼），救回後要把它移除，否則每次重啟都會再重設，維運監控也會一直開「緊急救援設定還沒移除」事件。`Demo__LoginEnabled` 絕不能在正式站開啟，它不驗密碼。Swagger 只在 Development 環境開放。
 
@@ -190,6 +196,74 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
    - 確認：`psql -h <主機> -U <站台帳號> -d <新資料庫> -c 'SELECT max("MigrationId") FROM "__EFMigrationsHistory"'` 的結果等於 `manifest.json` 的 `migrationId`。
 4. 把 `<Backup__Root>/attachments/` 整個複製到附件根目錄（同 SQLite 第 4 步）。
 5. 把 `ConnectionStrings__Dynamic` 的 `Database` 改成 `<新資料庫>`，啟動。金鑰目錄的處理同 SQLite 第 5 步。
+
+## 安裝版（Windows、Ubuntu、Docker compose）
+
+給 50 人以下、放在公司內網的站台：三種安裝方式共用同一套瀏覽器設定精靈（環境檢查、資料庫、管理員密碼、公司名稱、備份位置），畫面步驟見[操作手冊](manual.md#安裝版的設定精靈)。只管內網；要從外網連進來請自行用 VPN 或 Cloudflare Tunnel，或改用雲端版，安裝版不處理。第一版不簽章。
+
+安裝檔都在專案的 [Releases 頁](https://github.com/KerryHuang/formwright/releases)。
+
+### 三條安裝路
+
+| | 指令或操作 |
+|---|---|
+| Windows 10／Server 2019 以上（x64） | 下載 `Formwright-Setup-<版號>.exe`，按右鍵「以系統管理員身分執行」。最後一頁顯示網址與設定碼 |
+| Ubuntu 22.04／24.04（x86_64） | `curl -fsSL https://github.com/KerryHuang/formwright/releases/latest/download/install.sh \| sudo bash`；終端輸出網址與設定碼 |
+| Docker compose | 下載 Releases 的 `docker-compose.yml`，`docker compose up -d`；設定碼用 `docker compose logs formwright` 找 |
+
+- **SmartScreen**：Windows 安裝檔沒有簽章，執行時會出現「Windows 已保護您的電腦」。按「其他資訊」→「仍要執行」。
+- **設定碼**：精靈第一步要輸入的 12 碼英數字（例 `K7QM-3HZP-W2XA`），只能用一次。Windows 在安裝程式最後一頁；Ubuntu 在安裝指令的輸出（`FORMWRIGHT_SETUP_CODE=` 那一行）；Docker 在容器 log。
+- **雙因素**：依系統預設，管理員第一次登入後會先被要求設定雙因素驗證，要準備好驗證器 App。
+- **語言**：安裝程式與腳本提供繁體中文與英文。Windows 只有繁中介面的 Windows（含香港、澳門）用繁中，其他一律英文；Ubuntu 只有系統語言是 `zh_TW`、`zh_HK`、`zh_MO` 才用繁中，其他一律英文。`sudo` 會丟掉呼叫端的環境變數，所以要指定語言請寫成 `curl … \| sudo bash -s -- --lang zh-TW`（或 `--lang en`）。
+- **Ubuntu 的選項**：`--port <n>`（只在全新安裝生效）、`--skip-backup`、`--lang <zh-TW|en>`；動作 `remove`、`purge`（`curl … \| sudo bash -s -- remove`）。Windows 靜默安裝參數：`/PORT=<n>`、`/SKIPBACKUP`；解除安裝帶 `/DELETEDATA`。
+
+### 預設位置
+
+來源是 [`installer/install-defaults.json`](../installer/install-defaults.json)，安裝程式、腳本與 compose 檔的預設值都由它產生；要改預設值改那一份，不要手改產生的檔案。
+
+| | Windows | Ubuntu | Docker compose |
+|---|---|---|---|
+| 程式 | `C:\Program Files\Formwright` | `/opt/formwright` | 映像內 `/app` |
+| 資料（資料庫、附件、金鑰） | `C:\ProgramData\Formwright\data` | `/var/lib/formwright/data` | volume `formwright-data` → `/app/data` |
+| 備份 | `C:\ProgramData\Formwright\backup` | `/var/lib/formwright/backup` | volume `formwright-backup` → `/backup` |
+| 設定檔 | `C:\ProgramData\Formwright\formwright.json` | `/etc/formwright/formwright.json` | `/app/data/formwright.json`（在 `formwright-data` volume 裡） |
+| 連接埠 | 8080 | 8080 | 主機 8080（改 `FORMWRIGHT_PORT`） |
+| 服務 | 服務 `Formwright`，帳號 `NT SERVICE\Formwright`，開機自動啟動 | systemd `formwright`，帳號 `formwright` | `restart: unless-stopped` |
+| 擁有者與權限 | 資料目錄不給 `BUILTIN\Users` | `/etc/formwright`：root:formwright 0770；`/var/lib/formwright`：root 0755；其下 `data`、`backup`：formwright 0700 | volume 由容器管理 |
+
+### 改連接埠
+
+改設定檔的 `Server:Port`，重啟服務。Windows 另要改防火牆規則「Formwright」的連接埠（安裝時只替安裝當下選的埠開規則）。Ubuntu 用低於 1024 的埠時，服務單元會自動加 `CAP_NET_BIND_SERVICE`。Docker compose 改主機這一側：`FORMWRIGHT_PORT=9090 docker compose up -d`。
+
+設定檔優先於環境變數：安裝版的所有設定都以設定檔為準，精靈完成後改的也是這份；Docker compose 要改設定請改 `formwright-data` volume 裡的 `formwright.json`，不是改環境變數。
+
+### 升級
+
+- **Windows**：直接執行新版安裝程式。會先停服務、用舊版程式做一次備份，備份成功才換檔案；備份失敗就中止，舊版照常執行。備份位置沒設時會問要不要略過備份（靜默安裝要帶 `/SKIPBACKUP`，否則中止）。資料與設定不動。
+- **Ubuntu**：重跑同一行安裝指令。流程同上，備份失敗以結束碼 20 中止、舊版照跑；備份位置沒設且沒加 `--skip-backup` 以結束碼 21 中止。`--skip-backup` 只略過「備份位置沒設」，不略過備份失敗。
+- **Docker compose**：把映像換成新版（`docker compose pull && docker compose up -d`，或改 `FORMWRIGHT_IMAGE`）。換映像後第一次啟動會自動先備份、再升級資料庫；備份做完前站台連不上，用 `docker compose logs -f formwright` 看進度。備份失敗，或備份位置沒設，站台只顯示「系統維護中」頁、資料庫不動。處理方式有兩條：換回舊版映像再 `up -d`，或修好備份 volume（可寫、空間夠）後重啟容器。
+
+映像位址 `ghcr.io/kerryhuang/formwright`，標籤是版號與 `latest`。第一次發版後，套件預設是私有，要在 GitHub 套件設定頁改成 Public 才能免登入拉取。
+
+### 移除
+
+- **Windows**：「設定 → 應用程式」解除安裝。預設保留資料，要連資料一起刪就在詢問時選「是」（靜默解除安裝帶 `/DELETEDATA`）。
+- **Ubuntu**：`remove` 只移除程式與服務，資料與設定保留，之後可重新安裝；`purge` 連資料、設定與服務帳號一併刪除，要輸入 `yes` 確認（沒有終端機時加 `--yes`）。備份位置設在預設目錄之外時不會被刪，腳本會列出路徑。
+- **Docker compose**：`docker compose down` 保留 volume；`docker compose down -v` 連資料與備份 volume 一起刪。
+
+### 資料庫與備份工具
+
+預設 SQLite，不必另外安裝資料庫。要用 PostgreSQL，在精靈的「資料庫」步驟展開「進階」貼上連線字串；Docker 映像已內附 `pg_dump`，Windows 與 Ubuntu 要自己安裝 PostgreSQL 用戶端工具（`pg_dump` 版本不可低於資料庫伺服器），否則精靈的環境檢查會亮紅燈。
+
+### 設定檔遺失
+
+設定檔遺失但資料還在時，精靈的環境檢查會亮「已有資料」紅燈，並且不會覆蓋資料。處理方式：找回原本的設定檔，放回畫面上列出的路徑後重啟服務；找不到就聯絡支援。
+
+### 看 log
+
+- Windows：事件檢視器（Windows 記錄 → 應用程式）。
+- Ubuntu：`journalctl -u formwright`。
+- Docker compose：`docker compose logs formwright`。
 
 ## 本機試跑容器
 
