@@ -4,6 +4,10 @@
 ; 不簽章（D-04）、只內網（D-05）、解除安裝預設保留資料（D-10）。
 ; 靜默參數：/SKIPBACKUP（備份位置沒設時略過升級前備份）、/DELETEDATA（解除安裝時一併刪資料）、/PORT=<n>（全新安裝的連接埠）。
 
+; 本檔與 ChineseTraditional.isl 是不帶 BOM 的 UTF-8，Inno Setup 6.3 起才支援
+#if Ver < EncodeVer(6, 3, 0)
+  #error 需要 Inno Setup 6.3 以上（UTF-8 腳本不帶 BOM）
+#endif
 #include "defaults.iss"
 #ifndef FwVersion
   #define FwVersion "0.0.0-dev"
@@ -38,13 +42,8 @@ CloseApplications=no
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "chinesetraditional"; MessagesFile: "ChineseTraditional.isl"
-; 簡中、新加坡中文要精確比對到英文（install.sh 只認 zh_TW／HK／MO 為繁中）
-Name: "chinesesimplified_en"; MessagesFile: "compiler:Default.isl"
-Name: "chinesesingapore_en"; MessagesFile: "compiler:Default.isl"
-
-[LangOptions]
-chinesesimplified_en.LanguageID=$0804
-chinesesingapore_en.LanguageID=$1004
+; 偵測規則（Inno Setup 說明「[Languages] section」）：先比主語言＋子語言，再只比主語言，但簡中與繁中互相排除；
+; 所以簡中（$0804）、新加坡中文（$1004）落到第一個語言 english，香港（$0C04）、澳門（$1404）配到繁中，與 install.sh 一致。
 
 [Files]
 Source: "{#FwPublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
