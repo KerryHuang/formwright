@@ -312,7 +312,7 @@ public class BuiltInAppsRuntimeTests : IDisposable
         failedBody.GetProperty("values").GetProperty(insp["不合格項數"]).GetDecimal().Should().Be(2m, "彙總明細不合格列數");
 
         var reports = await JsonOf(await _rig.Admin.GetAsync($"{Base}/reports"));
-        var report = reports.EnumerateArray().Single(r => r.GetProperty("name").GetString() == "檢驗結果統計");
+        var report = reports.EnumerateArray().Single(r => r.GetProperty("name").GetProperty("zh-TW").GetString() == "檢驗結果統計");
         var run = await JsonOf(await _rig.Admin.PostAsJsonAsync($"{Base}/reports/{report.GetProperty("id").GetInt64()}/run", new { }));
         var counts = run.GetProperty("groups").EnumerateArray().ToDictionary(
             g => string.Join("/", g.GetProperty("groupLabels").EnumerateArray().Select(l => l.GetString())),
@@ -473,7 +473,7 @@ public class BuiltInAppsRuntimeTests : IDisposable
         (await PostEventAsync(k, null, ["待出席", "已出席"], status: "已取消")).StatusCode.Should().Be(HttpStatusCode.Created);
 
         var reports = await JsonOf(await _rig.Admin.GetAsync($"{Base}/reports"));
-        var report = reports.EnumerateArray().Single(r => r.GetProperty("name").GetString() == "活動報名統計");
+        var report = reports.EnumerateArray().Single(r => r.GetProperty("name").GetProperty("zh-TW").GetString() == "活動報名統計");
         var run = await JsonOf(await _rig.Admin.PostAsJsonAsync($"{Base}/reports/{report.GetProperty("id").GetInt64()}/run", new { }));
 
         // 依分組標籤精確比對（不依賴回傳順序）：同類型兩場活動的活動數要是 2，不能被報名明細的列數放大；已取消的活動不列入

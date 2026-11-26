@@ -23,7 +23,7 @@ const config = configWire({ groupBy: 'dueBucket' }) as unknown as TaskBoardConfi
 async function mountPicker(o: Partial<{ deleteFails: number; isAdmin: boolean; hasSubordinates: boolean; currentId: number | null; currentName: string; unsaved: boolean; config: TaskViewConfig; kind: TaskViewKind; views: TaskViewList }> = {}) {
   calls = mockHttp((c) => {
     if (c.method === 'delete' && o.deleteFails) return new HttpFail(o.deleteFails, { message: '伺服器訊息' });
-    if (c.url === '/task-views' && c.method === 'post') return viewDetailWire({ id: 11, name: (bodyOf(c) as { name: string }).name });
+    if (c.url === '/task-views' && c.method === 'post') return viewDetailWire({ id: 11, name: (bodyOf(c) as { name: unknown }).name });
     return [];
   });
   mounted = mount(BoardPicker, {

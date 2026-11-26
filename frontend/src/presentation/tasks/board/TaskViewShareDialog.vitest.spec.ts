@@ -116,7 +116,7 @@ describe('TaskViewShareDialog', () => {
   });
 
   it('G74 sharing a Gantt chart uses the same dialog in Gantt words and replaces the shares', async () => {
-    await mountDialog({ kind: 'gantt', name: '展覽' }, { kind: 'gantt' });
+    await mountDialog({ kind: 'gantt', name: { 'zh-TW': '展覽' } }, { kind: 'gantt' });
     expect(q('task-share')!.textContent).toContain('分享甘特圖');
     expect(q('task-share')!.textContent).toContain('分享只讓對方看得到甘特圖設定，任務權限不變');
     await click('task-share-user-sales02');
