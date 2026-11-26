@@ -8,6 +8,13 @@ namespace DynamicModules.Persistence.Seed;
 
 public static class SeedData
 {
+    private const string DesignerZhTw = "動態模組設計";
+
+    /// <summary>出廠名稱，譯名和選單一致（<c>shared/i18n/*/ui.json</c> 的 <c>menu.dynamicModules</c>）。</summary>
+    private static I18nText DesignerName() => new([
+        KeyValuePair.Create("zh-TW", DesignerZhTw), KeyValuePair.Create("en-US", "Dynamic Module Designer"),
+        KeyValuePair.Create("th", "ออกแบบโมดูลไดนามิก"), KeyValuePair.Create("vi", "Thiết kế module động")]);
+
     public static async Task EnsureSeededAsync(DynamicDbContext db, CancellationToken ct = default)
     {
         // 沒有任何系統管理員時才建 admin；有人（含改名後的管理員）就不動。
@@ -18,13 +25,15 @@ public static class SeedData
             else admin.IsSystemAdmin = true;
         }
 
-        if (!await db.Set<DynamicProgram>().AnyAsync(p => p.ProgramCode == SystemProgramCodes.Designer, ct))
+        // 動態模組設計：四語（名稱多語設計 §11.2）；既有列只在名稱恰好是出廠值（只有繁中的舊版）時補三語，管理員改過就不動
+        var designer = await db.Set<DynamicProgram>().FirstOrDefaultAsync(p => p.ProgramCode == SystemProgramCodes.Designer, ct);
+        if (designer is null)
             db.Set<DynamicProgram>().Add(new DynamicProgram
             {
-                ProgramCode = SystemProgramCodes.Designer,
-                NameI18n = new I18nText([KeyValuePair.Create("zh-TW", "動態模組設計")]),
-                Active = true
+                ProgramCode = SystemProgramCodes.Designer, NameI18n = DesignerName(), Active = true
             });
+        else if (designer.NameI18n.Values.Count == 1 && designer.NameI18n.Values.GetValueOrDefault("zh-TW") == DesignerZhTw)
+            designer.NameI18n = DesignerName();
         // 權限設定（權限軸設計 §6.1）：系統代碼不看 Active，但狀態錯就是錯，下面的同步排除它；舊版退回時被設成 false，這裡改回
         var permissionAdmin = await db.Set<DynamicProgram>().FirstOrDefaultAsync(p => p.ProgramCode == SystemProgramCodes.PermissionAdmin, ct);
         if (permissionAdmin is null)

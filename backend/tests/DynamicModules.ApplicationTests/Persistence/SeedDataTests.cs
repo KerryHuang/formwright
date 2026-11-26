@@ -190,4 +190,115 @@ public class SeedDataTests
         active["DYN00003"].Should().BeFalse();
         active["DYN00000"].Should().BeTrue();
     }
+
+    private static readonly Dictionary<string, string> DesignerFourLocales = new()
+    {
+        ["zh-TW"] = "動態模組設計", ["en-US"] = "Dynamic Module Designer",
+        ["th"] = "ออกแบบโมดูลไดนามิก", ["vi"] = "Thiết kế module động",
+    };
+
+    private static async Task<Dictionary<string, string>> DesignerNameAsync(DynamicDbContext db) =>
+        (await db.Set<DynamicProgram>().AsNoTracking().SingleAsync(p => p.ProgramCode == "DYN00000")).NameI18n.Values.ToDictionary(kv => kv.Key, kv => kv.Value);
+
+    // 名稱多語設計 §11.2、§18.5 G2
+    [Fact]
+    public async Task Seed_NewDatabase_DesignerProgramHasFourLocales()
+    {
+        await using var db = await TestDb.CreateAsync();
+
+        await SeedData.EnsureSeededAsync(db.Context);
+
+        (await DesignerNameAsync(db.Context)).Should().BeEquivalentTo(DesignerFourLocales);
+    }
+
+    [Fact]
+    public async Task Seed_DesignerProgramWithFactoryName_GetsThreeLocalesAdded()
+    {
+        await using var db = await TestDb.CreateAsync();
+        await SeedData.EnsureSeededAsync(db.Context);
+        var program = await db.Context.Set<DynamicProgram>().SingleAsync(p => p.ProgramCode == "DYN00000");
+        program.NameI18n = new I18nText([KeyValuePair.Create("zh-TW", "動態模組設計")]);
+        await db.Context.SaveChangesAsync();
+        db.Context.ChangeTracker.Clear();
+
+        await SeedData.EnsureSeededAsync(db.Context);
+
+        (await DesignerNameAsync(db.Context)).Should().BeEquivalentTo(DesignerFourLocales);
+    }
+
+    // G3：管理員改過的名稱不動（任何一格不同都算改過）
+    [Theory]
+    [InlineData("設計器", null)]
+    [InlineData("動態模組設計", "Designer")]
+    public async Task Seed_DesignerProgramRenamed_IsLeftAlone(string zh, string? en)
+    {
+        await using var db = await TestDb.CreateAsync();
+        await SeedData.EnsureSeededAsync(db.Context);
+        var values = new List<KeyValuePair<string, string>> { KeyValuePair.Create("zh-TW", zh) };
+        if (en is not null) values.Add(KeyValuePair.Create("en-US", en));
+        var program = await db.Context.Set<DynamicProgram>().SingleAsync(p => p.ProgramCode == "DYN00000");
+        program.NameI18n = new I18nText(values);
+        await db.Context.SaveChangesAsync();
+        db.Context.ChangeTracker.Clear();
+
+        await SeedData.EnsureSeededAsync(db.Context);
+
+        (await DesignerNameAsync(db.Context)).Should().BeEquivalentTo(values.ToDictionary(kv => kv.Key, kv => kv.Value));
+    }
+
+    // 名稱多語設計 §11.1、§18.5 G1：照表譯名
+    [Fact]
+    public async Task DemoPeople_GroupsHaveFourLocales()
+    {
+        await using var db = await TestDb.CreateAsync();
+        await SeedData.EnsureSeededAsync(db.Context);
+
+        await TestPermits.RunForTestsAsync(() => DemoPeople.EnsureAsync(db.Context));
+
+        var groups = await db.Context.Set<PermissionGroup>().AsNoTracking().ToListAsync();
+        string[] locales = ["zh-TW", "en-US", "th", "vi"];
+        var expected = new Dictionary<string, string[]>
+        {
+            ["mis"] = ["MIS", "MIS", "MIS", "MIS"],
+            ["sales"] = ["業務", "Sales", "ฝ่ายขาย", "Kinh doanh"],
+            ["sales-manager"] = ["業務主管", "Sales manager", "ผู้จัดการฝ่ายขาย", "Trưởng phòng kinh doanh"],
+            ["floor"] = ["現場人員", "Shop floor", "พนักงานหน้างาน", "Nhân viên hiện trường"],
+            ["maint"] = ["保養", "Maintenance", "ซ่อมบำรุง", "Bảo trì"],
+            ["qa"] = ["品保", "Quality assurance", "ประกันคุณภาพ", "Đảm bảo chất lượng"],
+            ["planner"] = ["生管組", "Production planning", "วางแผนการผลิต", "Kế hoạch sản xuất"],
+            ["purchasing"] = ["採購組", "Purchasing", "ฝ่ายจัดซื้อ", "Mua hàng"],
+            ["warehouse"] = ["倉管組", "Warehouse", "คลังสินค้า", "Kho"],
+            ["ops-manager"] = ["進銷存管理組", "Inventory manager", "ผู้จัดการคลังสินค้า", "Quản lý kho"],
+            ["inv-viewer"] = ["進銷存查詢組", "Inventory viewer", "ผู้ดูข้อมูลคลังสินค้า", "Người xem tồn kho"],
+            ["design"] = ["產品設計", "Product design", "ฝ่ายออกแบบผลิตภัณฑ์", "Thiết kế sản phẩm"],
+        };
+        groups.Select(g => g.Key).Should().BeEquivalentTo(expected.Keys);
+        foreach (var g in groups)
+            locales.Select(l => g.NameI18n.Values.GetValueOrDefault(l)).Should().Equal(expected[g.Key], g.Key);
+    }
+
+    [Fact]
+    public async Task DemoOrganization_DepartmentsHaveFourLocales()
+    {
+        await using var db = await TestDb.CreateAsync();
+        await SeedData.EnsureSeededAsync(db.Context);
+        await TestPermits.RunForTestsAsync(() => DemoPeople.EnsureAsync(db.Context));
+
+        await DemoPeople.EnsureOrganizationAsync(db.Context, new DateTime(2026, 11, 3, 9, 0, 0));
+
+        var departments = await db.Context.Set<Department>().AsNoTracking().ToListAsync();
+        string[] locales = ["zh-TW", "en-US", "th", "vi"];
+        var expected = new Dictionary<string, string[]>
+        {
+            ["exec"] = ["總經理室", "General Manager's Office", "สำนักงานผู้จัดการทั่วไป", "Văn phòng Tổng giám đốc"],
+            ["sales"] = ["業務部", "Sales", "ฝ่ายขาย", "Phòng Kinh doanh"],
+            ["design"] = ["產品設計部", "Product Design", "ฝ่ายออกแบบผลิตภัณฑ์", "Phòng Thiết kế sản phẩm"],
+            ["ops"] = ["營運部", "Operations", "ฝ่ายปฏิบัติการ", "Phòng Vận hành"],
+            ["purchasing"] = ["採購部", "Purchasing", "ฝ่ายจัดซื้อ", "Phòng Mua hàng"],
+            ["production"] = ["生產部", "Production", "ฝ่ายผลิต", "Phòng Sản xuất"],
+        };
+        departments.Select(d => d.Code).Should().BeEquivalentTo(expected.Keys);
+        foreach (var d in departments)
+            locales.Select(l => d.NameI18n.Values.GetValueOrDefault(l)).Should().Equal(expected[d.Code], d.Code);
+    }
 }
