@@ -84,7 +84,8 @@
   Run: `dotnet test tests/DynamicModules.WebAPITests --filter "FullyQualifiedName~Setup.ListenAddressTests|FullyQualifiedName~Setup.InstallConfigTests"`
   Expected: FAIL（型別不存在）。
 - [ ] **Step 3: 實作**
-  - `Program.cs` 在 `CreateBuilder(args)` 之後依序：`InstallConfig.AddConfigFile(builder.Configuration)`；`builder.Services.AddWindowsService(o => o.ServiceName = "Formwright")`；`builder.Services.AddSystemd()`（用 Services 版，不用會改 content root 的 `Host.UseWindowsService`；兩者不在服務管理員底下時不做事，`dotnet run`、Docker、測試不受影響）。content root 由服務定義的工作目錄決定（Task 10 `WorkingDirectory`、Task 13 的服務在 `{app}` 執行），CLI 也一律在程式目錄執行。`--install-init` 與容器自動初始化要排在 `AddConfigFile` 之前，由 Task 2 插入。
+  - `Program.cs` 第 33 行改成 `WebApplication.CreateBuilder(new WebApplicationOptions { Args = args, ContentRootPath = WindowsServiceHelpers.IsWindowsService() ? AppContext.BaseDirectory : null })`：Windows 服務啟動時目前目錄是 `%WINDIR%\System32`、`sc create` 沒有工作目錄參數，不指定的話 content root 落在 System32，`wwwroot` 找不到（`Program.cs:278`），精靈頁出不來。Linux 靠 systemd 的 `WorkingDirectory`（Task 10）、Docker 靠 `WORKDIR /app`、CLI 由安裝程式在程式目錄執行（Task 10、13），都不受影響。
+  - 接著依序：`InstallConfig.AddConfigFile(builder.Configuration)`；`builder.Services.AddWindowsService(o => o.ServiceName = "Formwright")`；`builder.Services.AddSystemd()`（兩者不在服務管理員底下時不做事，`dotnet run`、Docker、測試不受影響）。`--install-init` 與容器自動初始化要排在 `AddConfigFile` 之前，由 Task 2 插入。
   - 第 58–60 行改成 `builder.WebHost.UseUrls(ListenAddress.Resolve(builder.Configuration, Environment.GetEnvironmentVariable("PORT")))`，註解改寫成三段順序。
 - [ ] **Step 4: 跑測試確認通過**（同 Step 2；另跑 `--filter "FullyQualifiedName~DatabaseProviderStartupTests|FullyQualifiedName~HealthTests"` 防回歸）Expected: PASS。
 - [ ] **Step 5: 本機驗 `dotnet run` 不變**：`cd src/DynamicModules.WebAPI && dotnet run` → log 顯示聽 `http://127.0.0.1:5180`；Ctrl-C 結束。`docker build -t fw-in1 .`（本機有 Docker 才跑）後 `docker run --rm -p 8080:8080 -e Auth__InitialAdminPassword=Fw-test-2026 fw-in1` → `curl -s localhost:8080/api/health` 回 `{"status":"ok"}`。沒有 Docker 就在交付說明寫「容器啟動由 Task 12 的 docker job 驗」。
@@ -591,6 +592,16 @@
 5. **Proportion**：計畫只寫簽章、契約、測試名與斷言；設定檔 JSON 是設計沒定、實作者自己定不出來的格式，所以列出。
 6. **計畫審查修正（第 1 輪，同家 subagent）**：Task 6 先解析備份位置、不是 Ok 直接失敗（原本會等 6 小時），已有排隊的一份就接手；Task 10、13 加「設定在、程式不在」的重裝狀態（AC-08）；Task 13 升級前備份的「略過」改成預設「否」的 MsgBox；Task 14 的 AC-07 改對 Everyone deny；Task 5／7 對齊 422 形狀、`SetupDraft` 可省略、`SetupRestart.Process` 直接 `Environment.Exit(75)`、前端加 `isReady`；Task 8 重啟期間 reject 繼續等；Task 11 映像位址由產生腳本寫入、小寫；Task 1 測試給齊暫存路徑、改用 `AddWindowsService`／`AddSystemd`；Task 17 完成日格式與 commit trailer。
 
-## 對設計的疑點（交主控）
+## 待決（計畫內的暫定做法）
 
-見結果檔的「待決」；計畫目前的寫法標在各 task，裁決後改對應段落即可。
+完整背景、選項與代價見派工結果檔；這裡只列計畫目前怎麼寫、裁決相反時要改哪裡。
+
+1. **Docker 的設定來源**：設計 D-06／TD-02 寫 Docker 用環境變數，但精靈要寫入、清旗標，環境變數寫不回去。計畫暫定 compose 以環境變數指定 volume 裡的設定檔、設定檔優先於環境變數。裁決相反時要改：Global Constraints 的 Docker 設定檔路徑那句、Task 1 `AddConfigFile` 的優先序與 `ConfigFile_OverridesEnvironmentStyleSettings`、Task 2 `EnsureForContainer`、Task 11 environment 與說明、Task 16 `deploy.md`「設定檔優先於環境變數」那句。
+2. **精靈開放的判斷**：設計「可寫死清單」寫「精靈只在沒有可用管理員時開放」，和 D-14 否決的判斷相同。計畫照 D-14 用 `Setup:Pending` 旗標。裁決後只需改設計的清單字句，計畫不動。
+3. **設定碼與環境檢查的先後**：AC-01、AC-09 寫精靈第一步是「環境檢查」，D-11 要先輸入設定碼。計畫照 D-11 讓設定碼排在第一步（環境檢查會露出伺服器路徑）。裁決改成環境檢查在前時要改：Task 3、4 的 `checks` 不再要求 `X-Setup-Code`、Task 8 步驟順序與 `wrong code stays on the code step`。
+4. **資料庫已有資料時亮紅燈（`existingData`）**：計畫自加的防線。裁決不要時拿掉 Task 4 的代碼與測試、Task 8 的 `setup.problem.existingData`。
+5. **Docker 升級沒有升級前備份**：D-09 只講 Windows 與 Ubuntu。計畫的 compose 升級就是換映像，沒有備份。
+6. **升級前備份在清單上的標示**：計畫沿用「立即備份」（`Manual`、沒有申請人），不加新種類、不加 migration。
+7. **產品映像發佈到 GHCR**：compose 需要能拉的映像，計畫在 Task 15 推 `ghcr.io/<owner>/formwright`，設計沒有寫這項。
+8. **安裝程式與腳本的語言**：計畫中 Inno Setup 用繁中與英文，`install.sh` 只用繁中。
+9. **第一個 release tag**：由使用者手動打，agent 不打。
