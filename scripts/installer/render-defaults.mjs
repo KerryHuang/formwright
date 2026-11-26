@@ -43,7 +43,7 @@ function need(obj, path) {
 
 // 輸入契約（S2）：不支援的字元一律拒絕，不靠跳脫硬撐
 const RULES = {
-  version: /^[0-9A-Za-z][0-9A-Za-z.+-]*$/,
+  version: /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/, // Docker tag 的有效字元與長度（不含 +）
   repo: /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/,
   posixPath: /^\/[A-Za-z0-9._\/-]+$/,
   winPath: /^[A-Za-z]:\\[A-Za-z0-9._ \\-]+$/,

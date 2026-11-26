@@ -175,6 +175,9 @@ for (const [name, mutate, args] of [
   ['docker mount not absolute', (d) => (d.docker.dataMount = 'data'), []],
   ['volume name with slash', (d) => (d.docker.dataVolume = 'a/b'), []],
   ['version with quote', () => {}, ['--version', '1.0"; id; "']],
+  ['version with build metadata (+)', () => {}, ['--version', '1.2.3+build']],
+  ['version too long for a docker tag', () => {}, ['--version', 'a'.repeat(129)]],
+  ['version starting with dot', () => {}, ['--version', '.1.2']],
   ['version with space', () => {}, ['--version', '1.0 0']],
   ['repo without slash', () => {}, ['--repo', 'owner']],
   ['repo with shell chars', () => {}, ['--repo', 'a/b;c']],
@@ -191,4 +194,11 @@ test('windows path with spaces is accepted', () => {
   const f = fixture()
   assert.equal(run(f).status, 0)
   assert.match(read(f, 'installer', 'windows', 'defaults.iss'), /Program Files/)
+})
+
+test('docker-tag-safe versions are accepted', () => {
+  for (const v of ['1.2.3', '0.0.1-e2e.1', '2026_11', 'a'.repeat(128)]) {
+    const f = fixture()
+    assert.equal(run(f, '--version', v).status, 0, v)
+  }
 })
