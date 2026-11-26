@@ -209,15 +209,44 @@ public class ModuleServiceTests : IAsyncLifetime
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
-    public async Task CreateModule_SectionWithBlankZhTw_HasNoSection(string zh)
+    public async Task CreateModule_SectionWithBlankZhTwButOtherLocale_ReturnsValidationError(string zh)
+    {
+        var result = await Send(new CreateModuleRequest("order", Name(), null, Section(("zh-TW", zh), ("en-US", "Master data"))));
+
+        result.IsSuccess.Should().BeFalse();
+        result.Errors["Section"].Should().Contain("選單分區有其他語系時必須有繁體中文");
+    }
+
+    [Fact]
+    public async Task CreateModule_SectionAllBlank_HasNoSection()
     {
         var created = (ModuleResponse)(await Send(new CreateModuleRequest("order", Name(), null,
-            Section(("zh-TW", zh), ("en-US", "Master data"))))).Data!;
+            Section(("zh-TW", "  "), ("en-US", ""))))).Data!;
 
         created.Section.Should().BeNull();
         var row = await _db.Context.Set<Module>().AsNoTracking().SingleAsync(m => m.Key == "order");
         row.Section.Should().BeNull();
         row.SectionI18n.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task CreateModule_SectionWithNullValue_ReturnsValidationError()
+    {
+        var section = new I18nText(new Dictionary<string, string> { ["zh-TW"] = "主檔", ["en-US"] = null! });
+
+        var result = await Send(new CreateModuleRequest("order", Name(), null, section));
+
+        result.IsSuccess.Should().BeFalse();
+        result.Errors["Section"].Should().Contain("語系 en-US 的文字不能是空值");
+    }
+
+    [Fact]
+    public async Task CreateModule_SectionEmptyOtherLocale_IsDropped()
+    {
+        await Send(new CreateModuleRequest("order", Name(), null, Section(("zh-TW", "主檔"), ("en-US", ""))));
+
+        var row = await _db.Context.Set<Module>().AsNoTracking().SingleAsync(m => m.Key == "order");
+        row.SectionI18n!.Values.Keys.Should().Equal("zh-TW");
     }
 
     [Fact]
