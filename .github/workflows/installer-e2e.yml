@@ -703,6 +703,8 @@ jobs:
           $hl = 'C:\fw-e2e-hardlink'
           New-Item -ItemType Directory -Force -Path $hl | Out-Null
           Set-Content -Path "$hl\sentinel.txt" -Value 'sentinel'
+          # 哨兵本身的 ACL 要可信（只有 SYSTEM、Administrators），才會走到「硬連結數」那條規則；C:\ 預設給 Authenticated Users 寫入
+          Icacls "$hl\sentinel.txt" /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F'
           $hlBefore = (Get-Acl -LiteralPath "$hl\sentinel.txt").Sddl
           New-LockedData
           try {
