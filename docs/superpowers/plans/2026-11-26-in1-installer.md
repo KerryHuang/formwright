@@ -265,21 +265,25 @@
   4. 以 `BackupWorker.TickAsync` 推進，每輪間隔 1 秒；等待上限 30 分鐘（技術限制，`PreUpgradeBackup.MaxWait`，列進可寫死清單），逾時印 `FORMWRIGHT_BACKUP_FAILED timeout` 回 1。
   5. 那一份 `Succeeded` → 印 `FORMWRIGHT_BACKUP_OK <RunKey>` 回 0；其他 → 印 `FORMWRIGHT_BACKUP_FAILED <ErrorCode>` 回 1。
   輸出代碼是給安裝程式判讀的機器字串，安裝程式各自顯示給客戶的句子（Task 10、13）。
+- 例外處理（`ExecuteAsync` 一律回 0／1／2，不讓例外穿出）：第 2、3 步的 `BackupLocator.ResolveAsync`（內含 `runs.GetStateAsync`，`BackupLocator.cs:43`）、`BackupQueue.TryEnqueueAsync`、第 4 步輪詢那一份狀態的查詢，都在 `BackupWorker.TickAsync` 的 catch 外面，舊 schema 上的 EF 例外會直接穿出、讓程序結束（Task 6A 會變成容器反覆重啟，正是 D-17 否決的做法）。所以 `ExecuteAsync` 整段包一層 catch：非取消的例外記 Error（含例外）、回 `ExitCode = 1`、`ErrorCode = "unexpected"`（四語已有 `ops.backup.error.unexpected`）；`OperationCanceledException` 且 `ct` 已取消照常往外丟。
+- 卡住偵測：`TickAsync` 自己的例外會被吞掉、只記 Warning（`BackupWorker.cs:86-89`），那一份就永遠停在 `Queued`。連續 `PreUpgradeBackup.MaxQueuedTicks`（10 輪，技術限制，列進可寫死清單）`TickAsync` 之後那一份仍是 `Queued`，就提早以 `unexpected` 回 1，不等滿 `MaxWait`。
 - 不啟動 Kestrel、不跑 hosted service（照 `--generate-demo-data` 的分支，在 `app.Run` 之前 return）。
 
-- [ ] **Step 1: 寫失敗測試**（呼叫 `PreUpgradeBackup.RunAsync(app.Services, writer, ct)`，`TestApp(fileDatabase: true)`，照 `Ops/BackupTests.cs` 設 `Backup:Root`）
+- [ ] **Step 1: 寫失敗測試**（呼叫 `PreUpgradeBackup.RunAsync(app.Services, writer, ct)`；主機用 `TestApp` 預設的記憶體資料庫，照 `Ops/BackupTests.cs` 的 `BackupApp` 設暫存的 `Backup:Root`。不能用 `fileDatabase: true`：檔案模式的資料庫檔在暫存目錄根目錄（`TestApp.cs:66`），資料庫目錄是受保護目錄（`Program.cs:164-165`），暫存目錄底下的任何 `Backup:Root` 都會被 `BackupSettings.Create` 判成重疊而 `Invalid`，每個案例都會回 2，見 `BackupTests.cs:27` 的註解）
   - `BackupNow_Succeeds_AddsOneRun_AC06`：回 0；`GET system/ops/backups` 的成功份數比之前多 1；輸出含 `FORMWRIGHT_BACKUP_OK`。
   - `BackupNow_Unwritable_Fails_AC07`（非 Windows）：全新資料庫、備份目錄 `chmod 0500` → 10 秒內回 1、輸出含 `FORMWRIGHT_BACKUP_FAILED destinationUnwritable`（不能等到逾時）。
   - `BackupNow_UnwritableAfterAdopted_Fails`（非 Windows）：先成功備份一次（位置已採用），再 `chmod 0500` → 回 1、輸出含 `FORMWRIGHT_BACKUP_FAILED`、備份清單多一筆失敗。
   - `BackupNow_NotConfigured_Is2`：不設 `Backup:Root` → 回 2、輸出含 `FORMWRIGHT_BACKUP_NOT_CONFIGURED`。
   - `BackupNow_AdoptsQueuedRun`：先以 `BackupQueue.TryEnqueueAsync` 排一份（`Trigger = Schedule`）不執行 → 回 0、輸出的 `RunKey` 是那一份、成功份數只多 1。
+  - `BackupNow_RepositoryThrows_Is1`：`ExtraServices` 把 `IBackupRepository` 換成會丟 `InvalidOperationException` 的替身（scoped，同原註冊）→ 回 1、輸出含 `FORMWRIGHT_BACKUP_FAILED unexpected`，沒有例外穿出 `RunAsync`。
+  - `BackupNow_StuckQueued_FailsEarly`：替身包住真的 repository，只讓 `TryClaimAsync` 丟例外（`TickAsync` 吞掉、那一份停在 `Queued`）→ 30 秒內回 1、輸出含 `FORMWRIGHT_BACKUP_FAILED unexpected`（不等滿 `MaxWait`）。
   - `BackupNow_InSetupMode_ExitsZeroWithoutDatabase`（Review Focus 3）：`SetupHostFactory` 的設定檔，以 `Program` 的入口跑 `--backup-now`（測試用 `Process` 啟動 `dotnet DynamicModules.WebAPI.dll --backup-now --Install:ConfigFile=<檔>`，工作目錄是測試輸出的 WebAPI 組件目錄）→ 結束碼 0、輸出含 `FORMWRIGHT_BACKUP_SETUP_PENDING`、沒有 `formwright.db`、`setup-code` 內容不變。
 - [ ] **Step 2: 跑測試確認失敗**
   Run: `dotnet test tests/DynamicModules.WebAPITests --filter "FullyQualifiedName~Ops.PreUpgradeBackupTests"`
   Expected: FAIL（型別不存在）。
 - [ ] **Step 3: 實作**（照 Interfaces）。設定模式的判斷在 `SetupHost.RunAsync` 之前：`InstallConfig.IsPending && args.Contains("--backup-now")` → 印 `FORMWRIGHT_BACKUP_SETUP_PENDING` 回 0。
 - [ ] **Step 4: 跑測試確認通過**（同 Step 2；`BackupTests` 一起跑防回歸）Expected: PASS。
-- [ ] **Step 5: 收尾**：`dotnet test tests/DynamicModules.WebAPITests --filter "FullyQualifiedName~Setup.|FullyQualifiedName~Ops.PreUpgradeBackupTests|FullyQualifiedName~Ops.BackupTests"` 全綠；交付說明列出可寫死項目（設定碼 12 碼與字母表、結束碼 75 與 0／1／2／64、`PreUpgradeBackup.MaxWait` 30 分鐘、檔名 `formwright.db`／`keys`／`attachments`／`setup-code`／`setup-pending.json`、環境檢查項目、寫入測試檔名）；Demo 寫「無可示範」。
+- [ ] **Step 5: 收尾**：`dotnet test tests/DynamicModules.WebAPITests --filter "FullyQualifiedName~Setup.|FullyQualifiedName~Ops.PreUpgradeBackupTests|FullyQualifiedName~Ops.BackupTests"` 全綠；交付說明列出可寫死項目（設定碼 12 碼與字母表、結束碼 75 與 0／1／2／64、`PreUpgradeBackup.MaxWait` 30 分鐘、`PreUpgradeBackup.MaxQueuedTicks` 10 輪、檔名 `formwright.db`／`keys`／`attachments`／`setup-code`／`setup-pending.json`、環境檢查項目、寫入測試檔名）；Demo 寫「無可示範」。
 - [ ] **Step 6: Commit** `feat(in1a): --backup-now 供安裝程式在升級前備份`
 
 ### Task 6A: 容器啟動時的升級前備份與維護模式（D-17、D-18、AC-12 的後端）
@@ -299,7 +303,7 @@
   - 版本標記檔（`<資料目錄>/app-version`，內容是上次完整啟動成功的 `BuildInfo.Version`）等於 `currentVersion`，且 `GetPendingMigrationsAsync()` 是空的 → `SameVersion`。
   - 有待套用的 migration → `Upgrade`。
   - 標記檔不存在 → `Upgrade`（這版功能上線前建的 volume，保守備份一次）。
-  - 標記檔與 `currentVersion` 都能照 SemVer 2.0 解析（去掉 `+` 之後的 build metadata；核心版號用 `System.Version`，prerelease 依 `.` 分段，數字段比大小、文字段比序數、沒有 prerelease 的較大；不加套件）：`currentVersion` 較新 → `Upgrade`；較舊 → `Downgrade`（D-17 只在「映像版本比資料庫新」時備份；換回舊映像不備份，避免升級後備份位置壞掉時連退版都被維護頁擋住）。任一邊解析不了 → `Upgrade`。
+  - 標記檔與 `currentVersion` 都能照 SemVer 2.0 解析（去掉 `+` 之後的 build metadata；核心版號用 `System.Version`，prerelease 依 `.` 分段，數字段比大小、文字段比序數、沒有 prerelease 的較大；不加套件）：`currentVersion` 較新 → `Upgrade`；較舊 → `Downgrade`（D-17 只在「映像版本比資料庫新」時備份；換回舊映像不備份，避免升級後備份位置壞掉時連退版都被維護頁擋住）；去掉 build metadata 後相等、字串卻不同（例 `0.0.2` 與 `0.0.2+abc`）且沒有待套用的 migration → `SameVersion`（SemVer 的比較本來就忽略 build metadata）。任一邊解析不了 → `Upgrade`。
   - `static string? ReadMarker(string dataDirectory)`：讀標記檔（不存在回 null），給 `MaintenanceState.PreviousVersion` 用。
   - `static void WriteMarker(string dataDirectory, string version)`：完整啟動成功後寫（權限同設定碼檔）；只在 `Disabled` 以外寫（`Downgrade` 也寫成目前版本）。
 - `InitializeDatabaseAsync` 的順序：建目錄 → 取啟動鎖 → `DecideAsync` → `Upgrade` 時 `PreUpgradeBackup.ExecuteAsync`（開始前記一筆 Information「升級前備份中（{舊版} → {新版}），完成前站台不會回應」，等待中每 30 秒記一筆進度；這段時間 Kestrel 還沒開始聽，`deploy.md` 要寫明）：`ExitCode == 0` 照常 `MigrateAsync` 與後續；`1` 或 `2` → `MaintenanceState.Enter(reason, errorCode, previousVersion)`、記一筆 Error log（含 `ErrorCode`）、**不跑 migration 與後續任何步驟**、回 `false`。全部完成後 `UpgradeGuard.WriteMarker` 再回 `true`。
@@ -307,25 +311,30 @@
 - Produces: 維護分支（`app.MapWhen(_ => state.Active, branch => …)`，掛在管線最前面，比 `RequestContextMiddleware` 還早，所以 `SystemPolicyRefreshMiddleware` 等會讀資料庫的中介層都不會跑）。分支是一個終端 middleware，不用 endpoint routing：`WebApplication` 會在管線最前面自動加 `UseRouting`，進分支時 `GetEndpoint()` 可能已對到外層的 controller 或 `MapFallbackToFile`，所以第一行 `ctx.SetEndpoint(null)`，之後手動比對路徑、`await result.ExecuteAsync(ctx)`；分支裡不呼叫 `UseRouting`／`UseEndpoints`（否則會執行外層對到的 controller，維護模式等於放行）。
   - `GET /api/maintenance` → 200 `{ "reason": string, "errorCode": string | null, "version": BuildInfo.Version, "previousVersion": string | null }`（null 一律輸出 `null`，不省略欄位）；一般模式這條路由不存在（404）。
   - `GET /api/health`、`/api/health/live` → `LimitedResponses.Live()`；`/api/health/ready` → `NotReady("maintenance")`；`/api/version` → `Version()`；`GET /api/v3/dynamic/i18n/ui/{code}` → `BuiltinUiMessages(code)`；其他 `/api/**` → `Unavailable("maintenance")`。
-  - 非 `/api`：有 `wwwroot` 時，路徑對到 `wwwroot` 裡的檔案就用 `SendFileAsync` 回（content type 照 `FileExtensionContentTypeProvider`），其他一律回 `index.html`（前端 Task 8A 的 `/maintenance` 頁）；沒有 `wwwroot` 回 503 純文字 `Formwright is under maintenance`。
-- Produces: `static IServiceCollection AddMaintenanceGatedHostedService<T>(this IServiceCollection s) where T : class, IHostedService`：`T` 註冊成 singleton，外面包一層 `MaintenanceGatedHostedService<T>`，`StartAsync` 時 `MaintenanceState.Active` 就不啟動內層（排程、看門狗、收件匣、寄信、備份都不碰舊 schema 的資料庫）、`StopAsync` 只停有啟動的。
+  - 非 `/api`：有 `wwwroot` 時，以 `app.Environment.WebRootFileProvider.GetFileInfo(path)` 找檔（不用 `Path.Combine(webRoot, path)` 自己組路徑：`PhysicalFileProvider` 會擋 `..` 與絕對路徑，防路徑穿越），`Exists && !IsDirectory` 才用 `SendFileAsync(fileInfo)` 回（content type 照 `FileExtensionContentTypeProvider`），其他一律回 `index.html`（前端 Task 8A 的 `/maintenance` 頁）；沒有 `wwwroot` 回 503 純文字 `Formwright is under maintenance`。
+- Produces: `static IServiceCollection AddMaintenanceGatedHostedService<T>(this IServiceCollection s) where T : class, IHostedService`，內容寫死成兩行 `s.AddSingleton<T>(); s.AddHostedService<MaintenanceGatedHostedService<T>>();`（不用 factory 註冊：factory 註冊的描述元 `ImplementationType` 是 null，`TestApp.cs:195` 依型別移除 flusher 會什麼都找不到、也不報錯）；`public sealed class MaintenanceGatedHostedService<T>(T inner, MaintenanceState state) : IHostedService where T : class, IHostedService`，`StartAsync` 時 `state.Active` 就不啟動內層（排程、看門狗、收件匣、寄信、備份都不碰舊 schema 的資料庫）、`StopAsync` 只停有啟動的。
+- 包裝後 `IHostedService` 描述元的 `ImplementationType` 是 `MaintenanceGatedHostedService<IncidentInboxFlusher>`：`TestApp.cs:195` 的比對改成這個型別；只移除 hosted service 的描述元，`IncidentInboxFlusher` 本身的 singleton 註冊留著（測試自己建 flusher 不受影響）。
 - 程序不結束、不重試：維護頁一直開著，compose 不會反覆重啟（D-17 否決「讓容器結束」）。客戶修好備份位置後自己重啟容器，下次啟動重新判斷、重新備份。
 
-- [ ] **Step 1: 寫失敗測試**（`TestApp(seedDemoPeople: false, realAuth: true, fileDatabase: true)`：不補示範人員、不加解除改密碼的 hosted service，維護中才驗得出沒寫資料庫；`Settings` 給 `Install:BackupBeforeUpgrade=true`、暫存 `Install:DataDirectory`、`Backup:Root`；標記檔由測試先寫）
-  - `UpgradeGuardTests`（直接呼叫 `DecideAsync`）：
+- [ ] **Step 1: 寫失敗測試**（`TestApp(seedDemoPeople: false, realAuth: true)`，用預設的記憶體資料庫：不補示範人員、不加解除改密碼的 hosted service，維護中才驗得出沒寫資料庫；不能用 `fileDatabase: true`，理由同 Task 6 Step 1（資料庫檔在暫存目錄根目錄，暫存的 `Backup:Root` 一律被判重疊而 `Invalid`，每個 `Upgrade` 案例都會變成 `backupNotConfigured`，`BackupTests.cs:27`）。`Settings` 給 `Install:BackupBeforeUpgrade=true`、暫存 `Install:DataDirectory`、暫存 `Backup:Root`（兩者是暫存目錄底下互不包含的兩個子目錄）；標記檔由測試先寫。要在主機啟動前改資料庫（刪 `__EFMigrationsHistory` 最後一列、記 `Dynamic_AppUser` 列數）就用 `new SqliteConnection(app.ConnectionString)` 開同一個共用快取的記憶體庫操作，`TestApp` 建構時已從範本還原、主機要到第一次 `CreateClient`／`Services` 才啟動；重啟測試以 `sharedConnectionString: first.ConnectionString` 起第二個主機，前一個主機要還活著（`TestApp.cs:51`））
+  - `UpgradeGuardTests`（直接呼叫 `DecideAsync`；類別加 `[Trait("Category", "Postgres")]` 進雙跑集：它驗 migration 歷程且有 raw SQL，`docs/ai/testing.md` 的規則要求雙跑；精靈在 Docker 也能選 PostgreSQL，`UpgradeGuard` 會在 PG 上跑。`DynamicDbContext` 從 `TestApp` 的 scope 取，PG 模式下 `TestApp` 自動改用 PG）：
     - `FlagOff_IsDisabled`、`NoDataDirectory_IsDisabled`。
-    - `EmptyHistory_IsFreshDatabase`：新建空的 SQLite 檔。
+    - `EmptyHistory_IsFreshDatabase`：沒套 migration 的空庫（SQLite 是自己開的空記憶體庫，PG 是 `PostgresTestServer.CreateDatabase(migrated: false)`）。
     - `SameMarker_NoPending_IsSameVersion`：標記檔 = `currentVersion`。
+    - `BuildMetadataOnly_IsSameVersion`：標記檔 `0.0.2`、`currentVersion: "0.0.2+abc"`、沒有待套用的 migration → `SameVersion`。
     - `MissingMarker_IsUpgrade`；`OlderMarker_IsUpgrade`：標記檔 `0.0.1`、目前 `0.0.2` → `Upgrade`；`PrereleaseOrder_IsUpgrade`：標記檔 `0.0.1-e2e.2`、目前 `0.0.1-e2e.10` → `Upgrade`（數字段比大小）。
     - `NewerMarker_IsDowngrade`：標記檔 `0.0.3`、目前 `0.0.2`、沒有待套用的 migration → `Downgrade`。
     - `UnparsableMarker_IsUpgrade`：標記檔 `garbage`、`currentVersion: "0.0.2"` → `Upgrade`；`UnparsableCurrent_IsUpgrade`：標記檔 `0.0.1`、`currentVersion: "dev"` → `Upgrade`。
     - 版號比較只在 `UpgradeGuardTests` 直接傳 `currentVersion` 驗；整合測試主機的 `BuildInfo.Version` 是 `dev`（沒注入 `AppVersion`，`BuildInfo.cs:9`），解析不了，所以下面 `MaintenanceModeTests` 用任何不同的標記檔都會走 `Upgrade`。
-    - `PendingMigration_IsUpgrade`：標記檔 = `currentVersion`，刪掉 `__EFMigrationsHistory` 最後一列 → `Upgrade`。
+    - `PendingMigration_IsUpgrade`：標記檔 = `currentVersion`，刪掉 `__EFMigrationsHistory` 最後一列 → `Upgrade`。刪列用 `db.Database.ExecuteSqlRawAsync`，識別字加雙引號，SQLite 與 PG 共用一句：`DELETE FROM "__EFMigrationsHistory" WHERE "MigrationId" = (SELECT MAX("MigrationId") FROM "__EFMigrationsHistory")`。
   - `MaintenanceModeTests`：
     - `Upgrade_BackupSucceeds_ThenStartsNormally`：標記檔 `0.0.1-old` → 主機起來後 `GET me` 200（一般模式）；成功備份比之前多 1 份、種類是 `Manual`、沒有申請人（D-18）；標記檔變成 `BuildInfo.Version`。
-    - `Upgrade_BackupFails_EntersMaintenance_AC12`（非 Windows）：標記檔 `0.0.1-old`、備份目錄 `chmod 0500`、刪掉 `__EFMigrationsHistory` 最後一列（模擬新版有待套用的 migration）→ `GET /api/maintenance` 200、`reason == "preUpgradeBackupFailed"`、`errorCode` 不是 null、`previousVersion == "0.0.1-old"`；`GET /api/v3/dynamic/me` 503 `code == "maintenance"`；`/api/health/ready` 503、`/api/health/live` 200；被刪的那列 migration 還是不在（沒跑 migration）；標記檔仍是 `0.0.1-old`；`Dynamic_User` 的列數與主機啟動前相同（除了備份紀錄以外沒寫資料庫）。
+    - `Upgrade_BackupFails_EntersMaintenance_AC12`（非 Windows）：標記檔 `0.0.1-old`、備份目錄 `chmod 0500`、刪掉 `__EFMigrationsHistory` 最後一列（模擬新版有待套用的 migration）→ `GET /api/maintenance` 200、`reason == "preUpgradeBackupFailed"`、`errorCode` 不是 null、`previousVersion == "0.0.1-old"`；`GET /api/v3/dynamic/me` 503 `code == "maintenance"`；`/api/health/ready` 503、`/api/health/live` 200；被刪的那列 migration 還是不在（沒跑 migration）；標記檔仍是 `0.0.1-old`；`Dynamic_AppUser`（`AppUserConfiguration.cs:11`）的列數與主機啟動前相同（除了備份紀錄以外沒寫資料庫）。
     - `Maintenance_ControllersNotReachable`：維護中 `GET /api/v3/dynamic/modules`、`POST /api/v3/dynamic/auth/login` 都是 503 `maintenance`（不是 200／401，證明外層 controller 沒被執行）。
     - `Upgrade_NotConfigured_EntersMaintenance`：不設 `Backup:Root` → `reason == "backupNotConfigured"`。
+    - `Upgrade_BackupThrows_EntersMaintenance`：標記檔 `0.0.1-old`、`ExtraServices` 把 `IBackupRepository` 換成會丟例外的替身（同 Task 6 的 `BackupNow_RepositoryThrows_Is1`）→ 主機照常起來、沒有結束（`GET /api/health/live` 200）；`GET /api/maintenance` 的 `reason == "preUpgradeBackupFailed"`、`errorCode == "unexpected"`。
+    - `Maintenance_StaticFile_NoPathTraversal`：維護中 `GET /..%2f..%2fappsettings.json` → 回應是 `index.html` 的內容（測試主機沒有 `wwwroot` 時是 503 純文字 `Formwright is under maintenance`），兩種情況主體都不含 `appsettings.json` 的鍵（例 `ConnectionStrings`）。
+    - `Maintenance_GatedHostedServicesRegistered`（第 3 輪必修 1 的防回歸）：`new TestApp().Services.GetServices<IHostedService>()` 裡沒有 `MaintenanceGatedHostedService<IncidentInboxFlusher>`（`TestApp.cs:195` 的移除還有效），而 `MaintenanceGatedHostedService<SchedulerHostedService>` 還在（包裝真的套上了）。
     - `Maintenance_ThenFixed_RestartUpgrades`：標記檔 `0.0.1-old`、備份目錄 `chmod 0500`（不刪 migration 歷程列，否則重跑 migration 會撞到已存在的表）→ 維護中；改回可寫後以同一資料庫起新主機（`sharedConnectionString`）→ 一般模式、多一份成功備份、標記檔變成 `BuildInfo.Version`。
     - `Maintenance_HostedServicesNotStarted`：`MaintenanceGatedHostedService<T>` 用假的內層測：`Active` 時 `StartAsync` 不呼叫內層、`StopAsync` 也不呼叫；不 `Active` 時兩者各呼叫一次。
     - `Maintenance_ServesBuiltinUiMessages`：維護中 `GET /api/v3/dynamic/i18n/ui/en-US` 200。
@@ -334,8 +343,8 @@
 - [ ] **Step 2: 跑測試確認失敗**
   Run: `dotnet test tests/DynamicModules.WebAPITests --filter "FullyQualifiedName~Setup.UpgradeGuardTests|FullyQualifiedName~Setup.MaintenanceModeTests"`
   Expected: FAIL（型別不存在）。
-- [ ] **Step 3: 實作**（照 Interfaces）。備份記錄表若在新版 migration 裡改過結構，升級前備份在舊 schema 上會失敗，結果是進維護頁（不會在沒有備份的情況下升級）；這條寫進 `UpgradeGuard` 的 summary 與交付說明。
-- [ ] **Step 4: 跑測試確認通過**（同 Step 2；加跑 `--filter "FullyQualifiedName~FileDatabaseModeTests|FullyQualifiedName~HealthTests|FullyQualifiedName~Ops.SchedulerTests|FullyQualifiedName~Ops.BackupTests|FullyQualifiedName~Ops.IncidentTests"` 防回歸；`IncidentTests` 驗 `TestApp.cs:195` 的移除還有效）Expected: PASS。
+- [ ] **Step 3: 實作**（照 Interfaces）。備份記錄表若在新版 migration 裡改過結構，升級前備份在舊 schema 上會丟例外，由 `PreUpgradeBackup.ExecuteAsync` 的 catch 接成 `1`／`unexpected`（Task 6），結果是進維護頁（不會在沒有備份的情況下升級，也不會讓程序結束、容器反覆重啟）；這條寫進 `UpgradeGuard` 的 summary 與交付說明。
+- [ ] **Step 4: 跑測試確認通過**（同 Step 2；加跑 `--filter "FullyQualifiedName~FileDatabaseModeTests|FullyQualifiedName~HealthTests|FullyQualifiedName~Ops.SchedulerTests|FullyQualifiedName~Ops.BackupTests|FullyQualifiedName~Ops.IncidentTests"` 防回歸；`TestApp.cs:195` 的移除由 `Maintenance_GatedHostedServicesRegistered` 直接斷言，`IncidentTests` 驗不到：`B11_WatchdogDisabled_…`（`IncidentTests.cs:356`）自己建 flusher、斷言指紋集合，多跑一個共用 drain 的真 flusher 照樣綠）；`UpgradeGuardTests` 另以 `FORMWRIGHT_TEST_DB=postgres` 再跑一次（雙跑集）。Expected: PASS。
 - [ ] **Step 5: 子段收尾**：in1a 的可寫死清單加上 `app-version` 檔名與維護分支的路由；交付說明寫明 `Install:BackupBeforeUpgrade` 只有 compose 會設、Demo「無可示範」。
 - [ ] **Step 6: Commit** `feat(in1a): 容器啟動時先備份再升級，失敗進維護模式`
 
@@ -354,11 +363,11 @@
 
 **Interfaces:**
 - Consumes: Task 3–5 的 HTTP 契約；Task 6A 的 `GET /api/maintenance` 與 503 `{ code: 'maintenance' }`。
-- Produces: `setup-api.ts` 用自己的 axios 實例（`baseURL: '/api'`，路徑寫 `setup/status` 這類相對路徑；不經 `http.ts` 的 401／403 處理）：`getStatus(): Promise<'pending' | 'notInSetup'>`（404 → `notInSetup`；沒有回應或 5xx → reject）；`isReady(): Promise<boolean>`（`GET health/ready` 200 → true，其他狀態或沒有回應 → false，不 reject）；`verify(code: string): Promise<boolean>`（403 → false）；`runChecks(code: string, draft?: SetupDraft): Promise<SetupChecksResult>`；`complete(code: string, body: SetupCompleteBody): Promise<void>`（422 丟 `SetupValidationError { errors?: Record<string, { code: string; params?: Record<string, unknown> }[]>; checks?: SetupCheckItem[] }`，對應 Task 5 的 `invalid` 與 `checksFailed` 兩種形狀）；型別 `SetupDraft { provider: 'sqlite' | 'postgres'; connectionString?: string; backupRoot?: string }`、`SetupCheckItem { key: string; ok: boolean; path?: string; problem?: string; params?: Record<string,string> }`、`SetupChecksResult { items: SetupCheckItem[]; ok: boolean }`、`SetupCompleteBody`（欄位同 Task 5）；`getMaintenance(): Promise<MaintenanceInfo | null>`（`GET maintenance` 200 → 物件、404 → null、沒有回應或其他 5xx → reject），型別 `MaintenanceInfo { reason: 'preUpgradeBackupFailed' | 'backupNotConfigured'; errorCode: string | null; version: string; previousVersion: string | null }`（欄位同 Task 6A）。
+- Produces: `setup-api.ts` 用自己的 axios 實例（`baseURL: '/api'`，路徑寫 `setup/status` 這類相對路徑；不經 `http.ts` 的 401／403 處理）。所有 reject 都轉成 `ApiError`（`http.ts:7`）同形狀的 `{ status, code }`（有回應時 `status` 是 HTTP 狀態、`code` 是主體的 `code` 欄位，沒有就 `undefined`；沒有回應時照 `http.ts:74` 是 `{ status: 0, code: 'network' }`），不直接丟 `AxiosError`（它的狀態碼在 `e.response.status`，守衛的 `e.status === 503 && e.code === 'maintenance'` 會對不到、實機導到 `/service-unavailable`）：`getStatus(): Promise<'pending' | 'notInSetup'>`（404 → `notInSetup`；沒有回應或 5xx → reject）；`isReady(): Promise<boolean>`（`GET health/ready` 200 → true，其他狀態或沒有回應 → false，不 reject）；`verify(code: string): Promise<boolean>`（403 → false）；`runChecks(code: string, draft?: SetupDraft): Promise<SetupChecksResult>`；`complete(code: string, body: SetupCompleteBody): Promise<void>`（422 丟 `SetupValidationError { errors?: Record<string, { code: string; params?: Record<string, unknown> }[]>; checks?: SetupCheckItem[] }`，對應 Task 5 的 `invalid` 與 `checksFailed` 兩種形狀）；型別 `SetupDraft { provider: 'sqlite' | 'postgres'; connectionString?: string; backupRoot?: string }`、`SetupCheckItem { key: string; ok: boolean; path?: string; problem?: string; params?: Record<string,string> }`、`SetupChecksResult { items: SetupCheckItem[]; ok: boolean }`、`SetupCompleteBody`（欄位同 Task 5）；`getMaintenance(): Promise<MaintenanceInfo | null>`（`GET maintenance` 200 → 物件、404 → null、沒有回應或其他 5xx → reject），型別 `MaintenanceInfo { reason: 'preUpgradeBackupFailed' | 'backupNotConfigured'; errorCode: string | null; version: string; previousVersion: string | null }`（欄位同 Task 6A）。
 - Produces: 路由 `{ path: '/setup', component: () => import('src/pages/setup/SetupWizardPage.vue'), meta: { public: true, setup: true } }`、`{ path: '/maintenance', component: () => import('src/pages/maintenance/MaintenancePage.vue'), meta: { public: true, maintenance: true } }`（頁面在 Task 8A 建；Task 7 先放一個只有 `<div data-testid="maintenance-page" />` 的佔位元件讓路由測試過，Task 8A 換成正式內容）。
 
 - [ ] **Step 1: 寫失敗測試**
-  - `setup-api.vitest.spec.ts`：`getStatus` 200 → `'pending'`、404 → `'notInSetup'`、網路錯誤 reject；`isReady` 200 → true、503 與網路錯誤 → false；`verify` 204 → true、403 → false；`runChecks` 送 `X-Setup-Code` 標頭；`complete` 422 → 丟 `SetupValidationError` 且帶 `checks`；`getMaintenance` 200 → 回物件、404 → null、網路錯誤 reject。
+  - `setup-api.vitest.spec.ts`：`getStatus` 200 → `'pending'`、404 → `'notInSetup'`、網路錯誤 reject；`isReady` 200 → true、503 與網路錯誤 → false；`verify` 204 → true、403 → false；`runChecks` 送 `X-Setup-Code` 標頭；`complete` 422 → 丟 `SetupValidationError` 且帶 `checks`；`getMaintenance` 200 → 回物件、404 → null、網路錯誤 reject；`reject shape matches ApiError`：`getStatus` 收到 503 `{ code: 'maintenance' }` 以 `status === 503 && code === 'maintenance'` 的物件 reject（不是 `AxiosError`），`getMaintenance` 收到 503 `{ code: 'setupRequired' }` 同理。
   - `auth-guard.vitest.spec.ts`：
     - `setup route in normal mode goes to login (AC-04)`：`getStatus` → `notInSetup`，導到 `/setup` → `/login`；`getMe` 沒被呼叫。
     - `setup route in setup mode stays`：`pending` → 停在 `/setup`。
@@ -386,10 +395,14 @@
 - Create: `frontend/src/presentation/setup/SetupChecksList.vue`
 - Create: `frontend/src/pages/setup/SetupWizardPage.vitest.spec.ts`
 - Modify: `shared/i18n/{zh-TW,en-US,th,vi}/ui.json`（`setup.*`）
-- Test: 上述 spec、`frontend/src/i18n/locales.vitest.spec.ts`
+- Modify: `frontend/src/i18n/startup.ts:115-119`（`auth/options` 取不到時的離線分支也載入非預設語系的內建文字）
+- Test: 上述 spec、`frontend/src/i18n/locales.vitest.spec.ts`、`frontend/src/i18n/startup.vitest.spec.ts`
 
 **Interfaces:**
-- Consumes: Task 7 `setupApi` 與型別。
+- Consumes: Task 7 `setupApi` 與型別；既有的 `LocaleSwitcher`（`src/presentation/locale/LocaleSwitcher.vue`）。
+- 語系（D-20「精靈照產品四語」，主控裁決）：設定模式與維護模式下 `auth/options` 回 503，`startLocale` 走離線分支（`startup.ts:115-119`）只 `applyLocale`、不載入文字，背景的 `settle` 也只在 fetch 成功時才跑，所以不改的話 localStorage 記的是 `en-US` 也只看得到繁中（vue-i18n 退回 `fallbackLocale`）；`readLocale` 只讀 localStorage（`locale.ts:30-37`），全新瀏覽器又沒有地方切語言。兩處都要改：
+  - 精靈頁標題列照 `LoginPage.vue:96` 放 `<LocaleSwitcher />`（不傳 `allowPreview`）。離線時 `applyStartupOptions(null)` 把啟用清單設成 `OFFLINE_LOCALES`（內建四語），所以列的是四語；`switchLocale` 經 `ensureCurrentMessages` 打 `GET /api/v3/dynamic/i18n/ui/{code}`（設定模式由 Task 3 的 `BuiltinUiMessages` 提供）並寫入快取，重新整理後走快取那條路（`startup.ts:96-101`）照樣有文字。
+  - `startup.ts` 離線分支：`c !== FALLBACK_LOCALE`（`c` 已經過第 112 行限制在 `OFFLINE_LOCALES` 內）時，和線上分支一樣 `ensureCurrentMessages(i18n, c)`、`Promise.race([load, budget])` 等在同一個 `STARTUP_BUDGET_MS` 預算內，成功後 `cacheCurrent`；載入失敗照舊顯示繁中、不丟例外。之後背景 `settle` 照舊掛著。
 - Produces: 頁面不用 `MainLayout`；`QStepper`（`vertical` 於 `$q.screen.lt.md`，否則水平），步驟順序與 `data-testid`：設定碼（`setup-code`）→ 環境檢查（`setup-step-checks`）→ 資料庫（`setup-step-database`）→ 管理員密碼（`setup-step-admin`）→ 公司名稱（`setup-step-company`）→ 備份位置（`setup-step-backup`）→ 完成（`setup-step-done`）。沒有「錯誤回報」步驟（D-12：回報機制還沒做）。
 - 行為：
   - 設定碼：輸入後 `verify`；false → 顯示 `setup.code.invalid`、停在這一步、後續步驟不渲染（AC-10）。碼只放在元件狀態，不寫 localStorage。
@@ -410,17 +423,19 @@
   - `no error-report step (D-12)`：七個步驟的 testid 齊全，沒有其他步驟。
   - `422 checksFailed returns to checks`：`complete` 丟 `SetupValidationError { checks: [...紅] }` → 目前步驟是環境檢查、顯示新紅燈。
   - `timeout shows reload`：`getStatus` 一直 `pending`、假計時器推 120 秒 → 顯示 `setup.done.timeout`。
+  - `locale switcher present (D-20)`：設定碼那一步就看得到 `data-testid="locale-open"`；`applyStartupOptions(null)` 之後打開選單有 `locale-option-zh-TW`、`locale-option-en-US`、`locale-option-th`、`locale-option-vi` 四項。
+  - `startup.vitest.spec.ts` 加 `OptionsFail_StoredLocale_LoadsBuiltinText`：localStorage `formwright.locale` 設 `en-US`、`getAuthOptions` reject（503）、`getUiMessages` 回內建英文（`serve()`）→ `startLocale` resolve 後 `locale.value == 'en-US'`、`t('menu.home')` 是英文、`readUiCache()?.code == 'en-US'`。既有的 `OptionsFail_NoCache_ZhTw`、`OptionsNeverResolve_BudgetEnds` 不改，重跑要過（沒記語系就不多打 `i18n/ui`）。
   - `locales.vitest.spec.ts` 既有的鍵集合一致與編譯檢查會涵蓋新鍵。
 - [ ] **Step 2: 跑測試確認失敗**
-  Run: `bunx vitest run src/pages/setup src/i18n/locales.vitest.spec.ts --maxWorkers=2`
-  Expected: FAIL（元件不存在）。
+  Run: `bunx vitest run src/pages/setup src/i18n/locales.vitest.spec.ts src/i18n/startup.vitest.spec.ts --maxWorkers=2`
+  Expected: FAIL（元件不存在；`OptionsFail_StoredLocale_LoadsBuiltinText` 因離線分支不載文字而失敗）。
 - [ ] **Step 3: 實作**（照上面的行為）。版面：卡片 `max-width: 720px; width: 100%`，390 寬時 stepper 直式、按鈕列 `column` 加 `no-wrap`、路徑文字 `word-break: break-all`；不寫大於 360px 的 `min-width`。
-- [ ] **Step 4: 跑測試確認通過**：`bunx vitest run src/pages/setup src/router src/services/api/setup-api.vitest.spec.ts src/i18n/locales.vitest.spec.ts --maxWorkers=2`；`bun run typecheck`；`bun run build` → PASS／無型別錯誤／build 成功。
+- [ ] **Step 4: 跑測試確認通過**：`bunx vitest run src/pages/setup src/router src/services/api/setup-api.vitest.spec.ts src/i18n/locales.vitest.spec.ts src/i18n/startup.vitest.spec.ts --maxWorkers=2`；`bun run typecheck`；`bun run build` → PASS／無型別錯誤／build 成功。
 - [ ] **Step 5: 給主控的本機走查步驟**（不寫進 CI）：
   1. `cd backend/src/DynamicModules.WebAPI && dotnet run -- --install-init --Install:ConfigFile=<repo>/.tmp/in1/formwright.json --Install:DataDirectory=<repo>/.tmp/in1/data --Install:BackupDirectory=<repo>/.tmp/in1/backup --Server:Port=5180`，記下輸出的設定碼。
   2. `dotnet run -- --Install:ConfigFile=<repo>/.tmp/in1/formwright.json`（設定模式，聽 5180），另開 `cd frontend && bunx quasar dev`，開 `http://127.0.0.1:9180/`。
   3. 驗：自動轉到 `/setup`；設定碼錯誤（`000000`）停在第一步；備份目錄 `chmod 0500` 後紅燈且「下一步」不能按、改回後綠；走完預設路徑後站台結束（`dotnet run` 不會自動重啟，手動再跑第 2 步的指令）、轉到登入頁、`admin`／`Fw-test-2026` 登入不要求改密碼；再開 `/setup` 轉登入頁。
-  4. 390、820、1366、1920 四種寬度，每步都不得橫向捲動；淺色、深色各看一次（跟系統主題，或在瀏覽器開發者工具切 `prefers-color-scheme`）；精靈頁沒有語系切換元件，四語走查用瀏覽器的 localStorage 把 `formwright.locale` 設成 `en-US`、`th`、`vi` 後重新整理各看一次，沒有繁中殘留。
+  4. 390、820、1366、1920 四種寬度，每步都不得橫向捲動；淺色、深色各看一次（跟系統主題，或在瀏覽器開發者工具切 `prefers-color-scheme`）；四語走查用全新的瀏覽器分頁（先清掉 localStorage）：用標題列的語系切換元件切 `English`、`ไทย`、`Tiếng Việt` 各看一次每一步，沒有繁中殘留；切完重新整理，語系與文字都還在（走快取）。
   5. `.tmp/in1/` 不進 git，走查完刪掉。
 - [ ] **Step 6: 手冊**：`docs/manual.md` §1「第一次安裝」前加「安裝版的設定精靈」一小節（文案照畫面實際文字）：設定碼從哪裡看（Windows 安裝程式最後一頁、Ubuntu 終端輸出、Docker 的 `docker compose logs`）、各步驟、完成後站台會自動重新啟動、精靈只能跑一次；環境檢查出現「已有資料」時怎麼恢復（找回原本的設定檔放回原位後重啟服務，或聯絡支援；D-16）；原有「第一次安裝」段落開頭加一句「不是用安裝程式裝的站台（容器、開發環境）」。
 - [ ] **Step 7: Commit** `feat(in1b): 瀏覽器設定精靈頁`
@@ -435,11 +450,11 @@
 
 **Interfaces:**
 - Consumes: Task 7 `setupApi.getMaintenance` 與 `MaintenanceInfo`；既有的 `labelOr`（`src/domain/ops/ops-format`）與 `ops.backup.error.*` 四語文字（`OpsBackupTab.vue:95` 的用法）；Task 6A 維護分支提供的靜態檔與內建 i18n（維護中其他 `/api/**` 都回 503，所以頁面只呼叫 `getMaintenance`，不呼叫 `getMe` 或其他 API）。
-- Produces: 頁面不用 `MainLayout`；`data-testid`：`maintenance-page`、`maintenance-reason`、`maintenance-error`、`maintenance-actions`、`maintenance-retry`。
+- Produces: 頁面不用 `MainLayout`；標題列照 `LoginPage.vue:96` 放 `<LocaleSwitcher />`（理由與離線載入文字同 Task 8 的「語系」一段；維護模式由 Task 6A 的 `BuiltinUiMessages` 提供 `i18n/ui`，`startup.ts` 的改動在 Task 8 做，本 task 沿用）；`data-testid`：`maintenance-page`、`maintenance-reason`、`maintenance-error`、`maintenance-actions`、`maintenance-retry`。
 - 行為：
   - 載入時 `getMaintenance()`；回 null（已經不在維護）→ `router.replace('/login')`；reject → 顯示 `maintenance.unreachable`（「連不上服務，請稍後重新整理」）與重新整理鈕。
   - 標題 `maintenance.title`（「系統維護中」）；原因 `maintenance.reason.<reason>`：`preUpgradeBackupFailed` → 「升級前備份失敗，所以沒有升級，資料庫維持原狀。」；`backupNotConfigured` → 「備份位置沒有設定或設定無效，升級前無法備份，所以沒有升級，資料庫維持原狀。」。
-  - 失敗原因（`maintenance-error`）：`errorCode` 不是 null 時，以 `labelOr(t, te, 'ops.backup.error.' + errorCode, errorCode)` 顯示既有的備份失敗句子（例 `destinationUnwritable` →「備份位置寫不進去」），下面一行小字 `maintenance.errorCode`（「錯誤代碼：{code}」，等寬字）；`notConfigured` 沒有對應的 `ops.backup.error` 句子，只顯示原因句與代碼；null 時整區不顯示。不新增重複的錯誤句子。
+  - 失敗原因（`maintenance-error`）：`errorCode` 不是 null 時，以 `labelOr(t, te, 'ops.backup.error.' + errorCode, errorCode)` 顯示既有的備份失敗句子（例 `destinationUnwritable` →「備份位置寫不進去」），下面一行小字 `maintenance.errorCode`（「錯誤代碼：{code}」，等寬字）；`te('ops.backup.error.' + errorCode)` 為 false（`notConfigured` 這類沒有對應句子的代碼、或未來的新代碼）時不顯示 `labelOr` 那一行（否則它退回原碼、下一行又印一次，同一個代碼出現兩次），只顯示代碼那一行；null 時整區不顯示。不新增重複的錯誤句子。
   - 處理方式 `maintenance.actions.*`（清單）：
     - `rollback`：`previousVersion` 有值 → 「換回舊版映像（{version}）後重新啟動容器，站台會照常運作。」；null → `rollbackGeneric`「換回升級前使用的映像版本後重新啟動容器。」。
     - `preUpgradeBackupFailed` 時 `fixBackup`：「修好備份位置（確認備份 volume 可寫、空間足夠）後重新啟動容器，系統會先備份再升級。」
@@ -451,7 +466,8 @@
 
 - [ ] **Step 1: 寫失敗元件測試**（mock `setupApi`）
   - `backup failed shows reason and actions (AC-12)`：`getMaintenance` 回 `{ reason: 'preUpgradeBackupFailed', errorCode: 'destinationUnwritable', version: '0.0.2', previousVersion: '0.0.1' }`（`errorCode` 是 Task 6 的既有代碼）→ 畫面含「升級前備份失敗」、「備份位置寫不進去」（`ops.backup.error.destinationUnwritable`）、「destinationUnwritable」、「換回舊版映像（0.0.1）」、「修好備份位置」；沒有其他 API 被呼叫。
-  - `unknown error code falls back to code`：`errorCode: 'somethingNew'` → 顯示 `somethingNew`，沒有 `ops.backup.error.somethingNew` 字樣。
+  - `unknown error code falls back to code`：`errorCode: 'somethingNew'` → `maintenance-error` 的文字裡 `somethingNew` 只出現一次（在「錯誤代碼：」那一行），沒有 `ops.backup.error.somethingNew` 字樣。
+  - `locale switcher present (D-20)`：`data-testid="locale-open"` 存在。
   - `no previous version uses generic rollback`：`previousVersion: null` → 顯示 `rollbackGeneric` 的句子，沒有空括號。
   - `no error code hides the row`：`errorCode: null` → `maintenance-error` 不存在。
   - `not configured reason`：`reason: 'backupNotConfigured', errorCode: 'locationInvalid'` → 顯示對應原因句、「備份位置不合法」、`fixConfig` 句子，不顯示 `fixBackup`。
@@ -464,7 +480,7 @@
 - [ ] **Step 5: 給主控的本機走查步驟**（不寫進 CI）：
   1. 照 Task 8 Step 5 第 1、2 步建好站台、走完精靈；停掉站台，`echo 0.0.1-old > <repo>/.tmp/in1/data/app-version`、`chmod 0500 <repo>/.tmp/in1/backup`。
   2. `dotnet run -- --Install:ConfigFile=<repo>/.tmp/in1/formwright.json --Install:DataDirectory=<repo>/.tmp/in1/data --Install:BackupBeforeUpgrade=true`，開 `http://127.0.0.1:9180/` → 自動轉 `/maintenance`，看得到原因、錯誤代碼、「換回舊版映像（0.0.1-old）」、處理方式。
-  3. 390、820、1366、1920 四種寬度不得橫向捲動；淺色、深色各看一次；localStorage `formwright.locale` 切 `en-US`、`th`、`vi` 各看一次，沒有繁中殘留。
+  3. 390、820、1366、1920 四種寬度不得橫向捲動；淺色、深色各看一次；全新分頁（先清掉 localStorage）用標題列的語系切換元件切 `English`、`ไทย`、`Tiếng Việt` 各看一次，沒有繁中殘留；切完重新整理，語系與文字都還在。
   4. `chmod 0700` 改回、重啟站台 → 一般模式、登入頁；`.tmp/in1/` 走查完刪掉。
 - [ ] **Step 6: Commit** `feat(in1b): 升級前備份失敗時的維護頁`
 
@@ -515,7 +531,7 @@
   - `install` 的 `fresh`（`/etc/formwright/formwright.json` 不存在）：建系統使用者 `formwright`（`useradd --system --home /var/lib/formwright --shell /usr/sbin/nologin`）；解壓到 `/opt/formwright`（root 擁有、0755）；`/var/lib/formwright/{data,backup}` 擁有者 `formwright`、0700；`/etc/formwright` 擁有者 `formwright`、0700；以 `formwright` 身分跑 `/opt/formwright/DynamicModules.WebAPI --install-init --Install:ConfigFile=… --Install:DataDirectory=… --Install:BackupDirectory=… --Server:Port=<port>`；寫 `/etc/systemd/system/formwright.service`；`systemctl daemon-reload && systemctl enable --now formwright`；`ufw` 為 active 時 `ufw allow <port>/tcp`；最後印 `http://<第一個 IPv4>:<port>/` 與設定碼。`fresh` 也要能在「程式與資料都在、只有設定檔不見」時跑（AC-13 的情境）：使用者已存在就沿用、服務在跑就先 `systemctl stop`、`/opt/formwright` 已存在就覆蓋；不動 `/var/lib/formwright` 裡的檔案（`--install-init` 不建資料庫，紅燈由精靈的 `existingData` 擋，D-16）。
   - 狀態判斷（`detect_state`）三種：`fresh`（設定檔不存在）、`reinstall`（設定檔在、`/opt/formwright/DynamicModules.WebAPI` 不在，即 `remove` 之後重裝，AC-08）、`upgrade`（兩者都在）。
   - `install` 的 `reinstall`：不跑備份、不跑 `--install-init`（設定檔已在，資料保留）；確認使用者 `formwright` 存在（`purge` 才會刪，不在就重建）；解壓到 `/opt/formwright`、寫 unit、`enable --now`；印網址，不印設定碼（不是全新安裝）。
-  - `install` 的 `upgrade`：讀既有版本（`/opt/formwright/VERSION`）；`systemctl stop formwright || true`（unit 可能被手動刪掉）；在 `/opt/formwright` 目錄以 `formwright` 身分（`runuser -u formwright --`）跑**舊版**的 `--backup-now --Install:ConfigFile=…`：2 且沒有 `--skip-backup` → `systemctl start formwright`、印 `msg backup_not_configured`（繁中：「備份位置沒有設定，升級已中止；確定不備份就加 --skip-backup 重跑」）、exit 21；1 → `systemctl start formwright`、印 `msg backup_failed`（繁中：「升級前備份失敗，升級已中止，舊版照常執行」）、exit 20；0 → 解壓到 `/opt/formwright.new`、換名（舊的移到 `/opt/formwright.old`，成功啟動後刪）、`systemctl start formwright`、印新版號。
+  - `install` 的 `upgrade`：讀既有版本（`/opt/formwright/VERSION`）；`systemctl stop formwright || true`（unit 可能被手動刪掉）；在 `/opt/formwright` 目錄以 `formwright` 身分（`runuser -u formwright --`）跑**舊版**的 `--backup-now --Install:ConfigFile=…`，結束碼先接住再判斷（`rc=0; runuser … || rc=$?`，`set -e` 底下直接跑的話崩潰時腳本會中斷、服務停在已停止），交 `backup_exit_to_action` 對成動作：2 且沒有 `--skip-backup` → `systemctl start formwright`、印 `msg backup_not_configured`（繁中：「備份位置沒有設定，升級已中止；確定不備份就加 --skip-backup 重跑」）、exit 21；1 → `systemctl start formwright`、印 `msg backup_failed`（繁中：「升級前備份失敗，升級已中止，舊版照常執行」）、exit 20；0／1／2 以外的非 0（程序崩潰、.NET 未處理例外，例 134）一律照 1 處理；0 → 解壓到 `/opt/formwright.new`、換名（舊的移到 `/opt/formwright.old`，成功啟動後刪）、`systemctl start formwright`、印新版號。
   - `remove`：`systemctl disable --now formwright`、刪 unit 與 `/opt/formwright`；保留 `/var/lib/formwright`、`/etc/formwright`、使用者；印保留了哪些目錄（D-10）。
   - `purge`：`remove` 之後再刪 `/var/lib/formwright`、`/etc/formwright`、使用者 `formwright`；要求 `--yes` 或互動確認（從 `/dev/tty` 讀；沒有 tty 又沒有 `--yes` → exit 1）。只刪 D-06 的預設目錄；設定檔裡 `Backup:Root` 指到別處時印出該路徑、不刪。
 - `formwright.service`：`User=formwright`、`WorkingDirectory=/opt/formwright`、`ExecStart=/opt/formwright/DynamicModules.WebAPI --Install:ConfigFile=/etc/formwright/formwright.json`（路徑從標記區塊的變數組）、`Type=notify`、`Restart=always`、`RestartSec=5`、`Environment=DOTNET_ENVIRONMENT=Production`、`WantedBy=multi-user.target`。
@@ -523,7 +539,7 @@
 - [ ] **Step 1: 寫失敗測試** `installer/linux/install.test.sh`（純 bash，用函式替身，不需要 root、不碰 systemd；`install.sh` 在 `FW_TEST=1` 時只定義函式不執行 `main`）：
   - `parse_args` 對 `remove`、`purge --yes`、`--port 9000`、`--skip-backup`、`--lang en` 解析正確；未知動作 exit 1。
   - `check_os` 對假 `/etc/os-release`（`VERSION_ID="24.04"`、`"22.04"`、`"20.04"`）分別通過、通過、exit 11。
-  - `backup_exit_to_action`：0 → `proceed`、1 → `abort20`、2 無 skip → `abort21`、2 有 skip → `proceed`。
+  - `backup_exit_to_action`：0 → `proceed`、1 → `abort20`、2 無 skip → `abort21`、2 有 skip → `proceed`、134 → `abort20`、`255` 有 skip → `abort20`（`--skip-backup` 只略過「沒設位置」，不略過崩潰）。
   - `detect_state`：假根目錄（`FW_ROOT` 前綴給測試用）下沒有設定檔 → `fresh`；有設定檔沒有程式 → `reinstall`；兩者都有 → `upgrade`。
   - `FW_VERSION` 空且沒設 `FORMWRIGHT_PACKAGE` → exit 12，訊息說明「這份腳本不是從 Releases 下載的」（`--lang zh-TW` 時；英文時是對應英文句）。
   - `pick_lang`（D-20）：`--lang en` → `en`；`FORMWRIGHT_LANG=zh-TW` → `zh-TW`；假 `/etc/default/locale`（`FW_ROOT` 前綴）寫 `LANG=zh_TW.UTF-8`、環境 `LANG=C.UTF-8` → `zh-TW`（系統設定優先於環境）；`/etc/default/locale` 不存在、`LANG=zh_HK.UTF-8` → `zh-TW`；`LANG=zh_CN.UTF-8`、`th_TH.UTF-8`、`vi_VN.UTF-8`、`C`、未設 → `en`；`--lang fr` → exit 1。
@@ -567,7 +583,7 @@
     1. `fresh-install`（AC-02）：`sudo FORMWRIGHT_PACKAGE=<e2e.1> bash installer/linux/install.sh | tee out.txt`；斷言 `systemctl is-active formwright` 是 `active`、`is-enabled` 是 `enabled`、`stat -c %U /var/lib/formwright/data` 是 `formwright`、`out.txt` 有 `http://` 開頭的網址與 `FORMWRIGHT_SETUP_CODE=`、`ss -ltn` 有 `0.0.0.0:8080`。
     2. `backup-red`（AC-05 API）：`chmod 0500` 備份目錄（擁有者改 root）→ `checks` 的 `backupDirectory.ok == false`；改回。
     3. `wizard`（AC-03、04、10）：`wizard.sh http://127.0.0.1:8080 <碼> /var/lib/formwright/backup`。
-    4. `upgrade`（AC-06）：`install.sh` 換 `e2e.2` → exit 0；`/api/version` 是 `0.0.1-e2e.2`；`wizard.sh verify-kept` 記錄還在、備份份數比升級前多 1。
+    4. `upgrade`（AC-06）：先 `wizard.sh backups` 等精靈完成後的第一份排程備份（`BackupPlan.cs:39-40` 的 `first`）跑完，記下清單與升級開始的時間；`install.sh` 換 `e2e.2` → exit 0；`/api/version` 是 `0.0.1-e2e.2`；`wizard.sh verify-kept` 記錄還在；`wizard.sh backups` 比升級前多出一份 `Manual`、沒有申請人、成功、建立時間晚於升級開始的時間（同 docker 第 2 步，不用總份數斷言：排程備份還在排隊時 `--backup-now` 會接手它，還在執行時會等它跑完再排自己的一份，份數可能 +1 或 +2）。
     5. `upgrade-backup-fails`（AC-07、D-20）：備份目錄 `chown root && chmod 0500` → `install.sh` 換 `e2e.3`（runner 的 `LANG` 是 `C.UTF-8`，訊息是英文）exit 20、輸出含 `Pre-upgrade backup failed`；同樣條件再跑一次 `install.sh --lang zh-TW` exit 20、輸出含「升級前備份失敗」；`systemctl is-active` 是 `active`；`/api/version` 仍是 `0.0.1-e2e.2`；改回權限。
     6. `remove-reinstall`（AC-08）：`install.sh remove` → unit 不在、`/opt/formwright` 不在、`/var/lib/formwright/data` 還在；`install.sh`（`e2e.2`）→ exit 0、輸出沒有 `FORMWRIGHT_SETUP_CODE`、`systemctl is-enabled` 是 `enabled`、`/api/setup/status` 404、原密碼登入成功、記錄還在。
     7. `config-lost-existing-data`（AC-13、D-16）：記下 `sha256sum /var/lib/formwright/data/formwright.db`；`sudo rm /etc/formwright/formwright.json` → `install.sh`（`e2e.2`）exit 0、輸出有新的 `FORMWRIGHT_SETUP_CODE=`；`wizard.sh checks` 的 `database.ok == false`、`problem == "existingData"`、`params.configFile == "/etc/formwright/formwright.json"`、整體 `ok == false`；`wizard.sh complete-expect <url> <碼> 422`，回應的 `checks` 裡同樣是 `existingData`；資料庫檔的 sha256 不變。
@@ -604,6 +620,7 @@
     - 1 → `sc start Formwright`、回傳錯誤字串「升級前備份失敗，升級已中止，舊版照常執行」（Inno 顯示後中止）。
     - 2 → 這時已不能回到自訂頁面，改用 `SuppressibleMsgBox`（`mbConfirmation`、`MB_YESNO`、預設按鈕「否」）：「備份位置沒有設定，升級前無法備份。要略過備份繼續升級嗎？」；選「否」或靜默模式沒給 `/SKIPBACKUP` → `sc start` 並回傳中止字串；選「是」或有 `/SKIPBACKUP` → 繼續。
     - 0 → 繼續。
+    - 其他結束碼（程序崩潰、.NET 未處理例外），或 `Exec` 本身回 false（程式檔不存在、啟動不了）→ 照 1 處理：`sc start Formwright`、回傳同一句中止字串；`/SKIPBACKUP` 不略過這種情況。
   - 檔案：`{app}` 放 self-contained 發佈結果（含 `wwwroot`）。
   - `ssPostInstall`，依序（先建服務：`NT SERVICE\Formwright` 這個虛擬帳戶要服務存在後 `icacls` 才解析得到）：
     1. 每次：`sc create Formwright binPath= "\"{app}\DynamicModules.WebAPI.exe\" --Install:ConfigFile=\"{#FwConfigFile}\"" start= auto obj= "NT SERVICE\Formwright"`（已存在就 `sc config` 同樣參數）；`sc failure Formwright reset= 86400 actions= restart/5000/restart/5000/restart/5000`；`sc failureflag Formwright 1`；`sc description`。
@@ -635,7 +652,7 @@
   2. `acl`（TD-04）：`icacls C:\ProgramData\Formwright\data` 的輸出沒有 `BUILTIN\Users`。
   3. `backup-red`（AC-05）：`icacls C:\ProgramData\Formwright\backup /deny "NT SERVICE\Formwright:(OI)(CI)W"` → `checks` 的 `backupDirectory.ok == false`；`icacls /remove:d` 改回。
   4. `wizard`（AC-03、10、04）＋`setup-complete-restarts-service`（Review Focus 1）：`wizard.ps1` 走完；`complete` 之後 60 秒內 `Get-Service` 回到 `Running`、`/api/setup/status` 404、登入成功。這一步失敗先看事件記錄裡 SCM 記的結束碼與失敗復原設定（`sc qfailure Formwright`、`sc qfailureflag Formwright`），再改 Task 5 的 `SetupRestart.Process` 或 Task 13 的服務設定。
-  5. `upgrade`（AC-06）：靜默裝 `e2e.2` → `/api/version` 是新版、記錄還在、備份多一份。
+  5. `upgrade`（AC-06）：先 `wizard.ps1 backups` 等到沒有進行中的備份，記下清單與升級開始的時間；靜默裝 `e2e.2` → `/api/version` 是新版、記錄還在；`wizard.ps1 backups` 比升級前多出一份 `Manual`、沒有申請人、成功、建立時間晚於升級開始的時間（理由同 Task 12 `linux` 第 4 步，不用總份數斷言）。
   6. `upgrade-backup-fails`（AC-07）：升級前備份由安裝程式以系統管理員身分執行，只擋服務帳號擋不住它，所以對 Everyone deny 寫入：`icacls C:\ProgramData\Formwright\backup /deny "*S-1-1-0:(OI)(CI)(W,AD,WD)"`（deny 對 Administrators 也生效）→ 靜默裝 `e2e.3` 結束碼非 0、安裝 log 含 `Pre-upgrade backup failed`（runner 的介面語言是英文，D-20）；同樣條件再裝一次並加 `/LANG=chinesetraditional`，安裝 log 含「升級前備份失敗」；`Get-Service` 是 `Running`、`/api/version` 仍是 `e2e.2`；`icacls … /remove:d "*S-1-1-0"` 改回。交付說明寫明：實際環境中「只有服務帳號寫不進、系統管理員寫得進」的備份目錄，升級前備份會成功，但之後每天的排程備份會失敗並由「備份」檢查告警。
   7. `remove-reinstall`（AC-08）：`& "C:\Program Files\Formwright\unins000.exe" /VERYSILENT` → 服務不在、`C:\ProgramData\Formwright\data` 還在；重裝 `e2e.2` → 不出現精靈（`/api/setup/status` 404）、原密碼登入成功。
   8. `config-lost-existing-data`（AC-13、D-16）：記下 `formwright.db` 的 `Get-FileHash`；刪掉 `C:\ProgramData\Formwright\formwright.json` → 靜默裝 `e2e.2` 結束碼 0（服務在跑也能裝，驗 Task 13 `fresh` 的 `sc stop`）、`C:\ProgramData\Formwright\data\setup-code` 有新碼；`wizard.ps1 checks` 的 `database.problem == "existingData"`；`complete` 回 422；資料庫檔的 hash 不變。
@@ -718,12 +735,16 @@
 
 1. **Spec coverage**：D-01（Task 2 預設 SQLite、Task 4／8 進階 PostgreSQL）、D-02（10、11、13）、D-03（3–5、8）、D-04（13 不簽章、16 SmartScreen）、D-05（1 聽 0.0.0.0、10 ufw、13 防火牆）、D-06（9 單一來源、2 衍生路徑）、D-07（9、10 `--port`、13 連接埠頁）、D-08（2 寫 `Backup:Root`、8 提醒）、D-09（6、10、13）、D-10（10 remove／purge、13 移除頁）、D-11（2、3、5 作廢）、D-12（8 不顯示步驟）、D-13（15）、D-14（2–5）、D-15（17 引 lt1）、D-16（4 `existingData`、8 恢復文案、12 `config-lost-existing-data`、16 手冊）、D-17（6A 版本偵測與維護模式、8A 維護頁、11 compose 旗標、12 `upgrade-backup-fails`）、D-18（6 與 6A 沿用 `Manual`）、D-19（15 GHCR、11 預設映像）、D-20（10 `install.sh` 雙語、13 Inno 語言偵測、12／14 雙語斷言）；TD-01（1）、TD-02（1、9、11、結束碼 75）、TD-03（1）、TD-04（10、13、14 acl）、TD-05（10 shell、13 Inno）、TD-06（4 pgDump）、TD-07（6、10、13）。AC-01–13 見 Task 17 Step 1。「留給 builder」的文件與官網在 Task 16。
 2. **Step scan**：每個測試步驟寫了測試名與斷言值；實作步驟給簽章、鍵名、結束碼與檔名。修正：原把「容器自動初始化」放在 Task 3，Task 2 的 `Container_InitIfMissing_ThenSetupMode` 要等設定模式，改成 Task 2 先寫測試並 Skip、Task 3 拿掉；`InstallConfigWriter` 原在 Task 5 才建，但 Task 2 就要寫設定檔，改成 Task 2 建、Task 5 沿用。
-3. **Type consistency**：`InstallConfig.*Key`、`SetupCode.Ensure/Read/Delete/Matches`、`SetupHost.RestartExitCode = 75`、`SetupDraft`／`SetupCheckItem`（後端 record 與前端型別欄位同名）、`SetupCompleteBody`、`SetupPayload`、`PreUpgradeBackup.Ok/Failed/NotConfigured = 0/1/2`、`PreUpgradeBackupResult`（`ErrorCode` 沿用既有備份代碼）、`LimitedResponses`（Task 3、6A）、`UpgradeDecision`、`MaintenanceState.Enter(reason, errorCode, previousVersion)`／`MaintenanceReasons` 與前端 `MaintenanceInfo`（Task 6A、7、8A）、`FORMWRIGHT_*` 輸出代碼在 Task 2、6、10、12、13 一致；`install.sh` 結束碼 20／21 只在 Task 10、12 使用。
+3. **Type consistency**：`InstallConfig.*Key`、`SetupCode.Ensure/Read/Delete/Matches`、`SetupHost.RestartExitCode = 75`、`SetupDraft`／`SetupCheckItem`（後端 record 與前端型別欄位同名）、`SetupCompleteBody`、`SetupPayload`、`PreUpgradeBackup.Ok/Failed/NotConfigured = 0/1/2`、`PreUpgradeBackupResult`（`ErrorCode` 沿用既有備份代碼，例外與卡住一律 `unexpected`）、`PreUpgradeBackup.MaxWait`／`MaxQueuedTicks`、`LimitedResponses`（Task 3、6A）、`UpgradeDecision`、`MaintenanceGatedHostedService<T>(T inner, MaintenanceState state)`（Task 6A 與 `TestApp.cs:195`）、`setup-api` 的 reject 形狀 `{ status, code }`（同 `ApiError`，Task 7 守衛依它判斷）、`MaintenanceState.Enter(reason, errorCode, previousVersion)`／`MaintenanceReasons` 與前端 `MaintenanceInfo`（Task 6A、7、8A）、`FORMWRIGHT_*` 輸出代碼在 Task 2、6、10、12、13 一致；`install.sh` 結束碼 20／21 只在 Task 10、12 使用。
 4. **Review Focus**：五條都落到 owning task 的測試（1→Task 5＋14、2→Task 3、3→Task 6＋12、4→Task 2／3、5→Task 4／5）。
 5. **Proportion**：計畫只寫簽章、契約、測試名與斷言；設定檔 JSON 是設計沒定、實作者自己定不出來的格式，所以列出。
 6. **計畫審查修正（第 1 輪，同家 subagent）**：Task 6 先解析備份位置、不是 Ok 直接失敗（原本會等 6 小時），已有排隊的一份就接手；Task 10、13 加「設定在、程式不在」的重裝狀態（AC-08）；Task 13 升級前備份的「略過」改成預設「否」的 MsgBox；Task 14 的 AC-07 改對 Everyone deny；Task 5／7 對齊 422 形狀、`SetupDraft` 可省略、`SetupRestart.Process` 直接 `Environment.Exit(75)`、前端加 `isReady`；Task 8 重啟期間 reject 繼續等；Task 11 映像位址由產生腳本寫入、小寫；Task 1 測試給齊暫存路徑、改用 `AddWindowsService`／`AddSystemd`；Task 17 完成日格式與 commit trailer。
 7. **依裁決修正（設計 ff73c051）**：新增 Task 6A（容器啟動時偵測版本、先備份再 migration、失敗進維護模式）與 Task 8A（維護頁）；Task 4、8 的 `existingData` 改為定案並寫恢復方式（AC-13）；Task 7 加維護 API 與導頁；Task 10 `install.sh` 改繁中＋英文；Task 11 compose 加 `Install__BackupBeforeUpgrade`；Task 12 加 AC-12、AC-13 與雙語斷言；Task 13、14 依 D-20 調整語言；Task 15 依 D-19；Task 16、17 補文件與證據。
 8. **計畫審查修正（第 3 輪，定點）**：Task 6A 的 Files 加 `TestApp.cs:195`（包裝後 flusher 移除條件會失效），防回歸加 `Ops.IncidentTests`；Task 13 的 `fresh` 也先 `sc stop`（AC-13 在 Windows 的情境）、Task 14 加 `config-lost-existing-data`；Task 6 的 `ErrorCode` 改用既有備份代碼、Task 8A 用既有的 `ops.backup.error.*` 句子顯示原因。建議類採納：維護分支用終端 middleware 並 `SetEndpoint(null)`、照 D-17 只在版本較新時備份（新增 `Downgrade`）、備份期間記 log 並寫進文件、`backupNotConfigured` 另給處理方式、compose 旗標移出標記區塊、維護測試不補示範人員並驗沒寫資料庫、補 `ReadMarker` 與 `Enter` 簽章、Task 4 三條測試、守衛互導、Inno 語言比對核對、docker 備份斷言避開排程備份、`wizard.sh` 子命令、保留天數改引政策鍵。
+9. **計畫審查修正（第 4 輪，定點）**：
+   - 必修：Task 6、6A 的測試主機改用記憶體資料庫（`fileDatabase: true` 的暫存 `Backup:Root` 一律被判重疊，`BackupTests.cs:27`），主機啟動前以 `SqliteConnection` 改庫、重啟用 `sharedConnectionString`；Task 8、8A 照 D-20 加 `LocaleSwitcher`（主控裁決），`startup.ts` 離線分支載入內建文字並加進 Task 8 的 Files；`PreUpgradeBackup.ExecuteAsync` 接住例外回 `1`／`unexpected`、連續 `MaxQueuedTicks` 輪仍排隊就提早失敗；`AddMaintenanceGatedHostedService<T>` 寫死成型別註冊，加直接斷言取代 `IncidentTests`。
+   - 建議全採納：維護分支靜態檔改用 `WebRootFileProvider` 防路徑穿越；Linux、Windows 升級的備份斷言改成「多一份 `Manual`」；`install.sh`、Inno 把 0／1／2 以外的結束碼照 1 處理；表名 `Dynamic_AppUser`；`UpgradeGuardTests` 進 PostgreSQL 雙跑集、raw SQL 識別字加雙引號；維護頁未知代碼只顯示一次；只差 build metadata 判 `SameVersion`；`setup-api` reject 成 `{ status, code }`。
+   - 新增測試：Task 6 `BackupNow_RepositoryThrows_Is1`、`BackupNow_StuckQueued_FailsEarly`；Task 6A `BuildMetadataOnly_IsSameVersion`、`Upgrade_BackupThrows_EntersMaintenance`、`Maintenance_StaticFile_NoPathTraversal`、`Maintenance_GatedHostedServicesRegistered`；Task 7 `reject shape matches ApiError`；Task 8 `locale switcher present (D-20)`、`startup.vitest.spec.ts` 的 `OptionsFail_StoredLocale_LoadsBuiltinText`；Task 8A `locale switcher present (D-20)`；Task 10 `backup_exit_to_action` 的 134／255 案例。
 
 ## 已裁決
 
@@ -736,5 +757,5 @@
 5. **Docker 升級前備份**：容器啟動時偵測到映像版本變了就先備份、成功才 migration；失敗不升級、只顯示維護頁。出處：設計 D-17、AC-12。落點：Task 6、6A、7、8A、11、12、16、17。
 6. **升級前備份的種類**：沿用「立即備份」（`Manual`、保留 7 天、不占排程份數）。出處：設計 D-18。落點：Global Constraints、Task 6、6A。
 7. **產品映像**：發版時推公開的 `ghcr.io/kerryhuang/formwright`（版號與 `latest`），只在手動打 tag 時發佈。出處：設計 D-19。落點：Task 11、15、17。
-8. **安裝程式與腳本的語言**：Windows 安裝程式與 `install.sh` 都做繁中＋英文，依系統語言選，其他語言英文；精靈照產品四語。出處：設計 D-20。落點：Global Constraints、Task 10、12、13、14、16。
+8. **安裝程式與腳本的語言**：Windows 安裝程式與 `install.sh` 都做繁中＋英文，依系統語言選，其他語言英文；精靈照產品四語。出處：設計 D-20。落點：Global Constraints、Task 10、12、13、14、16。精靈頁與維護頁放語系切換元件、離線時也載入內建語系文字，是 D-20「精靈照產品四語」的直接落實（主控裁決，第 4 輪必修 2），落點 Task 8、8A。
 9. **第一個 release tag**：in1e 合併後由使用者手動打 `v0.1.0`。出處：主控裁決（使用者）。落點：Task 15、17。
