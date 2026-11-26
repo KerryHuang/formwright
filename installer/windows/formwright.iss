@@ -4,9 +4,11 @@
 ; 不簽章（D-04）、只內網（D-05）、解除安裝預設保留資料（D-10）。
 ; 靜默參數：/SKIPBACKUP（備份位置沒設時略過升級前備份）、/DELETEDATA（解除安裝時一併刪資料）、/PORT=<n>（全新安裝的連接埠）、
 ; /FIREWALLSCOPE=<遠端位址範圍>（防火牆允許的來源，localsubnet 或位址、CIDR、範圍，逗號分隔；沒給就沿用上次安裝的值，再沒有就用 install-defaults.json 的 firewallRemoteIp）。
-; 權限（set-acl.ps1）：先鎖父目錄，再由上而下逐項重設子項（icacls 不帶 /T：/T 即使加 /L 仍會走進 junction），目錄重設後才列它的子項，
-; 遇連結一律中止、不碰連結後面的東西；最後以預期集合逐項驗證。
-; 結束碼：0 成功；20 安裝後步驟失敗（服務、權限、初始化、防火牆、啟動，已記進安裝 log）；其餘見 Inno Setup「Setup Exit Codes」。
+; 權限（set-acl.ps1）：寫入之前先對整棵既有目錄樹做唯讀預檢（不是 reparse point、擁有者可信、DACL 存在、沒有 SYSTEM／Administrators／服務帳號以外的寫入授權、
+; 檔案的硬連結數為 1），不可信就拒絕（結束碼 20、服務停用，訊息指向安裝 log）；通過才鎖父目錄、由上而下逐項重設並以預期集合回讀驗證。
+; 為何預檢通過就安全：沒有管理員、SYSTEM、服務帳號以外的帳號對樹內任何項目有寫入權，所以沒有人能事先持有「ACL 重設後仍有效」的寫入 handle，
+; 事後也換不了連結；跑 set-acl 時服務已確認停止（下方 ApplyAcl 檢查，沒停就不跑）；多名稱（硬連結）的檔案被拒，重設不會改到樹外的同一個檔案。
+; 結束碼：0 成功；20 安裝後步驟失敗（服務、權限、資料目錄不可信、初始化、防火牆、啟動，已記進安裝 log）；其餘見 Inno Setup「Setup Exit Codes」。
 
 ; 本檔與 ChineseTraditional.isl 是不帶 BOM 的 UTF-8，Inno Setup 6.3 起才支援
 #if Ver < EncodeVer(6, 3, 0)
@@ -92,6 +94,7 @@ english.BackupNotConfiguredNotRestored=No backup location is configured, so the 
 english.FirewallScopeInvalid=/FIREWALLSCOPE may contain only letters, digits and . : / , - (a netsh remoteip value such as localsubnet or 192.0.2.0/24,198.51.100.0/24).
 english.ServiceMaybeDisabled=The Formwright service may be left disabled or stopped. Set it back and start it manually: sc config Formwright start= auto, then sc start Formwright.
 english.StepFailedNotStopped=Setup did not complete: %1 failed (exit code %2), and the Formwright service could not be fully stopped and disabled (it may still be running or may restart). Stop and disable it manually (sc config Formwright start= disabled, then sc stop Formwright), fix the problem, then run the installer again (it enables the service again); details are in the setup log.
+english.AclUntrusted=Setup did not complete: the data directory contains permissions or links that do not belong to Formwright (details are in the setup log), so for safety the installer did not touch them. The Formwright service was stopped and disabled. Ask an administrator to check or remove that item, then run the installer again (it enables the service again).
 english.UninstallStopFailed=Could not stop the Formwright service, so nothing was removed. Stop it manually and run the uninstaller again.
 
 chinesetraditional.PortPageTitle=連接埠
@@ -116,6 +119,7 @@ chinesetraditional.BackupNotConfiguredNotRestored=備份位置沒有設定，升
 chinesetraditional.FirewallScopeInvalid=/FIREWALLSCOPE 只能含英文字母、數字與 . : / , -（netsh remoteip 的值，例如 localsubnet 或 192.0.2.0/24,198.51.100.0/24）。
 chinesetraditional.ServiceMaybeDisabled=Formwright 服務可能停在停用或停止狀態。請手動改回並啟動：sc config Formwright start= auto，再 sc start Formwright。
 chinesetraditional.StepFailedNotStopped=安裝沒有完成：「%1」失敗（結束碼 %2），而且 Formwright 服務沒能完整停止並停用（可能仍在執行或會自動重啟）。請手動停用並停止（sc config Formwright start= disabled，再 sc stop Formwright），排除問題後重新執行安裝程式（會重新啟用服務），詳情在安裝 log。
+chinesetraditional.AclUntrusted=安裝沒有完成：資料目錄裡有不屬於 Formwright 的權限或連結（詳情見安裝 log），為安全起見安裝程式不處理。Formwright 服務已停止並停用。請系統管理員檢查或移除該項目後重新執行安裝程式（會重新啟用服務）。
 chinesetraditional.UninstallStopFailed=服務停不下來，所以沒有移除任何東西。請手動停止後重新執行解除安裝。
 
 [Code]
@@ -365,16 +369,22 @@ end;
 
 // 安裝後步驟失敗：記 log、（非靜默）顯示、讓安裝程式以 ExitStepFailed 結束（GetCustomSetupExitCode）。只記第一個。
 // 服務停用並停止（共用 QuiesceService，確認 STOPPED），不讓 SCM 的失敗復原讓它無限重啟；處置失敗也維持結束碼 20，訊息照實際狀態。
-procedure FailStep(const What: String; Rc: Integer);
+// OkKey 是服務已確實停用並停止時用的訊息（參數 %1 步驟、%2 結束碼）。
+procedure FailStepWith(const OkKey, What: String; Rc: Integer);
 begin
   if PostInstallError <> '' then Exit;
   ServiceDeliberatelyDisabled := True;
   if QuiesceService then
-    PostInstallError := FmtMessage(CustomMessage('StepFailed'), [What, IntToStr(Rc)])
+    PostInstallError := FmtMessage(CustomMessage(OkKey), [What, IntToStr(Rc)])
   else
     PostInstallError := FmtMessage(CustomMessage('StepFailedNotStopped'), [What, IntToStr(Rc)]);
   Log('FAILED: ' + PostInstallError);
   SuppressibleMsgBox(PostInstallError, mbError, MB_OK, IDOK);
+end;
+
+procedure FailStep(const What: String; Rc: Integer);
+begin
+  FailStepWith('StepFailed', What, Rc);
 end;
 
 // 只有安裝完成才會被呼叫；回非 0 就以該碼結束
@@ -424,11 +434,36 @@ begin
   Result := True;
 end;
 
-// 每次安裝都重建資料父目錄的權限（M02）：先鎖父目錄、再處理子項，不跟隨 reparse point
-function ApplyAcl: Boolean;
+// 服務已確認停止（或根本不存在）才回 True；跑 set-acl 的前提
+function ServiceStoppedOrAbsent: Boolean;
+var
+  Exists: Boolean;
 begin
-  Result := StepOk('set permissions (set-acl.ps1)', RunHelper('set-acl.ps1',
-    '-Parent "' + ExtractFileDir('{#FwConfigFile}') + '" -Data "{#FwDataDir}" -Backup "{#FwBackupDir}" -Config "{#FwConfigFile}"'));
+  Result := False;
+  if not QueryService(Exists) then Exit;
+  Result := (not Exists) or ServiceInState('STOPPED');
+end;
+
+// 每次安裝都重建資料父目錄的權限（M02）：先唯讀預檢整棵樹（不可信＝結束碼 2、什麼都沒改），通過才鎖父目錄、逐項重設、回讀驗證。
+// 沒有確認服務已停止就不跑（預檢通過的安全論證以此為前提）。
+function ApplyAcl: Boolean;
+var
+  Rc: Integer;
+begin
+  Result := False;
+  if not ServiceStoppedOrAbsent then
+  begin
+    FailStep('set permissions (the service is not stopped)', -1);
+    Exit;
+  end;
+  Rc := RunHelper('set-acl.ps1',
+    '-Parent "' + ExtractFileDir('{#FwConfigFile}') + '" -Data "{#FwDataDir}" -Backup "{#FwBackupDir}" -Config "{#FwConfigFile}"');
+  if Rc = 0 then
+    Result := True
+  else if Rc = 2 then
+    FailStepWith('AclUntrusted', 'data directory trust check (untrusted permission, owner or link; see the setup log)', Rc)
+  else
+    FailStep('set permissions (set-acl.ps1)', Rc);
 end;
 
 // 防火牆規則（M06）：每次安裝都先刪掉所有名為 Formwright 的規則（確認刪乾淨）再新增，並回讀範圍、程式、連接埠
@@ -588,15 +623,12 @@ begin
     Result := Cancelled(CustomMessage('PortInvalid'));
     Exit;
   end;
-  if (InstallState = 'fresh') or (InstallState = 'upgrade') then
+  // 三種狀態都先停用再停止，確認 STOPPED 才往下；停不下來不備份、不覆蓋程式（M03）。reinstall 也要停：後面的 set-acl 以服務已停止為前提
+  if not QuiesceService then
   begin
-    // 先停用再停止，確認 STOPPED 才往下；停不下來不備份、不覆蓋程式（M03）
-    if not QuiesceService then
-    begin
-      Result := Cancelled(CustomMessage('StopFailed'));
-      if ServiceDisabled then Result := Result + ' ' + CustomMessage('ServiceMaybeDisabled');
-      Exit;
-    end;
+    Result := Cancelled(CustomMessage('StopFailed'));
+    if ServiceDisabled then Result := Result + ' ' + CustomMessage('ServiceMaybeDisabled');
+    Exit;
   end;
   if InstallState <> 'upgrade' then Exit;
 
