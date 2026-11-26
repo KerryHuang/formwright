@@ -18,10 +18,6 @@ public class ReportDefinitionValidator(
     public Task<(ReportDefinition? Definition, ServiceResult? Failure)> ValidateAsync(ReportDefinition definition, CancellationToken ct) =>
         ValidateCoreAsync(false, null, null, definition, ct);
 
-    /// <summary>字串名稱＝只有繁中（應用程式套件的報表名稱，套件格式 8 以前只收字串；段 i3c 改多語後移除）。null 表示不檢查名稱。</summary>
-    public Task<(ReportDefinition? Definition, ServiceResult? Failure)> ValidateAsync(string? name, ReportDefinition definition, CancellationToken ct) =>
-        ValidateCoreAsync(name is not null, name is null ? null : I18nNameRules.ZhOnly(name), null, definition, ct);
-
     /// <param name="stored">修改前的名稱（新增傳 null），沒改就不檢查新增的必填語系。</param>
     public Task<(ReportDefinition? Definition, ServiceResult? Failure)> ValidateAsync(
         I18nText? name, I18nText? stored, ReportDefinition definition, CancellationToken ct) =>

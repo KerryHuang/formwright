@@ -18,13 +18,18 @@
   ],
   "properties": {
     "format": { "const": "formwright-app" },
-    "formatVersion": { "enum": [2, 3, 4, 5, 6, 7, 8, 9] },
+    "formatVersion": { "enum": [2, 3, 4, 5, 6, 7, 8, 9, 10] },
     "manifest": { "$ref": "#/$defs/manifest" },
     "groups": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/group" } },
-    "modules": { "type": "array", "minItems": 1, "maxItems": 30 },
+    "modules": { "type": "array", "minItems": 1, "maxItems": 30, "items": {
+      "type": "object",
+      "properties": {
+        "section": { "oneOf": [{ "type": "string", "maxLength": 100 }, { "$ref": "#/$defs/sectionI18n" }] },
+        "blocks": { "type": "array", "items": { "type": "object", "properties": { "fields": { "type": "array", "items": { "$ref": "#/$defs/field" } } } } }
+      } } },
     "fieldAccess": { "type": "array", "maxItems": 2000 },
     "optionScopes": { "type": "array", "maxItems": 2000 },
-    "reports": { "type": "array", "maxItems": 50 },
+    "reports": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/report" } },
     "dashboards": { "type": "array", "maxItems": 0 },
     "workflows": { "type": "array", "maxItems": 30 },
     "conversions": { "type": "array", "maxItems": 50 },
@@ -33,18 +38,62 @@
     "ledgers": { "type": "array", "maxItems": 30 },
     "printTemplates": { "type": "array", "maxItems": 100 },
     "integrations": { "type": "array", "maxItems": 20 },
-    "contributions": { "type": "array", "maxItems": 20 },
+    "contributions": { "type": "array", "maxItems": 20, "items": { "type": "object", "properties": { "fields": { "type": "array", "items": { "$ref": "#/$defs/field" } } } } },
     "taskRules": { "type": "array" },
     "approvalFlows": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/approvalFlow" } }
   },
   "$defs": {
     "code": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9_]{0,39}$" },
     "appId": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,39}$" },
+    "localeCode": {
+      "description": "語系代碼的正規形式（語言[-文字][-地區]，語系包設計 §4.1）。格式 2–9 實際只收 zh-TW、en-US、th、vi，由伺服器依 formatVersion 檢查；格式 10 起只驗這個格式（名稱多語設計 §8）。",
+      "type": "string",
+      "maxLength": 35,
+      "pattern": "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?$"
+    },
     "i18n": {
       "type": "object",
       "required": ["zh-TW"],
-      "propertyNames": { "enum": ["zh-TW", "en-US", "th", "vi"] },
+      "maxProperties": 30,
+      "propertyNames": { "$ref": "#/$defs/localeCode" },
       "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 200 }
+    },
+    "sectionI18n": {
+      "description": "選單分區：有任何非空值時 zh-TW 必填（伺服器檢查）；空字串的語系開啟時丟掉。",
+      "type": "object",
+      "maxProperties": 30,
+      "propertyNames": { "$ref": "#/$defs/localeCode" },
+      "additionalProperties": { "type": "string", "maxLength": 100 }
+    },
+    "report": {
+      "description": "報表。name 是字串（＝只有繁中）或多語物件；格式 10 才收繁中以外的語系（伺服器檢查）。definition 的形狀由伺服器驗證。",
+      "type": "object",
+      "required": ["code", "name", "definition"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "$ref": "#/$defs/code" },
+        "name": { "oneOf": [
+          { "type": "string", "minLength": 1, "maxLength": 100 },
+          { "type": "object", "required": ["zh-TW"], "maxProperties": 30, "propertyNames": { "$ref": "#/$defs/localeCode" },
+            "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 100 } } ] },
+        "shareWith": { "type": "array", "items": { "$ref": "#/$defs/code" } },
+        "definition": { "type": "object" }
+      }
+    },
+    "field": {
+      "description": "模組與貢獻的欄位。config 的形狀由伺服器驗證。excludeFromAi 是格式 10 的「不提供給 AI」旗標（省略＝false；格式 9 以下帶了整份拒絕，伺服器檢查）。",
+      "type": "object",
+      "required": ["code", "type", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "$ref": "#/$defs/code" },
+        "type": { "type": "string" },
+        "label": { "$ref": "#/$defs/i18n" },
+        "config": { "type": "object" },
+        "options": { "type": "array", "items": { "type": "object" } },
+        "active": { "type": "boolean" },
+        "excludeFromAi": { "type": "boolean" }
+      }
     },
     "manifest": {
       "type": "object",
@@ -191,7 +240,7 @@
       "additionalProperties": false,
       "properties": {
         "title": { "$ref": "#/$defs/i18n" },
-        "body": { "type": "object", "propertyNames": { "enum": ["zh-TW", "en-US", "th", "vi"] }, "additionalProperties": { "type": "string", "maxLength": 1000 } }
+        "body": { "type": "object", "propertyNames": { "$ref": "#/$defs/localeCode" }, "additionalProperties": { "type": "string", "maxLength": 1000 } }
       }
     }
   }

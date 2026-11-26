@@ -1,3 +1,4 @@
+using DynamicModules.Application.Common;
 using System.Text.Encodings.Web;
 using ClosedXML.Excel;
 using System.Text.Json;
@@ -548,7 +549,7 @@ public class TaskReportRunnerTests : TaskTestBase
     private async Task<long> SaveReport(ReportDefinition d, string owner)
     {
         As(owner);
-        var created = await Send(new CreateReportRequest("任務報表", d));
+        var created = await Send(new CreateReportRequest(I18nNameRules.ZhOnly("任務報表"), d));
         As("admin");
         created.IsCreated.Should().BeTrue(created.Message);
         return ((ReportDetail)created.Data!).Id;
@@ -706,7 +707,7 @@ public class TaskReportRunnerTests : TaskTestBase
         await SeedTask("業務一的另一件", createdBy: "admin", assignee: "sales01");
         await SeedTask("業務二的", createdBy: "admin", assignee: "sales02");
         As("admin");
-        var created = await Send(new CreateReportRequest("任務件數", TaskDef([M("n", "countMain")])));
+        var created = await Send(new CreateReportRequest(I18nNameRules.ZhOnly("任務件數"), TaskDef([M("n", "countMain")])));
         created.IsCreated.Should().BeTrue(created.Message);
         var id = ((ReportDetail)created.Data!).Id;
         var salesGroup = await Db.Context.Set<PermissionGroup>().Where(g => g.Key == "sales").Select(g => g.Id).SingleAsync();

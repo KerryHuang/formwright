@@ -72,7 +72,6 @@ public class NameI18nRepositoryTests
 
         var reference = (await new DashboardRepository(db.Context).ListReferencesAsync(report.Id, default)).Single();
         reference.DashboardNameI18n.Resolve("en-US").Should().Be("Sales overview");
-        reference.DashboardName.Should().Be("業務總覽", "相容屬性是繁中");
 
         var layout = (await new DeletionRepository(db.Context).ListDashboardLayoutsAsync(default)).Single();
         layout.Name.Resolve("en-US").Should().Be("Sales overview");

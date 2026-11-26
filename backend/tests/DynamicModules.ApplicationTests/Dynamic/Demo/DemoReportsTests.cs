@@ -37,8 +37,8 @@ public class DemoReportsTests(DemoGeneratedFixture fx)
         var reports = await StoredReports();
         var groups = await fx.Host.Db.Context.Set<PermissionGroup>().AsNoTracking().ToDictionaryAsync(g => g.Id, g => g.Key);
         // 示範報表之外，再加上三個內建套件自帶的報表
-        var packageReports = fx.Host.Services.GetRequiredService<AppCatalog>().BuiltIns.SelectMany(p => p.Reports ?? []).Select(r => r.Name);
-        reports.Select(r => r.Name).Should().BeEquivalentTo([.. DemoReports.Names, .. packageReports]);
+        var packageReports = fx.Host.Services.GetRequiredService<AppCatalog>().BuiltIns.SelectMany(p => p.Reports ?? []).Select(r => r.Name.Resolve("zh-TW"));
+        reports.Select(r => r.NameI18n.Resolve("zh-TW")).Should().BeEquivalentTo([.. DemoReports.Names, .. packageReports]);
         DemoReports.All.GroupBy(s => s.GroupKeys[0]).Should().OnlyContain(g => g.Count() >= 2);
 
         foreach (var spec in DemoReports.All)
@@ -69,7 +69,7 @@ public class DemoReportsTests(DemoGeneratedFixture fx)
     {
         // 設備的標題樣板是 {no} {name}：報表的分組標籤是「編號 名稱」
         fx.Generated();
-        var report = (await StoredReports()).Single(r => r.Name == "近 180 天各設備保養費用");
+        var report = (await StoredReports()).Single(r => r.NameI18n.Resolve("zh-TW") == "近 180 天各設備保養費用");
         var run = (ReportResult)(await fx.As("maint01", new RunReportRequest(report.Id, null, "zh-TW"))).Data!;
         run.State.Should().Be("ok");
         var labels = run.Groups!.Select(g => g.GroupLabels.Single()).ToList();
@@ -80,7 +80,7 @@ public class DemoReportsTests(DemoGeneratedFixture fx)
     public async Task FloorStaff_OpenAmountReport_SeesRestricted()
     {
         fx.Generated();
-        var report = (await StoredReports()).Single(r => r.Name == "近 90 天各客戶訂單金額");
+        var report = (await StoredReports()).Single(r => r.NameI18n.Resolve("zh-TW") == "近 90 天各客戶訂單金額");
         var groups = await fx.Host.Db.Context.Set<PermissionGroup>().AsNoTracking().ToDictionaryAsync(g => g.Id, g => g.Key);
         report.Shares.Select(s => groups[s.GroupId]).Should().Contain("floor");
 
@@ -105,7 +105,7 @@ public class DemoReportsTests(DemoGeneratedFixture fx)
     public async Task SalesOne_vs_SalesManager_SameReport_DifferentNumbers()
     {
         fx.Generated();
-        var report = (await StoredReports()).Single(r => r.Name == "近 90 天訂單狀態分布");
+        var report = (await StoredReports()).Single(r => r.NameI18n.Resolve("zh-TW") == "近 90 天訂單狀態分布");
 
         async Task<ReportResult> RunAs(string user) =>
             (ReportResult)(await fx.As(user, new RunReportRequest(report.Id, null, "zh-TW"))).Data!;
@@ -219,7 +219,7 @@ internal static class DemoReportsAfter120Days
         var host = demoLogin ? await DemoTestHost.CreateAsync(configure: Configure) : await DemoSnapshot.CreateHostAsync(configure: Configure);
         await using var _host = host;
         if (demoLogin) (await host.Send(new GenerateDemoDataRequest(DemoTestHost.Today))).IsSuccess.Should().BeTrue();
-        var report = (await host.Db.Context.Set<Report>().AsNoTracking().ToListAsync()).Single(r => r.Name == "近 90 天訂單狀態分布");
+        var report = (await host.Db.Context.Set<Report>().AsNoTracking().ToListAsync()).Single(r => r.NameI18n.Resolve("zh-TW") == "近 90 天訂單狀態分布");
 
         clock.Today = DemoTestHost.Today.AddDays(120);
         using var _ = ActingScope.Begin("manager01");

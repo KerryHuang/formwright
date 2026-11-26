@@ -901,7 +901,7 @@ public sealed class AppUpgrader(
             else reportId = app.Reports.First(r => r.Code == code).ReportId;
             var shares = incoming.ShareWith.Where(groupIds.ContainsKey).Select(g => groupIds[g]).Distinct().ToList();
             if (incoming.ShareWith.Count > shares.Count && (current is null || props.Contains("shareWith")))
-                warnings.Add($"報表「{report.Name}」有分享群組沒有對應，已略過");
+                warnings.Add($"報表「{report.Name.Resolve(I18nText.FallbackLocale)}」有分享群組沒有對應，已略過");
             if (current is null)
             {
                 if (shares.Count > 0 && Fail(await sender.Send(new SetReportSharesRequest(reportId, shares), ct), item.Id) is { } shareFailure)
@@ -918,15 +918,16 @@ public sealed class AppUpgrader(
     /// 定義照樣走報表驗證，擁有者不變（§9.4、審查 M3）。
     /// </summary>
     private async Task<ServiceResult?> UpdateExistingReportAsync(
-        long reportId, string itemId, string name, ReportDefinition definition, IReadOnlySet<string> props, List<long> shares, CancellationToken ct)
+        long reportId, string itemId, I18nText name, ReportDefinition definition, IReadOnlySet<string> props, List<long> shares, CancellationToken ct)
     {
         var entity = await reports.GetAsync(reportId, ct);
         if (entity is null) return ServiceResult.NotFound($"{itemId}：{ReportRules.ReportNotFound}");
         if (props.Any(p => p != "shareWith"))
         {
-            var (valid, failure) = await reportValidator.ValidateAsync(name, definition, ct);
+            // 名稱是以現況為底、逐語系換成新版（Merge）：客戶自己補的譯名保留；套件文字只要求繁中（PackageTextScope）
+            var (valid, failure) = await reportValidator.ValidateAsync(name, entity.NameI18n, definition, ct);
             if (valid is null) return Fail(failure!, itemId);
-            entity.Name = name.Trim();
+            entity.NameI18n = name.Compacted();
             entity.DefinitionJson = ReportDefinition.Serialize(valid);
         }
         if (props.Contains("shareWith"))

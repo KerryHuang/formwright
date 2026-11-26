@@ -477,9 +477,9 @@ public class AppFormat8Tests : IDisposable
     }
 
     [Fact]
-    public async Task Import_Format10_Rejected()
+    public async Task Import_Format11_Rejected()
     {
-        var json = Package().Replace("\"formatVersion\": 8", "\"formatVersion\": 10");
+        var json = Package().Replace("\"formatVersion\": 8", "\"formatVersion\": 11");
         var res = await _rig.Admin.PostAsync($"{SharedMasterRig.Apps}/packages/import", new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await res.Content.ReadAsStringAsync()).Should().Contain("較新版本");
@@ -531,7 +531,7 @@ public class AppFormat8Tests : IDisposable
     {
         await ImportOpenAsync();
         var (package, _) = await _rig.ExportAsync(AppId);
-        package.GetProperty("formatVersion").GetInt32().Should().Be(9);
+        package.GetProperty("formatVersion").GetInt32().Should().Be(10);
         var flows = package.GetProperty("approvalFlows").EnumerateArray().ToList();
         flows.Select(f => f.GetProperty("code").GetString()).Should().Equal(Large, Mid);
         var large = flows[0];
@@ -761,7 +761,7 @@ public class AppFormat8Tests : IDisposable
     {
         await ImportOpenAsync(Package(formatVersion: 7));
         var (package, _) = await _rig.ExportAsync(AppId);
-        package.GetProperty("formatVersion").GetInt32().Should().Be(9);
+        package.GetProperty("formatVersion").GetInt32().Should().Be(10);
         if (package.TryGetProperty("approvalFlows", out var flows)) flows.EnumerateArray().Should().BeEmpty();
         JsonNode.Parse(package.GetRawText())!["workflows"]![0]!["transitions"]!.AsArray()
             .Should().OnlyContain(t => t!["approval"] == null);

@@ -1,3 +1,4 @@
+using DynamicModules.Application.Common;
 using System.Text.Json;
 using DynamicModules.Application.Dynamic.ReportService;
 using DynamicModules.Application.Dynamic.TaskService;
@@ -304,7 +305,7 @@ public class TaskReportSourceTests : TaskTestBase
     {
         As(user);
         using var scope = NewScope();
-        var result = await scope.ServiceProvider.GetRequiredService<ReportDefinitionValidator>().ValidateAsync("報表", d, default);
+        var result = await scope.ServiceProvider.GetRequiredService<ReportDefinitionValidator>().ValidateAsync(I18nNameRules.ZhOnly("報表"), null, d, default);
         As("admin");
         return result;
     }

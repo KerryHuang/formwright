@@ -17,7 +17,7 @@ public static partial class AppPackageValidator
     private static string NodeAt(string at, AppApprovalNode n, int i) =>
         Domain.Approvals.ApprovalCodes.IsValid(n.Id) ? $"{at}.nodes.{n.Id}" : $"{at}.nodes[{i}]";
 
-    private static void GraphStructure(AppApprovalFlow f, string at, List<string> errors)
+    private static void GraphStructure(AppApprovalFlow f, string at, List<string> errors, int version)
     {
         if (f.Nodes is null) { errors.Add($"{at}.nodes: 必填"); return; }
         if (f.Edges is null) { errors.Add($"{at}.edges: 必填"); return; }
@@ -30,7 +30,7 @@ public static partial class AppPackageValidator
             switch (n.Kind)
             {
                 case ApprovalNodeKinds.Approval:
-                    CheckText(n.Name, $"{nat}.name", errors);
+                    CheckText(n.Name, $"{nat}.name", errors, version);
                     if (n.Mode is not (ApprovalModes.All or ApprovalModes.Any)) errors.Add($"{nat}.mode: {ApprovalMessages.ModeInvalid}");
                     if (n.OnEmpty is not (null or ApprovalOnEmpty.Fallback or ApprovalOnEmpty.Skip)) errors.Add($"{nat}.onEmpty: {ApprovalMessages.OnEmptyInvalid}");
                     if (n.DueHours is < 1 || n.DueHours > PolicyCatalog.ApprovalMaxDueHours.Max)
@@ -39,8 +39,8 @@ public static partial class AppPackageValidator
                     else if (SourceStructureError(n.Approvers) is { } se) errors.Add($"{nat}.approvers: {se}");
                     break;
                 case ApprovalNodeKinds.Notify:
-                    CheckText(n.Name, $"{nat}.name", errors);
-                    NotifyStructure(n, nat, errors);
+                    CheckText(n.Name, $"{nat}.name", errors, version);
+                    NotifyStructure(n, nat, errors, version);
                     break;
             }
         }
@@ -61,12 +61,13 @@ public static partial class AppPackageValidator
         var skipped = AppApprovalFlowCodec.WithoutSkippedRecipients(graph, mappedCodes.Contains);
         if (ReferenceEquals(skipped, graph)) return [];
         var errors = new List<string>();
-        GraphStructure(skipped, $"approvalFlows[{f.Code}]", errors);
+        // 文字已在匯入時依套件的格式驗過，這裡只重驗結構：用最寬的格式，不重報語系鍵
+        GraphStructure(skipped, $"approvalFlows[{f.Code}]", errors, AppPackageData.CurrentFormatVersion);
         return errors.Select(e => $"{e}（略過群組後）").ToList();
     }
 
     /// <summary>收件人 1 到技術上限項、只收 group（至少一個群組）、initiator、initiatorManager（層數在技術上限內）；範本標題必填、語法正確。</summary>
-    private static void NotifyStructure(AppApprovalNode n, string nat, List<string> errors)
+    private static void NotifyStructure(AppApprovalNode n, string nat, List<string> errors, int version)
     {
         var recipients = n.Recipients ?? [];
         if (recipients.Count is 0 || recipients.Count > ApprovalGraphLimits.MaxNotifyRecipients)
@@ -87,7 +88,7 @@ public static partial class AppPackageValidator
             if (error is not null) errors.Add($"{nat}.recipients: {error}");
         }
         if (n.Template is null) { errors.Add($"{nat}.template.title: 缺少名稱"); return; }
-        CheckText(n.Template.Title, $"{nat}.template.title", errors);
+        CheckText(n.Template.Title, $"{nat}.template.title", errors, version);
         foreach (var (key, text) in new[] { ("title", n.Template.Title), ("body", n.Template.Body) })
             foreach (var value in text?.Values.Values ?? [])
                 // 欄位佔位符在套件裡寫限定欄位名：先換成數字再交給 Domain 的範本語法

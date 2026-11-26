@@ -41,6 +41,10 @@ public sealed class TemplateInstantiator(
     /// <summary>從範本建立而沒有權限設定時的提示（權限軸設計 M3）；照其他 warnings 寫繁中字面值，四語化不在這段。</summary>
     internal const string PermissionsSkippedWarning = "你沒有「權限設定」權限，已略過範本的權限建議；請洽權限設定者到權限分頁授權";
 
+    /// <summary>從範本建立而沒有權限設定、範本有欄位標「不提供給 AI」時的提示（名稱多語設計 §8.1，同 M3 的精神）；照其他 warnings 寫繁中字面值。</summary>
+    internal static string AiExclusionSkippedWarning(int count) =>
+        $"你沒有「權限設定」權限，已略過範本的「不提供給 AI」設定，共 {count} 個欄位；請洽權限設定者到欄位設定勾選";
+
     private const string ExcludeKey = "excludeFields";
 
     /// <param name="app">應用程式開啟時的額外輸入：群組對應、跨應用程式的模組對應、欄位例外與選項範圍；單模組範本傳 null。</param>
@@ -52,6 +56,10 @@ public sealed class TemplateInstantiator(
         using var packageText = Common.PackageTextScope.Begin();
         var unknownModule = overrides.Keys.FirstOrDefault(c => p.Modules.All(m => m.Code != c));
         if (unknownModule is not null) return Invalid("modules", $"範本沒有模組「{unknownModule}」");
+        // 範本格式 1 不認得 excludeFromAi（匯入時已驗證擋下）；直接給的套件再防一次，不靜默丟掉旗標（名稱多語設計 §8.1）
+        if (p.FormatVersion < TemplatePackage.CurrentFormatVersion
+            && p.Modules.SelectMany(m => m.Blocks).SelectMany(b => b.Fields).FirstOrDefault(f => f.ExcludeFromAi is not null) is { } legacy)
+            return Invalid("template", $"{legacy.Code}.excludeFromAi: 範本格式 {TemplatePackage.CurrentFormatVersion} 才支援");
         var graph = TemplateGraph.Build(p);
         var excludeErrors = CheckExclude(p, graph, exclude);
         if (excludeErrors.Count > 0) return ServiceResult.Invalid(new Dictionary<string, string[]> { [ExcludeKey] = [.. excludeErrors] });
@@ -64,6 +72,18 @@ public sealed class TemplateInstantiator(
         IEnumerable<(TemplateModule M, TemplateBlock B, TemplateField F)> KeptFields() =>
             from m in p.Modules from b in m.Blocks from f in kept[m.Code][b.Code] select (m, b, f);
         ServiceResult? failed;
+        var warnings = new List<string>();
+
+        // 「不提供給 AI」（名稱多語設計 §8.1）：開啟套件照常寫入 true，沒有權限設定時 AddField／UpdateField 回 403、整批回滾（fail closed）；
+        // 從範本建立（不是開啟套件）而沒有權限設定：旗標一律寫 false，加一則提示（權限軸設計 §7.3 的契約，同 M3）
+        var aiFlagged = KeptFields().Count(x => x.F.ExcludeFromAi == true);
+        var writeAiFlags = true;
+        if (app is null && aiFlagged > 0 && await permissionAdmin.CheckAsync(ct) != Common.Security.PermissionAdminCheck.Allowed)
+        {
+            writeAiFlags = false;
+            warnings.Add(AiExclusionSkippedWarning(aiFlagged));
+            audit.Detail("aiExclusionSkipped", aiFlagged);
+        }
 
         // 1. 建模組（不建預設標題欄位）
         var firstBlockColumns = new Dictionary<string, int>();
@@ -118,7 +138,7 @@ public sealed class TemplateInstantiator(
         foreach (var (m, b, f) in KeptFields().Where(x => !IsComputed(x.F)).Concat(computed))
         {
             var r = await sender.Send(new AddFieldRequest(map.Key(m.Code), map.Blocks[$"{m.Code}.{b.Code}"], f.Type, f.Label,
-                map.Config(m.Code, f, withDefaults: false)), ct);
+                map.Config(m.Code, f, withDefaults: false), ExcludeFromAi: writeAiFlags && f.ExcludeFromAi == true), ct);
             if ((failed = Fail(r, m.Code, $"{m.Code}.{f.Code}.")) is not null) return failed;
             var field = (FieldResponse)r.Data!;
             var fieldId = field.Id;
@@ -154,7 +174,7 @@ public sealed class TemplateInstantiator(
             else
             {
                 var r = await sender.Send(new AddFieldRequest(c.ModuleKey, map.Blocks[$"{c.Prefix}.{c.BlockCode}"], f.Type, f.Label,
-                    map.Config(c.Prefix, f, withDefaults: false), MasterBase: c.MasterBase), ct);
+                    map.Config(c.Prefix, f, withDefaults: false), MasterBase: c.MasterBase, ExcludeFromAi: f.ExcludeFromAi == true), ct);
                 if ((failed = Fail(r, c.Prefix, $"contributions.{name}.")) is not null) return failed;
                 var field = (FieldResponse)r.Data!;
                 fieldId = field.Id;
@@ -193,8 +213,9 @@ public sealed class TemplateInstantiator(
             foreach (var f in c.Fields.Where(f => c.ReattachFields.ContainsKey(f.Code)))
             {
                 var name = TemplateGraph.Qualify(c.Prefix, f.Code);
+                // 旗標只加不減：套件標 true 才送（現值已是 true 時 handler 視為沒改），false 或省略送 null，不清掉權限設定者標的 true
                 var r = await sender.Send(new UpdateFieldRequest(map.Fields[name], f.Type, f.Label,
-                    map.Config(c.Prefix, f, withDefaults: true), reattachedBlocks[name]), ct);
+                    map.Config(c.Prefix, f, withDefaults: true), reattachedBlocks[name], ExcludeFromAi: f.ExcludeFromAi == true ? true : null), ct);
                 if ((failed = Fail(r, c.Prefix, $"contributions.{name}.")) is not null) return failed;
             }
 
@@ -241,7 +262,6 @@ public sealed class TemplateInstantiator(
 
         // 10. 權限建議（目標庫沒有的群組略過並警告）。應用程式開啟時群組由 app.GroupIds 解析（代號 → 群組 id），
         //     並一起帶入欄位例外與選項範圍；SaveModulePermissions 是整份取代，所以每個模組只呼叫一次
-        var warnings = new List<string>();
         // 從範本建立（不是開啟套件）而沒有權限設定：整步略過、加一則提示，新模組回到預設沒人有權限（權限軸設計 M3）。
         // 開啟套件不略過：照常送出，沒有權限設定就 403、整批回滾（fail closed）
         if (app is null && p.Modules.Any(m => m.Permissions.Count > 0)

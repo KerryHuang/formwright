@@ -256,7 +256,7 @@ public class SafeDeleteTests : DesignerTestBase
     {
         await NewModule("cust");
         var def = new ReportDefinition(1, "cust", null, [], [], [], [], null, null, [], "table");
-        var report = new Report { OwnerUserId = "admin", Name = "客戶報表", DefinitionJson = ReportDefinition.Serialize(def), RowVersion = "x" };
+        var report = new Report { OwnerUserId = "admin", NameI18n = I18nNameRules.ZhOnly("客戶報表"), DefinitionJson = ReportDefinition.Serialize(def), RowVersion = "x" };
         Ctx.Set<Report>().Add(report);
         await Ctx.SaveForTestsAsync();
 
@@ -467,7 +467,7 @@ public class SafeDeleteTests : DesignerTestBase
     {
         var (name, _) = await CustWithFields();
         var def = new ReportDefinition(1, "cust", null, [new ReportFieldRef("main", name.Id, null)], [], [], [], null, null, [], "table");
-        var report = new Report { OwnerUserId = "admin", Name = "客戶清單", DefinitionJson = ReportDefinition.Serialize(def), RowVersion = "x" };
+        var report = new Report { OwnerUserId = "admin", NameI18n = I18nNameRules.ZhOnly("客戶清單"), DefinitionJson = ReportDefinition.Serialize(def), RowVersion = "x" };
         Ctx.Set<Report>().Add(report);
         await Ctx.SaveForTestsAsync();
         await Deactivate(name.Id);
@@ -482,7 +482,7 @@ public class SafeDeleteTests : DesignerTestBase
         // 欄位只出現在排序鍵（來源:欄位Id:經由欄位Id 的格式），沒有出現在欄、分組、量值或條件
         var def = new ReportDefinition(1, "cust", null, [], [], [new ReportMeasure("n", "countMain", null, null)], [], null, null,
             [new ReportSort($"main:{name.Id}:", true)], "table");
-        var report = new Report { OwnerUserId = "admin", Name = "依名稱排序", DefinitionJson = ReportDefinition.Serialize(def), RowVersion = "x" };
+        var report = new Report { OwnerUserId = "admin", NameI18n = I18nNameRules.ZhOnly("依名稱排序"), DefinitionJson = ReportDefinition.Serialize(def), RowVersion = "x" };
         Ctx.Set<Report>().Add(report);
         await Ctx.SaveForTestsAsync();
         await Deactivate(name.Id);
@@ -500,7 +500,7 @@ public class SafeDeleteTests : DesignerTestBase
         var (name, _) = await CustWithFields();
         var def = new ReportDefinition(1, "cust", null, [], [], [new ReportMeasure("n", "countMain", null, null)], [], null, null,
             [new ReportSort("n", true)], "table");
-        Ctx.Set<Report>().Add(new Report { OwnerUserId = "admin", Name = "依筆數排序", DefinitionJson = ReportDefinition.Serialize(def), RowVersion = "x" });
+        Ctx.Set<Report>().Add(new Report { OwnerUserId = "admin", NameI18n = I18nNameRules.ZhOnly("依筆數排序"), DefinitionJson = ReportDefinition.Serialize(def), RowVersion = "x" });
         await Ctx.SaveForTestsAsync();
         await Deactivate(name.Id);
 

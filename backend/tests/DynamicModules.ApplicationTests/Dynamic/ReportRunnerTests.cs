@@ -1331,14 +1331,14 @@ public class ReportRunnerTests : ReportTestBase
         };
         foreach (var m in bad)
         {
-            var (definition, failure) = await validator.ValidateAsync(null, Def(Shipments, measures: [m]), CancellationToken.None);
+            var (definition, failure) = await validator.ValidateAsync(Def(Shipments, measures: [m]), CancellationToken.None);
             definition.Should().BeNull(m.Kind + (m.Condition is null ? "" : "+條件"));
             failure!.IsInvalid.Should().BeTrue();
             failure.Errors["definition"].Should().Contain(e => e.Contains("量值"));
         }
         var ok = new[] { M("a", "countIf", cond: cond), M("b", "median", MainF(Amount)), M("c", "sum", MainF(Amount), cond), M("d", "avg", ChildF(Qty), cond) };
         foreach (var m in ok)
-            (await validator.ValidateAsync(null, Def(Shipments, measures: [m]), CancellationToken.None)).Failure.Should().BeNull(m.Kind);
+            (await validator.ValidateAsync(Def(Shipments, measures: [m]), CancellationToken.None)).Failure.Should().BeNull(m.Kind);
     }
 
     [Fact]
@@ -1354,7 +1354,7 @@ public class ReportRunnerTests : ReportTestBase
             M("a", "min", MainF(Amount), cond), M("b", "max", MainF(Amount), cond),
             M("c", "countMain", cond: cond), M("d", "countChild", cond: ghost), kept,
         };
-        var (definition, failure) = await validator.ValidateAsync(null, Def(Shipments, measures: [.. measures]), CancellationToken.None);
+        var (definition, failure) = await validator.ValidateAsync(Def(Shipments, measures: [.. measures]), CancellationToken.None);
         failure.Should().BeNull();
         definition!.Measures.Where(m => m.Id is "a" or "b" or "c" or "d").Should().OnlyContain(m => m.Condition == null);
         definition.Measures.Single(m => m.Id == "k").Condition.Should().NotBeNull("sum 的條件照舊保留");
@@ -1395,7 +1395,7 @@ public class ReportRunnerTests : ReportTestBase
         r.Columns.Single().Label.Should().Be("交期＝2026-11-01 筆數");
         r.Total!["c"].Should().Be(1m);
         var (definition, failure) = await Svc<ReportDefinitionValidator>().ValidateAsync(
-            null, Def(measures: [M("c", "countIf", cond: F(MainF(At), "eq", "2026-11-01"))]), CancellationToken.None);
+            Def(measures: [M("c", "countIf", cond: F(MainF(At), "eq", "2026-11-01"))]), CancellationToken.None);
         definition.Should().BeNull();
         failure!.IsInvalid.Should().BeTrue();
     }

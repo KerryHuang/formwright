@@ -62,7 +62,7 @@ public static partial class AppPackageValidator
             else if (ApprovalFlowEditor.ReservedKeys.Contains(f.Code!)) errors.Add($"approvalFlows[{i}].code: {ApprovalMessages.FlowKeyReserved}");
             else if (!codes.Add(f.Code!)) errors.Add($"approvalFlows[{i}].code: 流程代碼重複 {f.Code}");
             var at = FlowAt(f, i);
-            CheckText(f.Name, $"{at}.name", errors);
+            CheckText(f.Name, $"{at}.name", errors, p.FormatVersion);
             if (f.Priority < 0) errors.Add($"{at}.priority: 優先序不能是負數");
             if (f.FallbackApprovers is { } fb)
             {
@@ -75,7 +75,7 @@ public static partial class AppPackageValidator
                 if (f.Shape is null) errors.Add($"{at}.shape: 必填");
                 else if (f.Shape != ApprovalShapes.Graph) errors.Add($"{at}.shape: 格式 9 只支援 graph");
                 if (f.Stages is not null) errors.Add($"{at}.stages: 格式 9 改用 nodes、edges");
-                if (f.Shape == ApprovalShapes.Graph && f.Stages is null) GraphStructure(f, at, errors);
+                if (f.Shape == ApprovalShapes.Graph && f.Stages is null) GraphStructure(f, at, errors, p.FormatVersion);
                 continue;
             }
             if (f.Shape is null) errors.Add($"{at}.shape: 必填");
@@ -93,7 +93,7 @@ public static partial class AppPackageValidator
                 var sat = $"{at}.stages[{s.Code ?? j.ToString()}]";
                 if (!StageCode().IsMatch(s.Code ?? "")) errors.Add($"{sat}.code: {ApprovalMessages.StageCodeInvalid}");
                 else if (!stageCodes.Add(s.Code!)) errors.Add($"{sat}.code: {ApprovalMessages.StageCodeDuplicate}");
-                CheckText(s.Name, $"{sat}.name", errors);
+                CheckText(s.Name, $"{sat}.name", errors, p.FormatVersion);
                 if (s.Mode is not (ApprovalModes.All or ApprovalModes.Any)) errors.Add($"{sat}.mode: {ApprovalMessages.ModeInvalid}");
                 if (s.OnEmpty is not (null or ApprovalOnEmpty.Fallback or ApprovalOnEmpty.Skip)) errors.Add($"{sat}.onEmpty: {ApprovalMessages.OnEmptyInvalid}");
                 if (s.DueHours is < 1 || s.DueHours > PolicyCatalog.ApprovalMaxDueHours.Max)

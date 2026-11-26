@@ -3,6 +3,7 @@ using DynamicModules.Application.Common;
 using DynamicModules.Application.Dynamic.AppService.Data;
 using DynamicModules.Application.Dynamic.ModuleService.Data;
 using DynamicModules.Application.Dynamic.PolicyService;
+using DynamicModules.Application.Dynamic.TemplateService;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.Policies;
 using DynamicModules.Domain.Repositories.Dynamic;
@@ -146,7 +147,29 @@ public sealed partial class AppOpenPlanner(
 
         return new Plan(null, source, finalKeys, requirement.ExternalModuleKeys,
             new OpenPreview(errors, conflicts, hostConflicts, [.. requirement.Missing, .. masters.Missing], suggestions, warnings,
-                masters.Previews, unbound) { ApprovalSubstitutions = substitutions }, mapped, masters.Order);
+                masters.Previews, unbound) { ApprovalSubstitutions = substitutions, AiExcludedFields = AiExcludedFieldsOf(package, knownMasters, body.ExcludeFields.ToHashSet()) },
+            mapped, masters.Order);
+    }
+
+    /// <summary>套件標 excludeFromAi: true、開啟時會寫入旗標的欄位（模組欄位與貢獻欄位，扣掉開啟時排除的；名稱多語設計 §8.1、Q5）。</summary>
+    internal static IReadOnlyList<AiExcludedField> AiExcludedFieldsOf(
+        AppPackageData package, IReadOnlyDictionary<string, AppPackageData> masters, IReadOnlySet<string> excluded)
+    {
+        var result = new List<AiExcludedField>();
+        foreach (var m in package.Modules)
+            foreach (var f in m.Blocks.SelectMany(b => b.Fields).Where(f => f.ExcludeFromAi == true))
+            {
+                var name = TemplateGraph.Qualify(m.Code, f.Code);
+                if (!excluded.Contains(name)) result.Add(new AiExcludedField(name, m.Name, f.Label));
+            }
+        foreach (var c in package.Contributions)
+        {
+            var module = masters.GetValueOrDefault(c.Master)?.Modules.FirstOrDefault(x => x.Code == c.Module)?.Name
+                ?? new I18nText([KeyValuePair.Create(I18nText.FallbackLocale, $"{c.Master}/{c.Module}")]);
+            foreach (var f in c.Fields.Where(f => f.ExcludeFromAi == true))
+                result.Add(new AiExcludedField(TemplateGraph.Qualify($"{c.Master}/{c.Module}", f.Code), module, f.Label));
+        }
+        return result;
     }
 
     private sealed record MasterPlan(List<string> Order, List<MissingDependency> Missing, List<MasterPreview> Previews);

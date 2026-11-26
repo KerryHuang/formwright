@@ -172,14 +172,14 @@ public sealed class AppFlowInstaller(ISender sender, IModuleRepository modules, 
             var (definition, errors) = AppReportCodec.ToDefinition(r.Definition, lookups);
             if (definition is null)
             {
-                warnings.Add($"報表「{r.Name}」引用了被排除的欄位，已略過（{string.Join("；", errors)}）");
+                warnings.Add($"報表「{r.Name.Resolve(I18nText.FallbackLocale)}」引用了被排除的欄位，已略過（{string.Join("；", errors)}）");
                 continue;
             }
             var created = await sender.Send(new CreateReportRequest(r.Name, definition), ct);
             if (!created.IsSuccess) return Prefixed(created, $"reports.{r.Code}");
             var reportId = ((ReportDetail)created.Data!).Id;
             var shares = r.ShareWith.Where(groupIds.ContainsKey).Select(g => groupIds[g]).Distinct().ToList();
-            if (r.ShareWith.Count > shares.Count) warnings.Add($"報表「{r.Name}」有分享群組沒有對應，已略過");
+            if (r.ShareWith.Count > shares.Count) warnings.Add($"報表「{r.Name.Resolve(I18nText.FallbackLocale)}」有分享群組沒有對應，已略過");
             if (shares.Count > 0)
             {
                 var shared = await sender.Send(new SetReportSharesRequest(reportId, shares), ct);

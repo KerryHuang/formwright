@@ -68,9 +68,17 @@ public record OpenPreview(
     /// <summary>簽核流程引用的群組被略過、改由備援頂替的每一個來源（簽核設計 §14.4）；每一筆另有一條警告。只是提示，不擋開啟。</summary>
     public IReadOnlyList<AppApprovalFlowCodec.Substitution> ApprovalSubstitutions { get; init; } = [];
     public IReadOnlyList<string> Unbound { get; init; } = Unbound ?? [];
+    /// <summary>
+    /// 開啟後會標為「不提供給 AI」的欄位（套件寫 excludeFromAi: true，名稱多語設計 §8.1、Q5）：開啟前讓管理員看得到 AI 工具會少看到哪些欄位。
+    /// 開啟時排除的欄位不列。只是提示，不擋開啟。
+    /// </summary>
+    public IReadOnlyList<AiExcludedField> AiExcludedFields { get; init; } = [];
     public bool CanOpen => Errors.Count == 0 && KeyConflicts.Count == 0 && HostEntityConflicts.Count == 0 && MissingDependencies.Count == 0
                            && Unbound.Count == 0;
 }
+
+/// <summary>Field 是限定欄位名（模組代號.欄位代號；貢獻欄位是 主檔 id/模組代號.欄位代號）；Module、Label 是顯示用的多語名稱（找不到模組名稱時是代號）。</summary>
+public record AiExcludedField(string Field, I18nText Module, I18nText Label);
 
 /// <summary>Action：open（還沒有，自動開啟）、bind（已開啟，直接綁定）、reopen（已關閉，重新開啟後綁定）。Groups 只在 open 時有。</summary>
 public record MasterPreview(string Id, I18nText Name, string Action, IReadOnlyList<GroupSuggestion> Groups);

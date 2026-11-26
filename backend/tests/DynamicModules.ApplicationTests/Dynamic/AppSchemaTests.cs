@@ -71,6 +71,25 @@ public class AppSchemaTests
     }
 
     [Fact]
+    public void AppSchema_Format10_LocaleKeysAreCodes_ReportNameAndFieldFlag()
+    {
+        // 名稱多語設計 §8：$defs/i18n 的語系鍵從四語 enum 改成代碼格式的 pattern（同 LocaleCode）；schema 只會比 C# 寬，格式 2–9 的四語限制在伺服器
+        var defs = Schema().GetProperty("$defs");
+        defs.GetProperty("i18n").GetProperty("propertyNames").GetProperty("$ref").GetString().Should().Be("#/$defs/localeCode");
+        var pattern = new System.Text.RegularExpressions.Regex(defs.GetProperty("localeCode").GetProperty("pattern").GetString()!);
+        foreach (var ok in new[] { "zh-TW", "ja", "zh-Hant-HK", "es-419" }) pattern.IsMatch(ok).Should().BeTrue(ok);
+        foreach (var bad in new[] { "JA", "zh_TW", "x" }) pattern.IsMatch(bad).Should().BeFalse(bad);
+
+        Keys(defs.GetProperty("report").GetProperty("properties")).Should().Contain(Properties(typeof(AppPackageReport)));
+        var name = defs.GetProperty("report").GetProperty("properties").GetProperty("name").GetProperty("oneOf").EnumerateArray().ToList();
+        name.Select(x => x.GetProperty("type").GetString()).Should().Equal("string", "object");
+        name[0].GetProperty("maxLength").GetInt32().Should().Be(DynamicModules.Application.Dynamic.ReportService.Data.ReportRules.MaxNameLength);
+
+        Keys(defs.GetProperty("field").GetProperty("properties")).Should().Contain(Properties(typeof(DynamicModules.Application.Dynamic.TemplateService.Data.TemplateField)));
+        defs.GetProperty("field").GetProperty("properties").GetProperty("excludeFromAi").GetProperty("type").GetString().Should().Be("boolean");
+    }
+
+    [Fact]
     public void AppSchema_ManifestKind_ListsAppMasterTemplate() =>
         Schema().GetProperty("$defs").GetProperty("manifest").GetProperty("properties").GetProperty("kind").GetProperty("enum")
             .EnumerateArray().Select(v => v.GetString()).Should().Equal("app", "master", "template");

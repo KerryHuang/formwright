@@ -3,7 +3,6 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using DynamicModules.Application.Dynamic.AppService;
-using DynamicModules.Application.Dynamic.AppService.Data;
 using DynamicModules.Domain.Data;
 using DynamicModules.Domain.Entities.Dynamic;
 using FluentAssertions;
@@ -141,7 +140,7 @@ public class AppBaselineTests : IDisposable
         b.PackageJson.Should().NotBe(v1);
         var parsed = AppJson.Parse(Encoding.UTF8.GetBytes(b.PackageJson));
         parsed.Errors.Should().BeEmpty();
-        parsed.FormatVersion.Should().Be(AppPackageData.CurrentFormatVersion, "存開啟當下升級後的 v2，之後讀取不再依當下已知的套件解析");
+        parsed.FormatVersion.Should().Be(9, "存開啟當下升級後的 v2，之後讀取不再依當下已知的套件解析；範本格式 1 升成套件格式 9 的規則（名稱多語設計 §24.1 第 3 點）");
         parsed.V2!.Manifest.Id.Should().Be("order");
 
         // 讀回來的基準要和開啟時用的套件等價：序列化不能漏屬性或改預設值（U24 的寫入半段）
