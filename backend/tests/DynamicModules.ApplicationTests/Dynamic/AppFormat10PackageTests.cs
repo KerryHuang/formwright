@@ -353,6 +353,13 @@ public class AppFormat10PackageTests
         AppPackageValidator.Validate(upgraded).Errors.Should().BeEmpty();
     }
 
+    /// <summary>將來的範本格式（3 起）在應用程式匯入時報「需要較新版本」，不走套件讀取器報誤導的錯誤（i3c 審查 🟢4）。</summary>
+    [Theory]
+    [InlineData(3)]
+    [InlineData(11)]
+    public void AppJson_FutureTemplateFormat_NeedsNewerVersion(int formatVersion) =>
+        AppJson.Parse(TemplateNode(formatVersion).ToJsonString()).Errors.Should().ContainSingle().Which.Should().Contain("較新版本");
+
     [Fact]
     public void AppJson_TemplateFormat1WithExcludeFromAi_UpgradesToFormat9_AndIsRejected()
     {

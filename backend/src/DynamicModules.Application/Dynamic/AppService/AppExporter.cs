@@ -626,8 +626,21 @@ public sealed partial class AppExporter(
                 warnings.Add($"報表「{report.NameI18n.Resolve(I18nText.FallbackLocale)}」未匯出（{string.Join("；", errors)}）");
                 continue;
             }
-            result.Add(new AppPackageReport(link.Code, report.NameI18n.Compacted(), report.Shares.Select(s => groupCode(s.GroupId)).ToList(), converted));
+            result.Add(new AppPackageReport(link.Code, PackageName(report.NameI18n), report.Shares.Select(s => groupCode(s.GroupId)).ToList(), converted));
         }
         return result;
+    }
+
+    /// <summary>
+    /// 套件的報表名稱一定要有繁中（格式規則），必填語系不含繁中時建的報表可能沒有：補上退回鏈的值當繁中，其他語系照留，
+    /// 匯出的套件才匯得回去（i3c 審查 🟡2）。退回鏈也找不到（只有沒安裝的語系）就取第一個有值的。
+    /// </summary>
+    internal static I18nText PackageName(I18nText name)
+    {
+        var compact = name.Compacted();
+        if (compact.HasText(I18nText.FallbackLocale) || compact.Values.Count == 0) return compact;
+        var fill = compact.Resolve(I18nText.FallbackLocale);
+        compact.Set(I18nText.FallbackLocale, fill.Length > 0 ? fill : compact.Values.Values.First());
+        return compact;
     }
 }
