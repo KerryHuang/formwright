@@ -155,6 +155,8 @@ public static class MessageText
         LocaleNoOverrides = nameof(LocaleNoOverrides), LocaleBooleanCollision = nameof(LocaleBooleanCollision),
         // 翻譯樣板匯出（語系包 i4d2 計畫判斷 9）
         LocaleTemplateLocaleNotInstalled = nameof(LocaleTemplateLocaleNotInstalled), LocaleTemplateScopeInvalid = nameof(LocaleTemplateScopeInvalid),
+        // i4e：範圍多了 designData。舊句是已發行的語系包契約、基準檔凍結，不改它，另開新鍵（審查 r1 🔴4）
+        LocaleTemplateScopeInvalidDesign = nameof(LocaleTemplateScopeInvalidDesign),
         // 設計資料翻譯與 Excel 樣板（語系包 i4e，設計 §23）
         LocaleXlsxInvalid = nameof(LocaleXlsxInvalid), LocaleXlsxSheetMissing = nameof(LocaleXlsxSheetMissing),
         LocaleXlsxUnsafe = nameof(LocaleXlsxUnsafe), LocaleXlsxTooManySheets = nameof(LocaleXlsxTooManySheets),
@@ -714,7 +716,9 @@ public static class MessageText
             "Thao tác này sẽ làm \"Có/Không\" của {0} trùng với {1} ({2}), vui lòng sửa một trong hai ngôn ngữ trước"),
         [LocaleTemplateLocaleNotInstalled] = ("語系 {0} 沒有安裝", "The locale {0} is not installed",
             "ไม่ได้ติดตั้งภาษา {0}", "Ngôn ngữ {0} chưa được cài đặt"),
-        [LocaleTemplateScopeInvalid] = ("匯出範圍只能是 ui、server、designData，至少要選一個", "The export scope must be ui, server and/or designData, with at least one selected",
+        [LocaleTemplateScopeInvalid] = ("匯出範圍只能是 ui、server，至少要選一個", "The export scope must be ui and/or server, with at least one selected",
+            "ขอบเขตการส่งออกต้องเป็น ui หรือ server และต้องเลือกอย่างน้อยหนึ่งรายการ", "Phạm vi xuất chỉ có thể là ui, server và phải chọn ít nhất một"),
+        [LocaleTemplateScopeInvalidDesign] = ("匯出範圍只能是 ui、server、designData，至少要選一個", "The export scope must be ui, server and/or designData, with at least one selected",
             "ขอบเขตการส่งออกต้องเป็น ui, server หรือ designData และต้องเลือกอย่างน้อยหนึ่งรายการ", "Phạm vi xuất chỉ có thể là ui, server, designData và phải chọn ít nhất một"),
         [LocaleXlsxInvalid] = ("這不是 Formwright 翻譯樣板（第一張工作表找不到格式資訊）", "This is not a Formwright translation template (the first sheet has no format information)",
             "ไฟล์นี้ไม่ใช่แม่แบบการแปลของ Formwright (แผ่นงานแรกไม่มีข้อมูลรูปแบบ)", "Đây không phải mẫu dịch của Formwright (trang tính đầu tiên không có thông tin định dạng)"),
