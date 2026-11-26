@@ -32,8 +32,8 @@ public class DesignDataAnalyzerTests
         };
 
     private static DesignDataAnalyzer.Result Run(ParsedLocalePack pack, IReadOnlyList<DesignTextItem> items, bool isNew = false,
-        string sourceLocale = "zh-TW", string systemDefault = "zh-TW") =>
-        DesignDataAnalyzer.Analyze(pack, items, "ja", isNew, sourceLocale, systemDefault);
+        string sourceLocale = "zh-TW", string systemDefault = "zh-TW", bool sameSystem = true) =>
+        DesignDataAnalyzer.Analyze(pack, items, "ja", isNew, sourceLocale, systemDefault, sameSystem);
 
     private const string Field = "app:crm/module:order/field:status/label";
 
@@ -53,6 +53,18 @@ public class DesignDataAnalyzerTests
         var r = Run(Pack((Field, "状態", "狀態"), ("local:field:9/label", "", "備註")), items);
         (r.Report.Unchanged, r.Report.Skipped, r.Report.Changed).Should().Be((1, 1, 0));
         r.Plan.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void OtherSystem_LocalRowsRejected_BoundRowsApplied()
+    {
+        var items = new[] { Item(Field, T(("zh-TW", "狀態"))), Item("local:field:9/label", T(("zh-TW", "備註"))) };
+        var r = Run(Pack((Field, "状態", null), ("local:field:9/label", "メモ", null), ("local:field:404/label", "ない", null), ("local:field:10/label", "", null)),
+            items, sameSystem: false);
+        r.Plan.Select(p => p.Path).Should().Equal(Field);
+        r.Report.RejectedItems.Select(x => (x.Key, x.Reason)).Should().Equal(
+            ("local:field:404/label", LocalePackReasons.OtherSystem), ("local:field:9/label", LocalePackReasons.OtherSystem));
+        (r.Report.NotFound, r.Report.Skipped).Should().Be((0, 1), "別系統的 local: 列不論找不找得到都拒收；空白仍算略過");
     }
 
     [Fact]

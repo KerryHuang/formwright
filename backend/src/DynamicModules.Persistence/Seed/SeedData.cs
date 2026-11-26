@@ -47,6 +47,10 @@ public static class SeedData
             });
         else permissionAdmin.Active = true;
 
+        // 本系統識別（語系包設計 §5.1 pack.instance；審查 r1 🔴3）：沒有才產生，之後跨重啟不變；隨機值、不帶機器名稱等可辨識資訊
+        if (!await db.Set<SystemSetting>().AnyAsync(s => s.Key == SystemSetting.InstanceId, ct))
+            db.Set<SystemSetting>().Add(new SystemSetting { Key = SystemSetting.InstanceId, Value = Guid.NewGuid().ToString("N") });
+
         await db.SaveChangesAsync(ct);
 
         // 匿名記錄（第 2 階段以前的 OwnerUserId）改歸 admin。

@@ -13,6 +13,11 @@ public class SystemSetting
     public const string IndexBackfillGaps = "index.backfillGaps";
     /// <summary>升級帶入權限設定（權限軸設計 §6.3）已做過的時間（UTC，ISO 8601）；有這一列就不再帶入，刪掉才會照當時的設計器修改權重算。</summary>
     public const string PermissionAxesImportedOn = "permissionAxes.importedOn";
+    /// <summary>
+    /// 本系統識別（語系包設計 §5.1 <c>pack.instance</c>；審查 r1 🔴3）：啟動種子補上的隨機 32 位十六進位，跨重啟不變、不帶可辨識資訊。
+    /// 語系包的 <c>local:</c> 路徑是本系統的資料列 Id，只在識別相同時才套用。
+    /// </summary>
+    public const string InstanceId = "system.instanceId";
     public const string ThemeDefaultMode = "theme.defaultMode";
     public const string ThemeDefaultStyle = "theme.defaultStyle";
 

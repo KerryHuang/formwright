@@ -12,6 +12,8 @@ public static class LocalePackLimits
     public const int MaxPackNote = 500;
     public const int MaxPackBuiltFor = 20;
     public const int MaxPackBaseLocale = LocaleCode.MaxLength;
+    /// <summary><c>pack.instance</c>（本系統識別，i4e 審查 r1 🔴3）最長字元數；本系統產生的是 32 字元。</summary>
+    public const int MaxPackInstance = 64;
     /// <summary>語系自稱長度（<c>Dynamic_Locale.NativeName</c> 欄長）。</summary>
     public const int MaxNativeName = 50;
     /// <summary><c>ui</c>、<c>server</c> 各段鍵數超過該段基準鍵數的這個倍數就整包拒收。</summary>
@@ -50,5 +52,7 @@ public static class LocalePackReasons
     public const string Syntax = "syntax", Placeholder = "placeholder", FormatClause = "formatClause", Control = "control",
         TooLong = "tooLong", NotString = "notString", Duplicate = "duplicate", BooleanCollision = "booleanCollision",
         // i4e：Excel 的公式格、設計資料的逐列原因（§23.2、§23.4）
-        Formula = "formula", TitleOption = "titleOption", DuplicateName = "duplicateName", NotObject = "notObject";
+        Formula = "formula", TitleOption = "titleOption", DuplicateName = "duplicateName", NotObject = "notObject",
+        // i4e 審查 r1 🔴3：local: 路徑來自別套系統（或沒帶本系統識別）
+        OtherSystem = "otherSystem";
 }

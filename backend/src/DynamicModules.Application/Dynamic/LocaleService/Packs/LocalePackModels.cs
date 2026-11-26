@@ -20,6 +20,9 @@ public sealed record ParsedLocalePack(
     public IReadOnlyDictionary<string, DesignDataEntry> DesignData { get; init; } = new Dictionary<string, DesignDataEntry>(StringComparer.Ordinal);
 
     public IReadOnlyList<RejectedItem> DesignDataProblems { get; init; } = [];
+
+    /// <summary><c>pack.instance</c>：匯出樣板的系統識別（§5.1；審查 r1 🔴3）；沒帶是 null，<c>local:</c> 列一律拒收。</summary>
+    public string? Instance { get; init; }
 }
 
 /// <summary><c>designData</c> 的一列：<see cref="Text"/> 是譯文（空字串＝沒翻），<see cref="Source"/> 是翻譯當時的原文（null 或空＝不比對，U8）。</summary>
