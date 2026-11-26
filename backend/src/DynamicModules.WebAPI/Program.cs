@@ -43,6 +43,8 @@ if (args.Contains("--install-init")) return InstallInitializer.Run(builder.Confi
 InstallInitializer.EnsureForContainer(builder.Configuration, Console.Out);
 // 安裝版設定檔是最高優先的來源，要在讀 Database:Provider 之前加上（安裝版設計 TD-01）
 InstallConfig.AddConfigFile(builder.Configuration);
+// 設定模式（全新安裝、精靈還沒跑完）：不碰資料庫，只開精靈
+if (InstallConfig.IsPending(builder.Configuration)) return await SetupHost.RunAsync(builder);
 // 不在服務管理員底下時兩者都不做事（dotnet run、Docker、測試不受影響）
 builder.Services.AddWindowsService(o => o.ServiceName = "Formwright");
 builder.Services.AddSystemd();

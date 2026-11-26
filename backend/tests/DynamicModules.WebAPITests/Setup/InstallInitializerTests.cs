@@ -76,9 +76,4 @@ public class InstallInitializerTests : IDisposable
         InstallInitializer.Run(Config(port: null), new StringWriter()).Should().Be(0);
         JsonNode.Parse(File.ReadAllText(ConfigFile))!.AsObject().ContainsKey("Server").Should().BeFalse();
     }
-
-    [Fact(Skip = "Task 3")]
-    public void Container_InitIfMissing_ThenSetupMode()
-    {
-    }
 }
