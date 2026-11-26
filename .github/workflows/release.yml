@@ -193,7 +193,6 @@ jobs:
     needs: [release, image]
     runs-on: ubuntu-24.04
     permissions:
-      contents: read
       packages: write
     concurrency:
       group: release-latest
@@ -207,17 +206,27 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: 提升 latest
         run: |
+          # latest 只給正式版（x.y.z）；預發版不提升。讀不到 latest 時，只有明確「不存在」才當成第一次建立，其他錯誤一律中止；
+          # 既有 latest 每個平台都要有同一個正式版號 label，否則中止讓維運釐清。版號以三段數字比較（sort -V 會把預發版排在正式版之後）。
           v="${GITHUB_REF_NAME#v}"
           [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || { echo "tag 格式不對：$GITHUB_REF_NAME"; exit 1; }
+          re='^[0-9]+\.[0-9]+\.[0-9]+$'
+          if ! [[ "$v" =~ $re ]]; then echo "$v 是預發版，不提升 latest。"; exit 0; fi
+          newer() { local a b i; IFS=. read -r -a a <<<"$1"; IFS=. read -r -a b <<<"$2"; for i in 0 1 2; do ((10#${a[$i]} > 10#${b[$i]})) && return 0; ((10#${a[$i]} < 10#${b[$i]})) && return 1; done; return 1; }
           image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/formwright"
-          current=""
-          if docker buildx imagetools inspect "$image:latest" >/dev/null 2>&1; then
-            current=$(docker buildx imagetools inspect "$image:latest" --format '{{json .Image}}' \
-              | jq -r '(.. | objects | .config? | .Labels? // empty | .["org.opencontainers.image.version"]?) // empty' | head -n 1)
+          err="$RUNNER_TEMP/inspect.err"
+          if json=$(docker buildx imagetools inspect "$image:latest" --format '{{json .Image}}' 2>"$err"); then
+            labels=$(printf '%s' "$json" | jq -r '[.. | objects | select(has("config")) | (.config.Labels["org.opencontainers.image.version"] // "<missing>")] | .[]')
+            [ -n "$labels" ] || { echo "讀不到 latest 的映像設定"; exit 1; }
+            cur=$(printf '%s\n' "$labels" | sort -u)
+            if [ "$(printf '%s\n' "$cur" | wc -l)" -ne 1 ] || ! [[ "$cur" =~ $re ]]; then
+              echo "latest 的版號 label 缺漏、不一致或不是正式版號：$(printf '%s' "$labels" | tr '\n' ' ')；請人工確認後再重跑"; exit 1
+            fi
+            if newer "$cur" "$v"; then echo "latest 目前是 $cur，比本版 $v 新，不覆蓋。"; exit 0; fi
+            echo "latest：$cur → $v"
+          elif grep -qiE 'not found|manifest unknown' "$err"; then
+            echo "latest：（尚無）→ $v"
+          else
+            cat "$err"; echo "讀取 latest 失敗（不是「不存在」），中止，不提升"; exit 1
           fi
-          if [ -n "$current" ] && [ "$(printf '%s\n%s\n' "$current" "$v" | sort -V | tail -n 1)" != "$v" ]; then
-            echo "latest 目前是 $current，比本版 $v 新，不覆蓋。"
-            exit 0
-          fi
-          echo "latest：${current:-（尚無）} → $v"
           docker buildx imagetools create -t "$image:latest" "$image:$v"
