@@ -209,7 +209,7 @@ describe('列印不受新風格影響', () => {
     expect(screen).toContain('backdrop-filter');
   });
 
-  it('標題字型在列印時回到系統字型（植感活力的襯線只用在螢幕）', () => {
+  it('標題字型在列印時回到系統字型（風格的標題字型只用在螢幕）', () => {
     expect(bodiesOf(print, '[data-style][data-mode]').join(';')).toMatch(/--t-heading-font:\s*system-ui/);
   });
 
