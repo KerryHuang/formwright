@@ -4,7 +4,8 @@
     "programDir": "C:\\Program Files\\Formwright",
     "dataDir": "C:\\ProgramData\\Formwright\\data",
     "backupDir": "C:\\ProgramData\\Formwright\\backup",
-    "configFile": "C:\\ProgramData\\Formwright\\formwright.json"
+    "configFile": "C:\\ProgramData\\Formwright\\formwright.json",
+    "firewallRemoteIp": "localsubnet"
   },
   "linux": {
     "programDir": "/opt/formwright",

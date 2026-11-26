@@ -40,6 +40,36 @@ test('renders iss defines from json', () => {
   assert.doesNotMatch(iss, /FwVersion/)
 })
 
+const withDefaults = (mutate) => {
+  const f = fixture()
+  const d = JSON.parse(readFileSync(f.defaults, 'utf8'))
+  mutate(d)
+  writeFileSync(f.defaults, JSON.stringify(d))
+  return f
+}
+
+// M06：防火牆允許範圍（netsh remoteip）是部署設定，預設 localsubnet
+test('iss gets FwFirewallRemoteIp from json (default localsubnet)', () => {
+  const f = fixture()
+  assert.equal(run(f).status, 0)
+  assert.match(read(f, 'installer', 'windows', 'defaults.iss'), /#define FwFirewallRemoteIp "localsubnet"/)
+})
+
+test('iss follows firewallRemoteIp changes', () => {
+  const f = withDefaults((d) => (d.windows.firewallRemoteIp = '10.0.0.0/8,192.168.0.0/16'))
+  assert.equal(run(f).status, 0)
+  assert.match(read(f, 'installer', 'windows', 'defaults.iss'), /#define FwFirewallRemoteIp "10\.0\.0\.0\/8,192\.168\.0\.0\/16"/)
+})
+
+for (const bad of ['', 'any"; calc', 'a b', '10.0.0.0/8;x', '$(id)']) {
+  test(`rejects firewallRemoteIp ${JSON.stringify(bad)}`, () => {
+    const f = withDefaults((d) => (d.windows.firewallRemoteIp = bad))
+    const r = run(f)
+    assert.equal(r.status, 1, r.stdout)
+    assert.match(r.stderr, /firewallRemoteIp/)
+  })
+}
+
 test('iss gets FwVersion only with --version', () => {
   const f = fixture()
   assert.equal(run(f, '--version', '1.2.3').status, 0)
@@ -154,14 +184,6 @@ test('missing key in defaults fails', () => {
 })
 
 // S2：輸入契約與 shell quoting
-const withDefaults = (mutate) => {
-  const f = fixture()
-  const d = JSON.parse(readFileSync(f.defaults, 'utf8'))
-  mutate(d)
-  writeFileSync(f.defaults, JSON.stringify(d))
-  return f
-}
-
 for (const [name, mutate, args] of [
   ['linux path with space', (d) => (d.linux.dataDir = '/var/lib/my formwright'), []],
   ['linux path with $()', (d) => (d.linux.dataDir = '/var/$(id)'), []],

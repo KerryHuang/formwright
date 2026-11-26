@@ -48,6 +48,7 @@ const RULES = {
   posixPath: /^\/[A-Za-z0-9._\/-]+$/,
   winPath: /^[A-Za-z]:\\[A-Za-z0-9._ \\-]+$/,
   name: /^[a-z0-9][a-z0-9._-]*$/,
+  remoteIp: /^[A-Za-z0-9.:\/,-]+$/, // netsh remoteip：localsubnet、位址、子網路、範圍，逗號分隔
   registry: /^[a-z0-9][a-z0-9.-]*(:[0-9]{1,5})?$/,
 }
 
@@ -72,6 +73,7 @@ function renderIss(d, { version }) {
     `#define FwDataDir "${check('windows.dataDir', need(d, 'windows.dataDir'), 'winPath')}"`,
     `#define FwBackupDir "${check('windows.backupDir', need(d, 'windows.backupDir'), 'winPath')}"`,
     `#define FwConfigFile "${check('windows.configFile', need(d, 'windows.configFile'), 'winPath')}"`,
+    `#define FwFirewallRemoteIp "${check('windows.firewallRemoteIp', need(d, 'windows.firewallRemoteIp'), 'remoteIp')}"`,
   ]
   if (version) lines.push(`#define FwVersion "${check('--version', version, 'version')}"`)
   return lines.join('\n') + '\n'

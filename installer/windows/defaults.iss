@@ -4,3 +4,4 @@
 #define FwDataDir "C:\ProgramData\Formwright\data"
 #define FwBackupDir "C:\ProgramData\Formwright\backup"
 #define FwConfigFile "C:\ProgramData\Formwright\formwright.json"
+#define FwFirewallRemoteIp "localsubnet"
