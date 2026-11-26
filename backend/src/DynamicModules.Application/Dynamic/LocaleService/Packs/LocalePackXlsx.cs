@@ -20,7 +20,7 @@ public static class LocalePackXlsx
     /// <summary>說明工作表 A 欄的機器鍵（§23.4）。</summary>
     public const string KeyFormat = "format", KeyFormatVersion = "formatVersion", KeyCode = "locale.code", KeyNativeName = "locale.nativeName",
         KeyFallback = "locale.fallback", KeyQuasar = "locale.quasarLang", KeyBuiltFor = "pack.builtFor", KeyBaseLocale = "pack.baseLocale",
-        KeyReferenceLocale = "pack.referenceLocale", SheetPrefix = "sheet.";
+        KeyReferenceLocale = "pack.referenceLocale", KeyInstance = "pack.instance", SheetPrefix = "sheet.";
 
     /// <summary>範圍工作表的欄位（1 起算）：A 鍵、C 原文、F 譯文（§23.4）。</summary>
     private const int ColKey = 1, ColSource = 3, ColTranslation = 6;
@@ -77,6 +77,7 @@ public static class LocalePackXlsx
         var pack = new JsonObject();
         Optional(pack, "builtFor", info.GetValueOrDefault(KeyBuiltFor));
         Optional(pack, "baseLocale", info.GetValueOrDefault(KeyBaseLocale));
+        Optional(pack, "instance", info.GetValueOrDefault(KeyInstance));
         if (pack.Count > 0) root["pack"] = pack;
 
         var problems = new Dictionary<string, List<RejectedItem>> { [Ui] = [], [Server] = [], [DesignData] = [] };

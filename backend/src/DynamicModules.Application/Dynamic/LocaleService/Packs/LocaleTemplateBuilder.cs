@@ -82,9 +82,12 @@ public static class LocaleTemplateBuilder
         return rows.OrderBy(i => i.Path, StringComparer.Ordinal).ToList();
     }
 
-    /// <summary>先過 <see cref="Validate"/>（有設計資料範圍時另過 <see cref="ValidateDesign"/>）。回檔名 <c>&lt;正規化代碼&gt;.langpack.json</c> 與 UTF-8 內容。</summary>
+    /// <summary>
+    /// 先過 <see cref="Validate"/>（有設計資料範圍時另過 <see cref="ValidateDesign"/>）。回檔名 <c>&lt;正規化代碼&gt;.langpack.json</c> 與 UTF-8 內容。
+    /// <paramref name="instance"/> 是本系統識別，寫進 <c>pack.instance</c>（§5.1；審查 r1 🔴3），匯回時 <c>local:</c> 列靠它判斷是不是同一套系統。
+    /// </summary>
     public static (string FileName, byte[] Content) Build(LocaleWorld world, IReadOnlyDictionary<string, LocalePack> current,
-        LocaleTemplateOptions options, string? platformVersion, IReadOnlyList<DesignTextItem>? design = null)
+        LocaleTemplateOptions options, string? platformVersion, IReadOnlyList<DesignTextItem>? design = null, string? instance = null)
     {
         if (!LocaleCode.TryNormalize(options.Code, out var code)) throw new ArgumentException("先呼叫 Validate", nameof(options));
         var info = world.Installed.FirstOrDefault(i => i.Code == code);
@@ -117,6 +120,7 @@ public static class LocaleTemplateBuilder
             w.WriteStartObject("pack");
             w.WriteString("builtFor", LocalePackVersions.PlatformBuiltFor(platformVersion));
             w.WriteString("baseLocale", options.Source);
+            if (instance is not null) w.WriteString("instance", instance);
             w.WriteEndObject();
 
             foreach (var s in segments)
@@ -190,7 +194,7 @@ public static class LocaleTemplateBuilder
     /// </summary>
     public static (string? FileName, byte[]? Content, MessageRef? Error) BuildXlsx(LocaleWorld world, IReadOnlyDictionary<string, LocalePack> current,
         LocaleTemplateOptions options, string? platformVersion, IReadOnlyList<DesignTextItem>? design, LocalePackXlsx.Labels labels,
-        IReadOnlyDictionary<string, string> sheetNames, (string BaseChanged, string ParamsChanged, string Local) notes)
+        IReadOnlyDictionary<string, string> sheetNames, (string BaseChanged, string ParamsChanged, string Local) notes, string? instance = null)
     {
         if (!LocaleCode.TryNormalize(options.Code, out var code)) throw new ArgumentException("先呼叫 Validate", nameof(options));
         var info = world.Installed.FirstOrDefault(i => i.Code == code);
@@ -235,6 +239,7 @@ public static class LocaleTemplateBuilder
             (LocalePackXlsx.KeyBaseLocale, options.Source),
             (LocalePackXlsx.KeyReferenceLocale, options.Reference),
         };
+        if (instance is not null) infoRows.Add((LocalePackXlsx.KeyInstance, instance));
         return (code + ".langpack.xlsx", LocalePackXlsx.Write(infoRows, labels, sheets), null);
     }
 
