@@ -1,5 +1,5 @@
 export const THEME_MODES = ['light', 'dark', 'system'] as const;
-export const THEME_STYLES = ['workbench', 'airy', 'enterprise', 'industrial', 'glass', 'bento', 'command', 'botanical'] as const;
+export const THEME_STYLES = ['workbench', 'airy', 'enterprise', 'industrial', 'glass', 'bento', 'command', 'signature'] as const;
 export type ThemeMode = (typeof THEME_MODES)[number];
 export type ThemeStyle = (typeof THEME_STYLES)[number];
 export type ResolvedMode = 'light' | 'dark';
@@ -13,10 +13,10 @@ export interface MeTheme extends ThemeChoice {
   defaultMode: ThemeMode; defaultStyle: ThemeStyle; canSave: boolean;
 }
 
-export const FACTORY_THEME: ThemeDefaults = { mode: 'system', style: 'workbench' };
+export const FACTORY_THEME: ThemeDefaults = { mode: 'system', style: 'signature' };
 
 /** q-drawer 的 width 只收數字，所以放這裡。 */
-export const SIDEBAR_WIDTH: Record<ThemeStyle, number> = { workbench: 172, airy: 188, enterprise: 208, industrial: 186, glass: 196, bento: 200, command: 156, botanical: 200 };
+export const SIDEBAR_WIDTH: Record<ThemeStyle, number> = { workbench: 172, airy: 188, enterprise: 208, industrial: 186, glass: 196, bento: 200, command: 156, signature: 196 };
 
 export function parseMode(v: unknown): ThemeMode | null {
   return THEME_MODES.find((m) => m === v) ?? null;

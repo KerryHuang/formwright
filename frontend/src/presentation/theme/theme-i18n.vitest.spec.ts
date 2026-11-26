@@ -21,7 +21,7 @@ describe('theme 文案', () => {
       'style', 'styles.airy.desc', 'styles.airy.name', 'styles.enterprise.desc', 'styles.enterprise.name',
       'styles.industrial.desc', 'styles.industrial.name', 'styles.workbench.desc', 'styles.workbench.name', 'title',
       'styles.glass.desc', 'styles.glass.name', 'styles.bento.desc', 'styles.bento.name',
-      'styles.command.desc', 'styles.command.name', 'styles.botanical.desc', 'styles.botanical.name',
+      'styles.command.desc', 'styles.command.name', 'styles.signature.desc', 'styles.signature.name',
     ].sort());
   });
 

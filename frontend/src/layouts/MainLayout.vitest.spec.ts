@@ -523,7 +523,7 @@ describe('MainLayout menu', () => {
       const w = mountLayout();
       await flushPromises();
       const width = () => (w.find('.q-drawer').element as HTMLElement).style.getPropertyValue('--q-drawer-width');
-      expect(width()).toBe('172px');
+      expect(width()).toBe('196px');
       useThemeStore().applyAnonymous({ mode: 'light', style: 'industrial' });
       await flushPromises();
       expect(width()).toBe('186px');

@@ -117,7 +117,7 @@ describe('新四種風格的橋接', () => {
   const raw = readFileSync(resolve(process.cwd(), 'src/css/themes/quasar-bridge.css'), 'utf8');
 
   it('quasar.config 載入每個風格檔，且排在 bridge 之前', () => {
-    for (const s of ['workbench', 'airy', 'enterprise', 'industrial', 'glass', 'bento', 'command', 'botanical']) {
+    for (const s of ['workbench', 'airy', 'enterprise', 'industrial', 'glass', 'bento', 'command', 'signature']) {
       expect(config, s).toContain(`themes/${s}.css`);
       expect(config.indexOf(`themes/${s}.css`), s).toBeLessThan(config.indexOf('themes/quasar-bridge.css'));
     }
@@ -174,7 +174,7 @@ function splitScreen(css: string): { rest: string; screen: string } {
 
 describe('列印不受新風格影響', () => {
   const { rest, screen } = splitScreen(bridge);
-  const NEW_STYLES = ['glass', 'bento', 'command', 'botanical'];
+  const NEW_STYLES = ['glass', 'bento', 'command', 'signature'];
 
   it('新風格專屬的色塊、徽章與玻璃效果都包在 @media screen 內，列印時不會出現', () => {
     for (const s of NEW_STYLES) expect(rest, `[data-style='${s}'] 不得在 @media screen 之外`).not.toContain(`[data-style='${s}']`);

@@ -21,12 +21,12 @@ describe('theme-model', () => {
   });
 
   it('parseStyle 認得八種風格', () => {
-    for (const s of ['workbench', 'airy', 'enterprise', 'industrial', 'glass', 'bento', 'command', 'botanical']) expect(parseStyle(s)).toBe(s);
+    for (const s of ['workbench', 'airy', 'enterprise', 'industrial', 'glass', 'bento', 'command', 'signature']) expect(parseStyle(s)).toBe(s);
     expect(THEME_STYLES).toHaveLength(8);
   });
 
   it('出廠值與邊欄寬', () => {
-    expect(FACTORY_THEME).toEqual({ mode: 'system', style: 'workbench' });
-    expect(SIDEBAR_WIDTH).toEqual({ workbench: 172, airy: 188, enterprise: 208, industrial: 186, glass: 196, bento: 200, command: 156, botanical: 200 });
+    expect(FACTORY_THEME).toEqual({ mode: 'system', style: 'signature' });
+    expect(SIDEBAR_WIDTH).toEqual({ workbench: 172, airy: 188, enterprise: 208, industrial: 186, glass: 196, bento: 200, command: 156, signature: 196 });
   });
 });

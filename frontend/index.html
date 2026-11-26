@@ -7,16 +7,16 @@
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <script data-theme-bootstrap>
-      // Vue 啟動前先套用快取主題，避免換色閃爍。只讀快取鍵（不讀 Demo 鍵）；任何錯誤都退回 workbench + 依系統。
+      // Vue 啟動前先套用快取主題，避免換色閃爍。只讀快取鍵（不讀 Demo 鍵）；任何錯誤都退回 signature + 依系統。
       (function () {
         var mode = 'system';
-        var style = 'workbench';
+        var style = 'signature';
         try {
           var c = JSON.parse(localStorage.getItem('formwright.theme.cache'));
           if (c && typeof c === 'object') {
             if (c.mode === 'light' || c.mode === 'dark' || c.mode === 'system') mode = c.mode;
             if (c.style === 'workbench' || c.style === 'airy' || c.style === 'enterprise' || c.style === 'industrial' ||
-              c.style === 'glass' || c.style === 'bento' || c.style === 'command' || c.style === 'botanical') style = c.style;
+              c.style === 'glass' || c.style === 'bento' || c.style === 'command' || c.style === 'signature') style = c.style;
           }
         } catch (e) {}
         var dark = false;

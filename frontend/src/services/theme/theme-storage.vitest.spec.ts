@@ -22,7 +22,12 @@ describe('theme-storage', () => {
 
   it('快取單一欄位未知時只有那一欄退回出廠值', () => {
     localStorage.setItem(THEME_CACHE_KEY, JSON.stringify({ mode: 'dark', style: 'neon' }));
-    expect(readThemeCache()).toEqual({ mode: 'dark', style: 'workbench' });
+    expect(readThemeCache()).toEqual({ mode: 'dark', style: 'signature' });
+  });
+
+  it('快取是已移除的 botanical 時風格退回出廠值', () => {
+    localStorage.setItem(THEME_CACHE_KEY, JSON.stringify({ mode: 'dark', style: 'botanical' }));
+    expect(readThemeCache()).toEqual({ mode: 'dark', style: 'signature' });
   });
 
   it('快取不是物件時回 null', () => {

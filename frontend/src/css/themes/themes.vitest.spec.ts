@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const DIR = resolve(process.cwd(), 'src/css/themes');
-const STYLES = ['workbench', 'airy', 'enterprise', 'industrial', 'glass', 'bento', 'command', 'botanical'] as const;
+const STYLES = ['workbench', 'airy', 'enterprise', 'industrial', 'glass', 'bento', 'command', 'signature'] as const;
 const OLD_STYLES = ['workbench', 'airy', 'enterprise', 'industrial'] as const;
 const MODES = ['light', 'dark', 'system'] as const;
 const read = (f: string) => readFileSync(resolve(DIR, f), 'utf8');
@@ -114,9 +114,9 @@ describe('主題 token', () => {
     for (const s of STYLES) for (const m of ['light', 'dark'] as const) expect(keys(s, m)).toEqual(first);
   });
 
-  it(':root 提供 workbench 淺色的同一組值，內嵌 script 沒跑時也有樣式', () => {
+  it(':root 提供出廠預設風格（signature）淺色的同一組值，內嵌 script 沒跑時也有樣式', () => {
     const root = shared.get(':root') ?? {};
-    const expected = { ...palette('workbench', 'light'), ...files.workbench.get("[data-style='workbench']") };
+    const expected = { ...palette('signature', 'light'), ...files.signature.get("[data-style='signature']") };
     expect(root).toEqual(expected);
   });
 
@@ -159,12 +159,21 @@ describe('主題 token', () => {
         expect(t[k], `${s} ${k}`).toMatch(/(sans-serif|serif|monospace)$/);
       }
     }
-    const botanical = files.botanical.get("[data-style='botanical']")!;
-    expect(botanical['--t-heading-font']).toMatch(/serif$/);
-    expect(botanical['--t-heading-font']).toContain("'PMingLiU'");
     const command = files.command.get("[data-style='command']")!;
     expect(command['--t-num-font']).toMatch(/monospace$/);
     expect(command['--t-num-font']).toContain('ui-monospace');
+  });
+
+  it('表匠招牌：深藍側欄、鵝黃選取、粗框與不模糊的硬投影', () => {
+    const base = files.signature.get("[data-style='signature']")!;
+    expect(base['--t-card-border']).toBe('2px');
+    for (const mode of ['light', 'dark'] as const) {
+      const t = palette('signature', mode);
+      expect(t['--t-selected-bg'], mode).toBe('#ffd23f');
+      expect(t['--t-selected-fg'], mode).toBe('#1e2a44');
+      expect(t['--t-card-shadow'], mode).toMatch(/^\d+px \d+px 0 #[0-9a-f]{6}$/);
+    }
+    expect(palette('signature', 'light')['--t-sidebar-bg']).toBe('#1e2a44');
   });
 
   it('舊四種風格的新 token 都是中性值，外觀維持原樣', () => {

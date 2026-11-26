@@ -39,10 +39,10 @@ describe('theme store', () => {
     stubMatchMedia(true);
     const s = useThemeStore();
     s.hydrate();
-    expect(html().getAttribute('data-style')).toBe('workbench');
+    expect(html().getAttribute('data-style')).toBe('signature');
     expect(html().getAttribute('data-mode')).toBe('dark');
     expect(Dark.isActive).toBe(true);
-    expect(s.appliedKey).toBe('workbench:dark');
+    expect(s.appliedKey).toBe('signature:dark');
   });
 
   it('hydrate 讀快取', () => {

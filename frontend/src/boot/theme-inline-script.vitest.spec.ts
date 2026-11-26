@@ -34,15 +34,15 @@ describe('index.html 內嵌主題 script', () => {
     ['快取 dark + airy', '{"mode":"dark","style":"airy"}', false, 'dark', 'airy'],
     ['快取 system，瀏覽器偏好深色', '{"mode":"system","style":"enterprise"}', true, 'dark', 'enterprise'],
     ['快取 system，瀏覽器偏好淺色', '{"mode":"system","style":"enterprise"}', false, 'light', 'enterprise'],
-    ['沒有快取', null, false, 'light', 'workbench'],
-    ['沒有快取，瀏覽器偏好深色', null, true, 'dark', 'workbench'],
-    ['JSON 損毀', '{oops', true, 'dark', 'workbench'],
-    ['快取是 null', 'null', false, 'light', 'workbench'],
+    ['沒有快取', null, false, 'light', 'signature'],
+    ['沒有快取，瀏覽器偏好深色', null, true, 'dark', 'signature'],
+    ['JSON 損毀', '{oops', true, 'dark', 'signature'],
+    ['快取是 null', 'null', false, 'light', 'signature'],
     ['快取 glass', '{"mode":"light","style":"glass"}', false, 'light', 'glass'],
     ['快取 bento', '{"mode":"dark","style":"bento"}', false, 'dark', 'bento'],
     ['快取 command', '{"mode":"light","style":"command"}', false, 'light', 'command'],
-    ['快取 botanical', '{"mode":"dark","style":"botanical"}', false, 'dark', 'botanical'],
-    ['style 未知', '{"mode":"light","style":"neon"}', false, 'light', 'workbench'],
+    ['快取是已移除的 botanical', '{"mode":"dark","style":"botanical"}', false, 'dark', 'signature'],
+    ['style 未知', '{"mode":"light","style":"neon"}', false, 'light', 'signature'],
     ['mode 大小寫不符', '{"mode":"Dark","style":"airy"}', false, 'light', 'airy'],
   ])('%s', (_name, cache, prefersDark, mode, style) => {
     stubPrefersDark(prefersDark);
@@ -64,7 +64,7 @@ describe('index.html 內嵌主題 script', () => {
     vi.stubGlobal('localStorage', { getItem: () => { throw new Error('denied'); } });
     run();
     expect(root.getAttribute('data-mode')).toBe('dark');
-    expect(root.getAttribute('data-style')).toBe('workbench');
+    expect(root.getAttribute('data-style')).toBe('signature');
   });
 
   it('matchMedia 不存在時 data-mode 為 light', () => {
@@ -87,7 +87,7 @@ describe('index.html 內嵌主題 script', () => {
     stubPrefersDark(false);
     localStorage.setItem(THEME_DEMO_KEY, '{"mode":"dark","style":"industrial"}');
     run();
-    expect(root.getAttribute('data-style')).toBe('workbench');
+    expect(root.getAttribute('data-style')).toBe('signature');
     expect(root.getAttribute('data-mode')).toBe('light');
     expect(script).not.toContain(THEME_DEMO_KEY);
   });

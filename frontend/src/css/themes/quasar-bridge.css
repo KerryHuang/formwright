@@ -700,7 +700,7 @@ textarea:focus-visible {
 /* 以下是新風格專屬的玻璃、色塊與徽章：只在螢幕上生效，列印一律回到一般外觀（見 print.css） */
 @media screen {
   /* 新風格的標題字重 */
-  :is([data-style='glass'], [data-style='bento'], [data-style='command'], [data-style='botanical']) :is(.text-h4, .text-h5, .text-h6) {
+  :is([data-style='glass'], [data-style='bento'], [data-style='command'], [data-style='signature']) :is(.text-h4, .text-h5, .text-h6) {
     font-weight: var(--t-heading-weight);
   }
 

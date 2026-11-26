@@ -48,7 +48,7 @@ describe('ThemeChooser', () => {
 
   it('八種風格各有名稱、說明與帶對應 data-style 的小樣本', () => {
     const w = make();
-    for (const s of ['workbench', 'airy', 'enterprise', 'industrial', 'glass', 'bento', 'command', 'botanical'] as const) {
+    for (const s of ['workbench', 'airy', 'enterprise', 'industrial', 'glass', 'bento', 'command', 'signature'] as const) {
       const row = w.find(`[data-testid="style-${s}"]`);
       expect(row.text()).toContain(zhTW.theme.styles[s].name);
       expect(row.text()).toContain(zhTW.theme.styles[s].desc);
