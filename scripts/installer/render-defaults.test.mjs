@@ -56,12 +56,12 @@ test('iss gets FwFirewallRemoteIp from json (default localsubnet)', () => {
 })
 
 test('iss follows firewallRemoteIp changes', () => {
-  const f = withDefaults((d) => (d.windows.firewallRemoteIp = '10.0.0.0/8,192.168.0.0/16'))
+  const f = withDefaults((d) => (d.windows.firewallRemoteIp = '192.0.2.0/24,198.51.100.0/24'))
   assert.equal(run(f).status, 0)
-  assert.match(read(f, 'installer', 'windows', 'defaults.iss'), /#define FwFirewallRemoteIp "10\.0\.0\.0\/8,192\.168\.0\.0\/16"/)
+  assert.match(read(f, 'installer', 'windows', 'defaults.iss'), /#define FwFirewallRemoteIp "192\.0\.2\.0\/24,198\.51\.100\.0\/24"/)
 })
 
-for (const bad of ['', 'any"; calc', 'a b', '10.0.0.0/8;x', '$(id)']) {
+for (const bad of ['', 'any"; calc', 'a b', '192.0.2.0/24;x', '$(id)']) {
   test(`rejects firewallRemoteIp ${JSON.stringify(bad)}`, () => {
     const f = withDefaults((d) => (d.windows.firewallRemoteIp = bad))
     const r = run(f)

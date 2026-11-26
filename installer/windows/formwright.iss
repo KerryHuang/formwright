@@ -3,7 +3,7 @@
 ; 預設值（連接埠、路徑）來自 defaults.iss，由 scripts/installer/render-defaults.mjs 產生，不在這裡另寫一份。
 ; 不簽章（D-04）、只內網（D-05）、解除安裝預設保留資料（D-10）。
 ; 靜默參數：/SKIPBACKUP（備份位置沒設時略過升級前備份）、/DELETEDATA（解除安裝時一併刪資料）、/PORT=<n>（全新安裝的連接埠）、
-; /FIREWALLSCOPE=<netsh remoteip 值>（防火牆允許的來源，預設見 install-defaults.json 的 firewallRemoteIp，例如 10.0.0.0/8,192.168.0.0/16）。
+; /FIREWALLSCOPE=<netsh remoteip 值>（防火牆允許的來源，預設見 install-defaults.json 的 firewallRemoteIp，例如 192.0.2.0/24,198.51.100.0/24）。
 ; 結束碼：0 成功；20 安裝後步驟失敗（服務、權限、初始化、防火牆、啟動，已記進安裝 log）；其餘見 Inno Setup「Setup Exit Codes」。
 
 ; 本檔與 ChineseTraditional.isl 是不帶 BOM 的 UTF-8，Inno Setup 6.3 起才支援
@@ -77,7 +77,7 @@ english.DeleteDataPrompt=Also permanently delete all data (database, attachments
 english.ServiceDescription=Formwright dynamic module system
 english.StopFailed=Could not stop the Formwright service. Stop it manually (Services, or sc stop Formwright) and run the installer again.
 english.StepFailed=Setup did not complete: %1 failed (exit code %2). The Formwright service was not started. Fix the problem and run the installer again; details are in the setup log.
-english.FirewallScopeInvalid=/FIREWALLSCOPE may contain only letters, digits and . : / , - (a netsh remoteip value such as localsubnet or 10.0.0.0/8,192.168.0.0/16).
+english.FirewallScopeInvalid=/FIREWALLSCOPE may contain only letters, digits and . : / , - (a netsh remoteip value such as localsubnet or 192.0.2.0/24,198.51.100.0/24).
 english.UninstallStopFailed=Could not stop the Formwright service, so nothing was removed. Stop it manually and run the uninstaller again.
 
 chinesetraditional.PortPageTitle=連接埠
@@ -97,7 +97,7 @@ chinesetraditional.DeleteDataPrompt=要同時永久刪除所有資料（資料�
 chinesetraditional.ServiceDescription=Formwright 動態模組系統
 chinesetraditional.StopFailed=服務停不下來，請手動停止（服務管理員，或 sc stop Formwright）後重試。
 chinesetraditional.StepFailed=安裝沒有完成：「%1」失敗（結束碼 %2）。Formwright 服務沒有啟動。請排除問題後重新執行安裝程式，詳情在安裝 log。
-chinesetraditional.FirewallScopeInvalid=/FIREWALLSCOPE 只能含英文字母、數字與 . : / , -（netsh remoteip 的值，例如 localsubnet 或 10.0.0.0/8,192.168.0.0/16）。
+chinesetraditional.FirewallScopeInvalid=/FIREWALLSCOPE 只能含英文字母、數字與 . : / , -（netsh remoteip 的值，例如 localsubnet 或 192.0.2.0/24,198.51.100.0/24）。
 chinesetraditional.UninstallStopFailed=服務停不下來，所以沒有移除任何東西。請手動停止後重新執行解除安裝。
 
 [Code]

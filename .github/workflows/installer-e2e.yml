@@ -536,12 +536,12 @@ jobs:
           Assert (Test-Path $Data) '移除後資料不見了'
           Assert ($null -eq (Get-NetFirewallRule -DisplayName Formwright -ErrorAction SilentlyContinue)) '移除後防火牆規則還在'
           # 重裝帶 /FIREWALLSCOPE：規則要用這個範圍重建
-          Assert ((Install-Fw $env:V2 'reinstall' @('/FIREWALLSCOPE=10.0.0.0/8,192.168.0.0/16')) -eq 0) '重裝結束碼不是 0'
+          Assert ((Install-Fw $env:V2 'reinstall' @('/FIREWALLSCOPE=192.0.2.0/24,198.51.100.0/24')) -eq 0) '重裝結束碼不是 0'
           Assert ((Log-Text 'setup-reinstall.log') -notmatch 'backup-now') 'reinstall 不該呼叫 --backup-now'
           Version-Is $env:V2
           $rule = Get-NetFirewallRule -DisplayName Formwright -ErrorAction Stop
           $remote = @(($rule | Get-NetFirewallAddressFilter).RemoteAddress)
-          Assert (@($remote | Where-Object { $_ -like '10.0.0.0/*' }).Count -ge 1 -and @($remote | Where-Object { $_ -like '192.168.0.0/*' }).Count -ge 1) "RemoteAddress 沒有照 /FIREWALLSCOPE：$($remote -join ',')"
+          Assert (@($remote | Where-Object { $_ -like '192.0.2.0/*' }).Count -ge 1 -and @($remote | Where-Object { $_ -like '198.51.100.0/*' }).Count -ge 1) "RemoteAddress 沒有照 /FIREWALLSCOPE：$($remote -join ',')"
           Assert ((Http-Code "$Base/api/setup/status") -eq 404) '重裝後不該有精靈'
           Wiz verify-kept $Base | Out-Null
 
