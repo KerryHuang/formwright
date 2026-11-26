@@ -24,7 +24,7 @@ i3 把它們改成多語，讓：
 - 儀表板卡片標題（`LayoutJson` 裡的 `title`，指派版、個人版、自己的儀表板共用）改多語，不加 migration（§5.3）。
 - API、DTO、MCP 唯讀工具、稽核、刪除影響清單、匯出等所有讀名稱的地方改依語系解析。
 - 前端六個名稱輸入處換多語輸入框，所有顯示處改用 `resolveI18n`。
-- 套件格式 9：`reports[].name` 可寫多語物件；全部 `i18n` 語系鍵改代碼格式（即 i4f）；欄位可帶「不提供給 AI」旗標 `excludeFromAi`（範本同步升格式 2）；內建三套件的 13 份報表名稱補四語。
+- 套件格式 10：`reports[].name` 可寫多語物件；全部 `i18n` 語系鍵改代碼格式（即 i4f）；欄位可帶「不提供給 AI」旗標 `excludeFromAi`（範本同步升格式 2）；內建三套件的 13 份報表名稱補四語。
 - Demo：群組 12 個、部門 6 個、示範報表、示範儀表板與卡片標題補四語；系統程式「動態模組設計」補四語。
 - 選單分區：套件與範本驗證器檢查 `section`；建立、修改模組的 API 也收字串 `section`；拒收空值語系；有其他語系卻缺繁中時報錯，不再靜默丟掉分區（Q4）。
 
@@ -35,7 +35,7 @@ i3 把它們改成多語，讓：
 - 報表清單的搜尋與依名稱排序：現在沒有這兩個功能（`ReportListPage.vue` 的表格欄沒有 `sortable`、沒有篩選框），清單依 Id 排，i3 不新增（§16 第 7 點）。
 - 量值、欄位標題：報表的量值沒有自訂名稱（`ReportMeasure` 只有 Id），欄位標題來自欄位定義，本來就是多語。
 - 列印範本本文、記錄標題 snapshot、使用者顯示名稱（`AppUser.DisplayName` 是人名，不翻）、MCP token 名稱（只給本人看）。
-- 套件 `dashboards` 段：格式 9 仍是保留 section，只收空陣列（套件設計 §4.6）。
+- 套件 `dashboards` 段：格式 10 仍是保留 section，只收空陣列（套件設計 §4.6）。
 - 報表、儀表板加 `Code`：不加，i4e 的路徑另定（§16 第 1 點）。
 
 ## 3. 現況盤點（main 43d22acf）
@@ -194,7 +194,7 @@ i3 把它們改成多語，讓：
 
 `CurrentFormatVersion` 從 9 升到 10（原計畫是 8 → 9，見下方說明）。s2e 之後用 11（分流技術決定 29）。
 
-> fg6（2026-11-26）先上線，照流程圖設計 §13 第 5 點「以當時的 `CurrentFormatVersion + 1` 為準」用了格式 9（流程圖）。本段實作時改用 10，s2e 用 11；下文的「格式 9」都讀成本段的版號 10，「格式 2–8」讀成 2–9（格式 9 只有流程圖，不放寬本段的任何規則），驗收案例 P2、P12 的格式 8 也要加一條格式 9 的同樣拒收；i3c 開工時把本節與 §18.4 的版號改成實際值（流程圖設計 §25）。i3c 已改：本節、§8.1、§16、§18.4 的版號都是實際值。
+> fg6（2026-11-26）先上線，照流程圖設計 §13 第 5 點「以當時的 `CurrentFormatVersion + 1` 為準」用了格式 9（流程圖）。本段實作時改用 10，s2e 用 11；下文的「格式 9」都讀成本段的版號 10，「格式 2–8」讀成 2–9（格式 9 只有流程圖，不放寬本段的任何規則），驗收案例 P2、P12 的格式 8 也要加一條格式 9 的同樣拒收；i3c 開工時把本節與 §18.4 的版號改成實際值（流程圖設計 §25）。i3c 已改：全文（§2、§8、§8.1、§9、§12、§14、§16、§17、§18.4、§20.2）的版號都是實際值，這段引號裡的「格式 9」「格式 2–8」是當時的原文。
 
 **格式 10 新增**：
 
@@ -241,11 +241,11 @@ i3 把它們改成多語，讓：
 
 ## 9. 選單分區（m1 遺留）
 
-1. **套件與範本驗證器檢查 `section`**（`AppPackageValidator` 模組迴圈、`TemplateValidator.ValidateModule`）：語系鍵格式（格式 2–8 限四語、格式 9 代碼格式）；有任何非空值時繁中必填；每語 ≤ `ModuleRules.SectionMaxLength`；拒收 `null` 值。錯誤路徑 `{模組代號}.section`。現在這些錯誤要到開啟套件、建模組時才報，缺繁中的則整組分區靜默消失。
+1. **套件與範本驗證器檢查 `section`**（`AppPackageValidator` 模組迴圈、`TemplateValidator.ValidateModule`）：語系鍵格式（格式 2–9 限四語、格式 10 代碼格式）；有任何非空值時繁中必填；每語 ≤ `ModuleRules.SectionMaxLength`；拒收 `null` 值。錯誤路徑 `{模組代號}.section`。現在這些錯誤要到開啟套件、建模組時才報，缺繁中的則整組分區靜默消失。
 2. **API 收字串 `section`**：§6.1。
 3. **API 拒收 `null` 值、去掉空字串語系**：`ValidModuleSection` 加 `null` 檢查；`Module.SetSection` 存檔前丟掉空字串的語系。
 4. **建立、修改模組時，分區有其他語系卻缺繁中：回 400「選單分區有其他語系時必須有繁體中文」**（Q4）。現在 `SetSection` 把它當成不分區、默默丟掉。分區的分組鍵是繁中（`Module.Section`），這條是因為分組鍵寫死在繁中，不是必填語系政策。
-5. **範本與套件的語系鍵規則一致**：範本格式 1 與套件格式 2–8 一樣只收四語鍵；範本格式 2 與套件格式 9 一樣放寬為語系代碼格式（`TemplateValidator` 現在只用 `HasZhTw`、不擋語系鍵，補上這兩條）。`section` 與其他 `i18n` 文字同一規則。
+5. **範本與套件的語系鍵規則一致**：範本格式 1 與套件格式 2–9 一樣只收四語鍵；範本格式 2 與套件格式 10 一樣放寬為語系代碼格式（`TemplateValidator` 現在只用 `HasZhTw`、不擋語系鍵，補上這兩條）。`section` 與其他 `i18n` 文字同一規則。
 
 不做 m1 審查建議 5（`Module.Section` 可公開寫入）與 6（選單排序的 `localeCompare` 沒指定語系），兩者都不屬於 i3 的名稱多語，維持既有行為。
 
@@ -342,7 +342,7 @@ i3 把它們改成多語，讓：
 | 停用某語系 | 輸入框不列它，已存的該語系譯名保留；使用者切不到這個語系，看不到它 |
 | 匯入新語系 `ja`（i4d1） | 啟用後輸入框多一格 `ja`；沒填 `ja` 的名稱依 `ja` 的上層語系與預設語系退回 |
 | 開啟應用程式套件 | 報表名稱只要求繁中（`PackageTextScope`），不跟政策 |
-| 格式 2–8 的舊套件 | 報表名稱只收字串或只有繁中；照舊開得起來；帶 `excludeFromAi` 整份拒絕 |
+| 格式 2–9 的舊套件 | 報表名稱只收字串或只有繁中；照舊開得起來；帶 `excludeFromAi` 整份拒絕 |
 | 套件或範本帶 `excludeFromAi: true` | 開啟套件：要權限設定，否則 403 整個回滾；從範本建立：沒有權限設定時寫 false 並警告 |
 | 重新套用到旗標已是 true 的欄位 | 不清掉，不論套件寫 false 或省略 |
 | 舊畫面（部署當下未重新整理） | 送字串照收（當繁中）；回應的物件顯示成 `[object Object]`，重新整理即好 |
@@ -365,7 +365,7 @@ i3 把它們改成多語，讓：
 3. **單一來源**：通過。長度上限各沿用一個常數（`ReportRules.MaxNameLength`、`DashboardRules.MaxTitleLength`、`TaskViewRules.MaxName`），套件驗證改引用 `ReportRules.MaxNameLength`，不另寫 200；必填語系由前端 `requiredTextLocales()` 讀 API 的政策值。前端輸入框的 `maxlength` 是既有的重複（同 `MAX_BOARD_NAME`），不在 i3 收斂，列為已知限制。
 4. **兩個應用程式**：通過。報表、儀表板、看板是平台功能，CRM、進銷存、生產管理都在用。
 5. **空系統**：通過。不開任何應用程式也能建多語的報表（任務報表）、儀表板、看板。
-6. **套件只用定義組成**：通過。內建套件的報表名稱多語走格式 9 的通用欄位，沒有特例。
+6. **套件只用定義組成**：通過。內建套件的報表名稱多語走格式 10 的通用欄位，沒有特例。
 7. **ERP 對照**：通過，見 §13。
 8. **權限 fail closed、驗證不只在前端、沒有執行期 DDL**：通過。名稱驗證在後端（`RequiredTextGuard`、長度、語系鍵），前端只是提早提示；套件帶「不提供給 AI」旗標時寫入 true 要權限設定，開啟套件沒有就整批回滾，舊格式與範本格式 1 帶這個屬性整份拒絕、不靜默丟掉（§8.1）；schema 變更走 EF migration（§5.2）。
 9. **不限產業**：通過。取捨理由是「同一廠區有多種語言的同事」，服務業（多國籍客服）、貿易商（海外分公司）、批量工廠（外籍移工）都成立。
@@ -410,7 +410,7 @@ i3 把它們改成多語，讓：
 |---|---|---|---|---|
 | i3a | 報表、儀表板、卡片標題、任務檢視名稱多語，前後端一起：實體與 migration `NameI18n`、共用轉換器搬到 Domain、DTO、驗證、MCP、稽核、匯出、刪除影響清單、前端六個輸入處與全部顯示、Demo 示範報表與儀表板與看板四語（§11.3）、手冊 | 有（SQLite＋PostgreSQL 各一） | `Report.cs`、`Dashboard.cs`、`TaskView.cs`、`DashboardLayout.cs`、`I18nTextOrStringJsonConverter.cs`（Domain 新增）、`ReportsController.cs`、`DashboardsController.cs`、`TaskViewsController.cs`、前端 `report-types.ts`、`dashboard-types.ts`、`task-board-types.ts`、兩份 model snapshot、`DemoReports.cs`、`DemoDashboards.cs` | i4a（已上線） |
 | i3b | Demo 群組與部門四語、系統程式名稱四語與既有列補譯、選單分區的 API 收字串、拒收 `null`、缺繁中報錯（§9 第 2–4 點） | 無 | `DemoPeople.cs`、`SeedData.cs`、`ModulesController.cs`、`ModuleRules.cs`、`Module.cs` | i3a（共用轉換器） |
-| i3c（＝i4f） | 套件格式 9：`reports[].name` 多語、語系鍵改代碼格式、`section` 驗證（§9 第 1 點）、欄位 `excludeFromAi` 與範本格式 2（§8.1：讀寫、套用的權限檢查與只加不減、預覽計數與欄位名稱、匯出）、舊版不放寬的拒收案例、內建三套件升格式與報表名稱四語、`app.schema.json`、手冊與套件設計、MCP 設計 §5.5 回填 | 無 | `AppPackageData.cs`、`AppPackageValidator*.cs`、`TemplatePackage.cs`、`TemplateValidator.cs`、`TemplateInstantiator.cs`、`TemplateExporter.cs`、`AppExporter.cs`、`app.schema.json`、`backend/apps/*.app.json` | i3a；不和 mg1 並行 |
+| i3c（＝i4f） | 套件格式 10：`reports[].name` 多語、語系鍵改代碼格式、`section` 驗證（§9 第 1 點）、欄位 `excludeFromAi` 與範本格式 2（§8.1：讀寫、套用的權限檢查與只加不減、預覽計數與欄位名稱、匯出）、舊版不放寬的拒收案例、內建三套件升格式與報表名稱四語、`app.schema.json`、手冊與套件設計、MCP 設計 §5.5 回填 | 無 | `AppPackageData.cs`、`AppPackageValidator*.cs`、`TemplatePackage.cs`、`TemplateValidator.cs`、`TemplateInstantiator.cs`、`TemplateExporter.cs`、`AppExporter.cs`、`app.schema.json`、`backend/apps/*.app.json` | i3a；不和 mg1 並行 |
 
 - i3a 是最大的一段（前後端都動），估約 40 個檔。真的太大時，可把任務檢視（後端 `TaskViewService`、前端 `BoardPicker.vue`）拆成 i3a2，但 migration 只能有一組，留在 i3a1；拆了以後 i3a1 的 migration 仍要改 `Dynamic_TaskView`，i3a2 只動程式。
 - i3b、i3c 都依賴 i3a；兩者之間不相依、沒有共用檔，可以平行，但 i3b 很小，建議 i3a → i3b → i3c 依序做。
@@ -551,12 +551,12 @@ i3 把它們改成多語，讓：
 - **T5** 共用「字串或物件」轉換器搬到 Domain，所有名稱輸入與模組 `section` 都收字串，字串當繁中（§6.1）。
 - **T6** API 回 `I18nText` 物件由前端解析；MCP、匯出、影響清單用請求語系，稽核用預設語系（§6.2）。
 - **T7** 卡片標題選填，不檢查必填語系（§7.2）。
-- **T8** 格式 9 合併 i4f；舊版報表名稱只收字串或只有繁中；所有版本報表名稱上限改 100；內建三套件升版（§8）。
+- **T8** 格式 10 合併 i4f（原計畫格式 9，fg6 先用掉）；舊版報表名稱只收字串或只有繁中；所有版本報表名稱上限改 100；內建三套件升版（§8）。
 - **T9** Demo 群組、部門四語，繁中值不變（§11.1）。
 - **T10** 系統程式「動態模組設計」四語；既有列只在是出廠值時補譯（§11.2）。
 - **T11** 示範報表、儀表板、卡片標題、看板四語；Demo 預檢改在記憶體比繁中值（§11.3）。
 - **T12** i4e 的報表、儀表板路徑用 `app:{appKey}/report:{code}` 與 `local:`，不加 `Code` 欄（§16 第 1 點）。
-- **T13** 「不提供給 AI」旗標的做法（使用者 2026-11-21 裁決的落實）：放在 `TemplateField`，套件與範本共用；範本格式升 2 防舊版靜默丟旗標；格式 2–8 與範本格式 1 帶這個屬性整份拒絕；套件 false 或省略時對既有欄位送 `null`（不改）；開啟套件沒權限 403 回滾、從範本建立沒權限寫 false 加警告（權限軸 §7.3）；匯出只寫 true（§8.1）。
+- **T13** 「不提供給 AI」旗標的做法（使用者 2026-11-21 裁決的落實）：放在 `TemplateField`，套件與範本共用；範本格式升 2 防舊版靜默丟旗標；格式 2–9 與範本格式 1 帶這個屬性整份拒絕；套件 false 或省略時對既有欄位送 `null`（不改）；開啟套件沒權限 403 回滾、從範本建立沒權限寫 false 加警告（權限軸 §7.3）；匯出只寫 true（§8.1）。
 
 ## 21. 留給實作者
 
@@ -634,22 +634,28 @@ i3c 背景實作（2026-11-26）時自己定的技術做法，以及設計沒寫
 
 1. **版號**：套件格式 10（`AppPackageData.CurrentFormatVersion`、`AppPackageValidator.LocaleCodeFormatVersion`），範本格式 2（`TemplatePackage.CurrentFormatVersion`，收 1、2）。格式 9（fg6）只放寬流程圖，本段的規則一律從 10 起。
 2. **`CheckText` 帶版號參數**：語系鍵規則依套件版號切換（2–9 只收四語、10 起收代碼格式），所有呼叫處明確傳 `p.FormatVersion`，不用執行緒狀態。流程圖的文字檢查（V9）也帶版號；略過群組後重驗的 `SkippedGroupErrors` 用目前版號（文字在匯入時已驗過）。
-3. **範本與套件共用規則**（§9 第 5 點）：範本格式 1 對應套件格式 9 的規則、範本 2 對應套件 10（`AppPackageAdapter.TemplateFormatOf`、`AppFormatOf`）。`AppJson` 讀到 `formatVersion: 2`、沒有 `format`、有 `key` 的檔案當範本讀，升成套件格式 10；範本 1 升成套件 9（帶旗標會被擋）。語系鍵規則只寫在套件驗證器，範本驗證器呼叫同一個 `UnsupportedLocale`。
+3. **範本與套件共用規則**（§9 第 5 點）：範本格式 1 對應套件格式 9 的規則、範本 2 對應套件 10（`AppPackageAdapter.TemplateFormatOf`、`AppFormatOf`）。`AppJson` 讀到 `formatVersion` 2 以上、沒有 `format`、有 `key` 的檔案當範本讀，升成套件格式 10；範本 1 升成套件 9（帶旗標會被擋）；範本格式比目前認得的新（3 起）報「需要較新版本」，不誤當成套件報缺屬性（修正輪 🟢4）。語系鍵規則只寫在套件驗證器，範本驗證器呼叫同一個 `UnsupportedLocale`。
 4. **section 驗證共用 `TemplateValidator.CheckSection`**（§9 第 1 點）：拒收 null 值、語系鍵數上限、語系鍵依格式、有值時必須有繁中、每語不超過 `ModuleRules.SectionMaxLength`（100）；只有空字串的 section 當沒有分區、不算錯（開啟時本來就丟掉）。套件與範本驗證器都呼叫它。
 5. **語系鍵數上限**：套件的 `CheckText` 與 section 加上 `I18nNameRules.MaxLocales`（30），§15 新增一列。純範本匯入的欄位標籤、選項等沒有這個上限（範本驗證器只查語系鍵格式），屬 i3a §22.1 第 11 點記下的既有系統性問題。
 6. **報表名稱的升級**：已存在的報表升級時名稱依語系合併（`ReportDefinitionValidator.ValidateAsync(name, entity.NameI18n, …)` 的 `original` 規則），客戶自己加的其他語系譯名保留。
 7. **`excludeFromAi` 不進升級比對**（`UpgradeItems.NotCompared`）：旗標只在開啟、從範本建立、共用主檔合併時寫入。升級時已存在的欄位不比、不改客戶現值；升級新增的欄位走 `TemplateInstantiator`，照套件寫入並經權限設定檢查。已知限制：新版套件對既有欄位新標的旗標不會經升級帶到客戶系統，要由權限設定者自己勾。
-8. **共用主檔合併**（`MasterMerger`）：已存在的欄位套件標 true、現值是 false 時，送 `UpdateFieldRequest(ExcludeFromAi: true)`（其他設定照現值）；沒有權限設定就 403、整個匯入回滾。實際上匯入要系統管理員，系統管理員一律有權限設定。定義層合併（`MasterMerger.MergeDefinition`）的結果取兩份較新的格式版號再驗證，否則舊格式的主檔補進格式 10 的欄位旗標會被誤擋。
-9. **開啟套件沒有權限設定的 403（P11）**：開啟是 `ISystemAdminRequest`＋`IPermissionAdminRequest`，系統管理員一律有權限設定，所以 HTTP 層由請求宣告先擋（非系統管理員 403、沒有模組留下）；`TemplateInstantiator` 裡 `AddFieldRequest`／`UpdateFieldRequest` 的權限設定檢查是第二道防線，由既有的欄位旗標測試覆蓋（設計者帶 true 新增欄位 403）。
-10. **預覽的 `aiExcludedFields`**：列套件模組欄位與擴充欄位中旗標是 true、且不在 `excludeFields` 的，`field` 是限定欄位名（擴充欄位是 `主檔/模組.欄位`），`module`、`label` 是多語文字由前端照介面語系解析。只列新建欄位會標的；共用主檔已存在欄位要補標的不列（合併在匯入時已做）。
-11. **內建 crm-sales、inventory 的簽核流程改寫成流程圖**：格式 10 的驗證沿用格式 9 的「簽核流程一律是圖」，所以兩個套件的 `stages` 照 `ApprovalGraphConversion.AsGraph` 的結果改成 `nodes`、`edges`（節點代號＝原關卡代號，開啟後資料庫裡的定義和格式 8 開啟時轉出來的一樣）。這和 fg6「內建套件留在格式 8」的決定不同：fg6 不需要升內建套件，本段要升，只能一起轉。Demo 的「較舊版本 CRM」（`DemoOldCrm`）改成改第一個簽核節點的名稱。
-12. **報表名稱匯出**：`AppPackageReport.Name` 用 `SectionTextJsonConverter`，只有繁中寫字串（P8）；範本與套件的欄位旗標只寫 true（`TemplateExporter` 共用）。
+8. **共用主檔合併**（`MasterMerger`）：
+   - 資料庫層：已存在的欄位套件標 true、現值是 false 時，送只改旗標的 `SetFieldAiExclusionRequest`（經 `PermissionAdminGate`，稽核照 `field.update`），不重送整份 `UpdateFieldRequest`。欄位既有設定過不了現行檢查也不影響補標（政策調嚴不溯及既有資料，修正輪 🟡4）。沒有權限設定就 403、整個匯入回滾；實際上匯入要系統管理員，系統管理員一律有權限設定。孤兒欄位接回本來就要重新解析設定，照舊用 `UpdateFieldRequest`。
+   - 定義層（`MergeDefinition`：主檔還沒開啟時存下的定義、升級預覽的內建＋匯入副本）：既有欄位套件標 true 時合併結果也帶 true，和選項合併一起處理（修正輪 🔴1；原本沒有新選項就整個略過，沒開過的主檔再匯入會靜默丟掉旗標）。
+   - 定義層合併的結果取兩份較新的格式版號再驗證，否則舊格式的主檔補進格式 10 的欄位旗標會被誤擋。查證（修正輪 🟡1）：版號較高才變嚴的規則只有「簽核流程一律是圖」（V8 的格式 ≥9），而主檔套件不收 `approvalFlows`（`MasterStructure`），其他規則都是高版放寬，所以升版不會讓合法的舊主檔變不合法，不另做正規化；測試覆蓋「格式 8 主檔存在資料庫、再匯入格式 10」。
+9. **開啟套件沒有權限設定的 403（P11）**：開啟是 `ISystemAdminRequest`＋`IPermissionAdminRequest`，系統管理員一律有權限設定，所以 HTTP 層由請求宣告先擋（非系統管理員 403、沒有模組留下）；`TemplateInstantiator` 裡 `AddFieldRequest`／`UpdateFieldRequest` 的權限設定檢查是第二道防線，由既有的欄位旗標測試覆蓋（設計者帶 true 新增欄位 403）；修正輪另在應用層直接呼叫 `InstantiateAsync`（app 不是 null），斷言 403 與代碼 `permissionAdminRequired`（🟢6）。
+10. **預覽的 `aiExcludedFields`**：列套件模組欄位與擴充欄位中旗標是 true、且不在 `excludeFields` 的，`field` 是限定欄位名（擴充欄位是 `主檔/模組.欄位`），`module`、`label` 是多語文字由前端照介面語系解析。一起開啟（action 是 open）的共用主檔裡標旗標的欄位也列，`field` 寫 `主檔/模組.欄位`（修正輪 🟡3）；已開啟（bind）或重開（reopen）的主檔不新建欄位，不列。共用主檔已存在欄位要補標的也不列（合併在匯入時已做）。
+11. **內建 crm-sales、inventory 的簽核流程改寫成流程圖**：格式 10 的驗證沿用格式 9 的「簽核流程一律是圖」，所以兩個套件的 `stages` 照 `ApprovalGraphConversion.AsGraph` 的結果改成 `nodes`、`edges`（節點代號＝原關卡代號，開啟後資料庫裡的定義和格式 8 開啟時轉出來的一樣）。這和 fg6「內建套件留在格式 8」的決定不同：fg6 不需要升內建套件，本段要升，只能一起轉。Demo 的「較舊版本 CRM」（`DemoOldCrm`）改成改第一個簽核節點的名稱。`BuiltInFlowGraphEquivalenceTests` 存了格式 8 版的流程原文，斷言 `AsGraph` 的結果等於現在檔案裡的 nodes、edges，日後手改不會悄悄分岔（修正輪 🟡6）。
+12. **報表名稱匯出**：`AppPackageReport.Name` 用 `SectionTextJsonConverter`，只有繁中寫字串（P8）；範本與套件的欄位旗標只寫 true（`TemplateExporter` 共用）。名稱沒有繁中時（必填語系不含繁中時建的報表），匯出用退回鏈解析出的值補成繁中、其他語系照留，匯出的套件才匯得回去（`AppExporter.PackageName`，修正輪 🟡2）。
 13. **拿掉 i3a 的四個相容介面**（§22.1 第 1 點）：`Report.Name`、`CreateReportRequest` 的字串建構子、`ReportDefinitionValidator.ValidateAsync(string?, …)`、`DashboardReportReference.DashboardName`；呼叫處改用多語名稱，警告訊息用繁中（`I18nText.FallbackLocale`，和其他套件警告一致）。
 14. **刪除應用程式前的檢查**（§22.3 第 6 點）：`AppDeleteInspector` 的報表名稱、擋住刪除的儀表板名稱依請求語系解析。
+15. **已知收緊**（修正輪 🟢5）：`TemplateValidator` 新增規則訊息、清單檢視名稱的語系鍵檢查。以前 C# 沒驗這兩處，已存在資料庫的格式 2–9 套件若在這兩處帶了四語以外的鍵，重讀時會變不合法。schema 本來就不允許，實際上不太可能出現，只記一筆。
+16. **schema 的語系鍵上限**：`app.schema.json` 多語物件的 `maxProperties`，`AppSchemaTests` 斷言等於 `I18nNameRules.MaxLocales`（修正輪 🟢2）。通知範本內文（fg6）伺服器沒有語系鍵上限，schema 也不寫。schema 不另用 `if/then` 寫「`excludeFromAi`、多語報表名稱只在格式 10 起」，版本規則以 C# 驗證器為準。
+17. **不在本段範圍**：內建 event-registration、quality-inspection 兩份套件（格式 8）不升格式、報表名稱不補四語，見 backlog 票（修正輪 🟡5）。
 
 ### 24.2 使用者行為（代做）
 
-1. **預覽的呈現**：開啟對話框在群組對應下方加一個可展開的列「會標為「不提供給 AI 工具」的欄位：N 個」，展開列出「模組．欄位」（用語沿用欄位設定的「不提供給 AI 工具」）；沒有這類欄位時不顯示。只是提示，不擋開啟。
+1. **預覽的呈現**：開啟對話框在群組對應下方加一個可展開的列「會標為「不提供給 AI 工具」的欄位：N 個」，展開列出「模組．欄位」（用語沿用欄位設定的「不提供給 AI 工具」）；沒有這類欄位時不顯示。只是提示，不擋開啟。模組與欄位之間的分隔是介面文字 `apps.aiExcludedItem`：繁中用「．」，英、泰、越用「 › 」（修正輪 🟢3）。
 2. **從範本建立的提示文字**：「你沒有「權限設定」權限，已略過範本的「不提供給 AI」設定，共 N 個欄位；請洽權限設定者到欄位設定勾選」，照其他範本 warnings 只有繁中；稽核摘要記 `aiExclusionSkipped: N`。
 3. **擴充欄位與接回的孤兒欄位**：開啟套件時照套件寫入旗標（同模組欄位）；接回的欄位旗標只加不減。
 4. **內建套件譯名**：13 份報表的英文自己定，泰文、越南文是機器翻譯（沿用套件的 `x-translation` 標記），待母語者校對：
