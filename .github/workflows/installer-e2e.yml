@@ -75,6 +75,11 @@ jobs:
           name: e2e-packages
           path: ${{ runner.temp }}/pkgs/*.tar.gz
           retention-days: 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: e2e-wwwroot
+          path: frontend/dist/spa
+          retention-days: 3
 
   linux:
     needs: build
@@ -367,4 +372,191 @@ jobs:
         with:
           name: docker-diagnostics
           path: compose-logs.txt
+          if-no-files-found: ignore
+
+  windows-build:
+    needs: build
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: backend/global.json
+      - uses: actions/download-artifact@v4
+        with:
+          name: e2e-wwwroot
+          path: ${{ runner.temp }}/wwwroot
+      - name: 發佈三個版本並編成安裝程式
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
+            choco install innosetup --no-progress -y
+            $env:PATH += ';C:\Program Files (x86)\Inno Setup 6'
+          }
+          $out = Join-Path $env:RUNNER_TEMP 'setup'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          foreach ($v in @($env:V1, $env:V2, $env:V3)) {
+            $pub = Join-Path $env:RUNNER_TEMP "pub-$v"
+            dotnet publish backend/src/DynamicModules.WebAPI/DynamicModules.WebAPI.csproj -c Release -r win-x64 --self-contained true -p:AppVersion=$v -o $pub
+            if ($LASTEXITCODE -ne 0) { throw "dotnet publish $v 失敗" }
+            Remove-Item -Recurse -Force (Join-Path $pub 'wwwroot') -ErrorAction SilentlyContinue
+            Copy-Item -Recurse (Join-Path $env:RUNNER_TEMP 'wwwroot') (Join-Path $pub 'wwwroot')
+            node scripts/installer/render-defaults.mjs --version $v
+            if ($LASTEXITCODE -ne 0) { throw "render-defaults $v 失敗" }
+            iscc "/DFwPublishDir=$pub" "/O$out" installer\windows\formwright.iss
+            if ($LASTEXITCODE -ne 0) { throw "iscc $v 失敗" }
+          }
+          Get-ChildItem $out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: e2e-windows-setup
+          path: ${{ runner.temp }}/setup/*.exe
+          retention-days: 3
+
+  windows:
+    needs: windows-build
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: e2e-windows-setup
+          path: ${{ runner.temp }}/setup
+
+      - name: fresh-install（AC-01）
+        run: |
+          . ./scripts/installer/e2e/windows-lib.ps1
+          Assert ((Install-Fw $env:V1 'fresh') -eq 0) '全新安裝結束碼不是 0'
+          $svc = Get-Service Formwright
+          Assert ($svc.StartType -eq 'Automatic') "StartType 是 $($svc.StartType)"
+          Wait-Service 'Running'
+          $start = (Get-CimInstance Win32_Service -Filter "Name='Formwright'").StartName
+          Assert ($start -eq 'NT SERVICE\Formwright') "StartName 是 $start"
+          Wait-Code "$Base/api/setup/status" 200
+          $listen = Get-NetTCPConnection -LocalPort 8080 -State Listen
+          Assert (@($listen | Where-Object { $_.LocalAddress -like '*0.0.0.0*' -or $_.LocalAddress -eq '::' }).Count -ge 1) '8080 沒有聽所有介面'
+          Assert ($null -ne (Get-NetFirewallRule -DisplayName Formwright -ErrorAction SilentlyContinue)) '沒有防火牆規則'
+          $r = Invoke-WebRequest "$Base/" -UseBasicParsing
+          Assert ($r.StatusCode -eq 200 -and "$($r.Headers['Content-Type'])" -match 'text/html') 'GET / 不是 HTML'
+          Assert ((Setup-Code).Length -ge 12) '設定碼檔內容不對'
+
+      - name: acl（TD-04）
+        run: |
+          . ./scripts/installer/e2e/windows-lib.ps1
+          $acl = (icacls $Data | Out-String)
+          Write-Host $acl
+          Assert ($acl -notmatch 'BUILTIN\\Users') '資料目錄不該給 BUILTIN\Users'
+
+      - name: backup-red（AC-05）
+        run: |
+          . ./scripts/installer/e2e/windows-lib.ps1
+          icacls $Backup /deny 'NT SERVICE\Formwright:(OI)(CI)W' | Out-Null
+          try {
+            $j = (Wiz checks $Base (Setup-Code)) | ConvertFrom-Json
+            $item = $j.items | Where-Object { $_.key -eq 'backupDirectory' }
+            Assert ($null -ne $item -and $item.ok -eq $false) 'backupDirectory 應為紅燈'
+          } finally { icacls $Backup /remove:d 'NT SERVICE\Formwright' | Out-Null }
+
+      - name: wizard 與 setup-complete-restarts-service（AC-03、10、04、Review Focus 1）
+        run: |
+          . ./scripts/installer/e2e/windows-lib.ps1
+          try {
+            Wiz $Base (Setup-Code) $Backup
+            Wait-Service 'Running' 60
+            Wiz verify-kept $Base
+          } catch {
+            sc.exe qfailure Formwright; sc.exe qfailureflag Formwright
+            throw
+          }
+
+      - name: upgrade（AC-06）
+        run: |
+          . ./scripts/installer/e2e/windows-lib.ps1
+          Wiz backups $Base | Out-Null
+          $start = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss')
+          Assert ((Install-Fw $env:V2 'upgrade') -eq 0) '升級結束碼不是 0'
+          Version-Is $env:V2
+          Wiz verify-kept $Base | Out-Null
+          $runs = @((Wiz backups $Base) | ConvertFrom-Json)
+          $hit = @($runs | Where-Object {
+            "$($_.trigger)".ToLower() -eq 'manual' -and $null -eq $_.requestedUserId -and
+            "$($_.status)".ToLower() -eq 'succeeded' -and [string]::CompareOrdinal("$($_.queuedUtc)", $start) -ge 0 })
+          Assert ($hit.Count -ge 1) "升級後沒有新的成功 Manual 備份（起點 $start）"
+
+      - name: upgrade-backup-fails（AC-07、D-20）
+        run: |
+          . ./scripts/installer/e2e/windows-lib.ps1
+          # 升級前備份由安裝程式以系統管理員身分跑，所以對 Everyone deny 寫入（deny 對 Administrators 也生效）
+          icacls $Backup /deny '*S-1-1-0:(OI)(CI)(W,AD,WD)' | Out-Null
+          try {
+            $rc = Install-Fw $env:V3 'backup-fails-en'
+            Assert ($rc -ne 0) '備份失敗時安裝程式結束碼應非 0'
+            Assert ((Log-Text 'setup-backup-fails-en.log') -match 'Pre-upgrade backup failed') '英文 log 缺「Pre-upgrade backup failed」'
+            $rc = Install-Fw $env:V3 'backup-fails-zh' @('/LANG=chinesetraditional')
+            Assert ($rc -ne 0) '備份失敗時（繁中）安裝程式結束碼應非 0'
+            Assert ((Log-Text 'setup-backup-fails-zh.log') -match '升級前備份失敗') '繁中 log 缺「升級前備份失敗」'
+            Wait-Service 'Running'
+            Version-Is $env:V2
+          } finally { icacls $Backup /remove:d '*S-1-1-0' | Out-Null }
+
+      - name: remove-reinstall（AC-08）與 reinstall-without-backup
+        run: |
+          . ./scripts/installer/e2e/windows-lib.ps1
+          Assert ((Uninstall-Fw 'keep') -eq 0) '移除結束碼不是 0'
+          Assert ($null -eq (Get-Service Formwright -ErrorAction SilentlyContinue)) '移除後服務還在'
+          Assert (Test-Path $Data) '移除後資料不見了'
+          Assert ((Install-Fw $env:V2 'reinstall') -eq 0) '重裝結束碼不是 0'
+          Assert ((Log-Text 'setup-reinstall.log') -notmatch 'backup-now') 'reinstall 不該呼叫 --backup-now'
+          Version-Is $env:V2
+          Assert ((Http-Code "$Base/api/setup/status") -eq 404) '重裝後不該有精靈'
+          Wiz verify-kept $Base | Out-Null
+
+      - name: config-lost-existing-data（AC-13、D-16）
+        run: |
+          . ./scripts/installer/e2e/windows-lib.ps1
+          # 運作中的資料庫檔不穩定也可能被鎖：先停服務取基準 hash，再啟動，讓安裝程式面對「服務還在跑」
+          Stop-Service Formwright; Wait-Service 'Stopped'
+          $before = Db-Hash
+          Assert ($before.Count -ge 1) '找不到資料庫檔'
+          Start-Service Formwright; Wait-Code "$Base/api/health/ready" 200
+          Remove-Item 'C:\ProgramData\Formwright\formwright.json'
+          Assert ((Install-Fw $env:V2 'config-lost') -eq 0) '設定檔遺失後重裝結束碼不是 0'
+          $code = Setup-Code
+          Assert ($code.Length -ge 12) '沒有新的設定碼'
+          $j = (Wiz checks $Base $code) | ConvertFrom-Json
+          $db = $j.items | Where-Object { $_.key -eq 'database' }
+          Assert ($j.ok -eq $false -and $db.ok -eq $false -and $db.problem -eq 'existingData') 'database 應為 existingData 紅燈'
+          $o = Wiz complete-expect $Base $code 422
+          Assert ($o -match 'existingData') 'complete 的 422 應含 existingData'
+          Stop-Service Formwright; Wait-Service 'Stopped'
+          $after = Db-Hash
+          Assert (($before -join "`n") -ceq ($after -join "`n")) '資料庫檔的 hash 變了'
+
+      - name: remove-delete-data（D-10）
+        run: |
+          . ./scripts/installer/e2e/windows-lib.ps1
+          Assert ((Uninstall-Fw 'delete' @('/DELETEDATA')) -eq 0) '移除結束碼不是 0'
+          Assert (-not (Test-Path 'C:\ProgramData\Formwright')) '/DELETEDATA 後資料目錄還在'
+
+      - name: 失敗時收集事件記錄與服務狀態
+        if: failure()
+        run: |
+          $d = Join-Path $env:RUNNER_TEMP 'logs'
+          New-Item -ItemType Directory -Force -Path $d | Out-Null
+          Get-WinEvent -LogName Application -MaxEvents 500 | Format-List TimeCreated, ProviderName, Id, Message | Out-File -Encoding utf8 "$d\events.txt"
+          sc.exe query Formwright *> "$d\sc-query.txt"
+          sc.exe qfailure Formwright *> "$d\sc-qfailure.txt"
+          sc.exe qfailureflag Formwright *> "$d\sc-qfailureflag.txt"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: windows-diagnostics
+          path: ${{ runner.temp }}/logs
           if-no-files-found: ignore
