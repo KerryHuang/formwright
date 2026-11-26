@@ -1239,7 +1239,7 @@
 - **升級比對的屬性**：流程的 `stages` 屬性改成 `nodes`（每個節點去掉簽核人；簽核節點的 `onEmpty` 沒寫時補預設值，免得格式 8 與 9 寫法不同被當成差異）與連線（照一般序列化比）；`approvers` 以簽核節點代號為鍵。關卡代號集合的檢查（套件升級設計 Q27 第二點）改看簽核節點代號集合。套用時兩邊都先轉成 graph，再依節點代號逐個把新版內容配上目前的簽核人。
 - **`app.schema.json`**：`formatVersion` 加 9；`approvalFlows` 的項目改成 `oneOf`（sequence＋stages／graph＋nodes＋edges），加上節點、連線、通知收件人（種類只有三種）、範本的 `$defs`。根層 `allOf` 依 `formatVersion` 綁定 `shape`：9 以上只能 graph、8 以下只能 sequence（用 `minimum`／`maximum`，格式升到 10 也不必改）。schema 只會比 C# 寬或相等；節點依種類的必填屬性、收件人組合規則仍以伺服器驗證為準。
 - **通知節點拿掉後的重複線**（審查修正 fg6-r2）：入線改接到出線終點時，若來源已有一條線到同一個終點——來源是條件節點、既有那條是預設線、而且改接的線之後比對的條件線也都到同一個終點時，刪掉改接的那條（符合它的單照樣落到預設線，語意不變）；條件節點因此只剩預設線時，條件節點本身也是直通，一起跳過。其他情況（既有那條是條件線、中間有別的條件線分走、並行分支兩條都只剩通知節點）不保證等價，保留這個沒有收件人的通知節點，交給驗證回報。沒有收件人的通知節點反覆嘗試跳過、直到不再有變化，結果與節點在陣列裡的順序無關：例如條件節點 order 1、order 2 兩條各接一個只通知被略過群組的知會、預設線到結束，不論兩個知會誰在前，都會兩個拿掉、條件節點也一起跳過（複審 🟡N1）。開啟預覽對略過群組後的流程圖再跑一次結構驗證（`AppPackageValidator.SkippedGroupErrors`），錯誤後面加「（略過群組後）」，預覽就列出、不等開啟才失敗；升級預覽原本就對套用後的定義跑設計器驗證（`ToInput` 已套略過），標 `workflowInvalid`。例：並行分支兩條都只通知被略過的群組 →「approvalFlows[t8-po-notify].nodes.n2.recipients: 通知收件人設定必須有 1 到 20 項（略過群組後）」。
-- **內建應用程式維持格式 8**：`backend/apps/*.app.json` 不改寫，開啟時轉 graph；格式 8 的 stages → graph 由 `AppFormat8Tests`、`InventoryApprovalTests`、`DesignCaseFlowTests` 涵蓋。改寫成格式 9 只會讓檔案變長、沒有新能力，也會讓已開啟的客戶看到一次純格式的升級差異。
+- **內建應用程式維持格式 8**：`backend/apps/*.app.json` 不改寫，開啟時轉 graph；格式 8 的 stages → graph 由 `AppFormat8Tests`、`InventoryApprovalTests`、`DesignCaseFlowTests` 涵蓋。改寫成格式 9 只會讓檔案變長、沒有新能力，也會讓已開啟的客戶看到一次純格式的升級差異。i3c 起內建 crm-sales、inventory 升格式 10、流程改寫成圖，見[名稱多語設計](2026-11-21-name-i18n-design.md) §24.1 第 11 點。
 - **頂替清單的種類**：`approvalSubstitutions[].kind` 加 `notify`、`replacedBy` 加 `skipped`（前端型別同步）；簽核節點的頂替 `stage` 欄位放節點代號、`stageName` 放節點名稱。
 
 ### 使用者行為（代做，設計與裁決沒寫到；保守、可改回）

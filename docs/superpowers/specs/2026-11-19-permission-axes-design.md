@@ -174,7 +174,7 @@
 
 **M5 擴大：一般隱藏欄位也納入公式依賴閉包**（主控裁決，使用者 2026-11-20 確認）：今天 `EventValidator.HiddenAsync` 只對「限定可見的貢獻欄位」做公式閉包，對一般 `Hidden` 欄位沒有。設計者建立公式 F1 = `{薪資} * 1`（薪資對某群組隱藏），事件從 F1 複製，就不必勾旗標。改成：`Hidden` 欄位與限定可見欄位合併後一起逐層做閉包（`FormulaGraph.EvaluationOrder`），引用它們的公式（含公式引用公式）都算隱藏來源。`UpdateFieldHandler` 改公式時已經比對 `HiddenAsync` 前後差異擋下「公式改了之後變成看得到隱藏值」，會自動跟著新規則。效果見 §6.3 S1、PAX-13b。
 
-**「不提供給 AI」欄位旗標**（使用者裁決歸授權；旗標本身在 mcp1a 後端、mcp1b 畫面才出現）：契約寫在這裡，由 mcp1a 照做——`AddFieldRequest` 帶 true、`UpdateFieldRequest` 的值和現存值不同，都要把欄位的修改與存檔包進 `PermissionAdminGate.RunAsync`，沒有權限設定就 403 `permissionAdminRequired`（MCP 通道 `mcpPermissionAdminDenied`）；寫入邊界把這個欄位的變動列為守衛（§7.4）。套件與範本帶的旗標照開啟／從範本建立的規則（開啟要管理員；從範本建立沒有權限設定時旗標一律寫 false 並加一則 warnings，和 M3 同精神）。
+**「不提供給 AI」欄位旗標**（使用者裁決歸授權；旗標本身在 mcp1a 後端、mcp1b 畫面才出現）：契約寫在這裡，由 mcp1a 照做——`AddFieldRequest` 帶 true、`UpdateFieldRequest` 的值和現存值不同，都要把欄位的修改與存檔包進 `PermissionAdminGate.RunAsync`，沒有權限設定就 403 `permissionAdminRequired`（MCP 通道 `mcpPermissionAdminDenied`）；寫入邊界把這個欄位的變動列為守衛（§7.4）。共用主檔重匯補旗標走只改旗標的 `SetFieldAiExclusionRequest`（只寫 true、已是 true 不經 gate，其餘同上；見[名稱多語設計](2026-11-21-name-i18n-design.md) §24.1 第 8 點）。套件與範本帶的旗標照開啟／從範本建立的規則（開啟要管理員；從範本建立沒有權限設定時旗標一律寫 false 並加一則 warnings，和 M3 同精神）。
 
 **帶表頭的值依呼叫端可見性**（主控裁決 M6，使用者 2026-11-20 確認；修核心設計 §15 第 55 條）：見 §12.2。
 
