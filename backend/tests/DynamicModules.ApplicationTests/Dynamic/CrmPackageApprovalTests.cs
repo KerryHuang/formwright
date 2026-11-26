@@ -14,27 +14,29 @@ public class CrmPackageApprovalTests
     public void Package_DeclaresDesignCaseReviewFlow()
     {
         var p = Package.Value;
-        p.FormatVersion.Should().Be(8);
+        p.FormatVersion.Should().Be(10);
         AppPackageValidator.Validate(p).Errors.Should().BeEmpty();
 
         var flow = p.ApprovalFlows.Should().ContainSingle().Subject;
         flow.Code.Should().Be("crm-design-case-review");
-        (flow.Module, flow.To, flow.RejectTo, flow.Shape).Should().Be(("design-case", "manager-review", "designing", "sequence"));
+        (flow.Module, flow.To, flow.RejectTo, flow.Shape).Should().Be(("design-case", "manager-review", "designing", "graph"), "格式 10 起簽核流程一律是圖（名稱多語設計 §24）");
         (flow.Active, flow.Priority).Should().Be((true, 1));
         flow.When.Should().BeNull();
         flow.FallbackApprovers.Should().BeNull("省略時由政策預設（出廠為系統管理員）頂替");
         // 手冊 §22 的劇本照這兩個繁中名稱寫，改名要連手冊一起改
         flow.Name.Resolve("zh-TW").Should().Be("設計案主管確認");
-        flow.Stages![0].Name.Resolve("zh-TW").Should().Be("負責業務主管");
+        var stage = flow.Nodes!.Where(n => n.Kind == "approval").Should().ContainSingle().Subject;
+        stage.Name!.Resolve("zh-TW").Should().Be("負責業務主管");
         foreach (var locale in new[] { "zh-TW", "en-US", "th", "vi" })
         {
             flow.Name.Resolve(locale).Should().NotBeNullOrWhiteSpace(locale);
-            flow.Stages![0].Name.Resolve(locale).Should().NotBeNullOrWhiteSpace(locale);
+            stage.Name!.Resolve(locale).Should().NotBeNullOrWhiteSpace(locale);
         }
 
-        var stage = flow.Stages!.Should().ContainSingle().Subject;
-        stage.Code.Should().Be("owner-manager");
-        (stage.Approvers.Source, stage.Approvers.Level).Should().Be(("manager", 1));
+        flow.Stages.Should().BeNull();
+        flow.Edges!.Select(e => $"{e.From}>{e.To}").Should().Equal("start>owner-manager", "owner-manager>end");
+        stage.Id.Should().Be("owner-manager");
+        (stage.Approvers!.Source, stage.Approvers.Level).Should().Be(("manager", 1));
         (stage.Mode, stage.OnEmpty, stage.DueHours).Should().Be(("any", "fallback", null));
         stage.EditableFields.Should().BeNullOrEmpty();
         stage.When.Should().BeNull();

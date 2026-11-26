@@ -51,7 +51,8 @@ public static class DemoOldCrm
                 if ($"transition:{wf["module"]}:{t!["from"]}>{t["to"]}" == NarrowedTransition && t["groups"] is JsonArray groups)
                     groups.Remove(groups.First(g => g!.GetValue<string>() == RemovedGroup));
         foreach (var flow in root["approvalFlows"]!.AsArray().Where(f => (string?)f!["code"] == RenamedFlow))
-            flow!["stages"]![0]!["name"]!["zh-TW"] = OldStageName;
+            // 格式 10 起內建套件的流程是圖（名稱多語設計 §24）：第一關＝第一個簽核節點
+            flow!["nodes"]!.AsArray().First(n => (string?)n!["kind"] == "approval")!["name"]!["zh-TW"] = OldStageName;
         foreach (var t in root["printTemplates"]!.AsArray().Where(t => (string?)t!["code"] == ShortenedTemplate))
             t!["body"] = t["body"]!.GetValue<string>().Replace(RemovedTemplateLine, "");
         foreach (var r in root["taskRules"]!.AsArray().Where(r => (string?)r!["code"] == RenamedTaskRule))

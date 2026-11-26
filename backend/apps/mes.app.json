@@ -1,10 +1,10 @@
 {
  "format": "formwright-app",
- "formatVersion": 6,
+ "formatVersion": 10,
  "x-translation": "th、vi 標籤為機器翻譯，待母語者校對",
  "manifest": {
   "id": "mes",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "name": {
    "zh-TW": "MES 生產製造",
    "en-US": "Manufacturing MES",
@@ -4855,7 +4855,12 @@
  "reports": [
   {
    "code": "mesWoStatus",
-   "name": "工令狀態分布",
+   "name": {
+    "zh-TW": "工令狀態分布",
+    "en-US": "Work orders by status",
+    "th": "การกระจายใบสั่งผลิตตามสถานะ",
+    "vi": "Phân bố lệnh sản xuất theo trạng thái"
+   },
    "shareWith": [
     "planner",
     "floor",
@@ -4893,7 +4898,12 @@
   },
   {
    "code": "mesOutputMonthly",
-   "name": "月別完工量",
+   "name": {
+    "zh-TW": "月別完工量",
+    "en-US": "Monthly completed quantity",
+    "th": "ปริมาณผลิตเสร็จรายเดือน",
+    "vi": "Sản lượng hoàn thành theo tháng"
+   },
    "shareWith": [
     "planner",
     "floor"
@@ -4941,7 +4951,12 @@
   },
   {
    "code": "mesDefectReason",
-   "name": "不良原因分布",
+   "name": {
+    "zh-TW": "不良原因分布",
+    "en-US": "Defects by reason",
+    "th": "การกระจายสาเหตุของเสีย",
+    "vi": "Phân bố nguyên nhân lỗi"
+   },
    "shareWith": [
     "planner",
     "floor",
@@ -4983,7 +4998,12 @@
   },
   {
    "code": "mesDefectByProcess",
-   "name": "各工序良品與不良",
+   "name": {
+    "zh-TW": "各工序良品與不良",
+    "en-US": "Good and defective quantity by process",
+    "th": "จำนวนของดีและของเสียตามขั้นตอนการผลิต",
+    "vi": "Số lượng đạt và lỗi theo công đoạn"
+   },
    "shareWith": [
     "planner",
     "floor",
@@ -5035,7 +5055,12 @@
   },
   {
    "code": "mesShipMonthly",
-   "name": "月別出貨量",
+   "name": {
+    "zh-TW": "月別出貨量",
+    "en-US": "Monthly shipped quantity",
+    "th": "ปริมาณจัดส่งรายเดือน",
+    "vi": "Số lượng giao hàng theo tháng"
+   },
    "shareWith": [
     "planner",
     "floor",
@@ -5094,7 +5119,12 @@
   },
   {
    "code": "mesOverdueWo",
-   "name": "逾期未完工工令",
+   "name": {
+    "zh-TW": "逾期未完工工令",
+    "en-US": "Overdue open work orders",
+    "th": "ใบสั่งผลิตที่เลยกำหนดและยังไม่เสร็จ",
+    "vi": "Lệnh sản xuất quá hạn chưa hoàn thành"
+   },
    "shareWith": [
     "planner",
     "floor",
