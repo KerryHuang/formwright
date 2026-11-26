@@ -111,12 +111,21 @@ function CmdCompleteExpect([string]$Base, [string]$Code, [int]$Want) {
   if ($c -ne $Want) { Fail "complete 期望 $Want、實得 $c" }
 }
 
-# ConvertFrom-Json 會把日期字串轉成 DateTime；統一輸出成 UTC 的 yyyy-MM-ddTHH:mm:ss（與 wizard.sh 取前 19 字元同義）
-function DateStr($v) {
-  if ($null -eq $v) { return $null }
-  if ($v -is [datetime]) { return $v.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss') }
-  $t = "$v"; $t.Substring(0, [Math]::Min(19, $t.Length))
+# ConvertFrom-Json 會把日期字串轉成 DateTime（Kind 可能是 Utc、Local 或 Unspecified）；一律還原成 UTC 的 DateTime。
+# API 回的是 UTC，Kind 不明（Unspecified）時當成 UTC；解析失敗回 $null，由呼叫端決定要不要擋。
+function ToUtcDate($v) {
+  if ($null -eq $v -or "$v" -eq '') { return $null }
+  if ($v -is [datetime]) {
+    if ($v.Kind -eq [DateTimeKind]::Unspecified) { return [datetime]::SpecifyKind($v, [DateTimeKind]::Utc) }
+    return $v.ToUniversalTime()
+  }
+  $o = [DateTimeOffset]::MinValue
+  $styles = [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal
+  if ([DateTimeOffset]::TryParse("$v", [Globalization.CultureInfo]::InvariantCulture, $styles, [ref]$o)) { return $o.UtcDateTime }
+  return $null
 }
+function DateStr($v) { $d = ToUtcDate $v; if ($null -eq $d) { return $null }; $d.ToString("yyyy-MM-ddTHH:mm:ss'Z'") }
+function UnixSeconds($v) { $d = ToUtcDate $v; if ($null -eq $d) { return $null }; [DateTimeOffset]::new($d).ToUnixTimeSeconds() }
 
 function IsPending($run) {
   $s = "$($run.status)".ToLower()
@@ -132,7 +141,7 @@ function CmdBackups([string]$Base) {
     $pending = @($j.runs | Where-Object { IsPending $_ })
     if ($null -eq $j.current -and $pending.Count -eq 0) {
       ConvertTo-Json -Compress -Depth 5 -InputObject @($j.runs | ForEach-Object {
-        [ordered]@{ trigger = $_.trigger; requestedUserId = $_.requestedUserId; status = $_.status; queuedUtc = (DateStr $_.queuedUtc); finishedUtc = (DateStr $_.finishedUtc) }
+        [ordered]@{ trigger = $_.trigger; requestedUserId = $_.requestedUserId; status = $_.status; queuedUtc = (DateStr $_.queuedUtc); queuedUnix = (UnixSeconds $_.queuedUtc); finishedUtc = (DateStr $_.finishedUtc) }
       })
       return
     }
@@ -197,13 +206,20 @@ function CmdFull([string]$Base, [string]$Code, [string]$Backup) {
   if ((Json).ok -ne $true) { [Console]::Error.WriteLine($script:Body); Fail '環境檢查不是全綠' }
   Step 'complete'
   $c = SetupPost $Base $Code 'complete' (CompleteBody $Backup); Expect 'complete' 200 $c
-  Step '等站台以一般模式回來（最多 120 秒）'
+  # B02：以 complete 回應的時刻起算 60 秒，站台回一般模式與（有設 FW_E2E_SERVICE 時）服務回 Running 共用同一個截止時間
+  $deadline = [DateTime]::UtcNow.AddSeconds(60)
+  Step '等站台以一般模式回來（complete 之後 60 秒內）'
   $ok = $false
-  for ($i = 0; $i -lt 120; $i++) {
-    if ((Http 'GET' "$Base/api/setup/status") -eq 404 -and (Http 'GET' "$Base/api/health/ready") -eq 200) { $ok = $true; break }
+  while ([DateTime]::UtcNow -lt $deadline) {
+    $svcOk = $true
+    if ($env:FW_E2E_SERVICE) {
+      $svc = Get-Service $env:FW_E2E_SERVICE -ErrorAction SilentlyContinue
+      $svcOk = ($null -ne $svc -and $svc.Status -eq 'Running')
+    }
+    if ($svcOk -and (Http 'GET' "$Base/api/setup/status") -eq 404 -and (Http 'GET' "$Base/api/health/ready") -eq 200) { $ok = $true; break }
     Start-Sleep -Seconds 1
   }
-  if (-not $ok) { Fail '站台沒有在 120 秒內回到一般模式' }
+  if (-not $ok) { Fail '站台（或服務）沒有在 complete 之後 60 秒內回到一般模式' }
   Step '登入、不必改密碼'
   $c = Http 'POST' "$Base$Api/auth/login" @{ userId = $AdminUser; password = $AdminPassword }
   Expect '登入' 200 $c

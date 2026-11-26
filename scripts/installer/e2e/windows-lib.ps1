@@ -10,6 +10,35 @@ $Uninstaller = 'C:\Program Files\Formwright\unins000.exe'
 
 function Assert($Cond, [string]$Msg) { if (-not $Cond) { throw "FAIL: $Msg" } }
 
+# 原生指令的非 0 結束碼不會讓 pwsh 的 step 失敗；icacls 一律經這裡，非 0 就 throw
+function Icacls { & "$env:SystemRoot\System32\icacls.exe" @args | Out-Null; if ($LASTEXITCODE -ne 0) { throw "FAIL: icacls $args（結束碼 $LASTEXITCODE）" } }
+
+# 起點與 API 時間都轉成 UTC 的 DateTimeOffset 再比較；缺值（$null、空字串）直接 throw，不靠字串排序
+function To-UtcOffset($UnixSeconds) {
+  if ($null -eq $UnixSeconds -or "$UnixSeconds" -eq '') { throw 'FAIL: 時間欄位缺值或解析失敗' }
+  [DateTimeOffset]::FromUnixTimeSeconds([long]$UnixSeconds)
+}
+function Now-Utc { [DateTimeOffset]::FromUnixTimeSeconds([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) }
+
+# B01：列出路徑（目錄會連同其下所有項目）的所有 ACE，只能有 SYSTEM、Administrators、服務帳號三個 SID，且服務帳號沒有 FullControl
+function Assert-OnlyTrustedAces([string[]]$Paths) {
+  $svc = (New-Object Security.Principal.NTAccount('NT SERVICE\Formwright')).Translate([Security.Principal.SecurityIdentifier]).Value
+  $allowed = @('S-1-5-18', 'S-1-5-32-544', $svc)
+  $all = foreach ($p in $Paths) {
+    if (Test-Path -LiteralPath $p -PathType Container) { Get-Item -LiteralPath $p -Force; Get-ChildItem -LiteralPath $p -Recurse -Force } else { Get-Item -LiteralPath $p -Force }
+  }
+  Assert (@($all).Count -ge 1) '沒有可檢查的路徑'
+  foreach ($item in $all) {
+    foreach ($ace in (Get-Acl -LiteralPath $item.FullName).Access) {
+      $sid = $ace.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+      Assert ($allowed -contains $sid) "$($item.FullName) 有不該有的 ACE：$($ace.IdentityReference)（$sid）"
+      if ($sid -eq $svc) {
+        Assert (($ace.FileSystemRights -band [Security.AccessControl.FileSystemRights]::FullControl) -ne [Security.AccessControl.FileSystemRights]::FullControl) "$($item.FullName) 服務帳號不該有 FullControl"
+      }
+    }
+  }
+}
+
 # 靜默執行安裝程式，回傳結束碼；log 落在 $LogDir\setup-<名稱>.log
 function Install-Fw([string]$Version, [string]$Name, [string[]]$Extra = @()) {
   $exe = Join-Path $Pkg "Formwright-Setup-$Version.exe"
