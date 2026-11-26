@@ -162,6 +162,25 @@ public class McpToolsApiTests : IAsyncLifetime
         Code(await Call("run_report", new { reportId = 1, rangeKind = "forever" })).Should().Be(McpErrorCodes.InvalidArguments);
     }
 
+    /// <summary>名稱多語設計 S5：list_reports 的 name 依呼叫語系解析成字串（MCP 回應形狀不變）。</summary>
+    [Fact]
+    public async Task ListReports_NameResolvedInCallerLocale()
+    {
+        var def = new Dictionary<string, object?>
+        {
+            ["version"] = 1, ["dataset"] = "tasks", ["mainModuleKey"] = "", ["child"] = null, ["columns"] = Array.Empty<object>(),
+            ["groups"] = Array.Empty<object>(), ["measures"] = new[] { new { id = "n", kind = "countMain", field = (object?)null, condition = (object?)null } },
+            ["filters"] = Array.Empty<object>(), ["primaryDateField"] = null, ["dateRange"] = null, ["sort"] = Array.Empty<object>(), ["viz"] = "indicator",
+        };
+        var created = await _admin.PostAsJsonAsync("/api/v3/dynamic/reports",
+            new { name = new Dictionary<string, string> { ["zh-TW"] = "訂單", ["en-US"] = "Orders" }, definition = def });
+        created.EnsureSuccessStatusCode();
+
+        await using var en = await ConnectAsync(_app, IssueToken(_app, "admin").Raw, "en-US");
+        (await Call("list_reports", client: en)).GetProperty("data").EnumerateArray().Select(i => i.GetProperty("name").GetString()).Should().Contain("Orders");
+        (await Call("list_reports")).GetProperty("data").EnumerateArray().Select(i => i.GetProperty("name").GetString()).Should().Contain("訂單");
+    }
+
     [Fact]
     public async Task ListMyTasks_TabAndPageSize()
     {

@@ -104,11 +104,13 @@ internal static class McpTestKit
         if (allowed is not null) SetPolicy(app, PolicyCatalog.McpAllowedGroups, allowed);
     }
 
-    public static async Task<McpClient> ConnectAsync(TestApp app, string? token)
+    /// <param name="locale">給了就帶 X-Locale（呼叫語系）。</param>
+    public static async Task<McpClient> ConnectAsync(TestApp app, string? token, string? locale = null)
     {
         var http = app.CreateClient();
         var headers = new Dictionary<string, string>();
         if (token is not null) headers["Authorization"] = $"Bearer {token}";
+        if (locale is not null) headers["X-Locale"] = locale;
         var transport = new HttpClientTransport(new HttpClientTransportOptions
         {
             Endpoint = new Uri(http.BaseAddress!, "/mcp"), AdditionalHeaders = headers,
