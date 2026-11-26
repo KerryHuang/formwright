@@ -70,7 +70,7 @@
 | O5 | agent L3 修正 PR、CI gate | 未開始 | [維運與觀測](superpowers/specs/2026-11-11-ops-observability-design.md) §9 |
 | O6、mcpO2 | 雲端版 L2 自動處置；產品端維運處置工具 | 未開始 | [維運與觀測](superpowers/specs/2026-11-11-ops-observability-design.md) §9、[MCP server](superpowers/specs/2026-11-11-mcp-server-design.md) §12 |
 | mcp2a | MCP 一般寫入工具（7 個）、冪等鍵、寫入迴圈偵測（使用者 11-21 裁決：寫入範圍預設不勾、被遮欄位 AI 不能寫、歷程先不標經 AI） | ✅ 已上線（2026-11-21，main 00ced081 起；四批 mcp2a-1 至 mcp2a-4、兩輪審查修正；沒有 migration；Demo 站無可示範，本機實機驗收見手冊 §24.7） | [MCP server](superpowers/specs/2026-11-11-mcp-server-design.md) §12、[mcp2a 計畫](superpowers/plans/2026-11-11-mcp-server-mcp2a.md) |
-| mcp2b | MCP 高風險業務工具 | 未開始 | [MCP server](superpowers/specs/2026-11-11-mcp-server-design.md) §12 |
+| mcp2b | MCP 高風險業務工具；client 支援 elicitation 時改由人確認，不支援退回確認碼（使用者 11-26 裁決） | 未開始 | [MCP server](superpowers/specs/2026-11-11-mcp-server-design.md) §12 |
 | mcp3 | MCP 設計器工具（開工前另寫設計） | 未開始 | [MCP server](superpowers/specs/2026-11-11-mcp-server-design.md) §12 |
 | mcp4 | MCP OAuth 2.1（Claude.ai、ChatGPT 連接器；可視雲端版第一個客戶的需求提前） | 未開始 | [MCP server](superpowers/specs/2026-11-11-mcp-server-design.md) §12 |
 | s2d-1g | Demo 公司跨應用程式共用、移除模擬客戶與全部內建模擬實體 | ✅ 已上線（2026-11-14，8719cc5b） | [共用主檔](superpowers/specs/2026-11-10-shared-master-design.md) |

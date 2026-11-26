@@ -340,7 +340,34 @@ annotations 只是提示。規範明說 client 不該信任它，所以產品端
 - 第二次呼叫是另一個工具呼叫，有核准機制的 client 會再問一次人。Claude Code 預設逐次詢問；ChatGPT 對寫入要求手動確認（研究 subagent 讀 OpenAI 文件，主控未複核，⚠️ 未查證）。
 - 對維運中心這種確定性的執行者來說，它可以先比對預演是否符合 runbook 預期，再決定要不要確認。
 
-真正要「人親手按」的強化版列為後續（§18 第 3 條）：client 有宣告 elicitation 時改走 elicitation，或改成在產品畫面確認。手冊要寫明：client 不要把高風險工具設成自動允許。
+真正要「人親手按」的強化版在 mcp2b 做，見 §6.3.1（使用者 2026-11-26 裁決）。手冊要寫明：client 不要把高風險工具設成自動允許。
+
+### 6.3.1 client 支援 elicitation 時改由人確認（mcp2b；使用者 2026-11-26 裁決，機制細節是主控判斷）
+
+使用者裁決：mcp2b 一起做，client 支援就走 elicitation，不支援就退回上面的確認碼。動機是 2026-07-28 版的 elicitation 已在 Claude、Claude Code 正式推出，由 client 跳對話框讓人回答，回答不經過 LLM。
+
+SDK 查證（2026-11-26，讀本機 `ModelContextProtocol.Core` 2.4.0 的 XML 文件）：stateless 模式用 MRTR。工具先檢查 `McpServer.IsMrtrSupported`，再丟 `InputRequiredException`，內容是 `InputRequest.ForElicitation(...)` 加上 `requestState`；client 回答後重送原請求，帶回 `RequestParams.RequestState` 和 `InputResponses`。handler 不必在兩次往返之間活著。client 不支援 MRTR 時丟這個例外，只會變成 JSON-RPC internal error，所以一定要先檢查。
+
+流程：
+
+1. **選路**：`IsMrtrSupported` 為真，而且 client 宣告了 `ElicitationCapability.Form`，就走 elicitation。兩項缺一就走 §6.3 的確認碼（維運中心這類確定性的執行者走這條）。
+2. **第一次呼叫**：預演和確認碼的產生、綁定照 §6.3 第 1、2 點。差別在確認碼不回給 AI，而是放進 `requestState`，同時丟出 form elicitation：
+   - `message` 是預演摘要，套用與工具輸出相同的 AI 欄位遮罩（§5.5）。
+   - `requestedSchema` 只有一個布林欄位「確認執行」，不收其他輸入。規範規定敏感資訊不可走 form，這裡也用不到。
+   - 這把確認碼標記為「elicitation 發出」。
+3. **重送**：從 `requestState` 取回確認碼，照 §6.3 第 3 點逐項驗證，另外要求 `InputResponses` 裡那一筆回答是 accept，而且「確認執行」為真。
+   - 使用者按拒絕或取消：確認碼作廢，回 `isError`，代碼 `confirmation_declined`，稽核記「使用者拒絕」。
+   - 其餘不符：照舊回 `confirmation_invalid`。
+4. **兩條路不能混用**：標記為「elicitation 發出」的確認碼，用 `confirmationCode` 參數送來一律回 `confirmation_invalid`。這樣 AI 即使看得到 `requestState`，也沒辦法跳過對話框。
+5. **稽核**：確認紀錄多一欄確認方式（確認碼／elicitation），讓事後查得出哪些高風險動作真的有人按過。
+
+⚠️ 未驗證，mcp2b 開工時實測：
+
+- Claude Code 是否真的支援 MRTR 版的 elicitation。官方文件有寫，但還沒在 repo 實機跑過。
+- Codex 支不支援。
+- client 會不會把 `requestState` 顯示給 LLM。不影響安全（第 4 點已擋），只影響要不要另外加密。
+
+待決（mcp2b 計畫時分流）：client 不支援 elicitation 時，要不要讓管理員改成「拒絕高風險工具」，不退回確認碼。這是使用者感覺得到的取捨，依鐵則 2 應該做成政策，出廠值待定。
 
 ### 6.4 高風險清單可調（使用者裁決；地板依 C7 使用者裁決，2026-11-12）
 
@@ -411,7 +438,7 @@ annotations 只是提示。規範明說 client 不該信任它，所以產品端
 
 - delete_record（預演＝刪除前檢查的串聯結果）。
 - approve、reject（預演＝下一關、會觸發的轉移與效果）。
-- 確認碼機制在 mcp1 已建好，mcp2b 只新增工具，並新增 `mcp.highRiskTools` 政策與「多選代碼」政策型別。
+- 確認碼機制在 mcp1 已建好。mcp2b 新增工具、`mcp.highRiskTools` 政策與「多選代碼」政策型別，再加上 elicitation 確認（§6.3.1，使用者 2026-11-26 裁決）。
 
 **mcp3 設計器**（`design.read`、`design.write`；工具照對應 request 原本的宣告把關——`IDesignerRequest`、`IPermissionAdminRequest`、`ISystemAdminRequest`——沒有對應權限就被 behavior 擋下。權限軸起，宣告 `IPermissionAdminRequest` 的請求（改模組權限、開關應用程式、帳號與成員）在 MCP 通道一律拒絕，直到 mcp3-4 有答案並加權杖範圍，見[權限軸設計](2026-11-19-permission-axes-design.md) §14、M8）
 
@@ -1300,7 +1327,7 @@ builder 審查（2026-11-11）的 (b) 類中與本文件有關的，主控照建
    - client 宣告 elicitation 時改走 elicitation，由人在 client 的對話框回答。2026-07-28 版用 MRTR；Claude Code 已支援，其他 client 未查證。
    - 高風險改成在產品畫面或站內通知按確認。
 
-   要不要做、排在哪段，待使用者決定。
+   已裁決（使用者 2026-11-26）：採第一個方向，在 mcp2b 做，client 不支援就退回確認碼，設計見 §6.3.1。產品畫面確認不做。「不支援 elicitation 時要不要拒絕」留到 mcp2b 計畫時決定。
 4. **「不提供給 AI」旗標與套件格式**：要查欄位設定在套件裡是不是整包序列化、格式驗證會不會擋未知屬性；若要升格式版本，排在 mcp1b 並和當時的格式順序（簽核 8、s2e 9、10）對齊。（回填：格式 8 是簽核、9 是流程圖、10 是 i3c 帶旗標，s2e 改用 11。）
 5. **公式與標題樣板引用遮罩欄位**：mcp1a 已一起遮（§5.5，計畫 Q3）；使用者 2026-11-21 裁決畫面通道也補（#74、#75）。
 6. **雲端版的合約與隱私說明**：資料經 AI client 送到第三方，訂閱條款要寫清楚責任歸屬；雲端版方案是否都含 MCP，也是商業決定。
