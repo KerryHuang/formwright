@@ -100,6 +100,13 @@ public sealed partial class PostgresDatabaseBackup(DynamicDbContext db, PgDumpSe
         }
     }
 
+    /// <summary>設定精靈的環境檢查用：找得到 <c>pg_dump</c>（和同目錄的 <c>pg_restore</c>）回 <c>pg_dump</c> 路徑，找不到回 null。</summary>
+    public static string? LocatePgDump(PgDumpSettings settings)
+    {
+        try { return ResolveTools(settings).PgDump; }
+        catch (BackupFailure) { return null; }
+    }
+
     /// <summary>找 <c>pg_dump</c> 與同目錄的 <c>pg_restore</c>；找不到丟 <c>pgDumpMissing</c>。</summary>
     private static (string PgDump, string PgRestore) ResolveTools(PgDumpSettings settings)
     {

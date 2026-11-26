@@ -24,6 +24,17 @@ public static class SetupEndpoints
         var group = app.MapGroup("/api/setup");
         group.AddEndpointFilter(async (ctx, next) =>
             IsCodeValid(ctx.HttpContext.Request.Headers[CodeHeader].ToString(), dataDirectory) ? await next(ctx) : Invalid());
+        group.MapPost("/checks", async (HttpContext http, SetupChecks checks, CancellationToken ct) =>
+        {
+            SetupDraft? draft = null;
+            if (http.Request.ContentLength is > 0 || http.Request.Headers.ContainsKey("Transfer-Encoding"))
+            {
+                try { draft = await http.Request.ReadFromJsonAsync<SetupDraft>(ct); }
+                catch (JsonException) { return Results.Json(new { code = "invalid" }, statusCode: StatusCodes.Status400BadRequest); }
+            }
+            var items = await checks.RunAsync(draft ?? new SetupDraft(), ct);
+            return Results.Json(new { items, ok = items.All(i => i.Ok) });
+        });
         group.Map("{**rest}", () => Results.NotFound());
 
         app.MapGet("/api/health", () => LimitedResponses.Live());
