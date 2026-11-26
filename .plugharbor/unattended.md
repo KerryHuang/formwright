@@ -43,7 +43,7 @@ GitHub Actions（`.github/workflows/gate.yml`）：先跑外洩掃描（三項 0
 可以自己合併：
 
 1. `git merge-base --is-ancestor origin/main HEAD` 成立就 `git push origin HEAD:main`，用 fast-forward。
-2. 不成立就先 rebase 到 origin/main；rebase 帶進的 `backend/`、`frontend/`、`shared/`、Dockerfile 或 workflow 有變才重跑閘門，只差文件就沿用原結果（與 `formwright-ship` 一致）。
+2. 不成立就先 rebase 到 origin/main，用 `bash scripts/unattended/ci-wait.sh --reuse <已綠 sha> <新 sha>` 判斷要不要重跑：程式碼範圍（`backend/`、`frontend/`、`shared/`、`scripts/`、`.github/`、Dockerfile）和已綠的 commit 相同就沿用，帳本記沿用的來源 commit 與 run；不同才重跑閘門（#120，與 `formwright-ship` 一致）。
    - 功能分支已推過遠端時，rebase 後推到新的分支名（例 `feature/p3b-r2`），不對原分支 force push（含 `--force-with-lease`）。2026-11-19 o2a、2026-11-20 p3b 各犯一次。
 
 不用 merge commit、不 force push。

@@ -26,7 +26,7 @@ Formwright 用 GitHub Actions 跑三條 workflow，各管一件事：
 2. **推分支**：推上去就觸發 gate。
 3. **等結果**：`bash scripts/unattended/ci-wait.sh <sha>` 每 30 秒查一次。任一 job 失敗就提早回報 `failure`，不等其他 job 跑完；最後一行是 gate 的結論，只有 `success` 才算通過（exit 0）。失敗原因用 `gh run view <run id> --log-failed` 看。
 4. **合併**：只用 fast-forward。`git merge-base --is-ancestor origin/main HEAD` 成立就 `git push origin HEAD:main`；不成立就先 rebase 到 origin/main。
-   - rebase 帶進的 `backend/`、`frontend/`、`shared/`、Dockerfile 或 workflow 有變動，要重跑 gate；只差文件就沿用原結果。
+   - rebase 後用 `bash scripts/unattended/ci-wait.sh --reuse <已綠 sha> <新 sha>` 判斷：`backend/`、`frontend/`、`shared/`、`scripts/`、`.github/`、Dockerfile 和已綠的 commit 完全相同就沿用那次結果（印出沿用的 run，帳本記來源 commit），不同就照常等新的 CI（#120）。
    - 分支已經推過遠端時，rebase 後推到新分支名（例如 `feature/xxx-r2`），不對原分支 force push。
    - 不用 merge commit。
 
