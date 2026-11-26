@@ -1,10 +1,10 @@
 {
   "format": "formwright-app",
-  "formatVersion": 8,
+  "formatVersion": 10,
   "x-translation": "th、vi 標籤為機器翻譯，待母語者校對",
   "manifest": {
     "id": "inventory",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "name": {
       "zh-TW": "進銷存",
       "en-US": "Inventory",
@@ -2579,7 +2579,7 @@
       "module": "po",
       "to": "confirmed",
       "priority": 1,
-      "shape": "sequence",
+      "shape": "graph",
       "when": {
         "all": [
           {
@@ -2595,9 +2595,14 @@
           "manager"
         ]
       },
-      "stages": [
+      "nodes": [
         {
-          "code": "buyer-lead",
+          "id": "start",
+          "kind": "start"
+        },
+        {
+          "id": "buyer-lead",
+          "kind": "approval",
           "name": {
             "zh-TW": "採購主管",
             "en-US": "Purchasing manager",
@@ -2614,7 +2619,8 @@
           "onEmpty": "fallback"
         },
         {
-          "code": "gm",
+          "id": "gm",
+          "kind": "approval",
           "name": {
             "zh-TW": "總經理",
             "en-US": "General manager",
@@ -2629,6 +2635,27 @@
           "editableFields": [],
           "dueHours": 48,
           "onEmpty": "fallback"
+        },
+        {
+          "id": "end",
+          "kind": "end"
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": "start",
+          "to": "buyer-lead"
+        },
+        {
+          "id": "e2",
+          "from": "buyer-lead",
+          "to": "gm"
+        },
+        {
+          "id": "e3",
+          "from": "gm",
+          "to": "end"
         }
       ]
     },
@@ -2644,7 +2671,7 @@
       "module": "po",
       "to": "confirmed",
       "priority": 2,
-      "shape": "sequence",
+      "shape": "graph",
       "when": {
         "all": [
           {
@@ -2660,9 +2687,14 @@
           "manager"
         ]
       },
-      "stages": [
+      "nodes": [
         {
-          "code": "buyer-lead",
+          "id": "start",
+          "kind": "start"
+        },
+        {
+          "id": "buyer-lead",
+          "kind": "approval",
           "name": {
             "zh-TW": "採購主管",
             "en-US": "Purchasing manager",
@@ -2677,6 +2709,22 @@
           "editableFields": [],
           "dueHours": 24,
           "onEmpty": "fallback"
+        },
+        {
+          "id": "end",
+          "kind": "end"
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": "start",
+          "to": "buyer-lead"
+        },
+        {
+          "id": "e2",
+          "from": "buyer-lead",
+          "to": "end"
         }
       ]
     }
@@ -3064,7 +3112,12 @@
   "reports": [
     {
       "code": "invStockBalance",
-      "name": "庫存餘額（品項 × 倉庫）",
+      "name": {
+        "zh-TW": "庫存餘額（品項 × 倉庫）",
+        "en-US": "Stock balance (item × warehouse)",
+        "th": "ยอดคงคลัง (สินค้า × คลัง)",
+        "vi": "Tồn kho (mặt hàng × kho)"
+      },
       "shareWith": [
         "buyer",
         "keeper",
@@ -3114,7 +3167,12 @@
     },
     {
       "code": "invFlowMonthly",
-      "name": "月別進出量",
+      "name": {
+        "zh-TW": "月別進出量",
+        "en-US": "Monthly inbound and outbound quantity",
+        "th": "ปริมาณรับเข้าและจ่ายออกรายเดือน",
+        "vi": "Số lượng nhập xuất theo tháng"
+      },
       "shareWith": [
         "buyer",
         "keeper",
@@ -3164,7 +3222,12 @@
     },
     {
       "code": "invPoStatus",
-      "name": "採購單狀態分布",
+      "name": {
+        "zh-TW": "採購單狀態分布",
+        "en-US": "Purchase orders by status",
+        "th": "การกระจายใบสั่งซื้อตามสถานะ",
+        "vi": "Phân bố đơn mua hàng theo trạng thái"
+      },
       "shareWith": [
         "buyer",
         "keeper",
@@ -3202,7 +3265,12 @@
     },
     {
       "code": "invPurchaseBySupplier",
-      "name": "各供應商採購金額（未稅）",
+      "name": {
+        "zh-TW": "各供應商採購金額（未稅）",
+        "en-US": "Purchase amount by supplier (excl. tax)",
+        "th": "ยอดจัดซื้อตามผู้จำหน่าย (ไม่รวมภาษี)",
+        "vi": "Giá trị mua hàng theo nhà cung cấp (chưa thuế)"
+      },
       "shareWith": [
         "buyer",
         "keeper",
@@ -3247,7 +3315,12 @@
     },
     {
       "code": "invShipByCustomer",
-      "name": "各客戶出貨金額（未稅）",
+      "name": {
+        "zh-TW": "各客戶出貨金額（未稅）",
+        "en-US": "Shipment amount by customer (excl. tax)",
+        "th": "ยอดส่งสินค้าตามลูกค้า (ไม่รวมภาษี)",
+        "vi": "Giá trị xuất hàng theo khách hàng (chưa thuế)"
+      },
       "shareWith": [
         "buyer",
         "keeper",

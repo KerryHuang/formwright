@@ -1,10 +1,10 @@
 {
   "format": "formwright-app",
-  "formatVersion": 8,
+  "formatVersion": 10,
   "x-translation": "th、vi 標籤為機器翻譯，待母語者校對",
   "manifest": {
     "id": "crm-sales",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "name": {
       "zh-TW": "CRM 與銷售",
       "en-US": "CRM and Sales",
@@ -2807,11 +2807,16 @@
       "module": "design-case",
       "to": "manager-review",
       "priority": 1,
-      "shape": "sequence",
+      "shape": "graph",
       "rejectTo": "designing",
-      "stages": [
+      "nodes": [
         {
-          "code": "owner-manager",
+          "id": "start",
+          "kind": "start"
+        },
+        {
+          "id": "owner-manager",
+          "kind": "approval",
           "name": {
             "zh-TW": "負責業務主管",
             "en-US": "Account owner's manager",
@@ -2825,6 +2830,22 @@
           "mode": "any",
           "editableFields": [],
           "onEmpty": "fallback"
+        },
+        {
+          "id": "end",
+          "kind": "end"
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": "start",
+          "to": "owner-manager"
+        },
+        {
+          "id": "e2",
+          "from": "owner-manager",
+          "to": "end"
         }
       ]
     }
@@ -2996,7 +3017,12 @@
   "reports": [
     {
       "code": "opportunityByStage",
-      "name": "商機階段分布",
+      "name": {
+        "zh-TW": "商機階段分布",
+        "en-US": "Opportunities by stage",
+        "th": "การกระจายโอกาสการขายตามขั้นตอน",
+        "vi": "Phân bố cơ hội bán hàng theo giai đoạn"
+      },
       "shareWith": [
         "sales",
         "manager"
@@ -3033,7 +3059,12 @@
     },
     {
       "code": "orderAmountBySales",
-      "name": "各業務訂單金額（未稅）",
+      "name": {
+        "zh-TW": "各業務訂單金額（未稅）",
+        "en-US": "Order amount by salesperson (excl. tax)",
+        "th": "ยอดคำสั่งซื้อตามพนักงานขาย (ไม่รวมภาษี)",
+        "vi": "Giá trị đơn hàng theo nhân viên kinh doanh (chưa thuế)"
+      },
       "shareWith": [
         "sales",
         "manager"
