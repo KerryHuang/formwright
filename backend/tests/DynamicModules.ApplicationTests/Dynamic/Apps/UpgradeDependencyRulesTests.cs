@@ -73,7 +73,7 @@ public class UpgradeDependencyRulesTests
         var after = Items("crm-sales", p =>
         {
             var flow = p["approvalFlows"]!.AsArray().First(f => (string?)f!["code"] == "crm-design-case-review")!;
-            flow["stages"]![0]!["approvers"]!["level"] = 2;
+            flow["nodes"]!.AsArray().First(n => (string?)n!["kind"] == "approval")!["approvers"]!["level"] = 2;
         })["approvalFlow:crm-design-case-review"];
         before.Props.Should().ContainKey("approvers").And.ContainKey("nodes").And.ContainKey("edges").And.NotContainKey("stages");
         before.Props["shape"]!.GetValue<string>().Should().Be("graph");
