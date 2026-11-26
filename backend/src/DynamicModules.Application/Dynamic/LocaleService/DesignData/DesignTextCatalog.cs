@@ -2,6 +2,7 @@ using DynamicModules.Application.Common.Audit;
 using DynamicModules.Application.Common.Security;
 using DynamicModules.Application.Common.Time;
 using DynamicModules.Application.Dynamic.ReportService.Data;
+using DynamicModules.Domain.Authorization;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.Localization;
 using DynamicModules.Domain.Repositories.Dynamic;
@@ -258,7 +259,7 @@ public sealed class DesignTextBuild
 
     internal IEnumerable<DesignTextItem> Views() =>
         Data.ListViews.Select(v => Item($"local:view:{v.Id}/name", "view", AppOfModule(v.ModuleId), v.ModuleId, true,
-            Target("view", v.Id, () => v.NameI18n, t => { v.NameI18n = t; Stamp(v); })));
+            Target(AuditTargets.View, v.Id, () => v.NameI18n, t => { v.NameI18n = t; Stamp(v); })));
 
     internal IEnumerable<DesignTextItem> Reports()
     {
@@ -268,7 +269,7 @@ public sealed class DesignTextBuild
             {
                 var r = reports[ar.ReportId];
                 return Item($"app:{a.Key}/report:{ar.Code}/name", "report", a.Key, null, false,
-                    Target("report", r.Id, () => r.NameI18n, t => { r.NameI18n = t; r.RowVersion = Guid.NewGuid().ToString(); Stamp(r); }),
+                    Target(AuditTargets.Report, r.Id, () => r.NameI18n, t => { r.NameI18n = t; r.RowVersion = Guid.NewGuid().ToString(); Stamp(r); }),
                     ReportRules.MaxNameLength);
             }));
     }
@@ -285,7 +286,23 @@ public sealed class DesignTextBuild
         Data.Departments.Select(d => Item($"department:{d.Code}/name", "department", null, null, false,
             Target(AuditTargets.Department, d.Id, () => d.NameI18n, t => { d.NameI18n = t; Stamp(d); })));
 
-    internal IEnumerable<DesignTextItem> Programs() =>
-        Data.Programs.Select(p => Item($"program:{p.ProgramCode}/name", "program", null, null, false,
-            new DesignTextTarget("program", p.ProgramCode, () => p.NameI18n, t => p.NameI18n = t)));
+    /// <summary>
+    /// 權限目錄項目（審查 r1 🔴2）：只有平台固定代碼（<see cref="SystemProgramCodes.All"/>）用 <c>program:{code}</c>；
+    /// 模組的 program 代碼是各系統依建立順序流水號產生的，跟著模組走：模組有應用程式綁定用 <c>app:{a}/module:{m}/program/name</c>，
+    /// 否則（含對不到模組的）用 <c>local:program:{code}/name</c>。
+    /// </summary>
+    internal IEnumerable<DesignTextItem> Programs()
+    {
+        var moduleOf = Data.Modules.Where(m => m.ProgramCode.Length > 0).GroupBy(m => m.ProgramCode, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.OrderBy(m => m.Id).First(), StringComparer.Ordinal);
+        return Data.Programs.Select(p =>
+        {
+            var target = new DesignTextTarget(AuditTargets.Program, p.ProgramCode, () => p.NameI18n, t => p.NameI18n = t);
+            if (SystemProgramCodes.All.Contains(p.ProgramCode)) return Item($"program:{p.ProgramCode}/name", "program", null, null, false, target);
+            var module = moduleOf.GetValueOrDefault(p.ProgramCode);
+            return module is not null && ModulePrefix(module.Id) is { } prefix
+                ? Item($"{prefix}/program/name", "program", AppOfModule(module.Id), module.Id, false, target)
+                : Item($"local:program:{p.ProgramCode}/name", "program", module is null ? null : AppOfModule(module.Id), module?.Id, true, target);
+        });
+    }
 }

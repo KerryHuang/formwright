@@ -789,13 +789,15 @@ Formwright 的取捨：
 | 指派版儀表板 | `Dashboard.NameI18n`（`OwnerUserId` 為 null） | — | `local:dashboard:{id}/name` |
 | 群組 | `PermissionGroup.NameI18n` | `group:{key}/name` | 同左 |
 | 部門 | `Department.NameI18n` | `department:{code}/name` | 同左 |
-| 權限目錄項目 | `DynamicProgram.NameI18n` | `program:{code}/name` | 同左 |
+| 權限目錄項目（平台固定：設計器、權限設定） | `DynamicProgram.NameI18n`（`SystemProgramCodes.All`） | `program:{code}/name` | 同左 |
+| 權限目錄項目（模組的） | `DynamicProgram.NameI18n` | `app:{a}/module:{m}/program/name` | `local:program:{code}/name` |
 
 說明（技術）：
 
 - 檢查、事件、轉換、列印範本、任務規則、簽核流程有自己的 `Key`，但「跨客戶一致」只靠模組的應用程式綁定成立，所以掛在綁定模組下才用代碼，否則一律用 Id（§10.2 第 3 點）。事件與轉換以來源模組判斷。
 - 選項的綁定代碼在模組層（`AppOption` 的名稱是 `模組.選項`），路徑不含欄位代碼；§10.2 樣板的 `field:{f}/option:{o}` 在綁定裡查不到欄位時會失敗，改成模組層。狀態就是狀態欄位的選項，不另列 `state:`。
 - 欄位規則沒有代碼、也沒有綁定，一律 `local:`。
+- 模組的權限目錄代碼是各系統依建立模組的順序流水號產生的（`ProgramRepository.NextModuleProgramCodeAsync`），兩套系統的同一個代碼可能是不同模組，所以不當跨系統的鍵：跟著模組的應用程式綁定走，沒綁定就是 `local:`（審查 r1 🔴2）。只有平台固定代碼（`SystemProgramCodes.All`）用 `program:{code}`。
 - 選單分區的分組鍵是繁中名稱（`Module.Section`），同一個分區名的所有模組一起改；這是平台資料，代碼就是分組鍵。
 - **排除**（掃型別測試的白名單，附原因）：
   - `ApprovalStageRun.NameSnapshot`、`ApprovalInstance.FlowSetSnapshot`（含流程名稱與定義）：執行期快照，記的是當時的值。

@@ -4,6 +4,7 @@ using Module = DynamicModules.Domain.Entities.Dynamic.Module;
 using DynamicModules.Application.Common.Security;
 using DynamicModules.Application.Common.Time;
 using DynamicModules.Application.Dynamic.LocaleService.DesignData;
+using DynamicModules.Domain.Authorization;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.Repositories.Dynamic;
 using DynamicModules.Domain.ValueObjects;
@@ -91,16 +92,16 @@ public class DesignTextCatalogTests
     /// 應用程式 crm（模組 order 綁定，欄位 customer、選項 open、區塊 main 有綁定；欄位 memo、選項 o2 沒綁定）、
     /// 共用主檔貢獻欄位（綁定名稱 <c>partner/partner.vip</c>）、自建模組 note（沒綁定）。
     /// </summary>
-    private static (DesignTextData Data, Module Order, Module Note) World()
+    private static (DesignTextData Data, Module Order, Module Note) World(string orderProgram = "DYN00003", string noteProgram = "DYN00004")
     {
         var status = new Field { Id = 11, ModuleId = 1, BlockId = 10, Key = "f_11", LabelI18n = Zh("狀態"),
             Options = [new FieldOption { Id = 101, FieldId = 11, LabelI18n = Zh("開立") }, new FieldOption { Id = 102, FieldId = 11, LabelI18n = Zh("結案") }] };
         var memo = new Field { Id = 12, ModuleId = 1, BlockId = 10, Key = "f_12", LabelI18n = Zh("備註") };
         var vip = new Field { Id = 13, ModuleId = 1, BlockId = 10, Key = "f_13", LabelI18n = Zh("貴賓") };
-        var order = new Module { Id = 1, Key = "crm-order", NameI18n = Zh("訂單", "Order"), Section = "業務", Version = 3, TitleTemplate = "{11}",
+        var order = new Module { Id = 1, Key = "crm-order", ProgramCode = orderProgram, NameI18n = Zh("訂單", "Order"), Section = "業務", Version = 3, TitleTemplate = "{11}",
             Blocks = [new Block { Id = 10, ModuleId = 1, LabelI18n = Zh("基本資料"), Fields = [status, memo, vip] }],
             Rules = [new Rule { Id = 50, ModuleId = 1, MessageI18n = Zh("金額不可為負") }] };
-        var note = new Module { Id = 2, Key = "note", NameI18n = Zh("筆記"), Section = "業務",
+        var note = new Module { Id = 2, Key = "note", ProgramCode = noteProgram, NameI18n = Zh("筆記"), Section = "業務",
             Blocks = [new Block { Id = 20, ModuleId = 2, LabelI18n = Zh("主要") }] };
         var app = new App { Id = 7, Key = "crm", NameI18n = Zh("客戶關係"), Modules = [new AppModule { AppId = 7, Code = "order", ModuleId = 1 }] };
         var data = new DesignTextData([app],
@@ -116,7 +117,8 @@ public class DesignTextCatalogTests
             [new Dashboard { Id = 90, NameI18n = Zh("業務看板") }],
             [new PermissionGroup { Id = 5, Key = "sales", NameI18n = Zh("業務") }],
             [new Department { Id = 6, Code = "D01", NameI18n = Zh("業務部") }],
-            [new DynamicProgram { ProgramCode = "DESIGNER", NameI18n = Zh("設計器") }]);
+            [new DynamicProgram { ProgramCode = SystemProgramCodes.Designer, NameI18n = Zh("設計器") },
+                new DynamicProgram { ProgramCode = "DYN00003", NameI18n = Zh("模組甲") }, new DynamicProgram { ProgramCode = "DYN00004", NameI18n = Zh("模組乙") }]);
         return (data, order, note);
     }
 
@@ -137,13 +139,42 @@ public class DesignTextCatalogTests
             "app:crm/module:order/check:overdue/name", "local:check:61/name", "app:crm/module:order/check:overdue/message", "local:check:61/message",
             "app:crm/module:order/taskRule:follow/name", "app:crm/module:order/taskRule:follow/task:call/title",
             "app:crm/module:order/taskRule:follow/task:call/description",
-            "local:view:80/name", "local:dashboard:90/name", "group:sales/name", "department:D01/name", "program:DESIGNER/name",
+            "local:view:80/name", "local:dashboard:90/name", "group:sales/name", "department:D01/name", "program:DYN00000/name",
         ]);
         items["local:field:12/label"].Local.Should().BeTrue();
         items["local:field:12/label"].AppKey.Should().Be("crm", "篩選範圍仍算在應用程式");
         items["app:crm/module:order/field:status/label"].Local.Should().BeFalse();
         items["local:view:80/name"].AppKey.Should().BeNull();
         items["section:業務/name"].Targets.Should().HaveCount(2, "同名分區的模組一起改");
+    }
+
+    // ── 權限目錄項目（審查 r1 🔴2）：模組的 program 代碼是各系統依建立順序流水號產生的，不能當跨系統的鍵 ──
+
+    [Fact]
+    public async Task Programs_SystemCodesOnly_ModuleProgramsFollowModule()
+    {
+        var items = await Build(World().Data);
+        items["program:DYN00000/name"].Local.Should().BeFalse("設計器、權限設定是平台固定代碼");
+        var bound = items["app:crm/module:order/program/name"];
+        (bound.Local, bound.AppKey, bound.ModuleId, bound.Targets[0].Id).Should().Be((false, "crm", 1L, "DYN00003"));
+        var local = items["local:program:DYN00004/name"];
+        (local.Local, local.ModuleId).Should().Be((true, 2L));
+        items.Keys.Should().NotContain(["program:DYN00003/name", "program:DYN00004/name"]);
+    }
+
+    [Fact]
+    public async Task Programs_TwoSystemsCreatedModulesInDifferentOrder_SamePathSameModule()
+    {
+        // 甲系統先建訂單（DYN00003）再建筆記；乙系統順序相反，訂單拿到 DYN00004
+        var a = await Build(World("DYN00003", "DYN00004").Data);
+        var b = await Build(World("DYN00004", "DYN00003").Data);
+        static Dictionary<string, (string Code, long? Module)> Shared(Dictionary<string, DesignTextItem> items) =>
+            items.Values.Where(i => i.Kind == "program" && !i.Local).ToDictionary(i => i.Path, i => (i.Targets[0].Id, i.ModuleId));
+
+        Shared(a).Keys.Should().BeEquivalentTo(Shared(b).Keys, "跨系統的路徑集合一樣");
+        Shared(a)["app:crm/module:order/program/name"].Should().Be(("DYN00003", 1L));
+        Shared(b)["app:crm/module:order/program/name"].Should().Be(("DYN00004", 1L), "同一條路徑在兩邊都對到訂單模組");
+        a.Values.Where(i => i.Kind == "program" && i.ModuleId == 2).Should().OnlyContain(i => i.Local, "沒綁定的模組只在本系統有效");
     }
 
     [Fact]
