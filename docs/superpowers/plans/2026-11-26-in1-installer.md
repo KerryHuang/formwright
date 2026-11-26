@@ -434,10 +434,10 @@
 - [ ] **Step 5: 給主控的本機走查步驟**（不寫進 CI）：
   1. `cd backend/src/DynamicModules.WebAPI && dotnet run -- --install-init --Install:ConfigFile=<repo>/.tmp/in1/formwright.json --Install:DataDirectory=<repo>/.tmp/in1/data --Install:BackupDirectory=<repo>/.tmp/in1/backup --Server:Port=5180`，記下輸出的設定碼。
   2. `dotnet run -- --Install:ConfigFile=<repo>/.tmp/in1/formwright.json`（設定模式，聽 5180），另開 `cd frontend && bunx quasar dev`，開 `http://127.0.0.1:9180/`。
-  3. 驗：自動轉到 `/setup`；設定碼錯誤（`000000`）停在第一步；備份目錄 `chmod 0500` 後紅燈且「下一步」不能按、改回後綠；走完預設路徑後站台結束（`dotnet run` 不會自動重啟，手動再跑第 2 步的指令）、轉到登入頁、`admin`／`Fw-test-2026` 登入不要求改密碼；再開 `/setup` 轉登入頁。
+  3. 驗：自動轉到 `/setup`；設定碼錯誤（`ZZZZ-ZZZZ-ZZZZ`）停在第一步；備份目錄 `chmod 0500` 後紅燈且「下一步」不能按、改回後綠；走完預設路徑後站台結束（`dotnet run` 不會自動重啟，手動再跑第 2 步的指令）、轉到登入頁、`admin`／`Fw-test-2026` 登入不要求改密碼；再開 `/setup` 轉登入頁。
   4. 390、820、1366、1920 四種寬度，每步都不得橫向捲動；淺色、深色各看一次（跟系統主題，或在瀏覽器開發者工具切 `prefers-color-scheme`）；四語走查用全新的瀏覽器分頁（先清掉 localStorage）：用標題列的語系切換元件切 `English`、`ไทย`、`Tiếng Việt` 各看一次每一步，沒有繁中殘留；切完重新整理，語系與文字都還在（走快取）。
   5. `.tmp/in1/` 不進 git，走查完刪掉。
-- [ ] **Step 6: 手冊**：`docs/manual.md` §1「第一次安裝」前加「安裝版的設定精靈」一小節（文案照畫面實際文字）：設定碼從哪裡看（Windows 安裝程式最後一頁、Ubuntu 終端輸出、Docker 的 `docker compose logs`）、各步驟、完成後站台會自動重新啟動、精靈只能跑一次；環境檢查出現「已有資料」時怎麼恢復（找回原本的設定檔放回原位後重啟服務，或聯絡支援；D-16）；原有「第一次安裝」段落開頭加一句「不是用安裝程式裝的站台（容器、開發環境）」。
+- [ ] **Step 6: 手冊**：`docs/manual.md` §1「第一次安裝」前加「安裝版的設定精靈」一小節（文案照畫面實際文字）：設定碼從哪裡看（Windows 安裝程式最後一頁、Ubuntu 終端輸出、Docker 的 `docker compose logs`）、各步驟、完成後站台會自動重新啟動、精靈只能跑一次；環境檢查出現「已有資料」時怎麼恢復（找回原本的設定檔放回原位後重啟服務，或聯絡支援；D-16）；原有「第一次安裝」段落開頭加一句「沒有用安裝方式指定設定檔的站台（Render Demo、單純 `docker run`、開發環境）才適用」（容器 compose 走精靈，不屬於這類）；設定碼寫「12 碼英數字（例 K7QM-3HZP-W2XA）」，輸入框不用數字鍵盤（`inputmode`）。
 - [ ] **Step 7: Commit** `feat(in1b): 瀏覽器設定精靈頁`
 
 ### Task 8A: 維護頁（D-17、AC-12 的畫面）
