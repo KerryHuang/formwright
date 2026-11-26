@@ -152,7 +152,7 @@ public class LocaleTemplateApiTests : IDisposable
     [Fact]
     public async Task Query_NoScopes_400_NotDefaultedToBoth()
     {
-        (await FileError(await Export(_app.AsUser(), "th", "onlyMissing=false"))).Should().Be("匯出範圍只能是 ui、server，至少要選一個");
+        (await FileError(await Export(_app.AsUser(), "th", "onlyMissing=false"))).Should().Be("匯出範圍只能是 ui、server、designData，至少要選一個");
     }
 
     [Fact]
