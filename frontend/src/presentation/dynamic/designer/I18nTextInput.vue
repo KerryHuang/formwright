@@ -46,14 +46,14 @@ defineExpose({
         :ref="(el) => setInput(l, el)" :model-value="modelValue[l] ?? ''"
         :label="required.includes(l) ? `${label} (${l}) *` : `${label} (${l})`"
         :error="(!!error && i === 0) || undefined" :error-message="i === 0 ? error : undefined" :hint="i === 0 ? hint : undefined" :maxlength="maxlength"
-        :rules="rules(l)" lazy-rules="ondemand" :type="multiline ? 'textarea' : 'text'" :autogrow="!!multiline" outlined dense :class="{ 'q-mt-xs': i > 0 }"
+        :rules="rules(l)" lazy-rules="ondemand" :type="multiline ? 'textarea' : 'text'" :autogrow="!!multiline" :input-style="multiline ? { minHeight: '3.5em' } : undefined" outlined dense :class="{ 'q-mt-xs': i > 0 }"
         @update:model-value="(v) => set(l, v)" @change="emit('change')"
       />
     </div>
     <q-expansion-item v-if="others.length" dense :label="t('designer.otherLocales')" class="q-mt-xs">
       <q-input
         v-for="l in others" :key="l" :model-value="modelValue[l] ?? ''" :data-testid="`i18n-${l}`"
-        :label="`${label} (${l})`" :maxlength="maxlength" :type="multiline ? 'textarea' : 'text'" :autogrow="!!multiline" outlined dense class="q-mt-xs"
+        :label="`${label} (${l})`" :maxlength="maxlength" :type="multiline ? 'textarea' : 'text'" :autogrow="!!multiline" :input-style="multiline ? { minHeight: '3.5em' } : undefined" outlined dense class="q-mt-xs"
         @update:model-value="(v) => set(l, v)" @change="emit('change')"
       />
     </q-expansion-item>
