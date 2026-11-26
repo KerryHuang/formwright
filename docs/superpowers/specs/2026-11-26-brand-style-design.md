@@ -1,4 +1,5 @@
 # 表匠招牌風格設計
+> 實作前檢查：✅ 2026-11-26（內容 92f1c40a）
 
 狀態：已核准（使用者 2026-11-26）。
 
@@ -101,9 +102,9 @@
 3. `backend/src/DynamicModules.Domain/ValueObjects/ThemeOptions.cs`：`Styles` 換掉 `botanical`，`FactoryStyle` 改 `signature`；同步 `AppUser.cs` 的註解。
 4. `quasar-bridge.css` 第 703 行附近、套用標題樣式的選擇器清單：把 `botanical` 換成 `signature`。
 5. `frontend/src/css/themes/tokens.css` 的 `:root` 後備值：註解寫明它等於出廠預設風格的淺色值，所以要改成表匠招牌的淺色值，註解一起更新。
-6. 內嵌主題 script（`boot` 下，由 `theme-inline-script.vitest.spec.ts` 測）若寫了出廠預設的鍵，一起改。
+6. `frontend/index.html` 的內嵌主題 script（由 `frontend/src/boot/theme-inline-script.vitest.spec.ts` 測）：預設值 `'workbench'` 改成 `'signature'`，允許值的比對清單把 `botanical` 換成 `signature`，註解一起改。
 7. 四個語系的 `shared/i18n/*/ui.json`：移除植感活力，加表匠招牌的名稱與說明。
-8. 風格選單的範例色塊：用新風格的側欄深藍、鵝黃、主色。
+8. 風格選單的範例色塊：`ThemeChooser.vue` 以 `data-style` 小樣本套用各風格的 token，新風格自動有色塊，不必另寫；只要確認小樣本看得出深藍側欄與鵝黃選取。
 9. 測試：所有引用 `botanical` 或出廠預設 `workbench` 的測試改成新值，需要改的檔案用 `grep -rn "botanical\|'workbench'\|\"workbench\""` 全域找，不以本文清單為準。
 10. 文件：`docs/manual.md` §19 的風格表與出廠預設說明；`2026-11-06-theme-design.md` 的出廠預設與「不做第五種風格」這條過時的非目標；`docs/feature.md` 加一列。
 
@@ -128,15 +129,57 @@
 
 ## 驗收
 
-| # | 案例 | 方式 |
-|---|---|---|
-| 1 | 後端允許值含 `signature`、不含 `botanical`，出廠預設回 `signature` | `dotnet test` 篩 `ThemeOptionsTests`、`ThemeApiTests` |
-| 2 | `PUT /me/theme` 送 `botanical` 回 400 | `ThemeApiTests` |
-| 3 | 資料庫裡存著 `botanical` 時，個人設定回 null、實際套用退回全站預設；全站預設存 `botanical` 時退回 `signature` | `ThemeApiTests` 新增案例 |
-| 4 | 八種風格乘三種模式都通過對比與 token 完整性測試 | vitest `themes.vitest.spec.ts`、`quasar-bridge.vitest.spec.ts` |
-| 5 | 風格選單有表匠招牌和它的色塊，沒有植感活力；四種語系都有名稱與說明 | vitest `ThemeChooser`、`theme-i18n` |
-| 6 | 全新的 Demo 不設任何外觀，登入後就是表匠招牌：深藍側欄、選中的選單項是鵝黃、卡片是粗框加硬投影 | 本機 Demo 走查 |
-| 7 | 客戶列表、單筆表單、儀表板、設計器四個畫面，在 390、820、1366、1920 四種寬度和淺色、深色兩種模式下都可讀，沒有橫向捲動 | `formwright-demo-verify` 截圖 |
+### AC-01 出廠預設與允許值 [api]
+#### 步驟
+1. 全新資料庫（`SystemSetting` 沒有外觀的鍵），呼叫 `GET /api/v3/dynamic/theme`
+2. 跑 `ThemeOptionsTests`，對 `signature`、`botanical` 各呼叫一次 `NormalizeStyle`
+#### 預期
+- `GET /theme` 回傳的風格是 `signature`，模式是 `system`
+- `NormalizeStyle("signature")` 回 `signature`；`NormalizeStyle("botanical")` 回 null
+
+### AC-02 拒絕已移除的風格 [api]
+#### 步驟
+1. 以一般使用者呼叫 `PUT /api/v3/dynamic/me/theme`，風格送 `botanical`
+2. 以系統管理員呼叫 `PUT /api/v3/dynamic/system/theme`，風格送 `botanical`
+#### 預期
+- 兩者都回 400，資料庫的值不變
+
+### AC-03 舊值退回預設 [api]
+#### 步驟
+1. 直接在資料庫把某使用者的 `ThemeStyle` 設成 `botanical`，全站預設 `theme.defaultStyle` 設成 `airy`，以該使用者呼叫 `GET /me`
+2. 再把全站預設 `theme.defaultStyle` 改成 `botanical`，以該使用者呼叫 `GET /me`
+#### 預期
+- 第 1 步：個人風格回 null，實際套用的風格是 `airy`
+- 第 2 步：個人風格回 null，實際套用的風格是 `signature`
+
+### AC-04 八種風格、三種模式都可讀 [unit]
+#### 步驟
+1. 跑 vitest `themes.vitest.spec.ts`、`quasar-bridge.vitest.spec.ts`、`no-hardcoded-colors.vitest.spec.ts`
+#### 預期
+- 全部通過；清單裡有 `signature`、沒有 `botanical`，`signature` 淺色、深色兩組都通過對比檢查
+
+### AC-05 風格選單與語系 [unit]
+#### 步驟
+1. 跑 vitest `ThemeChooser.vitest.spec.ts`、`theme-i18n.vitest.spec.ts`
+#### 預期
+- 風格選單有「表匠招牌」與它的色塊，沒有「植感活力」
+- 繁中、英文、越南文、泰文四種語系都有 `signature` 的名稱與說明，沒有 `botanical` 的鍵
+
+### AC-06 Demo 以新風格呈現 [ui]
+#### 步驟
+1. 用 `scripts/unattended/local-demo.sh` 起全新的本機 Demo，不設任何外觀，以 Demo 帳號登入
+2. 打開客戶列表
+#### 預期
+- 側欄是深藍底，目前選中的選單項是鵝黃底、深藍字
+- 列表外框是 2px 粗框加不模糊的硬投影，列表內部是細線
+- 頁首「外觀」對話框裡，風格欄顯示跟隨全站預設（目前：表匠招牌）
+
+### AC-07 四種寬度、兩種模式 [ui]
+#### 步驟
+1. 在本機 Demo 依序打開客戶列表、單筆客戶表單、首頁儀表板、模組設計器
+2. 每個畫面分別以 390、820、1366、1920 寬度，淺色、深色模式截圖
+#### 預期
+- 所有截圖文字可讀、沒有橫向捲動、沒有元件被硬投影遮住
 
 ## Demo 資料
 
