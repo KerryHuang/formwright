@@ -173,6 +173,7 @@ public class AuthorizationWriteInventoryTests
         "DynamicModules.Persistence.Postgres/PostgresReportSqlSnapshot.cs", // SET TRANSACTION READ ONLY 與 statement_timeout
         "DynamicModules.Persistence.Postgres/PostgresStartupLock.cs",       // pg_advisory_lock／unlock（啟動鎖）
         "DynamicModules.Persistence.Postgres/PostgresWriteLockInterceptor.cs", // pg_advisory_xact_lock（全庫寫入鎖）
+        "DynamicModules.WebAPI/Setup/SetupChecks.cs",                       // 設定精靈：讀 migration 歷程表筆數判斷是否已有資料（只讀，不碰守衛表）
     ];
 
     /// <summary>清單測試 8：WebAPI 可以引用 DbContext 的檔案（且不得出現守衛型別）。</summary>
@@ -180,6 +181,7 @@ public class AuthorizationWriteInventoryTests
     [
         "DynamicModules.WebAPI/Program.cs",                    // 組 DI、啟動 migrate 與種子
         "DynamicModules.WebAPI/Security/AdminBootstrap.cs",    // 首次啟動建立 admin 帳號
+        "DynamicModules.WebAPI/Setup/UpgradeGuard.cs",         // 容器升級判斷：只讀已套用與待套用的 migration 清單
     ];
 
     /// <summary>不是 EF 的 Set&lt;X&gt;：ASP.NET 的 HttpContext.Features.Set（上傳大小限制）。</summary>
