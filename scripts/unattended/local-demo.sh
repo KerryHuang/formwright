@@ -9,9 +9,17 @@ set -u
 ROOT="${1:-$(git rev-parse --show-toplevel)}"
 cd "$ROOT" || exit 2
 
+# 印出占用某埠的行程（PID 與工作目錄），讓人知道是哪個 worktree 的
+show_owner() {
+  for p in $(lsof -t -nP -iTCP:"$1" -sTCP:LISTEN 2>/dev/null); do
+    echo "  PID ${p}：$(ps -o command= -p "$p" 2>/dev/null | cut -c1-120)" >&2
+    echo "    cwd $(lsof -a -p "$p" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')" >&2
+  done
+}
 for port in 5180 9180; do
   if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
     echo "port $port 已被占用（可能有另一份 POC 在跑），請先停掉再試" >&2
+    show_owner "$port"
     exit 2
   fi
 done
@@ -53,6 +61,22 @@ for url in http://127.0.0.1:5180/api/health http://127.0.0.1:9180/; do
   until curl -s -o /dev/null "$url"; do
     i=$((i + 1)); [ "$i" -ge 180 ] && { echo "逾時：$url 沒有回應" >&2; exit 1; }
     sleep 1
+  done
+done
+# 啟動前檢查到綁埠之間可能被別人先占（#125）：READY 前確認兩個埠都是本腳本的子孫行程在聽，否則前端 proxy 會接到別人的後端
+is_ours() {
+  p=$1
+  while [ -n "$p" ] && [ "$p" -gt 1 ]; do
+    [ "$p" = "$$" ] && return 0
+    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+  done
+  return 1
+}
+for port in 5180 9180; do
+  owners=$(lsof -t -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null)
+  [ -n "$owners" ] || { echo "port $port 沒有行程在聽" >&2; exit 1; }
+  for p in $owners; do
+    is_ours "$p" || { echo "port $port 被別的行程占用，不是本腳本啟動的（後端或前端多半綁埠失敗，見 ${LOG}）" >&2; show_owner "$port"; exit 1; }
   done
 done
 echo "READY http://127.0.0.1:9180"
