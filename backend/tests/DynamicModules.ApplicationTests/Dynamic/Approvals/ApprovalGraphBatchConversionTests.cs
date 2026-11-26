@@ -1,10 +1,13 @@
 using DynamicModules.Application.Common;
+using DynamicModules.Application.Common.Time;
 using DynamicModules.Application.Dynamic.ApprovalService;
 using DynamicModules.Domain.Approvals;
 using DynamicModules.Domain.Entities.Dynamic;
+using DynamicModules.Domain.Repositories.Dynamic;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace DynamicModules.ApplicationTests.Dynamic.Approvals;
 
@@ -21,6 +24,30 @@ public class ApprovalGraphBatchConversionTests : ApprovalTestBase
     {
         using var scope = NewScope();
         return await scope.ServiceProvider.GetRequiredService<ApprovalGraphBatchConversion>().RunAsync(CancellationToken.None);
+    }
+
+    /// <summary>第 <paramref name="failOn"/> 次提交時先真的存檔再丟例外：模擬「新版本已寫入、改目前版本之前」程序中斷或資料庫斷線。</summary>
+    private sealed class FailingUnitOfWork(IUnitOfWork inner, int failOn) : IUnitOfWork
+    {
+        private int _calls;
+
+        public async Task CommitAsync(CancellationToken ct)
+        {
+            await inner.CommitAsync(ct);
+            if (++_calls == failOn) throw new InvalidOperationException("模擬中斷");
+        }
+
+        public void Discard() => inner.Discard();
+    }
+
+    private async Task<ApprovalGraphBatchConversion.Result> ConvertFailingOn(int failOn)
+    {
+        using var scope = NewScope();
+        var sp = scope.ServiceProvider;
+        var job = new ApprovalGraphBatchConversion(sp.GetRequiredService<IModuleRepository>(), sp.GetRequiredService<IApprovalFlowRepository>(),
+            new FailingUnitOfWork(sp.GetRequiredService<IUnitOfWork>(), failOn), sp.GetRequiredService<ITransactionManager>(),
+            sp.GetRequiredService<IBusinessTime>(), sp.GetRequiredService<ILogger<ApprovalGraphBatchConversion>>());
+        return await job.RunAsync(CancellationToken.None);
     }
 
     private List<ApprovalFlowVersion> Versions(long flowId) =>
@@ -85,6 +112,7 @@ public class ApprovalGraphBatchConversionTests : ApprovalTestBase
         ApprovalDefinitionJson.SameAs(versions[1].Definition, ApprovalGraphConversion.FromSequence(seq)).Should().BeTrue();
         versions[1].CreatedBy.Should().Be(ApprovalEngine.SystemActor);
         Flow("po-s").CurrentVersionId.Should().Be(versions[1].Id);
+        Flow("po-s").ModifiedUserId.Should().Be(ApprovalEngine.SystemActor, "開著的設計器發布撞到 409 時，衝突資訊顯示是系統改的");
     }
 
     [Fact]
@@ -142,5 +170,44 @@ public class ApprovalGraphBatchConversionTests : ApprovalTestBase
         Db.Context.Set<ApprovalStageRun>().AsNoTracking().Where(x => x.InstanceId == fresh && x.NodeKind == ApprovalNodeKinds.Approval)
             .Select(x => x.StageCode).ToList().Should().Equal("lead");
         Open(fresh, "buyer2").Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task InterruptedAfterNewVersionWritten_RolledBack_RerunLeavesOneGraphVersion()
+    {
+        var r = await BuildPurchase();
+        var seq = Def(null, Stage("lead", Group(PurchaseLeadGroup)));
+        var flow = await SeedFlow(r, "po-s", r.Confirmed, 1, seq);
+        await Wire(r);
+        await SeedInstance(r, flow, status: ApprovalInstanceStatus.Approved);
+        var old = Versions(flow.Id).Single();
+
+        // 第 1 次提交（新版本）存進去之後中斷：整條流程回滾，不留孤兒版本，也不讓啟動掛掉
+        (await ConvertFailingOn(1)).Should().Be(new ApprovalGraphBatchConversion.Result(0, 0, 1));
+        Versions(flow.Id).Select(v => v.Id).Should().Equal(old.Id);
+        Flow("po-s").CurrentVersionId.Should().Be(old.Id);
+
+        (await Convert()).Should().Be(new ApprovalGraphBatchConversion.Result(1, 1, 0));
+        var versions = Versions(flow.Id);
+        versions.Select(v => v.Version).Should().Equal(1, 2);
+        versions.Count(v => v.Definition.Shape == ApprovalShapes.Graph).Should().Be(1);
+        Flow("po-s").CurrentVersionId.Should().Be(versions[1].Id);
+    }
+
+    [Fact]
+    public async Task OneFlowFails_OthersStillConverted_FailedFlowConvertedNextRun()
+    {
+        var r = await BuildPurchase();
+        await SeedFlow(r, "po-a", r.Confirmed, 1, Def(null, Stage("lead", Group(PurchaseLeadGroup))));
+        await SeedFlow(r, "po-b", r.Confirmed, 2, Def(null, Stage("board", Group(BoardGroup))));
+        await Wire(r);
+
+        // 沒被用過：每條流程只提交一次；第一條處理的流程失敗，另一條照轉
+        (await ConvertFailingOn(1)).Should().Be(new ApprovalGraphBatchConversion.Result(1, 0, 1));
+        var shapes = new[] { "po-a", "po-b" }.Select(k => Versions(Flow(k).Id).Single().Definition.Shape).ToList();
+        shapes.Should().BeEquivalentTo([ApprovalShapes.Sequence, ApprovalShapes.Graph]);
+
+        (await Convert()).Should().Be(new ApprovalGraphBatchConversion.Result(1, 0, 0));
+        new[] { "po-a", "po-b" }.Select(k => Versions(Flow(k).Id).Single().Definition.Shape).Should().OnlyContain(x => x == ApprovalShapes.Graph);
     }
 }

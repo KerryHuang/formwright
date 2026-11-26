@@ -320,8 +320,16 @@ static async Task InitializeDatabaseAsync(WebApplication app, string? databaseDi
     // 升級前的索引補上精確換算與截斷標記；版本達標就是空操作。完成前報表走記憶體路徑，結果仍正確
     if (await scope.ServiceProvider.GetRequiredService<IndexBackfillJob>().RunAsync(CancellationToken.None))
         app.Logger.LogInformation("索引回填完成（版本 {Version}）", RecordIndexer.BackfillVersion);
-    // 既有簽核流程的目前版本是關卡格式的轉成流程圖（流程圖設計 §13 第 4 點）；已全部是流程圖時不寫任何東西
-    await scope.ServiceProvider.GetRequiredService<DynamicModules.Application.Dynamic.ApprovalService.ApprovalGraphBatchConversion>().RunAsync(CancellationToken.None);
+    // 既有簽核流程的目前版本是關卡格式的轉成流程圖（流程圖設計 §13 第 4 點）；已全部是流程圖時不寫任何東西。
+    // 單條流程失敗已在裡面記 Warning、繼續；連列出流程都失敗時也只記 Warning、不擋啟動，下次啟動再試
+    try
+    {
+        await scope.ServiceProvider.GetRequiredService<DynamicModules.Application.Dynamic.ApprovalService.ApprovalGraphBatchConversion>().RunAsync(CancellationToken.None);
+    }
+    catch (Exception e)
+    {
+        app.Logger.LogWarning(e, "簽核流程批次轉成流程圖沒有跑完，下次啟動再試");
+    }
     // 共用主檔完整性檢查（主檔狀態符合使用者閉包、主檔模組的權限列等於重算結果）：不一致只記 Warning，不擋啟動、不自動修
     try
     {
