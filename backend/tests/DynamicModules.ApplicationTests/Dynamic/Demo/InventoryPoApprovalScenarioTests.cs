@@ -78,14 +78,15 @@ public class InventoryPoApprovalScenarioTests(DemoGeneratedFixture fx)
     }
 
     [Fact]
-    public async Task ExportInventoryApp_ActiveGraphFlow_Blocks409()
+    public async Task ExportInventoryApp_SkipsInactiveGraphFlow_WithWarning()
     {
-        // fg5e：Demo 另有一條啟用中的流程圖流程（通知節點示範），啟用中的流程圖格式流程仍不能匯出（套件格式升版前，使用者 11-16 確認）；
-        // 停用的範例流程「略過並警告」的行為由 AppExporter 的單元測試涵蓋，Demo 不再能示範。
         fx.Generated();
         var result = await fx.As("admin", new ExportAppRequest("inventory"));
 
-        result.IsConflict.Should().BeTrue();
+        result.IsSuccess.Should().BeTrue("停用的流程圖流程略過，不再擋下整份匯出");
+        var export = (AppExportResult)result.Data!;
+        export.Warnings.Should().Contain(w => w.Contains("採購單（流程圖範例）") && w.Contains("已略過"));
+        System.Text.Encoding.UTF8.GetString(export.File.Content).Should().NotContain(InventoryScenario.GraphExampleKey);
     }
 
     [Fact]

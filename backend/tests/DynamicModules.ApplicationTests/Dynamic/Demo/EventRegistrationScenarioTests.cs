@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DynamicModules.ApplicationTests.Dynamic.Demo;
 
-/// <summary>活動報名範本的示範資料：3 場活動（已結束、報名中且滿額、籌備中不限名額），日期相對 Demo 今天。</summary>
+/// <summary>活動報名範本的示範資料：3 場基本活動（已結束、報名中且滿額、籌備中不限名額）另加 2 場取消通知示範，日期相對 Demo 今天。</summary>
 [Collection(DemoGeneratedCollection.Name)]
 public class EventRegistrationScenarioTests(DemoGeneratedFixture fx)
 {
@@ -23,11 +23,11 @@ public class EventRegistrationScenarioTests(DemoGeneratedFixture fx)
     }
 
     [Fact]
-    public async Task Events_AreThree_WithRelativeDates_AndTheExpectedCounts()
+    public async Task Events_AreFive_ThreeBaseAndTwoNoticeDemos()
     {
         fx.Generated();
         var records = await fx.Records(Event, "sales01");
-        records.Should().HaveCount(3);
+        records.Should().HaveCount(5, "三場基本活動＋兩場通知節點示範");
 
         var name = await fx.Key(Event, "名稱");
         var start = await fx.Key(Event, "開始日期");
@@ -35,7 +35,7 @@ public class EventRegistrationScenarioTests(DemoGeneratedFixture fx)
         var registered = await fx.Key(Event, "已報名人數");
         var attended = await fx.Key(Event, "出席人數");
         var byName = records.ToDictionary(r => DemoGeneratedFixture.Text(r, name)!);
-        byName.Keys.Should().BeEquivalentTo("新產品說明會", "客戶教育訓練", "年度客戶聚會");
+        byName.Keys.Should().BeEquivalentTo("新產品說明會", "客戶教育訓練", "年度客戶聚會", "客戶感恩茶會", "春季交流午餐會");
 
         int DaysFromToday(DynamicRecordResponse r) => DateOnly.Parse(DemoGeneratedFixture.Text(r, start)!).DayNumber - DemoTestHost.Today.DayNumber;
         DaysFromToday(byName["新產品說明會"]).Should().Be(-20);
