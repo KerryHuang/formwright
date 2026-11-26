@@ -4,6 +4,8 @@ import * as quasar from 'quasar';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createI18n } from 'vue-i18n';
 import { createMemoryHistory, createRouter } from 'vue-router';
+import enUS from 'shared/i18n/en-US/ui.json';
+import th from 'shared/i18n/th/ui.json';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 import ReportListPage from './ReportListPage.vue';
@@ -14,13 +16,13 @@ const q = (id: string) => document.body.querySelector(`[data-testid="${id}"]`) a
 let mounted: ReturnType<typeof mount> | undefined;
 let router: ReturnType<typeof createRouter>;
 
-async function mountPage() {
+async function mountPage(locale = 'zh-TW') {
   router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/reports', component: ReportListPage }, { path: '/reports/:id', component: { template: '<i/>' } }],
   });
   await router.push('/reports');
-  const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
+  const i18n = createI18n({ legacy: false, locale, messages: { 'zh-TW': zhTW, 'en-US': enUS, th } });
   mounted = mount({ template: '<q-layout><q-page-container><router-view /></q-page-container></q-layout>' }, {
     attachTo: document.body,
     global: { plugins: [[quasar.Quasar, { components: quasar }], i18n, router, [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]] },
@@ -37,8 +39,8 @@ describe('ReportListPage', () => {
 
   it('lists own and shared reports with owner, and opens one on click', async () => {
     api.getReports.mockResolvedValue([
-      { id: 1, name: '我的月報', ownerName: '我', isOwner: true, sharedGroupIds: [2], mainModuleKey: 'orders' },
-      { id: 2, name: '別人的報表', ownerName: '小王', isOwner: false, sharedGroupIds: [2], mainModuleKey: 'orders' },
+      { id: 1, name: { 'zh-TW': '我的月報' }, ownerName: '我', isOwner: true, sharedGroupIds: [2], mainModuleKey: 'orders' },
+      { id: 2, name: { 'zh-TW': '別人的報表' }, ownerName: '小王', isOwner: false, sharedGroupIds: [2], mainModuleKey: 'orders' },
     ]);
     await mountPage();
     expect(q('report-row-1')!.textContent).toContain('我的月報');
@@ -49,6 +51,15 @@ describe('ReportListPage', () => {
     q('report-row-2')!.click();
     await flushPromises();
     expect(router.currentRoute.value.path).toBe('/reports/2');
+  });
+
+  // 名稱多語設計 §18.3 S1、S2：名稱依介面語系解析，沒有該語系的譯名時沿退回鏈（預設語系繁中）
+  it.each([['en-US', 'Orders'], ['th', '訂單']])('S1/S2 shows the report name in the %s interface as %s', async (locale, expected) => {
+    api.getReports.mockResolvedValue([
+      { id: 1, name: { 'zh-TW': '訂單', 'en-US': 'Orders' }, ownerName: '我', isOwner: true, sharedGroupIds: [], mainModuleKey: 'orders' },
+    ]);
+    await mountPage(locale);
+    expect(q('report-row-1')!.querySelector('td')!.textContent!.trim()).toBe(expected);
   });
 
   it('shows the empty text when there are no reports', async () => {

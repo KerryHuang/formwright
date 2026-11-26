@@ -46,7 +46,8 @@ export interface DrillResult extends ReportResult { truncated: boolean }
 
 export interface ReportItem {
   id: number;
-  name: string;
+  /** 多語名稱，畫面用 resolveI18n 依目前語系解析（名稱多語設計 §6.2）。 */
+  name: I18nText;
   ownerName: string;
   isOwner: boolean;
   sharedGroupIds: number[];

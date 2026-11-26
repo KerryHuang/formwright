@@ -15,8 +15,8 @@ let calls: Call[];
 let mounted: ReturnType<typeof mount> | undefined;
 const q = (id: string) => document.body.querySelector<HTMLElement>(`[data-testid="${id}"]`);
 const views = (): TaskViewList => normalizeViewList({
-  mine: [viewSummaryWire({ id: 5, name: '我的到期' }), viewSummaryWire({ id: 6, name: '業務部負載', shareCount: 1 })],
-  shared: [viewSummaryWire({ id: 8, name: '業務部任務', isOwner: false, ownerUserId: 'manager01', ownerName: '業務主管', shareCount: 1 })],
+  mine: [viewSummaryWire({ id: 5, name: { 'zh-TW': '我的到期' } }), viewSummaryWire({ id: 6, name: { 'zh-TW': '業務部負載' }, shareCount: 1 })],
+  shared: [viewSummaryWire({ id: 8, name: { 'zh-TW': '業務部任務' }, isOwner: false, ownerUserId: 'manager01', ownerName: '業務主管', shareCount: 1 })],
 });
 const config = configWire({ groupBy: 'dueBucket' }) as unknown as TaskBoardConfig;
 
@@ -102,14 +102,14 @@ describe('BoardPicker', () => {
     const w = await mountPicker({ currentId: 5 });
     q('picker-save-as')!.click();
     await flushPromises();
-    const input = q('picker-name') as HTMLInputElement;
+    const input = q('picker-name')!.querySelector('[data-testid="i18n-zh-TW"] input') as HTMLInputElement;
     input.value = '我的到期（新）';
     input.dispatchEvent(new Event('input'));
     await flushPromises();
     q('picker-name-ok')!.click();
     await flushPromises();
     const post = calls.find((c) => c.method === 'post' && c.url === '/task-views')!;
-    expect(bodyOf(post)).toEqual({ kind: 'board', name: '我的到期（新）', config });
+    expect(bodyOf(post)).toEqual({ kind: 'board', name: { 'zh-TW': '我的到期（新）' }, config });
     expect(w.emitted('created')![0][0]).toMatchObject({ id: 11 });
   });
 
@@ -128,7 +128,7 @@ describe('BoardPicker', () => {
     q('picker-save-as')!.click();
     await flushPromises();
     expect(q('picker-scope-swapped')).not.toBeNull();
-    const input = q('picker-name') as HTMLInputElement;
+    const input = q('picker-name')!.querySelector('[data-testid="i18n-zh-TW"] input') as HTMLInputElement;
     input.value = 'X';
     input.dispatchEvent(new Event('input'));
     await flushPromises();
@@ -186,7 +186,7 @@ describe('BoardPicker', () => {
 
   it('G72 the Gantt chart picker lists the default, mine, shared and save-as-new in Gantt words, and save-as creates a Gantt view', async () => {
     const gantt = ganttConfigWire() as unknown as TaskViewConfig;
-    const list = normalizeViewList({ mine: [viewSummaryWire({ id: 12, kind: 'gantt', name: '展覽' })], shared: [viewSummaryWire({ id: 13, kind: 'gantt', name: '業務部甘特', isOwner: false, ownerName: '業務主管', shareCount: 1 })] });
+    const list = normalizeViewList({ mine: [viewSummaryWire({ id: 12, kind: 'gantt', name: { 'zh-TW': '展覽' } })], shared: [viewSummaryWire({ id: 13, kind: 'gantt', name: { 'zh-TW': '業務部甘特' }, isOwner: false, ownerName: '業務主管', shareCount: 1 })] });
     await mountPicker({ kind: 'gantt', views: list, config: gantt, currentName: '預設甘特圖' });
     const text = (id: string) => q(id)!.textContent ?? '';
     expect(text('picker-item-default')).toContain('預設甘特圖');
@@ -196,12 +196,12 @@ describe('BoardPicker', () => {
     expect(q('picker-share-12')!.getAttribute('aria-label')).toBe('分享甘特圖「展覽」');
     q('picker-save-as')!.click();
     await flushPromises();
-    const input = q('picker-name') as HTMLInputElement;
+    const input = q('picker-name')!.querySelector('[data-testid="i18n-zh-TW"] input') as HTMLInputElement;
     input.value = '我的甘特';
     input.dispatchEvent(new Event('input'));
     await flushPromises();
     q('picker-name-ok')!.click();
     await flushPromises();
-    expect(bodyOf(calls.find((c) => c.method === 'post' && c.url === '/task-views'))).toEqual({ kind: 'gantt', name: '我的甘特', config: gantt });
+    expect(bodyOf(calls.find((c) => c.method === 'post' && c.url === '/task-views'))).toEqual({ kind: 'gantt', name: { 'zh-TW': '我的甘特' }, config: gantt });
   });
 });

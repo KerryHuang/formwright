@@ -207,7 +207,7 @@ describe('dynamicApi tasks', () => {
     const detail = stub({ id: 1, name: 'A', config: { version: 1, groupBy: 'status', scope: 'assigned' }, rowVersion: 'r1' });
     expect((await dynamicApi.getTaskView(1)).shares).toEqual([]);
     expect(detail.url).toBe('/api/v3/dynamic/task-views/1');
-    await dynamicApi.updateTaskView(1, { name: 'B', rowVersion: 'r1' });
+    await dynamicApi.updateTaskView(1, { name: { 'zh-TW': 'B' }, rowVersion: 'r1' });
     expect(detail).toMatchObject({ method: 'put', url: '/api/v3/dynamic/task-views/1' });
     await dynamicApi.copyTaskView(1);
     expect(detail).toMatchObject({ method: 'post', url: '/api/v3/dynamic/task-views/1/copy' });
@@ -223,8 +223,8 @@ describe('dynamicApi tasks', () => {
     expect((await dynamicApi.getTaskViews('gantt')).mine[0].kind).toBe('gantt');
     expect(list.url).toBe('/api/v3/dynamic/task-views?kind=gantt');
     const created = stub({ id: 3, kind: 'gantt', name: 'G', config: { version: 1, groupBy: 'parent', scope: 'assigned', scale: 'week' }, rowVersion: 'r1' });
-    const g = await dynamicApi.createTaskView<TaskGanttConfig>({ kind: 'gantt', name: 'G' });
-    expect(JSON.parse(created.body as string)).toEqual({ kind: 'gantt', name: 'G' });
+    const g = await dynamicApi.createTaskView<TaskGanttConfig>({ kind: 'gantt', name: { 'zh-TW': 'G' } });
+    expect(JSON.parse(created.body as string)).toEqual({ kind: 'gantt', name: { 'zh-TW': 'G' } });
     expect(g.config.scale).toBe('week');
     const schedule = stub({ card: { id: 5, title: 'T', status: 'todo', startDate: '2026-11-21', dueDate: '2026-11-28', version: 'v2' } });
     const r = await dynamicApi.scheduleTask(5, { startDate: '2026-11-21', dueDate: null, expectedVersion: 'v1' });

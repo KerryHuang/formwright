@@ -6,6 +6,7 @@ import {
 } from 'src/domain/dynamic/task-board-types';
 import { replaceCardLocally, scheduleCardLocally } from 'src/domain/dynamic/task-gantt';
 import type { TaskCascade } from 'src/domain/dynamic/task-types';
+import type { I18nText } from 'src/domain/dynamic/types';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 import type { ApiError } from 'src/services/api/http';
 import { invalidateTasks } from './tasks-queries';
@@ -196,7 +197,7 @@ export function useTaskViewShareTargets(enabled: MaybeRefOrGetter<boolean> = tru
 export function useCreateTaskView() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: { kind?: TaskViewKind; name: string; config: TaskViewConfig }) => dynamicApi.createTaskView<TaskViewConfig>({ ...v, kind: v.kind ?? 'board' }),
+    mutationFn: (v: { kind?: TaskViewKind; name: I18nText; config: TaskViewConfig }) => dynamicApi.createTaskView<TaskViewConfig>({ ...v, kind: v.kind ?? 'board' }),
     onSuccess: (detail) => {
       qc.setQueryData(['task-view', detail.id], detail);
       return qc.invalidateQueries({ queryKey: ['task-views'] });
@@ -222,7 +223,7 @@ function refreshStaleView(qc: ReturnType<typeof useQueryClient>, id: number, e: 
 export function useUpdateTaskView() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: { id: number; name: string; config: TaskViewConfig; rowVersion: string }) =>
+    mutationFn: (v: { id: number; name: I18nText; config: TaskViewConfig; rowVersion: string }) =>
       dynamicApi.updateTaskView<TaskViewConfig>(v.id, { name: v.name, config: v.config, rowVersion: v.rowVersion }),
     onSuccess: (detail) => {
       qc.setQueryData(['task-view', detail.id], detail);

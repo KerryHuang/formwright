@@ -3,13 +3,15 @@ import { operatorNeedsValue } from 'src/domain/dynamic/condition';
 import type {
   CatalogField, ModuleCatalog, ReportChild, ReportDataset, ReportDateRange, ReportDefinition, ReportFieldRef, ReportFilter, ReportMeasure, ReportSort, ReportViz,
 } from 'src/domain/dynamic/report-types';
-import type { FilterOperator } from 'src/domain/dynamic/types';
+import { compactI18n } from 'src/domain/dynamic/i18n-text';
+import type { FilterOperator, I18nText } from 'src/domain/dynamic/types';
 import { findChild, listFields, refKey } from '../report-catalog';
 
 export type DesignerStep = 0 | 1 | 2 | 3 | 4;
 
 export interface DesignerState {
-  name: string;
+  /** 多語報表名稱（名稱多語設計 §10.1）；必填語系由最後一步的多語輸入框檢查。 */
+  name: I18nText;
   /** module 是動態模組報表（要選 mainModuleKey），tasks、taskEvents 是系統資料來源（mainModuleKey 為空）。 */
   dataset: ReportDataset;
   mainModuleKey: string | null;
@@ -33,15 +35,15 @@ const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
 export function emptyState(): DesignerState {
   return {
-    name: '', dataset: 'module', mainModuleKey: null, child: null, columns: [], groups: [], measures: [], filters: [],
+    name: {}, dataset: 'module', mainModuleKey: null, child: null, columns: [], groups: [], measures: [], filters: [],
     primaryDateField: null, dateRange: null, sort: [], viz: 'table', hasHidden: false,
   };
 }
 
-export function fromDefinition(def: ReportDefinition, name = ''): DesignerState {
+export function fromDefinition(def: ReportDefinition, name: I18nText = {}): DesignerState {
   const d = clone(def);
   return {
-    name, dataset: d.dataset ?? 'module', mainModuleKey: d.mainModuleKey, child: d.child ?? null, columns: d.columns, groups: d.groups, measures: d.measures,
+    name: { ...name }, dataset: d.dataset ?? 'module', mainModuleKey: d.mainModuleKey, child: d.child ?? null, columns: d.columns, groups: d.groups, measures: d.measures,
     filters: d.filters, primaryDateField: d.primaryDateField ?? null, dateRange: d.dateRange ?? null, sort: d.sort ?? [], viz: d.viz,
     hasHidden: d.filters.some((f) => f.hidden) || d.measures.some((m) => m.condition?.hidden),
   };
@@ -181,5 +183,5 @@ export function unavailableRefs(s: DesignerState, catalog: ModuleCatalog): Unava
 }
 
 export function canSave(s: DesignerState, catalog: ModuleCatalog): boolean {
-  return s.name.trim().length > 0 && !s.hasHidden && !unavailableRefs(s, catalog).any && ([0, 1, 2, 3] as const).every((i) => canAdvance(s, i));
+  return compactI18n(s.name) !== undefined && !s.hasHidden && !unavailableRefs(s, catalog).any && ([0, 1, 2, 3] as const).every((i) => canAdvance(s, i));
 }

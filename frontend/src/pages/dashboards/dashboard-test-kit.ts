@@ -25,8 +25,8 @@ export const okResult = (over: Partial<CardResult> = {}): CardResult => ({
 } as CardResult);
 
 export const detail = (id: number, over: Partial<DashboardDetail> = {}): DashboardDetail => ({
-  id, name: `儀表板${id}`, kind: 'assigned', version: 1, adjusted: false, hasUpdate: false,
-  layout: { cards: [card('c1')] }, reportNames: { 1: '訂單狀態' }, ...over,
+  id, name: { "zh-TW": `儀表板${id}` }, kind: 'assigned', version: 1, adjusted: false, hasUpdate: false,
+  layout: { cards: [card('c1')] }, reportNames: { 1: { "zh-TW": "訂單狀態" } }, ...over,
 });
 
 export interface Call { method: string; url: string; body: unknown; params: unknown }

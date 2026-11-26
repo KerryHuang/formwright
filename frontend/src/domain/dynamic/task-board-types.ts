@@ -208,7 +208,8 @@ export interface TaskGanttData {
 export interface TaskViewSummary {
   id: number;
   kind: TaskViewKind;
-  name: string;
+  /** 多語名稱（名稱多語設計 §6.2）。 */
+  name: I18nText;
   ownerUserId: string;
   ownerName: string | null;
   ownerActive: boolean;
@@ -235,7 +236,7 @@ export interface TaskViewShare {
 export interface TaskViewDetail<C extends TaskViewConfig = TaskBoardConfig> {
   id: number;
   kind: TaskViewKind;
-  name: string;
+  name: I18nText;
   ownerUserId: string;
   ownerName: string | null;
   ownerActive: boolean;

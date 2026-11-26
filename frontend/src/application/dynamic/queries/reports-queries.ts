@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { toValue, type MaybeRef } from 'vue';
 import { NO_RUN_FILTER, type ReportDataset, type ReportDefinition, type ReportRunFilter } from 'src/domain/dynamic/report-types';
+import type { I18nText } from 'src/domain/dynamic/types';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 
 export function useReports() {
@@ -109,7 +110,7 @@ export function usePreviewReport() {
 export function useSaveReport() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: { id: number | null; name: string; definition: ReportDefinition }) =>
+    mutationFn: (v: { id: number | null; name: I18nText; definition: ReportDefinition }) =>
       v.id === null ? dynamicApi.createReport(v.name, v.definition) : dynamicApi.updateReport(v.id, v.name, v.definition),
     onSuccess: (d) => Promise.all([qc.invalidateQueries({ queryKey: ['reports'] }), qc.invalidateQueries({ queryKey: ['report', d.id] })]),
   });

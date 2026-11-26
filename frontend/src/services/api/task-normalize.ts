@@ -208,7 +208,7 @@ export function normalizeMoveResult(r: { visible?: boolean; card?: Wire<BoardCar
 }
 
 const normalizeViewSummary = (v: Wire<TaskViewSummary>): TaskViewSummary => ({
-  id: v.id as number, kind: v.kind ?? 'board', name: v.name ?? '', ownerUserId: v.ownerUserId ?? '', ownerName: v.ownerName ?? null,
+  id: v.id as number, kind: v.kind ?? 'board', name: v.name ?? {}, ownerUserId: v.ownerUserId ?? '', ownerName: v.ownerName ?? null,
   ownerActive: !!v.ownerActive, isOwner: !!v.isOwner, shareCount: v.shareCount ?? 0, modifiedTime: v.modifiedTime ?? null,
 });
 
@@ -259,7 +259,7 @@ export function normalizeViewDetail<C extends TaskViewConfig = TaskBoardConfig>(
   v: Wire<Omit<TaskViewDetail<C>, 'shares' | 'config'>> & { config?: C; shares?: Wire<TaskViewShare>[] | null },
 ): TaskViewDetail<C> {
   return {
-    id: v.id as number, kind: v.kind ?? 'board', name: v.name ?? '', ownerUserId: v.ownerUserId ?? '', ownerName: v.ownerName ?? null,
+    id: v.id as number, kind: v.kind ?? 'board', name: v.name ?? {}, ownerUserId: v.ownerUserId ?? '', ownerName: v.ownerName ?? null,
     ownerActive: !!v.ownerActive, isOwner: !!v.isOwner, canEdit: !!v.canEdit, canDelete: !!v.canDelete,
     config: v.config as C, shares: (v.shares ?? []).map(normalizeShare), rowVersion: v.rowVersion ?? '',
   };

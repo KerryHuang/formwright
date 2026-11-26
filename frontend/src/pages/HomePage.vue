@@ -20,7 +20,9 @@ const menu = useMenu();
 
 // 有儀表板就顯示在歡迎區下方（上次看的，沒有就第一張）；沒有或載入失敗時首頁維持原樣
 const dashboards = useDashboards();
-const dashList = computed(() => [...(dashboards.data.value?.assigned ?? []), ...(dashboards.data.value?.mine ?? [])]);
+// 名稱依目前語系解析成字串（下拉選單與卡片連結選單用）
+const dashList = computed(() => [...(dashboards.data.value?.assigned ?? []), ...(dashboards.data.value?.mine ?? [])]
+  .map((d) => ({ id: d.id, name: resolveI18n(d.name, locale.value) })));
 const picked = ref<number | null>(null);
 const dashId = computed(() => {
   const ids = dashList.value.map((d) => d.id);

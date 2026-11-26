@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { useReport, useReportCatalogModules, useReportDatasets, usePreviewReport, useSaveReport, useSourceCatalog } from 'src/application/dynamic/queries/reports-queries';
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
+import { compactI18n } from 'src/domain/dynamic/i18n-text';
 import { isForbidden, type ApiError } from 'src/services/api/http';
 import { canAdvance, canSave, emptyState, fromDefinition, toDefinition, unavailableRefs, type DesignerStep } from 'src/presentation/reports/designer/designer-state';
 import StepFields from 'src/presentation/reports/designer/StepFields.vue';
@@ -75,7 +76,7 @@ const savable = computed(() => !!catalog.value && canSave(state, catalog.value))
 function doSave() {
   saveErrors.value = [];
   save.mutate(
-    { id: isEdit.value ? reportId.value : null, name: state.name.trim(), definition: toDefinition(state) },
+    { id: isEdit.value ? reportId.value : null, name: compactI18n(state.name) ?? {}, definition: toDefinition(state) },
     { onSuccess: (d) => { void router.push(`/reports/${d.id}`); }, onError: (e) => { saveErrors.value = messages(e); } },
   );
 }
@@ -109,7 +110,7 @@ function doSave() {
           <StepGroups v-else-if="step === 3" :state="state" :catalog="catalog" :unavailable="unavailable" />
           <StepPreview
             v-else :state="state" :result="preview.data.value ?? null" :loading="preview.isPending.value" :errors="previewErrors"
-            :save-errors="saveErrors" :can-save="savable" :saving="save.isPending.value" @save="doSave" @refresh="runPreview"
+            :save-errors="saveErrors" :original-name="isEdit ? report.data.value?.name : undefined" :can-save="savable" :saving="save.isPending.value" @save="doSave" @refresh="runPreview"
           />
         </template>
 

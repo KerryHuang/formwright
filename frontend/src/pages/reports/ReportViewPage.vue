@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useMe } from 'src/application/dynamic/queries/permissions-queries';
 import { useCopyReport, useDeleteReport, useReport, useRunReport, useSourceCatalog } from 'src/application/dynamic/queries/reports-queries';
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
+import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import { NO_RUN_FILTER, type ReportFilter, type ReportRunFilter } from 'src/domain/dynamic/report-types';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 import { isForbidden, type ApiError } from 'src/services/api/http';
@@ -111,7 +112,7 @@ function doDelete() {
     <template v-else-if="detail">
       <div class="row items-center q-mb-md q-gutter-x-sm">
         <q-btn flat dense icon="arrow_back" to="/reports" :aria-label="t('reports.back')" />
-        <div class="text-h6" data-testid="report-name">{{ detail.name }}</div>
+        <div class="text-h6" data-testid="report-name">{{ resolveI18n(detail.name, locale) }}</div>
         <span v-if="!detail.isOwner" class="text-caption text-muted" data-testid="report-owner">{{ t('reports.ownedBy', { name: detail.ownerName }) }}</span>
         <q-space />
         <q-btn v-if="detail.isOwner" outline dense no-caps :label="t('reports.edit')" :to="`/reports/${detail.id}/edit`" data-testid="report-edit" />
@@ -159,7 +160,7 @@ function doDelete() {
       <ShareDialog :report-id="detail.id" :open="shareOpen" :group-ids="detail.sharedGroupIds" @close="shareOpen = false" />
       <q-dialog v-model="confirmDelete">
         <q-card style="width: 420px; max-width: 95vw">
-          <q-card-section class="text-h6">{{ t('reports.deleteTitle', { name: detail.name }) }}</q-card-section>
+          <q-card-section class="text-h6">{{ t('reports.deleteTitle', { name: resolveI18n(detail.name, locale) }) }}</q-card-section>
           <q-card-section v-if="deleteError" class="text-negative">{{ deleteError }}</q-card-section>
           <q-card-actions align="right">
             <q-btn flat :label="t('reports.cancel')" data-testid="delete-cancel" @click="confirmDelete = false" />

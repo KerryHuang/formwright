@@ -6,6 +6,8 @@ import { clearLastTaskBoard, readLastTaskBoard, writeLastTaskBoard } from 'src/a
 import { useMe } from 'src/application/dynamic/queries/permissions-queries';
 import { useBoardColumns, useTaskView, useTaskViews } from 'src/application/dynamic/queries/task-board-queries';
 import { useMyTasks, useTaskCapabilities } from 'src/application/dynamic/queries/tasks-queries';
+import { resolveI18n } from 'src/domain/dynamic/i18n-text';
+import type { I18nText } from 'src/domain/dynamic/types';
 import type { BoardSource, TaskBoardConfig, TaskGanttConfig, TaskViewConfig, TaskViewDetail, TaskViewKind } from 'src/domain/dynamic/task-board-types';
 import { taskStatusColor, type TaskListFilter, type TaskListTab } from 'src/domain/dynamic/task-types';
 import type { ApiError } from 'src/services/api/http';
@@ -25,7 +27,7 @@ const ALL_TABS: TaskListTab[] = [...BASE_TABS, 'subordinates'];
 const FILTERS: TaskListFilter[] = ['open', 'overdue', 'today', 'thisWeek', 'all'];
 const SIZE = 20;
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const identity = useIdentityStore();
@@ -76,11 +78,13 @@ const savedConfig = computed<TaskViewConfig | null>(() => (boardId.value === nul
 const config = computed(() => draft.value ?? savedConfig.value);
 const canSave = computed(() => boardId.value !== null && !!boardDetail.value?.canEdit);
 const canShare = computed(() => boardId.value !== null && !!boardDetail.value?.isOwner);
-const boardName = computed(() => {
-  if (boardId.value === null) return vt('defaultName');
+// 存檔看板的多語名稱（設定對話框改名用）；畫面顯示的 boardName 依目前語系解析
+const boardNameI18n = computed<I18nText>(() => {
+  if (boardId.value === null) return {};
   const all = [...(views.data.value?.mine ?? []), ...(views.data.value?.shared ?? [])];
-  return boardDetail.value?.name ?? all.find((v) => v.id === boardId.value && v.kind === viewKind.value)?.name ?? '';
+  return boardDetail.value?.name ?? all.find((v) => v.id === boardId.value && v.kind === viewKind.value)?.name ?? {};
 });
+const boardName = computed(() => (boardId.value === null ? vt('defaultName') : resolveI18n(boardNameI18n.value, locale.value)));
 const boardGone = ref(false);
 
 const query = useMyTasks(tab, filter, page, () => mode.value === 'list');
@@ -252,7 +256,7 @@ const boardFailed = computed(() => !!boardQuery.error.value && !boardQuery.data.
       </div>
     </template>
     <BoardSettingsDialog
-      v-if="config && hasViews" :key="viewKind" :kind="viewKind" v-model="settingsOpen" :config="config" :name="boardId === null ? '' : boardName" :view-id="canSave ? boardId : null" :row-version="boardDetail?.rowVersion ?? ''"
+      v-if="config && hasViews" :key="viewKind" :kind="viewKind" v-model="settingsOpen" :config="config" :name="boardNameI18n" :view-id="canSave ? boardId : null" :row-version="boardDetail?.rowVersion ?? ''"
       :can-save="canSave" :has-subordinates="hasSubordinates" @apply="(c: TaskViewConfig) => (draft = c)" @saved="onSaved" @saved-as-new="onSavedAsNew"
     />
     <TaskViewShareDialog :kind="viewKind" :view-id="shareId" :open="shareOpen" @close="shareOpen = false" @hidden="picker?.focusButton()" />

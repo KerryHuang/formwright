@@ -10,6 +10,7 @@ import zhTW from 'shared/i18n/zh-TW/ui.json';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 import PopupSelect from 'src/components/framework/PopupSelect.vue';
 import FilterValueInput from 'src/presentation/reports/designer/FilterValueInput.vue';
+import I18nTextInput from 'src/presentation/dynamic/designer/I18nTextInput.vue';
 import ReportDesignerPage from './ReportDesignerPage.vue';
 
 vi.mock('src/services/api/dynamic-api', () => ({
@@ -35,7 +36,7 @@ const DEF: ReportDefinition = {
   primaryDateField: null, dateRange: null, sort: [], viz: 'table',
 };
 const RESULT: ReportResult = { state: 'ok', rowMeaning: '一張訂單', basisDate: '2026-11-05', dedupedNote: false, columns: [], groups: [], total: {} };
-const detail = (def: ReportDefinition, isOwner = true): ReportDetail => ({ id: 7, name: '月報', ownerName: '我', isOwner, sharedGroupIds: [], mainModuleKey: 'orders', definition: def, canExport: true });
+const detail = (def: ReportDefinition, isOwner = true): ReportDetail => ({ id: 7, name: { 'zh-TW': '月報' }, ownerName: '我', isOwner, sharedGroupIds: [], mainModuleKey: 'orders', definition: def, canExport: true });
 
 const q = (id: string) => document.body.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
 let mounted: ReturnType<typeof mount> | undefined;
@@ -65,7 +66,7 @@ async function mountAt(path: string, catalog: ModuleCatalog = CATALOG, datasets:
   });
   await flushPromises();
 }
-const comp = (id: string) => [...mounted!.findAllComponents(quasar.QSelect), ...mounted!.findAllComponents(quasar.QInput)]
+const comp = (id: string) => [...mounted!.findAllComponents(quasar.QSelect), ...mounted!.findAllComponents(quasar.QInput), ...mounted!.findAllComponents(I18nTextInput)]
   .filter((c) => c.element.contains(q(id))).pop()!;
 async function pick(id: string, value: unknown) {
   if (!q(id)) throw new Error(`missing ${id}: ${document.body.innerHTML.slice(0, 800)}`);
@@ -126,10 +127,10 @@ describe('ReportDesignerPage', () => {
     expect(api.previewReport.mock.calls[0]![0]).toMatchObject({ version: 1, mainModuleKey: 'orders', columns: [MAIN(1)], child: null, sort: [], viz: 'table' });
     expect(q('report-result')).not.toBeNull();
     expect((q('designer-save') as HTMLButtonElement).disabled).toBe(true);
-    await pick('report-name-input', '新報表');
+    await pick('report-name-input', { 'zh-TW': '新報表' });
     await click('viz-bar');
     await click('designer-save');
-    expect(api.createReport).toHaveBeenCalledWith('新報表', expect.objectContaining({ mainModuleKey: 'orders', viz: 'bar' }));
+    expect(api.createReport).toHaveBeenCalledWith({ 'zh-TW': '新報表' }, expect.objectContaining({ mainModuleKey: 'orders', viz: 'bar' }));
     expect(router.currentRoute.value.path).toBe('/reports/7');
   });
 
@@ -140,7 +141,7 @@ describe('ReportDesignerPage', () => {
     await click('designer-next');
     await click('field-main:1:');
     for (let i = 0; i < 3; i++) await click('designer-next');
-    await pick('report-name-input', 'x');
+    await pick('report-name-input', { 'zh-TW': 'x' });
     await click('designer-save');
     expect(q('save-errors')!.textContent).toContain('設定日期區間需要選主要日期欄位');
   });
@@ -173,7 +174,7 @@ describe('ReportDesignerPage', () => {
     for (let i = 0; i < 2; i++) await click('designer-next');
     await click('designer-next');
     await click('designer-save');
-    expect(api.updateReport).toHaveBeenCalledWith(7, '月報', expect.objectContaining({ columns: [MAIN(1)] }));
+    expect(api.updateReport).toHaveBeenCalledWith(7, { 'zh-TW': '月報' }, expect.objectContaining({ columns: [MAIN(1)] }));
   });
 
   it('a definition with masked conditions shows the reason and offers no wizard', async () => {
@@ -321,15 +322,15 @@ describe('ReportDesignerPage review fixes', () => {
   });
 
   it('switching the report in the route reloads the designer state', async () => {
-    api.getReport.mockImplementation(async (id: number) => ({ ...detail({ ...DEF, columns: [id === 5 ? MAIN(1) : MAIN(3)] }), id, name: `報表${id}` }));
+    api.getReport.mockImplementation(async (id: number) => ({ ...detail({ ...DEF, columns: [id === 5 ? MAIN(1) : MAIN(3)] }), id, name: { 'zh-TW': `報表${id}` } }));
     api.updateReport.mockResolvedValue(detail(DEF));
     await mountAt('/reports/5/edit');
     await router.push('/reports/6/edit');
     await flushPromises();
     await goTo(4);
-    expect((comp('report-name-input').props() as unknown as { modelValue: string }).modelValue).toBe('報表6');
+    expect((comp('report-name-input').props() as unknown as { modelValue: unknown }).modelValue).toEqual({ 'zh-TW': '報表6' });
     await click('designer-save');
-    expect(api.updateReport).toHaveBeenCalledWith(6, '報表6', expect.objectContaining({ columns: [MAIN(3)] }));
+    expect(api.updateReport).toHaveBeenCalledWith(6, { 'zh-TW': '報表6' }, expect.objectContaining({ columns: [MAIN(3)] }));
   });
 
   it('changing the main module asks first when there are settings, and keeps them on cancel', async () => {

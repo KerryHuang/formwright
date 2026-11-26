@@ -23,7 +23,7 @@ const DEF: ReportDefinition = {
 
 describe('designer-state', () => {
   it('toDefinition/fromDefinition round trip', () => {
-    expect(toDefinition(fromDefinition(DEF, '月報'))).toEqual(DEF);
+    expect(toDefinition(fromDefinition(DEF, { 'zh-TW': '月報' }))).toEqual(DEF);
   });
 
   it('cannot advance without main module', () => {
@@ -34,14 +34,14 @@ describe('designer-state', () => {
   });
 
   it('changing main module clears dependent fields', () => {
-    const s = fromDefinition(DEF, 'x');
+    const s = fromDefinition(DEF, { 'zh-TW': 'x' });
     setMainModule(s, 'tickets');
     expect(s).toMatchObject({ mainModuleKey: 'tickets', child: null, columns: [], groups: [], measures: [], filters: [], primaryDateField: null, dateRange: null });
   });
 
   it('changing the child drops only child-sourced settings', () => {
     const s = fromDefinition({ ...DEF, columns: [MAIN(3), { source: 'child', fieldId: 21, viaFieldId: null }],
-      measures: [...DEF.measures, { id: 'm2', kind: 'countChild', field: null, condition: null }] }, 'x');
+      measures: [...DEF.measures, { id: 'm2', kind: 'countChild', field: null, condition: null }] }, { 'zh-TW': 'x' });
     setChild(s, null);
     expect(s.columns).toEqual([MAIN(3)]);
     expect(s.measures.map((m) => m.id)).toEqual(['m1']);
@@ -56,24 +56,24 @@ describe('designer-state', () => {
   });
 
   it('date range needs a primary date field and clearing the field clears the range', () => {
-    const s = fromDefinition(DEF, 'x');
+    const s = fromDefinition(DEF, { 'zh-TW': 'x' });
     s.primaryDateField = null;
     expect(canAdvance(s, 2)).toBe(false);
-    const t = fromDefinition(DEF, 'x');
+    const t = fromDefinition(DEF, { 'zh-TW': 'x' });
     setPrimaryDate(t, null);
     expect(t.dateRange).toBeNull();
     expect(canAdvance(t, 2)).toBe(true);
   });
 
   it('a condition without its value cannot advance, isEmpty needs none', () => {
-    const s = fromDefinition({ ...DEF, filters: [{ field: MAIN(2), op: 'gt' }] }, 'x');
+    const s = fromDefinition({ ...DEF, filters: [{ field: MAIN(2), op: 'gt' }] }, { 'zh-TW': 'x' });
     expect(canAdvance(s, 2)).toBe(false);
     s.filters = [{ field: MAIN(2), op: 'isEmpty' }];
     expect(canAdvance(s, 2)).toBe(true);
   });
 
   it('references missing from the catalog are reported and block saving until removed', () => {
-    const s = fromDefinition({ ...DEF, columns: [MAIN(3), MAIN(99)] }, 'x');
+    const s = fromDefinition({ ...DEF, columns: [MAIN(3), MAIN(99)] }, { 'zh-TW': 'x' });
     expect(unavailableRefs(s, CATALOG)).toMatchObject({ columns: [1], any: true });
     expect(canSave(s, CATALOG)).toBe(false);
     s.columns.splice(1, 1);
@@ -82,29 +82,29 @@ describe('designer-state', () => {
   });
 
   it('a missing child makes its fields unavailable', () => {
-    const s = fromDefinition({ ...DEF, child: { moduleKey: 'gone', linkFieldId: 1 }, columns: [{ source: 'child', fieldId: 21, viaFieldId: null }] }, 'x');
+    const s = fromDefinition({ ...DEF, child: { moduleKey: 'gone', linkFieldId: 1 }, columns: [{ source: 'child', fieldId: 21, viaFieldId: null }] }, { 'zh-TW': 'x' });
     expect(unavailableRefs(s, CATALOG)).toMatchObject({ child: true, columns: [0], any: true });
   });
 
   it('a definition with masked conditions can never be saved', () => {
-    const s = fromDefinition({ ...DEF, filters: [{ field: MAIN(2), op: 'gt', hidden: true }] }, 'x');
+    const s = fromDefinition({ ...DEF, filters: [{ field: MAIN(2), op: 'gt', hidden: true }] }, { 'zh-TW': 'x' });
     expect(s.hasHidden).toBe(true);
     expect(canSave(s, CATALOG)).toBe(false);
-    const m = fromDefinition({ ...DEF, measures: [{ id: 'm1', kind: 'ratio', field: null, condition: { field: MAIN(2), op: 'gt', hidden: true } }] }, 'x');
+    const m = fromDefinition({ ...DEF, measures: [{ id: 'm1', kind: 'ratio', field: null, condition: { field: MAIN(2), op: 'gt', hidden: true } }] }, { 'zh-TW': 'x' });
     expect(m.hasHidden).toBe(true);
   });
 
   it('only the last-N range kinds need N', () => {
     expect(LAST_RANGE_KINDS).toEqual(['lastDays', 'lastWeeks', 'lastMonths']);
     for (const kind of ['lastWeek', 'lastMonth', 'lastYear', 'thisMonth']) {
-      expect(canAdvance(fromDefinition({ ...DEF, dateRange: { kind, n: null } }, 'x'), 2)).toBe(true);
+      expect(canAdvance(fromDefinition({ ...DEF, dateRange: { kind, n: null } }, { 'zh-TW': 'x' }), 2)).toBe(true);
     }
-    expect(canAdvance(fromDefinition({ ...DEF, dateRange: { kind: 'lastDays', n: null } }, 'x'), 2)).toBe(false);
-    expect(canAdvance(fromDefinition({ ...DEF, dateRange: { kind: 'lastDays', n: 7 } }, 'x'), 2)).toBe(true);
+    expect(canAdvance(fromDefinition({ ...DEF, dateRange: { kind: 'lastDays', n: null } }, { 'zh-TW': 'x' }), 2)).toBe(false);
+    expect(canAdvance(fromDefinition({ ...DEF, dateRange: { kind: 'lastDays', n: 7 } }, { 'zh-TW': 'x' }), 2)).toBe(true);
   });
 
   it('a ratio measure needs a complete condition', () => {
-    const s = fromDefinition({ ...DEF, measures: [] }, 'x');
+    const s = fromDefinition({ ...DEF, measures: [] }, { 'zh-TW': 'x' });
     addMeasure(s, 'ratio', null, { field: MAIN(2), op: 'gt', value: undefined });
     expect(s.measures[0]).toMatchObject({ kind: 'ratio', condition: { op: 'gt' } });
     expect(canAdvance(s, 3)).toBe(false);
@@ -115,13 +115,13 @@ describe('designer-state', () => {
   });
 
   it('unavailableRefs covers sort keys that point at missing fields but ignores measure ids', () => {
-    const s = fromDefinition({ ...DEF, sort: [{ key: 'm1', desc: true }, { key: 'main:99:', desc: false }, { key: 'main:3:', desc: false }, { key: 'junk', desc: false }] }, 'x');
+    const s = fromDefinition({ ...DEF, sort: [{ key: 'm1', desc: true }, { key: 'main:99:', desc: false }, { key: 'main:3:', desc: false }, { key: 'junk', desc: false }] }, { 'zh-TW': 'x' });
     expect(unavailableRefs(s, CATALOG)).toMatchObject({ sort: [1], any: true });
     expect(canSave(s, CATALOG)).toBe(false);
   });
 
   it('removing a column, group or measure drops the sort entries pointing at it', () => {
-    const s = fromDefinition({ ...DEF, sort: [{ key: 'm1', desc: true }, { key: 'main:3:', desc: false }, { key: 'main:10:1', desc: false }] }, 'x');
+    const s = fromDefinition({ ...DEF, sort: [{ key: 'm1', desc: true }, { key: 'main:3:', desc: false }, { key: 'main:10:1', desc: false }] }, { 'zh-TW': 'x' });
     removeColumn(s, 0);
     expect(s.sort.map((x) => x.key)).toEqual(['m1', 'main:10:1']);
     removeGroup(s, 0);
@@ -131,10 +131,10 @@ describe('designer-state', () => {
   });
 
   it('a column still used by a group keeps its sort entry', () => {
-    const s = fromDefinition({ ...DEF, columns: [MAIN(10, 1)], sort: [{ key: 'main:10:1', desc: false }] }, 'x');
+    const s = fromDefinition({ ...DEF, columns: [MAIN(10, 1)], sort: [{ key: 'main:10:1', desc: false }] }, { 'zh-TW': 'x' });
     removeColumn(s, 0);
     expect(s.sort).toHaveLength(1);
-    const t = fromDefinition({ ...DEF, columns: [MAIN(10, 1)], sort: [{ key: 'main:10:1', desc: false }] }, 'x');
+    const t = fromDefinition({ ...DEF, columns: [MAIN(10, 1)], sort: [{ key: 'main:10:1', desc: false }] }, { 'zh-TW': 'x' });
     removeGroup(t, 0);
     expect(t.sort).toHaveLength(1);
     removeColumn(t, 0);
@@ -142,13 +142,13 @@ describe('designer-state', () => {
   });
 
   it('a new measure id never reuses an id that sort still names', () => {
-    const s = fromDefinition({ ...DEF, sort: [{ key: 'm2', desc: true }] }, 'x');
+    const s = fromDefinition({ ...DEF, sort: [{ key: 'm2', desc: true }] }, { 'zh-TW': 'x' });
     addMeasure(s, 'countMain', null);
     expect(s.measures.map((m) => m.id)).toEqual(['m1', 'm3']);
   });
 
   it('choosing the same child again keeps child settings, hasContent reports settings', () => {
-    const s = fromDefinition({ ...DEF, columns: [MAIN(3), { source: 'child', fieldId: 21, viaFieldId: null }] }, 'x');
+    const s = fromDefinition({ ...DEF, columns: [MAIN(3), { source: 'child', fieldId: 21, viaFieldId: null }] }, { 'zh-TW': 'x' });
     setChild(s, { moduleKey: 'shipments', linkFieldId: 20 });
     expect(s.columns).toHaveLength(2);
     expect(hasContent(s)).toBe(true);
@@ -162,7 +162,7 @@ describe('designer-state', () => {
     };
 
     it('round trips dataset with an empty main module, and module definitions stay without dataset', () => {
-      const s = fromDefinition(TASK_DEF, '任務');
+      const s = fromDefinition(TASK_DEF, { 'zh-TW': '任務' });
       expect(s).toMatchObject({ dataset: 'tasks', mainModuleKey: '' });
       expect(toDefinition(s)).toEqual(TASK_DEF);
       expect(fromDefinition(DEF).dataset).toBe('module');
@@ -178,28 +178,28 @@ describe('designer-state', () => {
     });
 
     it('switching the source clears settings and the child, keeping name and viz', () => {
-      const s = fromDefinition(DEF, '月報');
+      const s = fromDefinition(DEF, { 'zh-TW': '月報' });
       setSource(s, 'taskEvents', null);
-      expect(s).toMatchObject({ dataset: 'taskEvents', mainModuleKey: null, child: null, columns: [], groups: [], measures: [], name: '月報', viz: 'bar' });
+      expect(s).toMatchObject({ dataset: 'taskEvents', mainModuleKey: null, child: null, columns: [], groups: [], measures: [], name: { 'zh-TW': '月報' }, viz: 'bar' });
       setSource(s, 'module', 'orders');
       expect(s).toMatchObject({ dataset: 'module', mainModuleKey: 'orders' });
     });
 
     it('choosing the same source again keeps the settings', () => {
-      const s = fromDefinition(TASK_DEF, 'x');
+      const s = fromDefinition(TASK_DEF, { 'zh-TW': 'x' });
       setSource(s, 'tasks', null);
       expect(s.groups).toHaveLength(1);
     });
 
     it('negative field ids: a sort key for a missing task field is reported, a known one is not', () => {
       const catalog: ModuleCatalog = { fields: [F(-3, '負責人', { type: 'user' })], via: [], children: [] };
-      const s = fromDefinition({ ...TASK_DEF, sort: [{ key: 'main:-3:', desc: false }, { key: 'main:-9:', desc: false }, { key: 'm1', desc: true }] }, 'x');
+      const s = fromDefinition({ ...TASK_DEF, sort: [{ key: 'main:-3:', desc: false }, { key: 'main:-9:', desc: false }, { key: 'm1', desc: true }] }, { 'zh-TW': 'x' });
       expect(unavailableRefs(s, catalog).sort).toEqual([1]);
     });
   });
 
   describe('量值：countIf、median、帶條件', () => {
-    const base = () => fromDefinition({ ...DEF, child: null, measures: [], groups: [], columns: [MAIN(3)], filters: [], primaryDateField: null, dateRange: null, sort: [] }, 'x');
+    const base = () => fromDefinition({ ...DEF, child: null, measures: [], groups: [], columns: [MAIN(3)], filters: [], primaryDateField: null, dateRange: null, sort: [] }, { 'zh-TW': 'x' });
     const cond = (value?: unknown) => ({ field: MAIN(1), op: 'eq', value });
 
     it('countIf needs a complete condition', () => {

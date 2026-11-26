@@ -2,13 +2,14 @@
 import { ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useReports } from 'src/application/dynamic/queries/reports-queries';
+import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import type { ReportViz } from 'src/domain/dynamic/report-types';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 
 /** 把一張看得到的報表放上儀表板，呈現方式預設跟報表一樣，之後屬於卡片。 */
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ close: []; add: [reportId: number, viz: ReportViz] }>();
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const reports = useReports();
 const reportId = ref<number | null>(null);
 const viz = ref<ReportViz>('bar');
@@ -35,7 +36,7 @@ async function pick(id: number) {
           >
             <q-item-section avatar><q-radio :model-value="reportId" :val="r.id" dense @update:model-value="pick(r.id)" /></q-item-section>
             <q-item-section>
-              <q-item-label>{{ r.name }}</q-item-label>
+              <q-item-label>{{ resolveI18n(r.name, locale) }}</q-item-label>
               <q-item-label caption>{{ r.isOwner ? t('reports.mine') : r.ownerName }}</q-item-label>
             </q-item-section>
           </q-item>
