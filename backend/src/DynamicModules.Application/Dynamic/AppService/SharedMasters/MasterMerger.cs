@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 using DynamicModules.Application.Common;
 using DynamicModules.Application.Dynamic.AppService.Data;
 using DynamicModules.Application.Dynamic.FieldService.Commands.AddOption;
-using DynamicModules.Application.Dynamic.FieldService.Commands.UpdateField;
+using DynamicModules.Application.Dynamic.FieldService.Commands.SetFieldAiExclusion;
 using DynamicModules.Application.Dynamic.ModuleService.Data;
 using DynamicModules.Application.Dynamic.TemplateService;
 using DynamicModules.Application.Dynamic.TemplateService.Commands.InstantiateTemplate;
@@ -86,8 +86,10 @@ public sealed class MasterMerger(
                     if (existing.Type != f.Type) { warnings.Add(TypeKept(Label(existing.Label, lc), f.Code)); continue; }
                     var added = f.Options.Where(o => existing.Options.All(x => x.Code != o.Code))
                         .Select(o => o with { Code = Avoid(o.Code, optionCodes) }).ToList();
-                    if (added.Count == 0) continue;
-                    var merged = existing with { Options = [.. existing.Options, .. added] };
+                    // 「不提供給 AI」只加不減（名稱多語設計 §8.1）：匯入的標 true 而現值不是才補，和選項一起合併，不因為沒有新選項就丟掉
+                    var flag = f.ExcludeFromAi == true && existing.ExcludeFromAi != true;
+                    if (added.Count == 0 && !flag) continue;
+                    var merged = existing with { Options = [.. existing.Options, .. added], ExcludeFromAi = flag ? true : existing.ExcludeFromAi };
                     var host = blocks.First(b => b.Fields.Contains(existing));
                     host.Fields[host.Fields.IndexOf(existing)] = merged;
                     fields[f.Code] = merged;
@@ -233,10 +235,10 @@ public sealed class MasterMerger(
                 ids.OptionIds.Where(x => !seedOptions.ContainsKey(x.Key)).Select(x => new AppOption { AppId = master.Id, Name = x.Key, OptionId = x.Value }),
                 ids.BlockIds.Where(x => !existingBlocks.Contains(x.Value)).Select(x => new AppBlock { AppId = master.Id, Name = x.Key, BlockId = x.Value }));
         }
-        // 已存在的欄位補上旗標：走一般的欄位修改（要權限設定，沒有就 403、整個匯入回滾），其他設定照現值送
+        // 已存在的欄位補上旗標：只改旗標（要權限設定，沒有就 403、整個匯入回滾），不重送欄位其他設定，舊設定過不了現行檢查也不受影響
         foreach (var field in aiFlags)
         {
-            var flagged = await sender.Send(new UpdateFieldRequest(field.Id, field.Type, field.LabelI18n, field.Config, field.BlockId, ExcludeFromAi: true), ct);
+            var flagged = await sender.Send(new SetFieldAiExclusionRequest(field.Id), ct);
             if (!flagged.IsSuccess) return flagged;
         }
         foreach (var (member, fieldId, option) in optionAdds)
