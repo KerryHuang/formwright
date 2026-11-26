@@ -3,7 +3,7 @@
 ; 預設值（連接埠、路徑）來自 defaults.iss，由 scripts/installer/render-defaults.mjs 產生，不在這裡另寫一份。
 ; 不簽章（D-04）、只內網（D-05）、解除安裝預設保留資料（D-10）。
 ; 靜默參數：/SKIPBACKUP（備份位置沒設時略過升級前備份）、/DELETEDATA（解除安裝時一併刪資料）、/PORT=<n>（全新安裝的連接埠）、
-; /FIREWALLSCOPE=<netsh remoteip 值>（防火牆允許的來源，預設見 install-defaults.json 的 firewallRemoteIp，例如 192.0.2.0/24,198.51.100.0/24）。
+; /FIREWALLSCOPE=<遠端位址範圍>（防火牆允許的來源，localsubnet 或位址、CIDR、範圍，逗號分隔；沒給就沿用上次安裝的值，再沒有就用 install-defaults.json 的 firewallRemoteIp）。
 ; 結束碼：0 成功；20 安裝後步驟失敗（服務、權限、初始化、防火牆、啟動，已記進安裝 log）；其餘見 Inno Setup「Setup Exit Codes」。
 
 ; 本檔與 ChineseTraditional.isl 是不帶 BOM 的 UTF-8，Inno Setup 6.3 起才支援
@@ -13,6 +13,12 @@
 #include "defaults.iss"
 #ifndef FwVersion
   #define FwVersion "0.0.0-dev"
+#endif
+; 啟動就緒檢查要認得「這次安裝的版本」；沒給版號（本機試編）時不比對版本
+#if FwVersion == "0.0.0-dev"
+  #define FwExpectedVersion ""
+#else
+  #define FwExpectedVersion FwVersion
 #endif
 #ifndef FwPublishDir
   #define FwPublishDir "publish"
@@ -49,8 +55,10 @@ Name: "chinesetraditional"; MessagesFile: "ChineseTraditional.isl"
 
 [Files]
 Source: "{#FwPublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; 權限重設腳本：解到 {tmp} 由 powershell 執行（每次安裝都重建資料父目錄的 DACL）
+; 輔助腳本：解到 {tmp} 由 powershell 執行（重建資料父目錄權限、管理防火牆規則、等站台就緒）
 Source: "set-acl.ps1"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "firewall.ps1"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "wait-ready.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 
 ; 升級時清掉舊版前端檔，避免舊的雜湊檔名殘留
 [InstallDelete]
@@ -76,7 +84,9 @@ english.OpenWizard=Open the setup wizard in my browser
 english.DeleteDataPrompt=Also permanently delete all data (database, attachments, keys, backups, settings)?%n%nChoose No to keep the data so you can reinstall later.
 english.ServiceDescription=Formwright dynamic module system
 english.StopFailed=Could not stop the Formwright service. Stop it manually (Services, or sc stop Formwright) and run the installer again.
-english.StepFailed=Setup did not complete: %1 failed (exit code %2). The Formwright service was not started. Fix the problem and run the installer again; details are in the setup log.
+english.StepFailed=Setup did not complete: %1 failed (exit code %2). The Formwright service was stopped and disabled so it does not keep restarting. Fix the problem, then run the installer again (it enables the service again); details are in the setup log.
+english.BackupFailedNotRestored=Pre-upgrade backup failed; the upgrade was cancelled, but the current version could not be restarted. Start the Formwright service manually (Services, or sc start Formwright) and check the logs.
+english.BackupNotConfiguredNotRestored=No backup location is configured, so the upgrade was cancelled, but the current version could not be restarted. Start the Formwright service manually (Services, or sc start Formwright) and check the logs.
 english.FirewallScopeInvalid=/FIREWALLSCOPE may contain only letters, digits and . : / , - (a netsh remoteip value such as localsubnet or 192.0.2.0/24,198.51.100.0/24).
 english.UninstallStopFailed=Could not stop the Formwright service, so nothing was removed. Stop it manually and run the uninstaller again.
 
@@ -96,7 +106,9 @@ chinesetraditional.OpenWizard=在瀏覽器開啟設定精靈
 chinesetraditional.DeleteDataPrompt=要同時永久刪除所有資料（資料庫、附件、金鑰、備份、設定檔）嗎？%n%n選「否」會保留資料，之後可重新安裝。
 chinesetraditional.ServiceDescription=Formwright 動態模組系統
 chinesetraditional.StopFailed=服務停不下來，請手動停止（服務管理員，或 sc stop Formwright）後重試。
-chinesetraditional.StepFailed=安裝沒有完成：「%1」失敗（結束碼 %2）。Formwright 服務沒有啟動。請排除問題後重新執行安裝程式，詳情在安裝 log。
+chinesetraditional.StepFailed=安裝沒有完成：「%1」失敗（結束碼 %2）。Formwright 服務已停止並停用，避免它不停重啟。請排除問題後重新執行安裝程式（會重新啟用服務），詳情在安裝 log。
+chinesetraditional.BackupFailedNotRestored=升級前備份失敗，升級已中止，但舊版沒有成功重新啟動。請手動啟動 Formwright 服務（服務管理員，或 sc start Formwright）並查看 log。
+chinesetraditional.BackupNotConfiguredNotRestored=備份位置沒有設定，升級已中止，但舊版沒有成功重新啟動。請手動啟動 Formwright 服務（服務管理員，或 sc start Formwright）並查看 log。
 chinesetraditional.FirewallScopeInvalid=/FIREWALLSCOPE 只能含英文字母、數字與 . : / , -（netsh remoteip 的值，例如 localsubnet 或 192.0.2.0/24,198.51.100.0/24）。
 chinesetraditional.UninstallStopFailed=服務停不下來，所以沒有移除任何東西。請手動停止後重新執行解除安裝。
 
@@ -105,6 +117,7 @@ const
   ServiceName = 'Formwright';
   ExeName = 'DynamicModules.WebAPI.exe';
   ExitStepFailed = 20;
+  Powershell = '\WindowsPowerShell\v1.0\powershell.exe';
 
 var
   PortPage: TInputQueryWizardPage;
@@ -114,8 +127,14 @@ var
   InstallState: String;   // fresh | reinstall | upgrade
   PortValue: String;
   FirewallScope: String;
+  FirewallScopeExplicit: Boolean;
   SetupCode: String;
   PostInstallError: String;
+  PostInstallDone: Boolean;
+  ServiceQuiesced: Boolean;               // 這次安裝把服務設成停用並停掉了，要在結束前恢復
+  ServiceDeliberatelyDisabled: Boolean;   // 安裝失敗後刻意讓服務維持停用（不要無限重啟）
+  UninstallQuiesced: Boolean;
+  UninstallDone: Boolean;
   DeleteData: Boolean;
 
 function HasSwitch(const Name: String): Boolean;
@@ -146,7 +165,7 @@ begin
   Result := (N >= 1) and (N <= 65535) and (IntToStr(N) = Trim(S));
 end;
 
-// netsh remoteip 的合法字元：英數與 . : / , -
+// 防火牆遠端範圍的合法字元：英數與 . : / , -
 function ValidScope(const S: String): Boolean;
 var
   I: Integer;
@@ -187,28 +206,19 @@ begin
   Result := Run(ExpandConstant('{sys}\sc.exe'), Params, '');
 end;
 
-// 安裝後步驟失敗：記 log、（非靜默）顯示、讓安裝程式以 ExitStepFailed 結束（GetCustomSetupExitCode）。只記第一個。
-procedure FailStep(const What: String; Rc: Integer);
+// 執行解到 {tmp} 的輔助腳本，回傳結束碼，並把腳本寫的錯誤訊息收進安裝 log
+function RunHelper(const Script, Params: String): Integer;
+var
+  LogFile: String;
+  Msg: AnsiString;
 begin
-  if PostInstallError <> '' then Exit;
-  PostInstallError := FmtMessage(CustomMessage('StepFailed'), [What, IntToStr(Rc)]);
-  Log('FAILED: ' + PostInstallError);
-  SuppressibleMsgBox(PostInstallError, mbError, MB_OK, IDOK);
-end;
-
-// 只有安裝完成才會被呼叫；回非 0 就以該碼結束
-function GetCustomSetupExitCode: Integer;
-begin
-  if PostInstallError <> '' then
-    Result := ExitStepFailed
-  else
-    Result := 0;
-end;
-
-function StepOk(const What: String; Rc: Integer): Boolean;
-begin
-  Result := Rc = 0;
-  if not Result then FailStep(What, Rc);
+  ExtractTemporaryFile(Script);
+  LogFile := ExpandConstant('{tmp}\' + Script + '.log');
+  DeleteFile(LogFile);
+  Result := Run(ExpandConstant('{sys}') + Powershell,
+    '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{tmp}\' + Script) + '" ' + Params + ' -LogFile "' + LogFile + '"', '');
+  if LoadStringFromFile(LogFile, Msg) then
+    Log(Script + ': ' + Trim(String(Msg)));
 end;
 
 // 服務存在與否：sc 回 0 存在、1060 不存在；其他是查詢失敗（回 False）
@@ -224,6 +234,17 @@ end;
 function ServiceInState(const State: String): Boolean;
 begin
   Result := Run(ExpandConstant('{cmd}'), '/C sc query ' + ServiceName + ' | find "' + State + '" >nul', '') = 0;
+end;
+
+// 啟動類型：disabled 或 auto；設完用 sc qc 回讀確認
+function SetStartType(const StartType: String): Boolean;
+var
+  Wanted: String;
+begin
+  Result := False;
+  if Sc('config ' + ServiceName + ' start= ' + StartType) <> 0 then Exit;
+  if StartType = 'disabled' then Wanted := 'DISABLED' else Wanted := 'AUTO_START';
+  Result := Run(ExpandConstant('{cmd}'), '/C sc qc ' + ServiceName + ' | find "' + Wanted + '" >nul', '') = 0;
 end;
 
 // 只有確認 STOPPED 才回 True（服務不存在也是 True）；停不下來或查詢失敗回 False，呼叫端必須中止
@@ -253,34 +274,92 @@ begin
   end;
 end;
 
-// 啟動並等到 RUNNING（最多 60 秒）；失敗記錄為安裝失敗
-function StartAndWait: Boolean;
+// 讓服務靜止（M03）：先停用（SCM 已排程的失敗重啟不能取消，只有停用才擋得住），再停並確認 STOPPED。
+// 成功時 Quiesced 為 True（服務存在且被我們停用）；失敗時盡力把啟動類型恢復。服務不存在視為成功。
+function QuiesceService(var Quiesced: Boolean): Boolean;
 var
-  Rc, I: Integer;
+  Exists: Boolean;
 begin
+  Quiesced := False;
   Result := False;
-  Rc := Sc('start ' + ServiceName);
-  if (Rc <> 0) and (Rc <> 1056) then
+  if not QueryService(Exists) then Exit;
+  if not Exists then
   begin
-    FailStep('start service', Rc);
+    Result := True;
     Exit;
   end;
-  for I := 1 to 60 do
+  if not SetStartType('disabled') then
   begin
-    if ServiceInState('RUNNING') then
-    begin
-      Result := True;
-      Exit;
-    end;
-    Sleep(1000);
+    Log('could not disable the service before stopping it');
+    SetStartType('auto');
+    Exit;
   end;
-  FailStep('start service (not running after 60 seconds)', -1);
+  if StopService then
+  begin
+    Quiesced := True;
+    Result := True;
+  end
+  else if not SetStartType('auto') then
+    Log('could not restore the start type after a failed stop');
 end;
 
+// 站台是否在 60 秒內回應（M04）：fresh 看 /api/setup/status 200；一律看 /api/version 200，有版號時必須等於本次安裝的版本
+function WaitReady(const ExpectedVersion: String; Fresh: Boolean): Boolean;
+var
+  Params: String;
+begin
+  Params := '-Port ' + PortValue + ' -TimeoutSeconds 60';
+  if ExpectedVersion <> '' then Params := Params + ' -ExpectedVersion "' + ExpectedVersion + '"';
+  if Fresh then Params := Params + ' -Fresh';
+  Result := RunHelper('wait-ready.ps1', Params) = 0;
+end;
+
+// 升級被中止時把舊版拉回來：恢復自動啟動、啟動、等到就緒；任何一步失敗就回 False（呼叫端如實回報）
+function RestoreOldService: Boolean;
+var
+  Rc: Integer;
+begin
+  Result := False;
+  if not SetStartType('auto') then Exit;
+  ServiceQuiesced := False;
+  Rc := Sc('start ' + ServiceName);
+  if (Rc <> 0) and (Rc <> 1056) then Exit;
+  Result := WaitReady('', False);
+end;
+
+// 安裝後步驟失敗：記 log、（非靜默）顯示、讓安裝程式以 ExitStepFailed 結束（GetCustomSetupExitCode）。只記第一個。
+// 服務同時停用並停止，不讓 SCM 的失敗復原讓它無限重啟。
+procedure FailStep(const What: String; Rc: Integer);
+begin
+  if PostInstallError <> '' then Exit;
+  PostInstallError := FmtMessage(CustomMessage('StepFailed'), [What, IntToStr(Rc)]);
+  Log('FAILED: ' + PostInstallError);
+  ServiceDeliberatelyDisabled := True;
+  Sc('config ' + ServiceName + ' start= disabled');
+  Sc('stop ' + ServiceName);
+  SuppressibleMsgBox(PostInstallError, mbError, MB_OK, IDOK);
+end;
+
+// 只有安裝完成才會被呼叫；回非 0 就以該碼結束
+function GetCustomSetupExitCode: Integer;
+begin
+  if PostInstallError <> '' then
+    Result := ExitStepFailed
+  else
+    Result := 0;
+end;
+
+function StepOk(const What: String; Rc: Integer): Boolean;
+begin
+  Result := Rc = 0;
+  if not Result then FailStep(What, Rc);
+end;
+
+// 啟動類型先設成 disabled：任何一步失敗，服務都留在停用狀態；最後一步才改成 auto 並啟動
 function ServiceBinPathParams: String;
 begin
   Result := 'binPath= "\"' + ExpandConstant('{app}') + '\' + ExeName +
-    '\" --Install:ConfigFile=\"{#FwConfigFile}\"" start= auto obj= "NT SERVICE\Formwright"';
+    '\" --Install:ConfigFile=\"{#FwConfigFile}\"" start= disabled obj= "NT SERVICE\Formwright"';
 end;
 
 function ConfigureService: Boolean;
@@ -307,43 +386,27 @@ begin
   Result := True;
 end;
 
-// 每次安裝都重建資料父目錄的 DACL（M02）：腳本拒絕 reparse point，不保留既有 ACE
+// 每次安裝都重建資料父目錄的權限（M02）：先鎖父目錄、再處理子項，不跟隨 reparse point
 function ApplyAcl: Boolean;
-var
-  LogFile, Raw: String;
-  Msg: AnsiString;
-  Rc: Integer;
 begin
-  ExtractTemporaryFile('set-acl.ps1');
-  LogFile := ExpandConstant('{tmp}\set-acl.log');
-  DeleteFile(LogFile);
-  Rc := Run(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-    '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{tmp}\set-acl.ps1') + '"' +
-    ' -Parent "' + ExtractFileDir('{#FwConfigFile}') + '" -Data "{#FwDataDir}" -Backup "{#FwBackupDir}"' +
-    ' -Config "{#FwConfigFile}" -LogFile "' + LogFile + '"', '');
-  if LoadStringFromFile(LogFile, Msg) then
-  begin
-    Raw := String(Msg);
-    Log('set-acl: ' + Trim(Raw));
-  end;
-  Result := StepOk('set permissions (set-acl.ps1)', Rc);
+  Result := StepOk('set permissions (set-acl.ps1)', RunHelper('set-acl.ps1',
+    '-Parent "' + ExtractFileDir('{#FwConfigFile}') + '" -Data "{#FwDataDir}" -Backup "{#FwBackupDir}" -Config "{#FwConfigFile}"'));
 end;
 
+// 防火牆規則（M06）：每次安裝都先刪掉所有名為 Formwright 的規則（確認刪乾淨）再新增，並回讀範圍、程式、連接埠
 function AddFirewallRule(const Port: String): Boolean;
-var
-  Netsh: String;
 begin
-  Netsh := ExpandConstant('{sys}\netsh.exe');
-  Run(Netsh, 'advfirewall firewall delete rule name="Formwright"', '');
-  // 預設只放行同網段（remoteip）與本程式；profile=any 不排除 Public（新網路常被判成 Public，排除會讓同網段連不上）
-  Result := StepOk('firewall rule', Run(Netsh,
-    'advfirewall firewall add rule name="Formwright" dir=in action=allow protocol=TCP localport=' + Port +
-    ' program="' + ExpandConstant('{app}\' + ExeName) + '" remoteip=' + FirewallScope + ' profile=any', ''));
+  // profile=any 不排除 Public（新網路常被判成 Public，排除會讓同網段連不上）；預設只放行同網段與本程式
+  Result := StepOk('firewall rule (firewall.ps1)', RunHelper('firewall.ps1',
+    '-Action Set -Port ' + Port + ' -Program "' + ExpandConstant('{app}\' + ExeName) + '" -RemoteIp "' + FirewallScope + '"'));
 end;
 
 procedure DeleteFirewallRule;
 begin
+  // 解除安裝沒有解出的輔助腳本，用 netsh；刪完再查一次，仍在就寫進 log
   Run(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall delete rule name="Formwright"', '');
+  if Run(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall show rule name="Formwright"', '') = 0 then
+    Log('WARNING: the Formwright firewall rule is still present after delete');
 end;
 
 // 設定檔裡的 Server:Port；找不到用預設
@@ -372,12 +435,25 @@ begin
   if ValidPort(Digits) then Result := Digits;
 end;
 
+// 記住這次的防火牆範圍；下次升級沒給 /FIREWALLSCOPE 就沿用
+procedure RegisterPreviousData(PreviousDataKey: Integer);
+begin
+  SetPreviousData(PreviousDataKey, 'FirewallScope', FirewallScope);
+end;
+
 procedure InitializeWizard;
 var
   Lbl: TNewStaticText;
+  Previous: String;
 begin
   PortValue := ExpandConstant('{param:PORT|{#FwPort}}');
-  FirewallScope := ExpandConstant('{param:FIREWALLSCOPE|{#FwFirewallRemoteIp}}');
+  FirewallScope := ExpandConstant('{param:FIREWALLSCOPE|}');
+  FirewallScopeExplicit := FirewallScope <> '';
+  if not FirewallScopeExplicit then
+  begin
+    Previous := GetPreviousData('FirewallScope', '');
+    if ValidScope(Previous) then FirewallScope := Previous else FirewallScope := '{#FwFirewallRemoteIp}';
+  end;
 
   PortPage := CreateInputQueryPage(wpSelectDir, CustomMessage('PortPageTitle'),
     CustomMessage('PortPageDesc'), '');
@@ -443,6 +519,15 @@ begin
   Result := Msg;
 end;
 
+// 升級被中止：把舊版拉回來並等到就緒；拉不起來就換成「沒有重新啟動」的訊息（如實回報）
+function CancelUpgrade(const MsgKey, NotRestoredKey: String): String;
+begin
+  if RestoreOldService then
+    Result := Cancelled(CustomMessage(MsgKey))
+  else
+    Result := Cancelled(CustomMessage(NotRestoredKey));
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Rc: Integer;
@@ -450,7 +535,7 @@ var
 begin
   Result := '';
   InstallState := DetectState;
-  if not ValidScope(FirewallScope) then
+  if FirewallScopeExplicit and (not ValidScope(FirewallScope)) then
   begin
     Result := Cancelled(CustomMessage('FirewallScopeInvalid'));
     Exit;
@@ -464,8 +549,8 @@ begin
   end;
   if (InstallState = 'fresh') or (InstallState = 'upgrade') then
   begin
-    // 只有確認 STOPPED 才往下；停不下來不備份、不覆蓋程式（M03）
-    if not StopService then
+    // 先停用再停止，確認 STOPPED 才往下；停不下來不備份、不覆蓋程式（M03）
+    if not QuiesceService(ServiceQuiesced) then
     begin
       Result := Cancelled(CustomMessage('StopFailed'));
       Exit;
@@ -485,13 +570,11 @@ begin
       Skip := SuppressibleMsgBox(CustomMessage('BackupNotConfiguredAsk'), mbConfirmation,
         MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES;
     if Skip then Exit;
-    Sc('start ' + ServiceName);
-    Result := Cancelled(CustomMessage('BackupNotConfiguredCancelled'));
+    Result := CancelUpgrade('BackupNotConfiguredCancelled', 'BackupNotConfiguredNotRestored');
     Exit;
   end;
-  // 1、其他結束碼、程式啟動不了（-1）：中止，舊版照跑；/SKIPBACKUP 不略過這種情況
-  Sc('start ' + ServiceName);
-  Result := Cancelled(CustomMessage('BackupFailed'));
+  // 1、其他結束碼、程式啟動不了（-1）：中止，舊版拉回來；/SKIPBACKUP 不略過這種情況
+  Result := CancelUpgrade('BackupFailed', 'BackupFailedNotRestored');
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -499,8 +582,8 @@ var
   Raw: AnsiString;
 begin
   if CurStep <> ssPostInstall then Exit;
-  // 順序：先建服務（NT SERVICE\Formwright 要服務存在後 ACL 才解析得到）→ 重建 ACL → 初始化 → 防火牆 → 啟動。
-  // 任一步失敗就停在那裡，不啟動服務；安裝程式以 ExitStepFailed 結束（GetCustomSetupExitCode）。
+  // 順序：先建服務（停用狀態，NT SERVICE\Formwright 要服務存在後 ACL 才解析得到）→ 鎖權限 → 初始化 → 防火牆 →
+  // 啟動類型改 auto → 啟動並等就緒。任一步失敗就停在那裡：服務維持停用並停止，安裝程式以 ExitStepFailed 結束。
   if not ConfigureService then Exit;
   if not ApplyAcl then Exit;
   if InstallState = 'fresh' then
@@ -517,13 +600,33 @@ begin
     end;
     if (Length(SetupCode) = 12) and (Pos('-', SetupCode) = 0) then
       SetupCode := Copy(SetupCode, 1, 4) + '-' + Copy(SetupCode, 5, 4) + '-' + Copy(SetupCode, 9, 4);
-    if not AddFirewallRule(PortValue) then Exit;
-  end
-  else if (InstallState = 'reinstall') or ((InstallState = 'upgrade') and (ExpandConstant('{param:FIREWALLSCOPE|}') <> '')) then
-  begin
-    if not AddFirewallRule(PortValue) then Exit;
   end;
-  StartAndWait;
+  if not AddFirewallRule(PortValue) then Exit;
+  if not SetStartType('auto') then
+  begin
+    FailStep('set the service start type to automatic', -1);
+    Exit;
+  end;
+  ServiceQuiesced := False;
+  if not StepOk('sc start', Sc('start ' + ServiceName)) then Exit;
+  if not WaitReady('{#FwExpectedVersion}', InstallState = 'fresh') then
+  begin
+    FailStep('service readiness (the site did not answer correctly on the port within 60 seconds)', -1);
+    Exit;
+  end;
+  PostInstallDone := True;
+end;
+
+// 任何結束路徑（取消、失敗、成功）：這次把服務停用了、又不是刻意留著停用，就恢復成自動啟動
+procedure DeinitializeSetup;
+begin
+  if ServiceQuiesced and (not ServiceDeliberatelyDisabled) and (not PostInstallDone) then
+  begin
+    if SetStartType('auto') then
+      Log('setup ended early; service start type restored to automatic')
+    else
+      Log('WARNING: setup ended early and the service start type could not be restored; run: sc config Formwright start= auto');
+  end;
 end;
 
 // 移除 -------------------------------------------------------------------
@@ -535,11 +638,21 @@ begin
     DeleteData := True
   else if not UninstallSilent then
     DeleteData := MsgBox(CustomMessage('DeleteDataPrompt'), mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
-  // 先確認服務停得下來；停不下來就整個中止，不刪服務、程式、資料（M03）
-  if not StopService then
+  // 先停用再停止並確認 STOPPED；停不下來就整個中止，不刪服務、程式、資料（M03）
+  if not QuiesceService(UninstallQuiesced) then
   begin
     SuppressibleMsgBox(CustomMessage('UninstallStopFailed'), mbError, MB_OK, IDOK);
     Result := False;
+  end;
+end;
+
+// 使用者在確認畫面取消了解除安裝：把服務恢復成原狀
+procedure DeinitializeUninstall;
+begin
+  if UninstallQuiesced and (not UninstallDone) then
+  begin
+    if SetStartType('auto') then Sc('start ' + ServiceName)
+    else Log('WARNING: uninstall was cancelled and the service start type could not be restored');
   end;
 end;
 
@@ -547,7 +660,8 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usUninstall then
   begin
-    Sc('delete ' + ServiceName);
+    UninstallDone := True;
+    if Sc('delete ' + ServiceName) <> 0 then Log('WARNING: sc delete failed');
     DeleteFirewallRule;
   end
   else if CurUninstallStep = usPostUninstall then
