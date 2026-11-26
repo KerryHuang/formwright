@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/vue-query';
 import type { Router } from 'vue-router';
+import { setupApi } from 'src/services/api/setup-api';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 import type { ApiError } from 'src/services/api/http';
 import { loadSessionSettings, resetSessionSettings, sessionSettingsLoaded } from 'src/application/dynamic/session-settings';
@@ -19,6 +20,13 @@ export function safeRedirect(path: string | undefined): string {
 const loginLocation = (redirect: string) => ({ path: '/login', query: redirect === '/' ? {} : { redirect } });
 
 const SERVICE_UNAVAILABLE = '/service-unavailable';
+
+/** 後端在設定模式回 503 setupRequired、容器升級前備份失敗回 503 maintenance（in1a）：其他 503 照舊是「服務暫時不可用」。 */
+const limitedModePath = (e: unknown): string | null => {
+  const err = e as ApiError | null;
+  if (err?.status !== 503) return null;
+  return err.code === 'setupRequired' ? '/setup' : err.code === 'maintenance' ? '/maintenance' : null;
+};
 
 /** 強制綁定雙因素頁（帳號安全設計 §12）。 */
 export const TWO_FACTOR_SETUP = '/account/two-factor-setup';
@@ -51,6 +59,17 @@ export function installAuthGuard(router: Router) {
   let admin: { userId: string; isSystemAdmin: boolean } | null = null;
   router.beforeEach(async (to) => {
     if (to.path === SERVICE_UNAVAILABLE) return true;
+    // 設定精靈與維護頁：只在後端真的處於那個模式時停留，否則回登入頁；不碰 /me
+    if (to.meta.setup || to.meta.maintenance) {
+      try {
+        const inMode = to.meta.setup ? (await setupApi.getStatus()) === 'pending' : (await setupApi.getMaintenance()) !== null;
+        return inMode ? true : '/login';
+      } catch (e) {
+        const other = limitedModePath(e);
+        if (other && other !== to.path) return other;
+        return SERVICE_UNAVAILABLE;
+      }
+    }
     const identity = useIdentityStore();
     if (!sessionLoaded) {
       await loadLocaleSettings();
@@ -66,6 +85,8 @@ export function installAuthGuard(router: Router) {
         takeStartupAuthOptions();
         sessionLoaded = true;
       } catch (e) {
+        const limited = limitedModePath(e);
+        if (limited) return limited;
         if ((e as ApiError | null)?.status !== 401) {
           return { path: SERVICE_UNAVAILABLE, query: to.fullPath === '/' ? {} : { redirect: to.fullPath } };
         }

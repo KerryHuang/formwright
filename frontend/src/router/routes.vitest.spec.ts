@@ -65,3 +65,16 @@ describe('locales route', () => {
     expect(loaderOf('/system/locales').source).toContain('LocalesPage');
   });
 });
+
+describe('setup and maintenance routes', () => {
+  it('/setup 是公開的設定精靈', () => {
+    const r = loaderOf('/setup');
+    expect(r.source).toContain('SetupWizardPage');
+    expect(r.leaf.meta).toMatchObject({ public: true, setup: true });
+  });
+  it('/maintenance 是公開的維護頁', () => {
+    const r = loaderOf('/maintenance');
+    expect(r.source).toContain('MaintenancePage');
+    expect(r.leaf.meta).toMatchObject({ public: true, maintenance: true });
+  });
+});

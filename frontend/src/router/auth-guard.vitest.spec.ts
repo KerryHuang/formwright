@@ -23,6 +23,7 @@ import { VueQueryPlugin } from '@tanstack/vue-query';
 import { mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
 import { LOCALE_KEY } from 'src/i18n/locale';
+import { setupApi } from 'src/services/api/setup-api';
 import { handleTwoFactorEnrollmentRequired, handleUnauthorized, installAuthGuard, safeRedirect } from './auth-guard';
 
 const page = { template: '<i/>' };
@@ -34,6 +35,8 @@ const routes = [
   { path: '/service-unavailable', component: page, meta: { public: true } },
   { path: '/dynamic/:moduleKey', component: page },
   { path: '/verify-email', component: page, meta: { public: true, anyone: true } },
+  { path: '/setup', component: page, meta: { public: true, setup: true } },
+  { path: '/maintenance', component: page, meta: { public: true, maintenance: true } },
 ];
 
 let meResponse: { status: number; data: unknown };
@@ -607,5 +610,87 @@ describe('auth guard 試看（i4b 判斷 17）', () => {
     const fast = switchLocale(appI18n, 'vi');
     await Promise.all([slow, fast]);
     expect(appI18n.global.locale.value).toBe('vi');
+  });
+});
+
+describe('setup / maintenance routes (in1b)', () => {
+  const info = { reason: 'preUpgradeBackupFailed' as const, errorCode: null, version: '1', previousVersion: null };
+  beforeEach(() => { meResponse = { status: 401, data: {} }; });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('setup route in normal mode goes to login (AC-04)', async () => {
+    let meAtProbe = -1;
+    vi.spyOn(setupApi, 'getStatus').mockImplementation(async () => { meAtProbe = meCalls; return 'notInSetup'; });
+    const router = setup();
+    await router.push('/setup');
+    expect(router.currentRoute.value.path).toBe('/login');
+    expect(meAtProbe).toBe(0); // 探測當下 /me 還沒被打（之後導到 /login 才會載入 session）
+  });
+  it('setup route in setup mode stays', async () => {
+    vi.spyOn(setupApi, 'getStatus').mockResolvedValue('pending');
+    const router = setup();
+    await router.push('/setup');
+    expect(router.currentRoute.value.path).toBe('/setup');
+    expect(meCalls).toBe(0);
+  });
+  it('setup status network error goes to service-unavailable', async () => {
+    vi.spyOn(setupApi, 'getStatus').mockRejectedValue({ status: 0, code: 'network' });
+    const router = setup();
+    await router.push('/setup');
+    expect(router.currentRoute.value.path).toBe('/service-unavailable');
+  });
+  it('root in setup mode goes to setup', async () => {
+    meResponse = { status: 503, data: { code: 'setupRequired' } };
+    vi.spyOn(setupApi, 'getStatus').mockResolvedValue('pending');
+    const router = setup();
+    await router.push('/');
+    expect(router.currentRoute.value.path).toBe('/setup');
+  });
+  it('root in maintenance goes to maintenance (AC-12)', async () => {
+    meResponse = { status: 503, data: { code: 'maintenance' } };
+    vi.spyOn(setupApi, 'getMaintenance').mockResolvedValue(info);
+    const router = setup();
+    await router.push('/');
+    expect(router.currentRoute.value.path).toBe('/maintenance');
+  });
+  it('maintenance route in normal mode goes to login', async () => {
+    let meAtProbe = -1;
+    vi.spyOn(setupApi, 'getMaintenance').mockImplementation(async () => { meAtProbe = meCalls; return null; });
+    const router = setup();
+    await router.push('/maintenance');
+    expect(router.currentRoute.value.path).toBe('/login');
+    expect(meAtProbe).toBe(0); // 探測當下 /me 還沒被打（之後導到 /login 才會載入 session）
+  });
+  it('maintenance route in maintenance stays', async () => {
+    vi.spyOn(setupApi, 'getMaintenance').mockResolvedValue(info);
+    const router = setup();
+    await router.push('/maintenance');
+    expect(router.currentRoute.value.path).toBe('/maintenance');
+  });
+  it('maintenance status network error goes to service-unavailable', async () => {
+    vi.spyOn(setupApi, 'getMaintenance').mockRejectedValue({ status: 0, code: 'network' });
+    const router = setup();
+    await router.push('/maintenance');
+    expect(router.currentRoute.value.path).toBe('/service-unavailable');
+  });
+  it('setup route during maintenance goes to maintenance', async () => {
+    vi.spyOn(setupApi, 'getStatus').mockRejectedValue({ status: 503, code: 'maintenance' });
+    vi.spyOn(setupApi, 'getMaintenance').mockResolvedValue(info);
+    const router = setup();
+    await router.push('/setup');
+    expect(router.currentRoute.value.path).toBe('/maintenance');
+  });
+  it('maintenance route during setup goes to setup', async () => {
+    vi.spyOn(setupApi, 'getMaintenance').mockRejectedValue({ status: 503, code: 'setupRequired' });
+    vi.spyOn(setupApi, 'getStatus').mockResolvedValue('pending');
+    const router = setup();
+    await router.push('/maintenance');
+    expect(router.currentRoute.value.path).toBe('/setup');
+  });
+  it('other 503 still goes to service-unavailable', async () => {
+    meResponse = { status: 503, data: {} };
+    const router = setup();
+    await router.push('/');
+    expect(router.currentRoute.value.path).toBe('/service-unavailable');
   });
 });

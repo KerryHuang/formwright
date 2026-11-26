@@ -3,6 +3,9 @@ import type { RouteRecordRaw } from 'vue-router';
 export const routes: RouteRecordRaw[] = [
   { path: '/login', component: () => import('src/pages/auth/LoginPage.vue'), meta: { public: true } },
   { path: '/service-unavailable', component: () => import('src/pages/auth/ServiceUnavailablePage.vue'), meta: { public: true } },
+  // 安裝版的設定精靈與升級失敗維護頁（in1b）：公開頁，進得去與否由守衛問後端目前是什麼模式
+  { path: '/setup', component: () => import('src/pages/setup/SetupWizardPage.vue'), meta: { public: true, setup: true } },
+  { path: '/maintenance', component: () => import('src/pages/maintenance/MaintenancePage.vue'), meta: { public: true, maintenance: true } },
   { path: '/change-password', component: () => import('src/pages/auth/ChangePasswordPage.vue') },
   // 強制綁定雙因素（帳號安全設計 §8.7、§12）：和改密碼頁一樣不套主版面，只能綁定或登出
   { path: '/account/two-factor-setup', component: () => import('src/pages/auth/TwoFactorSetupPage.vue') },
