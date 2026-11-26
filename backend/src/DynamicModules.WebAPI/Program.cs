@@ -38,6 +38,9 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     Args = args,
     ContentRootPath = WindowsServiceHelpers.IsWindowsService() ? AppContext.BaseDirectory : null,
 });
+// --install-init 與容器自動初始化要在載入設定檔之前（設定檔可能還不存在）
+if (args.Contains("--install-init")) return InstallInitializer.Run(builder.Configuration, Console.Out);
+InstallInitializer.EnsureForContainer(builder.Configuration, Console.Out);
 // 安裝版設定檔是最高優先的來源，要在讀 Database:Provider 之前加上（安裝版設計 TD-01）
 InstallConfig.AddConfigFile(builder.Configuration);
 // 不在服務管理員底下時兩者都不做事（dotnet run、Docker、測試不受影響）
