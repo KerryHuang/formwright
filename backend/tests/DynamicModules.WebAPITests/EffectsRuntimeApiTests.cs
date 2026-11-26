@@ -183,8 +183,14 @@ public class EffectsRuntimeApiTests : IClassFixture<TestApp>
 
         var responses = await Task.WhenAll(Enumerable.Range(0, 50).Select(_ => _admin.SendAsync(NewDoc(r))));
 
+        var unexpected = new List<string>();
+        foreach (var x in responses.Where(x => x.StatusCode is not (HttpStatusCode.Created or HttpStatusCode.BadRequest)))
+            unexpected.Add($"{(int)x.StatusCode} {await x.Content.ReadAsStringAsync()}");
+        // 失敗時附上後端的 Error 以上 log（含例外與堆疊），否則 500 的 body 看不出原因（票 #123）
+        var serverErrors = _app.Logs.Records.Where(l => l.Level >= Microsoft.Extensions.Logging.LogLevel.Error)
+            .Select(l => $"{l.Category}: {l.Message}\n{l.Exception}").ToList();
+        unexpected.Should().BeEmpty("後端錯誤 log：\n" + string.Join("\n---\n", serverErrors));
         responses.Count(x => x.StatusCode == HttpStatusCode.Created).Should().Be(33);
-        responses.Where(x => x.StatusCode != HttpStatusCode.Created).Select(x => x.StatusCode).Should().OnlyContain(c => c == HttpStatusCode.BadRequest);
         (await CountAsync(r.Doc)).Should().Be(33);
         (await CountAsync(r.Move)).Should().Be(34);
 

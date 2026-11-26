@@ -340,7 +340,7 @@ public sealed class FakeTimeProvider : TimeProvider
 }
 
 /// <summary>一則被收集的 log：Values 是 state 欄位加上所有 scope 的 key/value 攤平。</summary>
-public sealed record LogRecord(LogLevel Level, string Category, EventId EventId, string Message, IReadOnlyDictionary<string, object?> Values);
+public sealed record LogRecord(LogLevel Level, string Category, EventId EventId, string Message, IReadOnlyDictionary<string, object?> Values, Exception? Exception = null);
 
 /// <summary>收集 log，供斷言啟動時印出的訊息與結構化欄位。</summary>
 public sealed class TestLogSink : ILoggerProvider, ISupportExternalScope
@@ -373,7 +373,7 @@ public sealed class TestLogSink : ILoggerProvider, ISupportExternalScope
             var values = new Dictionary<string, object?>();
             owner._scopes?.ForEachScope((scope, v) => Flatten(scope, v), values);
             Flatten(state, values);
-            owner._records.Enqueue(new LogRecord(logLevel, category, eventId, message, values));
+            owner._records.Enqueue(new LogRecord(logLevel, category, eventId, message, values, exception));
         }
 
         private static void Flatten(object? source, Dictionary<string, object?> into)
