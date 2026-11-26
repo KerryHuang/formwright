@@ -10,6 +10,9 @@ import {
 } from 'src/domain/dynamic/task-board-config';
 import type { BoardGroupBy, TaskBoardConfig, TaskGanttConfig, TaskViewConfig, TaskViewDetail, TaskViewKind } from 'src/domain/dynamic/task-board-types';
 import type { GanttGroupBy, GanttScale } from 'src/domain/dynamic/task-gantt';
+import { compactI18n, missingRequired, resolveI18n } from 'src/domain/dynamic/i18n-text';
+import type { I18nText } from 'src/domain/dynamic/types';
+import I18nTextInput from 'src/presentation/dynamic/designer/I18nTextInput.vue';
 import GenericSelect from 'src/components/framework/GenericSelect.vue';
 import type { ApiError } from 'src/services/api/http';
 import { useViewText } from './view-text';
@@ -28,8 +31,8 @@ const props = withDefaults(defineProps<{
   kind?: TaskViewKind;
   modelValue: boolean;
   config: TaskViewConfig;
-  /** 目前看板名稱：「儲存」會帶上、「另存為新看板」的預設名稱。 */
-  name: string;
+  /** 目前看板的多語名稱（預設看板傳 {}）：「儲存」會帶上、「另存為新看板」的預設名稱。 */
+  name: I18nText;
   viewId: number | null;
   rowVersion: string;
   /** 目前看板是自己的存檔看板（才能「儲存」）。 */
@@ -42,7 +45,7 @@ const emit = defineEmits<{
   saved: [detail: TaskViewDetail<TaskViewConfig>];
   savedAsNew: [detail: TaskViewDetail<TaskViewConfig>];
 }>();
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const vt = useViewText(() => props.kind);
 const isGantt = computed(() => props.kind === 'gantt');
 const users = useUsers();
@@ -54,7 +57,10 @@ const form = reactive<BoardForm>(toForm(props.config));
 const ganttGroupBy = ref<GanttGroupBy>('parent');
 const ganttScale = ref<GanttScale>('week');
 let openedRowVersion = props.rowVersion;
-const nameDraft = ref(props.name);
+const nameDraft = ref<I18nText>({ ...props.name });
+// 開啟當下的名稱副本：「儲存」時沒改名就不檢查新增的必填語系（I18nTextInput 的 original）
+const nameOriginal = ref<I18nText>({ ...props.name });
+const nameInput = ref<{ validate(): Promise<boolean> } | null>(null);
 const error = ref('');
 const rangeError = ref('');
 function reset() {
@@ -64,14 +70,14 @@ function reset() {
     ganttScale.value = (props.config as TaskGanttConfig).scale;
   }
   openedRowVersion = props.rowVersion;
-  nameDraft.value = props.name;
+  nameDraft.value = { ...props.name };
+  nameOriginal.value = { ...props.name };
   error.value = '';
   rangeError.value = '';
 }
 watch(() => props.modelValue, (open) => { if (open) reset(); }, { immediate: true });
 
 const built = computed<TaskViewConfig>(() => (isGantt.value ? buildGanttConfig(form, ganttGroupBy.value, ganttScale.value) : buildBoardConfig(form)));
-const trimmedName = computed(() => nameDraft.value.trim());
 const nameError = ref('');
 const busy = computed(() => update.isPending.value || create.isPending.value);
 
@@ -110,23 +116,30 @@ function failure(e: unknown): string {
   const err = e as ApiError;
   return err.status === 409 ? vt('settings.stale') : vt('settings.saveFailed');
 }
-function requireName(): boolean {
-  nameError.value = trimmedName.value ? '' : vt('picker.nameRequired');
-  return !nameError.value;
+/**
+ * 名稱完全空白回「名稱必填」。「另存為新看板」是新增，複製來的名稱也要有全部必填語系（後端新增時檢查）；
+ * 「儲存」照多語輸入框的規則（沒改名就不檢查新增的必填語系）。
+ */
+async function requireName(asNew: boolean): Promise<boolean> {
+  nameError.value = compactI18n(nameDraft.value) ? '' : vt('picker.nameRequired');
+  const missing = asNew && !nameError.value ? missingRequired(nameDraft.value) : [];
+  if (missing.length) nameError.value = t('designer.localeRequired', { locale: missing[0] });
+  if (nameError.value) return false;
+  return asNew || !!(await nameInput.value?.validate());
 }
-function save() {
-  if (props.viewId === null || !requireName() || !rangeOk()) return;
+async function save() {
+  if (props.viewId === null || !(await requireName(false)) || !rangeOk()) return;
   error.value = '';
-  update.mutate({ id: props.viewId, name: trimmedName.value, config: built.value, rowVersion: openedRowVersion }, {
+  update.mutate({ id: props.viewId, name: compactI18n(nameDraft.value) ?? {}, config: built.value, rowVersion: openedRowVersion }, {
     onSuccess: (detail) => { Notify.create({ type: 'positive', message: vt('settings.saved') }); emit('saved', detail); close(); },
     onError: (e) => { error.value = failure(e); },
   });
 }
-function saveAs() {
-  if (!requireName() || !rangeOk()) return;
+async function saveAs() {
+  if (!(await requireName(true)) || !rangeOk()) return;
   error.value = '';
-  create.mutate({ kind: props.kind, name: trimmedName.value, config: saveAsConfig(built.value, props.hasSubordinates) }, {
-    onSuccess: (detail) => { Notify.create({ type: 'positive', message: vt('picker.created', { name: detail.name }) }); emit('savedAsNew', detail); close(); },
+  create.mutate({ kind: props.kind, name: compactI18n(nameDraft.value) ?? {}, config: saveAsConfig(built.value, props.hasSubordinates) }, {
+    onSuccess: (detail) => { Notify.create({ type: 'positive', message: vt('picker.created', { name: resolveI18n(detail.name, locale.value) }) }); emit('savedAsNew', detail); close(); },
     onError: (e) => { error.value = failure(e); },
   });
 }
@@ -139,8 +152,8 @@ function saveAs() {
       <q-card-section class="col scroll q-pt-none column no-wrap q-gutter-y-md" style="overflow-x: hidden" data-testid="settings-body">
         <div v-if="!canSave" class="text-caption text-muted" data-testid="settings-readonly-note">{{ vt('settings.readonlyNote') }}</div>
 
-        <q-input
-          v-model="nameDraft" dense outlined :maxlength="MAX_BOARD_NAME" :label="vt('settings.name')" :error="!!nameError" :error-message="nameError"
+        <I18nTextInput
+          ref="nameInput" v-model="nameDraft" :original="nameOriginal" :maxlength="MAX_BOARD_NAME" :label="vt('settings.name')" :error="nameError || undefined"
           data-testid="settings-name"
         />
 

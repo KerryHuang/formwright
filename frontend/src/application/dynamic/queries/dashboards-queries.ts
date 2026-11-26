@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { computed, toValue, type MaybeRef } from 'vue';
 import type { DashboardCard, DashboardDetail, DashboardLayout } from 'src/domain/dynamic/dashboard-types';
+import type { I18nText } from 'src/domain/dynamic/types';
 import type { ReportDateRange } from 'src/domain/dynamic/report-types';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 
@@ -70,7 +71,7 @@ function useStoreDetail() {
 export function useSaveDashboardLayout() {
   const store = useStoreDetail();
   return useMutation({
-    mutationFn: (v: { id: number; layout: DashboardLayout; name?: string; version?: number }) =>
+    mutationFn: (v: { id: number; layout: DashboardLayout; name?: I18nText; version?: number }) =>
       dynamicApi.saveDashboardLayout(v.id, v.layout, v.name, v.version),
     onSuccess: store,
   });
@@ -83,7 +84,7 @@ export function useRestoreDashboard() {
 
 export function useCreateDashboard() {
   const store = useStoreDetail();
-  return useMutation({ mutationFn: (v: { name: string; layout: DashboardLayout }) => dynamicApi.createDashboard(v.name, v.layout), onSuccess: store });
+  return useMutation({ mutationFn: (v: { name: I18nText; layout: DashboardLayout }) => dynamicApi.createDashboard(v.name, v.layout), onSuccess: store });
 }
 
 export function useDeleteDashboard() {
@@ -123,13 +124,13 @@ function useInvalidateAdmin() {
 
 export function useAdminCreateDashboard() {
   const invalidate = useInvalidateAdmin();
-  return useMutation({ mutationFn: (v: { name: string; layout: DashboardLayout }) => dynamicApi.adminCreateDashboard(v.name, v.layout), onSuccess: invalidate });
+  return useMutation({ mutationFn: (v: { name: I18nText; layout: DashboardLayout }) => dynamicApi.adminCreateDashboard(v.name, v.layout), onSuccess: invalidate });
 }
 
 export function useAdminUpdateDashboard() {
   const invalidate = useInvalidateAdmin();
   return useMutation({
-    mutationFn: (v: { id: number; name: string; layout: DashboardLayout; version: number }) =>
+    mutationFn: (v: { id: number; name: I18nText; layout: DashboardLayout; version: number }) =>
       dynamicApi.adminUpdateDashboard(v.id, v.name, v.layout, v.version),
     onSuccess: invalidate,
   });

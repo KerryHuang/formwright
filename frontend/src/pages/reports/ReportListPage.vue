@@ -5,15 +5,16 @@ import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { useReports } from 'src/application/dynamic/queries/reports-queries';
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
+import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import type { ReportItem } from 'src/domain/dynamic/report-types';
 import { isForbidden } from 'src/services/api/http';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const router = useRouter();
 const reports = useReports();
 const forbidden = computed(() => isForbidden(reports.error.value));
 const columns = computed<QTableColumn<ReportItem>[]>(() => [
-  { name: 'name', label: t('reports.name'), align: 'left', field: 'name' },
+  { name: 'name', label: t('reports.name'), align: 'left', field: (r) => resolveI18n(r.name, locale.value) },
   { name: 'owner', label: t('reports.owner'), align: 'left', field: (r) => (r.isOwner ? t('reports.mine') : r.ownerName) },
 ]);
 </script>

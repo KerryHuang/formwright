@@ -8,8 +8,11 @@ import {
 import {
   addCard, applyPositions, FILTER_PRESETS, removeCard, sameLayout, updateCard,
 } from 'src/domain/dynamic/dashboard-layout';
-import type { DashboardLayout } from 'src/domain/dynamic/dashboard-types';
+import type { CardOptions, DashboardLayout } from 'src/domain/dynamic/dashboard-types';
+import { compactI18n, resolveI18n, sameI18n } from 'src/domain/dynamic/i18n-text';
 import type { ReportColumn, ReportViz } from 'src/domain/dynamic/report-types';
+import type { I18nText } from 'src/domain/dynamic/types';
+import I18nTextInput from 'src/presentation/dynamic/designer/I18nTextInput.vue';
 import AddCardDialog from './AddCardDialog.vue';
 import CardOptionsDialog from './CardOptionsDialog.vue';
 import DashboardCardView from './DashboardCardView.vue';
@@ -18,10 +21,11 @@ import DashboardGrid from './DashboardGrid.vue';
 /**
  * 一張儀表板：標題列、暫時的日期篩選、個人版提示、卡片版面。拖放與卡片異動都立刻存檔
  * （指派版由後端另存個人版，自己的儀表板直接存）；日期篩選只在畫面上，不存、也不算調整。
- * allowEdit 為 false 時（首頁）只能看，不能改版面。
+ * allowEdit 為 false 時（首頁）只能看，不能改版面。自己的儀表板在編輯狀態可「重新命名」（對話框改各語系，名稱多語設計 Q2）。
+ * linkable 的名稱是父元件依目前語系解析好的字串。
  */
 const props = defineProps<{ dashboardId: number; allowEdit: boolean; linkable: { id: number; name: string }[] }>();
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const $q = useQuasar();
 const narrow = computed(() => $q.screen.lt.sm);
 
@@ -39,7 +43,7 @@ watch(() => props.dashboardId, () => { editing.value = false; filterKey.value = 
 const editing = ref(false);
 const saveError = ref(false);
 let chain: Promise<unknown> = Promise.resolve();
-function persist(next: DashboardLayout, name?: string) {
+function persist(next: DashboardLayout, name?: I18nText) {
   // 送出當下畫面上的版本：第一次另存個人版時伺服器拿它當基準，管理員在這之後的更新才會顯示「已更新」
   const loadedVersion = detail.value?.version;
   layout.value = next;
@@ -62,12 +66,22 @@ const filterRange = computed(() => {
 const filterOptions = computed(() => FILTER_PRESETS.map((p) => ({ value: p.key, label: t(`dashboards.filter.${p.key}`) })));
 
 const isOwn = computed(() => detail.value?.kind === 'mine');
-const nameDraft = ref('');
-watch(detail, (d) => { if (d) nameDraft.value = d.name; }, { immediate: true });
-function rename() {
-  const name = nameDraft.value.trim();
-  if (!name) { nameDraft.value = detail.value?.name ?? ''; return; }
-  if (name !== detail.value?.name) persist(layout.value, name);
+const displayName = computed(() => resolveI18n(detail.value?.name, locale.value));
+const renameOpen = ref(false);
+const nameDraft = ref<I18nText>({});
+const nameOriginal = ref<I18nText>({});
+const nameInput = ref<{ validate(): Promise<boolean> } | null>(null);
+function openRename() {
+  // original 要是獨立的副本（I18nTextInput 用它判斷「沒改就不檢查新增的必填語系」）
+  nameOriginal.value = { ...(detail.value?.name ?? {}) };
+  nameDraft.value = { ...nameOriginal.value };
+  renameOpen.value = true;
+}
+async function submitRename() {
+  if (!(await nameInput.value?.validate())) return;
+  renameOpen.value = false;
+  const name = compactI18n(nameDraft.value) ?? {};
+  if (!sameI18n(name, detail.value?.name)) persist(layout.value, name);
 }
 
 function onMove(positions: { i: string; x: number; y: number; w: number; h: number }[]) {
@@ -85,7 +99,7 @@ const optionsCardId = ref<string | null>(null);
 const optionsColumns = ref<ReportColumn[]>([]);
 const optionsCard = computed(() => layout.value.cards.find((c) => c.id === optionsCardId.value) ?? null);
 function openOptions(cardId: string, columns: ReportColumn[]) { optionsColumns.value = columns; optionsCardId.value = cardId; }
-function onOptionsSave(change: { title: string | null; viz: ReportViz; options: import('src/domain/dynamic/dashboard-types').CardOptions }) {
+function onOptionsSave(change: { title: I18nText | null; viz: ReportViz; options: CardOptions }) {
   const id = optionsCardId.value!;
   optionsCardId.value = null;
   persist(updateCard(layout.value, id, change));
@@ -107,11 +121,8 @@ const linkVisible = (id: number | null | undefined) => id != null && props.linka
     <div v-else-if="dash.isPending.value" class="q-pa-md"><q-spinner /></div>
     <template v-else-if="detail">
       <div class="row items-center q-gutter-sm q-mb-sm">
-        <q-input
-          v-if="editing && isOwn" v-model="nameDraft" dense outlined maxlength="200" style="min-width: 220px"
-          :aria-label="t('dashboards.name')" data-testid="dashboard-name-input" @blur="rename" @keyup.enter="rename"
-        />
-        <div v-else class="text-h6" data-testid="dashboard-name">{{ detail.name }}</div>
+        <div class="text-h6" data-testid="dashboard-name">{{ displayName }}</div>
+        <q-btn v-if="editing && isOwn" flat dense no-caps icon="drive_file_rename_outline" :label="t('dashboards.rename')" data-testid="dashboard-rename" @click="openRename" />
         <q-badge v-if="detail.adjusted" color="primary" data-testid="dashboard-adjusted">{{ t('dashboards.adjusted') }}</q-badge>
         <q-space />
         <q-select
@@ -153,9 +164,21 @@ const linkVisible = (id: number | null | undefined) => id != null && props.linka
 
     <AddCardDialog :open="addOpen" @close="addOpen = false" @add="onAdd" />
     <CardOptionsDialog
-      :card="optionsCard" :columns="optionsColumns" :report-name="optionsCard ? detail?.reportNames[String(optionsCard.reportId)] : undefined"
+      :card="optionsCard" :columns="optionsColumns" :report-name="optionsCard ? resolveI18n(detail?.reportNames[String(optionsCard.reportId)], locale) : undefined"
       :dashboards="linkable.filter((d) => d.id !== dashboardId)" @close="optionsCardId = null" @save="onOptionsSave"
     />
+    <q-dialog v-model="renameOpen">
+      <q-card style="width: 420px; max-width: 95vw" data-testid="dashboard-rename-dialog">
+        <q-card-section class="text-h6">{{ t('dashboards.rename') }}</q-card-section>
+        <q-card-section>
+          <I18nTextInput ref="nameInput" v-model="nameDraft" :original="nameOriginal" :maxlength="100" :label="t('dashboards.name')" />
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat :label="t('reports.cancel')" data-testid="rename-cancel" @click="renameOpen = false" />
+          <q-btn color="primary" :label="t('reports.save')" data-testid="rename-save" @click="submitRename" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
     <q-dialog v-model="confirmRestore">
       <q-card style="width: 420px; max-width: 95vw">
         <q-card-section class="text-h6">{{ t('dashboards.restore') }}</q-card-section>

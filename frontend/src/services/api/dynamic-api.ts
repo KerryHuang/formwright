@@ -576,10 +576,10 @@ export const dynamicApi = {
   },
   getDashboards: () => http.get<DashboardList>('/dashboards').then(data),
   getDashboard: (id: number) => http.get<DashboardDetail>(`/dashboards/${id}`).then(data),
-  createDashboard: (name: string, layout: DashboardLayout) => http.post<DashboardDetail>('/dashboards', { name, layout }).then(data),
+  createDashboard: (name: I18nText, layout: DashboardLayout) => http.post<DashboardDetail>('/dashboards', { name, layout }).then(data),
   deleteDashboard: (id: number) => http.delete(`/dashboards/${id}`).then(data),
   /** version 是畫面載入時的指派版版本：第一次另存個人版時當基準，這樣之後的管理員更新才不會被漏掉。 */
-  saveDashboardLayout: (id: number, layout: DashboardLayout, name?: string, version?: number) =>
+  saveDashboardLayout: (id: number, layout: DashboardLayout, name?: I18nText, version?: number) =>
     http.put<DashboardDetail>(`/dashboards/${id}/layout`, { name, layout, version }).then(data),
   restoreDashboard: (id: number) => http.post<DashboardDetail>(`/dashboards/${id}/restore`).then(data),
   runCard: (id: number, cardId: string, filterRange: ReportDateRange | null, locale: string) =>
@@ -588,8 +588,8 @@ export const dynamicApi = {
     http.post<DrillResult>(`/dashboards/${id}/cards/${encodeURIComponent(cardId)}/drill`, { groupKeys, filterRange }, { params: { locale } }).then(data),
   adminGetDashboards: () => http.get<AdminDashboardItem[]>('/admin/dashboards').then(data),
   adminGetDashboard: (id: number) => http.get<AdminDashboardDetail>(`/admin/dashboards/${id}`).then(data),
-  adminCreateDashboard: (name: string, layout: DashboardLayout) => http.post<AdminDashboardDetail>('/admin/dashboards', { name, layout }).then(data),
-  adminUpdateDashboard: (id: number, name: string, layout: DashboardLayout, version: number) =>
+  adminCreateDashboard: (name: I18nText, layout: DashboardLayout) => http.post<AdminDashboardDetail>('/admin/dashboards', { name, layout }).then(data),
+  adminUpdateDashboard: (id: number, name: I18nText, layout: DashboardLayout, version: number) =>
     http.put<AdminDashboardDetail>(`/admin/dashboards/${id}`, { name, layout, version }).then(data),
   /** 編輯中的卡片（可能還沒存檔）以管理員自己的權限預覽；結果形狀與一般卡片查詢相同。 */
   adminPreviewCard: (card: DashboardCard, locale: string) =>
@@ -614,8 +614,8 @@ export const dynamicApi = {
     http.get<ModuleCatalog>(`/reports/catalog/${encodeURIComponent(moduleKey)}`, { params: { locale } }).then(data),
   previewReport: (definition: ReportDefinition, locale: string) =>
     http.post<ReportResult>('/reports/preview', definition, { params: { locale } }).then(data),
-  createReport: (name: string, definition: ReportDefinition) => http.post<ReportDetail>('/reports', { name, definition }).then(data),
-  updateReport: (id: number, name: string, definition: ReportDefinition) =>
+  createReport: (name: I18nText, definition: ReportDefinition) => http.post<ReportDetail>('/reports', { name, definition }).then(data),
+  updateReport: (id: number, name: I18nText, definition: ReportDefinition) =>
     http.put<ReportDetail>(`/reports/${id}`, { name, definition }).then(data),
   copyReport: (id: number) => http.post<ReportDetail>(`/reports/${id}/copy`).then(data),
   deleteReport: (id: number) => http.delete(`/reports/${id}`).then(data),
@@ -824,10 +824,10 @@ export const dynamicApi = {
   getTaskView: <C extends TaskViewConfig = TaskBoardConfig>(id: number) =>
     http.get<TaskViewDetail<C>>(`/task-views/${id}`).then(data).then((v) => normalizeViewDetail<C>(v)),
   /** 沒給 config 時伺服器存該種的預設（看板：預設看板；甘特：預設甘特圖）。 */
-  createTaskView: <C extends TaskViewConfig = TaskBoardConfig>(body: { kind?: TaskViewKind; name: string; config?: C }) =>
+  createTaskView: <C extends TaskViewConfig = TaskBoardConfig>(body: { kind?: TaskViewKind; name: I18nText; config?: C }) =>
     http.post<TaskViewDetail<C>>('/task-views', body).then(data).then((v) => normalizeViewDetail<C>(v)),
   /** `rowVersion` is the version read with the board; a stale one comes back as 409 (code stale). The kind cannot change. */
-  updateTaskView: <C extends TaskViewConfig = TaskBoardConfig>(id: number, body: { name?: string; config?: C; rowVersion: string }) =>
+  updateTaskView: <C extends TaskViewConfig = TaskBoardConfig>(id: number, body: { name?: I18nText; config?: C; rowVersion: string }) =>
     http.put<TaskViewDetail<C>>(`/task-views/${id}`, body).then(data).then((v) => normalizeViewDetail<C>(v)),
   deleteTaskView: (id: number) => http.delete(`/task-views/${id}`).then(data),
   copyTaskView: <C extends TaskViewConfig = TaskBoardConfig>(id: number) =>

@@ -1,5 +1,7 @@
 import type { CardOptions, DashboardCard, DashboardLayout } from './dashboard-types';
 import { DEFAULT_CARD_OPTIONS } from './dashboard-types';
+import { resolveI18n } from './i18n-text';
+import type { I18nText } from './types';
 import type { ReportViz } from './report-types';
 
 export const GRID_COLUMNS = 12;
@@ -36,6 +38,14 @@ export function removeCard(layout: DashboardLayout, cardId: string): DashboardLa
 
 export function updateCard(layout: DashboardLayout, cardId: string, change: Partial<Pick<DashboardCard, 'title' | 'viz'>> & { options?: CardOptions }): DashboardLayout {
   return { cards: layout.cards.map((c) => (c.id === cardId ? { ...c, ...change } : c)) };
+}
+
+/**
+ * 卡片顯示的標題（名稱多語設計 §5.3、§11.4）：卡片標題依退回鏈解析有值就用；沒有標題、或標題在所有退回語系都沒有值，
+ * 改用報表名稱（同樣依退回鏈解析）。只填繁中標題時，英文介面看到的是繁中標題，不會跳到英文報表名稱。
+ */
+export function cardTitle(card: Pick<DashboardCard, 'title'>, reportName: I18nText | undefined, locale: string): string {
+  return resolveI18n(card.title ?? undefined, locale) || resolveI18n(reportName, locale);
 }
 
 /** 拖放或調整大小後的位置寫回卡片；沒有在 positions 裡的卡片不動。 */

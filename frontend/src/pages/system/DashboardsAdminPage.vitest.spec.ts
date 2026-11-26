@@ -1,15 +1,16 @@
 import { flushPromises } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
 import { systemLinks } from 'src/domain/dynamic/menu-nav';
+import { setLocaleSettings } from 'src/i18n/locale-settings';
 import { card, click, mountPage, meOf, okResult, q, type World } from '../dashboards/dashboard-test-kit';
 import DashboardsAdminPage from './DashboardsAdminPage.vue';
 
 const ITEMS = [
-  { id: 1, name: '業務儀表板', version: 2, sequence: 1, groupIds: [10], cardCount: 2 },
-  { id: 2, name: '品質儀表板', version: 1, sequence: 2, groupIds: [], cardCount: 1 },
-  { id: 3, name: '設備儀表板', version: 1, sequence: 3, groupIds: [11], cardCount: 1 },
+  { id: 1, name: { 'zh-TW': '業務儀表板' }, version: 2, sequence: 1, groupIds: [10], cardCount: 2 },
+  { id: 2, name: { 'zh-TW': '品質儀表板' }, version: 1, sequence: 2, groupIds: [], cardCount: 1 },
+  { id: 3, name: { 'zh-TW': '設備儀表板' }, version: 1, sequence: 3, groupIds: [11], cardCount: 1 },
 ];
-const DETAIL = { id: 1, name: '業務儀表板', version: 2, sequence: 1, groupIds: [10], layout: { cards: [card('c1', 5)] } };
+const DETAIL = { id: 1, name: { 'zh-TW': '業務儀表板' }, version: 2, sequence: 1, groupIds: [10], layout: { cards: [card('c1', 5)] } };
 const world = (extra: World['extra'] = {}): World => ({
   me: meOf({ admin: true }),
   extra: {
@@ -19,7 +20,7 @@ const world = (extra: World['extra'] = {}): World => ({
       { id: 10, key: 'sales-manager', nameI18n: { 'zh-TW': '業務主管' }, memberUserIds: [] },
       { id: 11, key: 'maint', nameI18n: { 'zh-TW': '保養' }, memberUserIds: [] },
     ],
-    'GET /reports': [{ id: 5, name: '訂單狀態', ownerName: 'a', isOwner: true, sharedGroupIds: [] }],
+    'GET /reports': [{ id: 5, name: { 'zh-TW': '訂單狀態' }, ownerName: 'a', isOwner: true, sharedGroupIds: [] }],
     ...extra,
   },
 });
@@ -78,8 +79,30 @@ describe('DashboardsAdminPage', () => {
     await click('admin-dashboard-1');
     await click('admin-save-layout');
     const put = calls.find((c) => c.method === 'PUT' && c.url === '/admin/dashboards/1');
-    expect(put!.body).toMatchObject({ version: 2, name: '業務儀表板' });
+    expect(put!.body).toMatchObject({ version: 2, name: { 'zh-TW': '業務儀表板' } });
     expect(q('admin-error')!.textContent).toContain('剛被其他管理員更新');
+  });
+
+  // 名稱多語設計 §10.1：改名時帶 original，必填語系後來加了英文，沒動到的舊名稱照樣能存；新增則要填齊必填語系
+  it('an unchanged old name still saves after English becomes required; a new dashboard needs it', async () => {
+    setLocaleSettings({ requiredText: ['zh-TW', 'en-US'] });
+    try {
+      const { calls } = await mountAdmin(world({ 'PUT /admin/dashboards/1': DETAIL }));
+      await click('admin-dashboard-1');
+      await click('admin-save-layout');
+      expect(calls.find((c) => c.method === 'PUT' && c.url === '/admin/dashboards/1')!.body).toMatchObject({ name: { 'zh-TW': '業務儀表板' } });
+
+      await click('admin-dashboard-create');
+      const zh = document.querySelector('[data-testid="admin-new-name"] [data-testid="i18n-zh-TW"] input') as HTMLInputElement;
+      zh.value = '新指派版';
+      zh.dispatchEvent(new Event('input'));
+      await flushPromises();
+      await click('admin-new-confirm');
+      expect(calls.some((c) => c.method === 'POST' && c.url === '/admin/dashboards')).toBe(false);
+      expect(document.querySelector('[data-testid="admin-new-name"]')!.textContent).toContain('en-US');
+    } finally {
+      setLocaleSettings({ requiredText: ['zh-TW'] });
+    }
   });
 
   it('delete asks to confirm before sending', async () => {

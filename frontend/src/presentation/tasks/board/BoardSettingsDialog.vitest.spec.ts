@@ -4,6 +4,7 @@ import * as quasar from 'quasar';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createI18n } from 'vue-i18n';
 import type { TaskBoardConfig, TaskGanttConfig, TaskViewConfig, TaskViewKind } from 'src/domain/dynamic/task-board-types';
+import type { I18nText } from 'src/domain/dynamic/types';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import { USERS } from 'src/presentation/dynamic/tasks/task-fixtures';
 import { bodyOf, HttpFail, mockHttp, type Call } from 'src/test-utils/mock-http';
@@ -17,15 +18,15 @@ const q = (id: string) => document.body.querySelector<HTMLElement>(`[data-testid
 const click = async (id: string) => { q(id)!.click(); await flushPromises(); };
 const config = (o: Record<string, unknown> = {}) => configWire(o) as unknown as TaskBoardConfig;
 
-async function mountDialog(o: Partial<{ kind: TaskViewKind; name: string; config: TaskViewConfig; canSave: boolean; hasSubordinates: boolean; viewId: number | null; saveFails: number }> = {}) {
+async function mountDialog(o: Partial<{ kind: TaskViewKind; name: I18nText; config: TaskViewConfig; canSave: boolean; hasSubordinates: boolean; viewId: number | null; saveFails: number }> = {}) {
   calls = mockHttp((c) => {
     if (c.url === '/users') return USERS;
     if (c.url === '/task-views/5' && c.method === 'put') return o.saveFails ? new HttpFail(o.saveFails, { message: '伺服器訊息', code: 'stale' }) : viewDetailWire({ ...(bodyOf(c) as object), rowVersion: 'v2' });
-    if (c.url === '/task-views' && c.method === 'post') return viewDetailWire({ id: 12, name: (bodyOf(c) as { name: string }).name });
+    if (c.url === '/task-views' && c.method === 'post') return viewDetailWire({ id: 12, name: (bodyOf(c) as { name: unknown }).name });
     return [];
   });
   mounted = mount(BoardSettingsDialog, {
-    props: { modelValue: true, config: config(), name: '我的到期', viewId: 5, rowVersion: 'v1', canSave: true, hasSubordinates: true, ...o },
+    props: { modelValue: true, config: config(), name: { 'zh-TW': '我的到期' }, viewId: 5, rowVersion: 'v1', canSave: true, hasSubordinates: true, ...o },
     attachTo: document.body,
     global: { plugins: [[quasar.Quasar, { components: quasar, directives: quasar, plugins: { Notify: quasar.Notify } }], createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } }),
       [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]] },
@@ -117,7 +118,7 @@ describe('BoardSettingsDialog', () => {
     await click('settings-save');
     const put = calls.find((c) => c.method === 'put')!;
     expect(put.url).toBe('/task-views/5');
-    expect(bodyOf(put)).toEqual({ name: '我的到期', config: expect.objectContaining({ groupBy: 'status', scope: 'visible' }), rowVersion: 'v1' });
+    expect(bodyOf(put)).toEqual({ name: { 'zh-TW': '我的到期' }, config: expect.objectContaining({ groupBy: 'status', scope: 'visible' }), rowVersion: 'v1' });
     // 「已儲存」：發 saved（頁面清掉未儲存標記），不發 apply
     expect(w.emitted('saved')![0][0]).toMatchObject({ id: 5, rowVersion: 'v2' });
     expect(w.emitted('apply')).toBeUndefined();
@@ -126,12 +127,12 @@ describe('BoardSettingsDialog', () => {
 
   it('save sends the edited name', async () => {
     await mountDialog();
-    const input = q('settings-name') as HTMLInputElement;
+    const input = q('settings-name')!.querySelector('[data-testid="i18n-zh-TW"] input') as HTMLInputElement;
     input.value = '  我的本週  ';
     input.dispatchEvent(new Event('input'));
     await flushPromises();
     await click('settings-save');
-    expect((bodyOf(calls.find((c) => c.method === 'put')) as { name: string }).name).toBe('我的本週');
+    expect((bodyOf(calls.find((c) => c.method === 'put')) as { name: unknown }).name).toEqual({ 'zh-TW': '我的本週' });
   });
 
   it('a stale save shows the localized message and keeps the dialog open', async () => {
@@ -161,14 +162,14 @@ describe('BoardSettingsDialog', () => {
 
   it('save as new board posts the edited config under the typed name and emits savedAsNew', async () => {
     const w = await mountDialog({ canSave: false, viewId: null });
-    const input = q('settings-name') as HTMLInputElement;
+    const input = q('settings-name')!.querySelector('[data-testid="i18n-zh-TW"] input') as HTMLInputElement;
     input.value = '我的新看板';
     input.dispatchEvent(new Event('input'));
     await flushPromises();
     await click('settings-group-dueBucket');
     await click('settings-save-as');
     const post = calls.find((c) => c.method === 'post')!;
-    expect(bodyOf(post)).toEqual({ kind: 'board', name: '我的新看板', config: expect.objectContaining({ groupBy: 'dueBucket' }) });
+    expect(bodyOf(post)).toEqual({ kind: 'board', name: { 'zh-TW': '我的新看板' }, config: expect.objectContaining({ groupBy: 'dueBucket' }) });
     expect(w.emitted('savedAsNew')![0][0]).toMatchObject({ id: 12 });
   });
 
@@ -257,7 +258,7 @@ describe('BoardSettingsDialog', () => {
   describe('Gantt chart (kind=gantt, gt2c)', () => {
     const gantt = (o: Record<string, unknown> = {}) => ganttConfigWire(o) as unknown as TaskGanttConfig;
     const mountGantt = (o: Partial<{ config: TaskViewConfig; canSave: boolean; hasSubordinates: boolean; viewId: number | null }> = {}) =>
-      mountDialog({ kind: 'gantt', config: gantt(), name: '展覽', ...o });
+      mountDialog({ kind: 'gantt', config: gantt(), name: { 'zh-TW': '展覽' }, ...o });
 
     it('G73 offers group-by, scope, filters without a due range, show subtasks and the default scale; no columns or sort', async () => {
       await mountGantt();
@@ -291,7 +292,7 @@ describe('BoardSettingsDialog', () => {
       await click('settings-gantt-group-none');
       await click('settings-save');
       const put = writes().find((c) => c.method === 'put')!;
-      expect(bodyOf(put)).toEqual({ name: '展覽', rowVersion: 'v1', config: { version: 1, groupBy: 'none', scope: 'assigned', filters: { statuses: ['todo', 'inProgress', 'done'] }, scale: 'week' } });
+      expect(bodyOf(put)).toEqual({ name: { 'zh-TW': '展覽' }, rowVersion: 'v1', config: { version: 1, groupBy: 'none', scope: 'assigned', filters: { statuses: ['todo', 'inProgress', 'done'] }, scale: 'week' } });
       expect(w.emitted('saved')).toHaveLength(1);
     });
 
@@ -300,12 +301,12 @@ describe('BoardSettingsDialog', () => {
       expect(q('settings-save')).toBeNull();
       expect(q('settings-readonly-note')!.textContent).toContain('預設甘特圖或別人分享的甘特圖');
       expect(q('settings-save-as')!.textContent).toContain('另存為新甘特圖');
-      const input = q('settings-name') as HTMLInputElement;
+      const input = q('settings-name')!.querySelector('[data-testid="i18n-zh-TW"] input') as HTMLInputElement;
       input.value = '我的甘特';
       input.dispatchEvent(new Event('input'));
       await flushPromises();
       await click('settings-save-as');
-      expect(bodyOf(writes().find((c) => c.method === 'post'))).toMatchObject({ kind: 'gantt', name: '我的甘特', config: { groupBy: 'parent', scale: 'week' } });
+      expect(bodyOf(writes().find((c) => c.method === 'post'))).toMatchObject({ kind: 'gantt', name: { 'zh-TW': '我的甘特' }, config: { groupBy: 'parent', scale: 'week' } });
       expect(w.emitted('savedAsNew')).toHaveLength(1);
     });
 

@@ -49,10 +49,10 @@ async function mountPage(url: string, opts: { detailFails?: boolean; empty?: boo
       return base;
     }
     if (c.url === '/task-views' && c.method === 'get' && c.params?.kind === 'gantt') {
-      return { mine: [viewSummaryWire({ id: 12, kind: 'gantt', name: '展覽' })], shared: [viewSummaryWire({ id: 13, kind: 'gantt', name: '業務部甘特', isOwner: false, ownerUserId: 'manager01', ownerName: '業務主管', shareCount: 1 })] };
+      return { mine: [viewSummaryWire({ id: 12, kind: 'gantt', name: { 'zh-TW': '展覽' } })], shared: [viewSummaryWire({ id: 13, kind: 'gantt', name: { 'zh-TW': '業務部甘特' }, isOwner: false, ownerUserId: 'manager01', ownerName: '業務主管', shareCount: 1 })] };
     }
-    if (c.url === '/task-views' && c.method === 'get') return { mine: [viewSummaryWire({ id: 5, name: '我的到期' })], shared: [viewSummaryWire({ id: 8, name: '業務部任務', isOwner: false, ownerUserId: 'manager01', ownerName: '業務主管', shareCount: 1 })] };
-    if (c.url === '/task-views' && c.method === 'post' && (bodyOf(c) as { kind: string }).kind !== 'gantt') return viewDetailWire({ id: 11, name: (bodyOf(c) as { name: string }).name, config: (bodyOf(c) as { config: unknown }).config });
+    if (c.url === '/task-views' && c.method === 'get') return { mine: [viewSummaryWire({ id: 5, name: { 'zh-TW': '我的到期' } })], shared: [viewSummaryWire({ id: 8, name: { 'zh-TW': '業務部任務' }, isOwner: false, ownerUserId: 'manager01', ownerName: '業務主管', shareCount: 1 })] };
+    if (c.url === '/task-views' && c.method === 'post' && (bodyOf(c) as { kind: string }).kind !== 'gantt') return viewDetailWire({ id: 11, name: (bodyOf(c) as { name: unknown }).name, config: (bodyOf(c) as { config: unknown }).config });
     if (c.url === '/task-views/5' && c.method === 'get') return viewDetailWire({ rowVersion: detailVersion });
     if (c.url === '/task-views/5' && c.method === 'put') {
       // 第一次儲存撞 409，之後重抓看板就是別人改過的新版本（v2）
@@ -62,7 +62,7 @@ async function mountPage(url: string, opts: { detailFails?: boolean; empty?: boo
     // 甘特檢視：詳細資料端點不分種類照回（欄查詢在這裡照常回，模擬它比詳細資料慢、404 還沒到）
     const ganttId = opts.ganttViews?.find((id) => c.url === `/task-views/${id}`);
     if (ganttId !== undefined && c.method === 'get') {
-      const shared = ganttId === 13 ? { name: '業務部甘特', isOwner: false, canEdit: false, canDelete: false, ownerUserId: 'manager01', ownerName: '業務主管' } : { name: '展覽' };
+      const shared = ganttId === 13 ? { name: { 'zh-TW': '業務部甘特' }, isOwner: false, canEdit: false, canDelete: false, ownerUserId: 'manager01', ownerName: '業務主管' } : { name: { 'zh-TW': '展覽' } };
       return viewDetailWire({ id: ganttId, kind: 'gantt', ...shared, config: ganttSaved.get(ganttId) ?? ganttConfigWire({ groupBy: 'none', scale: 'month' }) });
     }
     if (ganttId !== undefined && c.method === 'put') {
@@ -70,9 +70,9 @@ async function mountPage(url: string, opts: { detailFails?: boolean; empty?: boo
       return viewDetailWire({ id: ganttId, kind: 'gantt', ...(bodyOf(c) as object), rowVersion: 'v3' });
     }
     if (c.url === '/task-views' && c.method === 'post' && (bodyOf(c) as { kind: string }).kind === 'gantt') {
-      return viewDetailWire({ id: 14, kind: 'gantt', name: (bodyOf(c) as { name: string }).name, config: (bodyOf(c) as { config: unknown }).config });
+      return viewDetailWire({ id: 14, kind: 'gantt', name: (bodyOf(c) as { name: unknown }).name, config: (bodyOf(c) as { config: unknown }).config });
     }
-    if (c.url === '/task-views/8' && c.method === 'get') return viewDetailWire({ id: 8, name: '業務部任務', isOwner: false, canEdit: false, canDelete: false, config: configWire({ groupBy: 'dueBucket', scope: 'visible' }) });
+    if (c.url === '/task-views/8' && c.method === 'get') return viewDetailWire({ id: 8, name: { 'zh-TW': '業務部任務' }, isOwner: false, canEdit: false, canDelete: false, config: configWire({ groupBy: 'dueBucket', scope: 'visible' }) });
     if (/^\/task-views\/\d+$/.test(c.url) && c.method === 'delete') return {};
     if (c.url === '/task-views/share-targets') return shareTargetsWire();
     if (c.url === '/me') return { userId: 'sales01', isSystemAdmin: !!opts.admin };
@@ -513,13 +513,13 @@ describe('MyTasksPage', () => {
       const { w, router } = await mountPage('/tasks?view=board');
       await click('board-picker');
       await click('picker-save-as');
-      const input = body('picker-name') as HTMLInputElement;
+      const input = body('picker-name')!.querySelector('[data-testid="i18n-zh-TW"] input') as HTMLInputElement;
       input.value = '我的新看板';
       input.dispatchEvent(new Event('input'));
       await flushPromises();
       await click('picker-name-ok');
       expect(router.currentRoute.value.query.board).toBe('11');
-      expect(bodyOf(calls.find((c) => c.method === 'post' && c.url === '/task-views'))).toMatchObject({ kind: 'board', name: '我的新看板' });
+      expect(bodyOf(calls.find((c) => c.method === 'post' && c.url === '/task-views'))).toMatchObject({ kind: 'board', name: { 'zh-TW': '我的新看板' } });
       w.unmount();
     });
 
@@ -572,14 +572,14 @@ describe('MyTasksPage', () => {
       const { w } = await mountPage('/tasks?view=board', { defaultConfig: configWire({ sort: { key: 'title', dir: 'desc' }, scope: 'involved' }) });
       await click('board-settings');
       // 預設看板另存時名稱不預填「預設看板」
-      expect((body('settings-name') as HTMLInputElement).value).toBe('');
-      const input = body('settings-name') as HTMLInputElement;
+      expect((body('settings-name')!.querySelector('[data-testid="i18n-zh-TW"] input') as HTMLInputElement).value).toBe('');
+      const input = body('settings-name')!.querySelector('[data-testid="i18n-zh-TW"] input') as HTMLInputElement;
       input.value = '我的新看板';
       input.dispatchEvent(new Event('input'));
       await flushPromises();
       await click('settings-save-as');
       expect(bodyOf(calls.find((c) => c.method === 'post' && c.url === '/task-views'))).toMatchObject({
-        name: '我的新看板', config: { scope: 'involved', sort: { key: 'title', dir: 'desc' } },
+        name: { 'zh-TW': '我的新看板' }, config: { scope: 'involved', sort: { key: 'title', dir: 'desc' } },
       });
       w.unmount();
     });
@@ -691,7 +691,7 @@ describe('MyTasksPage', () => {
       await click('settings-gantt-group-parent');
       await click('settings-save');
       const put = calls.find((c) => c.method === 'put' && c.url === '/task-views/12')!;
-      expect(bodyOf(put)).toMatchObject({ name: '展覽', rowVersion: 'v1', config: { groupBy: 'parent', scale: 'month' } });
+      expect(bodyOf(put)).toMatchObject({ name: { 'zh-TW': '展覽' }, rowVersion: 'v1', config: { groupBy: 'parent', scale: 'month' } });
       expect(w.find('[data-testid="board-share"]').exists()).toBe(true);
       await router.replace({ query: { view: 'gantt', gantt: '13' } });
       await flushPromises();
@@ -702,7 +702,7 @@ describe('MyTasksPage', () => {
       expect(body('settings-save')).toBeNull();
       expect(body('settings-save-as')).not.toBeNull();
       await click('settings-save-as');
-      expect(bodyOf(calls.find((c) => c.method === 'post' && c.url === '/task-views'))).toMatchObject({ kind: 'gantt', name: '業務部甘特' });
+      expect(bodyOf(calls.find((c) => c.method === 'post' && c.url === '/task-views'))).toMatchObject({ kind: 'gantt', name: { 'zh-TW': '業務部甘特' } });
       expect(router.currentRoute.value.query.gantt).toBe('14');
       expect(ganttBodies().at(-1)).toMatchObject({ viewId: 14, config: null });
       w.unmount();

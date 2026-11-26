@@ -9,13 +9,15 @@ import {
 } from 'src/application/dynamic/queries/dashboards-queries';
 import { useReports } from 'src/application/dynamic/queries/reports-queries';
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
-import { addCard, applyPositions, removeCard, sameLayout } from 'src/domain/dynamic/dashboard-layout';
+import { addCard, applyPositions, cardTitle, removeCard, sameLayout } from 'src/domain/dynamic/dashboard-layout';
 import type { DashboardLayout } from 'src/domain/dynamic/dashboard-types';
-import { resolveI18n } from 'src/domain/dynamic/i18n-text';
+import { compactI18n, resolveI18n } from 'src/domain/dynamic/i18n-text';
+import type { I18nText } from 'src/domain/dynamic/types';
 import type { ReportViz } from 'src/domain/dynamic/report-types';
 import AddCardDialog from 'src/presentation/dashboards/AddCardDialog.vue';
 import AdminCardPreview from 'src/presentation/dashboards/AdminCardPreview.vue';
 import DashboardGrid from 'src/presentation/dashboards/DashboardGrid.vue';
+import I18nTextInput from 'src/presentation/dynamic/designer/I18nTextInput.vue';
 import { isForbidden, type ApiError } from 'src/services/api/http';
 
 /**
@@ -33,41 +35,47 @@ const items = computed(() => list.data.value ?? []);
 
 const selectedId = ref<number | null>(null);
 const detail = useAdminDashboard(selectedId);
-const name = ref('');
+const name = ref<I18nText>({});
+// 載入的名稱副本：沒改名時不檢查新增的必填語系（I18nTextInput 的 original）
+const nameOriginal = ref<I18nText>({});
+const nameInput = ref<{ validate(): Promise<boolean> } | null>(null);
 const layout = ref<DashboardLayout>({ cards: [] });
 const groupIds = ref<number[]>([]);
 const version = ref(0);
 const error = ref('');
 watch(detail.data, (d) => {
   if (!d) return;
-  name.value = d.name;
+  nameOriginal.value = { ...d.name };
+  name.value = { ...d.name };
   layout.value = d.layout;
   groupIds.value = [...d.groupIds];
   version.value = d.version;
   error.value = '';
 }, { immediate: true });
 
-const reportName = (id: number) => reports.data.value?.find((r) => r.id === id)?.name ?? `#${id}`;
+const reportNameOf = (id: number) => reports.data.value?.find((r) => r.id === id)?.name;
+const cardLabel = (card: { title?: I18nText | null; reportId: number }) => cardTitle(card, reportNameOf(card.reportId), locale.value) || `#${card.reportId}`;
 const groupName = (g: { nameI18n: Parameters<typeof resolveI18n>[0] }) => resolveI18n(g.nameI18n, locale.value);
 const failText = (e: unknown, fallback: string) => ((e as ApiError).status === 409 ? t('dashboards.admin.conflict') : fallback);
 const done = (message: string) => Notify.create({ type: 'positive', message });
 
 const create = useAdminCreateDashboard();
 const createOpen = ref(false);
-const newName = ref('');
-function doCreate() {
-  const n = newName.value.trim();
-  if (!n) return;
-  create.mutate({ name: n, layout: { cards: [] } }, {
-    onSuccess: (d) => { createOpen.value = false; newName.value = ''; selectedId.value = d.id; },
+const newName = ref<I18nText>({});
+const newNameInput = ref<{ validate(): Promise<boolean> } | null>(null);
+async function doCreate() {
+  if (!(await newNameInput.value?.validate())) return;
+  create.mutate({ name: compactI18n(newName.value) ?? {}, layout: { cards: [] } }, {
+    onSuccess: (d) => { createOpen.value = false; newName.value = {}; selectedId.value = d.id; },
     onError: () => { error.value = t('dashboards.saveFailed'); },
   });
 }
 
 const update = useAdminUpdateDashboard();
-function saveLayout() {
+async function saveLayout() {
   error.value = '';
-  update.mutate({ id: selectedId.value!, name: name.value.trim(), layout: layout.value, version: version.value }, {
+  if (!(await nameInput.value?.validate())) return;
+  update.mutate({ id: selectedId.value!, name: compactI18n(name.value) ?? {}, layout: layout.value, version: version.value }, {
     onSuccess: () => done(t('dashboards.admin.saved')),
     onError: (e) => { error.value = failText(e, t('dashboards.saveFailed')); },
   });
@@ -128,7 +136,7 @@ function doRemove() {
           v-for="(d, i) in items" :key="d.id" clickable :active="d.id === selectedId" :data-testid="`admin-dashboard-${d.id}`" @click="selectedId = d.id"
         >
           <q-item-section>
-            <q-item-label>{{ d.name }}</q-item-label>
+            <q-item-label>{{ resolveI18n(d.name, locale) }}</q-item-label>
             <q-item-label caption>{{ t('dashboards.admin.summary', { cards: d.cardCount, groups: d.groupIds.length, version: d.version }) }}</q-item-label>
           </q-item-section>
           <q-item-section side>
@@ -144,9 +152,9 @@ function doRemove() {
         <div v-if="detail.isError.value" class="text-negative">{{ t('dashboards.notFound') }}</div>
         <template v-else-if="detail.data.value">
           <div class="row items-center q-gutter-sm q-mb-md">
-            <q-input v-model="name" dense outlined maxlength="200" style="min-width: 240px" :label="t('dashboards.name')" data-testid="admin-name" />
+            <I18nTextInput ref="nameInput" v-model="name" :original="nameOriginal" :maxlength="100" style="min-width: 240px" :label="t('dashboards.name')" data-testid="admin-name" />
             <q-btn outline no-caps icon="add" :label="t('dashboards.card.add')" data-testid="admin-add-card" @click="addOpen = true" />
-            <q-btn color="primary" no-caps :label="t('dashboards.admin.saveLayout')" :loading="update.isPending.value" :disable="!name.trim()" data-testid="admin-save-layout" @click="saveLayout" />
+            <q-btn color="primary" no-caps :label="t('dashboards.admin.saveLayout')" :loading="update.isPending.value" data-testid="admin-save-layout" @click="saveLayout" />
             <q-space />
             <q-btn flat color="negative" no-caps icon="delete" :label="t('dashboards.delete')" data-testid="admin-delete" @click="removeOpen = true" />
           </div>
@@ -166,7 +174,7 @@ function doRemove() {
               <q-card flat bordered class="full-height column no-wrap" :data-testid="`admin-card-${card.id}`">
                 <q-card-section class="row items-center no-wrap q-py-sm">
                   <q-icon name="drag_indicator" class="card-drag-handle cursor-move q-mr-xs" />
-                  <div class="col ellipsis">{{ card.title || reportName(card.reportId) }}</div>
+                  <div class="col ellipsis">{{ cardLabel(card) }}</div>
                   <q-badge outline color="primary" :label="t(`reports.designer.vizName.${card.viz}`)" class="q-mx-sm" />
                   <q-btn flat dense round size="sm" icon="close" :aria-label="t('dashboards.card.remove')" :data-testid="`admin-remove-${card.id}`" @click="layout = removeCard(layout, card.id)" />
                 </q-card-section>
@@ -182,10 +190,10 @@ function doRemove() {
     <q-dialog v-model="createOpen">
       <q-card style="width: 420px; max-width: 95vw">
         <q-card-section class="text-h6">{{ t('dashboards.create') }}</q-card-section>
-        <q-card-section><q-input v-model="newName" dense outlined autofocus maxlength="200" :label="t('dashboards.name')" data-testid="admin-new-name" @keyup.enter="doCreate" /></q-card-section>
+        <q-card-section><I18nTextInput ref="newNameInput" v-model="newName" :maxlength="100" :label="t('dashboards.name')" data-testid="admin-new-name" @keyup.enter="doCreate" /></q-card-section>
         <q-card-actions align="right">
           <q-btn flat :label="t('reports.cancel')" @click="createOpen = false" />
-          <q-btn color="primary" :label="t('reports.save')" :disable="!newName.trim()" :loading="create.isPending.value" data-testid="admin-new-confirm" @click="doCreate" />
+          <q-btn color="primary" :label="t('reports.save')" :loading="create.isPending.value" data-testid="admin-new-confirm" @click="doCreate" />
         </q-card-actions>
       </q-card>
     </q-dialog>

@@ -1,4 +1,5 @@
 import type { ReportDateRange, ReportResult, ReportViz } from './report-types';
+import type { I18nText } from './types';
 /** 對應後端 DashboardService/Data/DashboardResponses.cs 與 Domain/Reports/DashboardLayout.cs。 */
 
 export interface CardOptions {
@@ -15,7 +16,8 @@ export interface CardOptions {
 export interface DashboardCard {
   id: string;
   reportId: number;
-  title?: string | null;
+  /** 多語卡片標題（選填）；沒有值時顯示報表名稱。標題本身照退回鏈解析（名稱多語設計 §10.2）。 */
+  title?: I18nText | null;
   viz: ReportViz;
   x: number;
   y: number;
@@ -27,25 +29,25 @@ export interface DashboardCard {
 }
 export interface DashboardLayout { cards: DashboardCard[] }
 
-export interface DashboardListItem { id: number; name: string; version: number; adjusted: boolean; hasUpdate: boolean }
-export interface MyDashboardItem { id: number; name: string }
-export interface SharedReportItem { id: number; name: string; ownerName: string }
+export interface DashboardListItem { id: number; name: I18nText; version: number; adjusted: boolean; hasUpdate: boolean }
+export interface MyDashboardItem { id: number; name: I18nText }
+export interface SharedReportItem { id: number; name: I18nText; ownerName: string }
 export interface DashboardList { assigned: DashboardListItem[]; mine: MyDashboardItem[]; sharedReports: SharedReportItem[] }
 
 export interface DashboardDetail {
   id: number;
-  name: string;
+  name: I18nText;
   kind: 'assigned' | 'mine';
   version: number;
   adjusted: boolean;
   hasUpdate: boolean;
   layout: DashboardLayout;
   /** 卡片引用的報表名稱（key 是報表 id）；看不到定義的報表沒有。 */
-  reportNames: Record<string, string>;
+  reportNames: Record<string, I18nText>;
 }
 
-export interface AdminDashboardItem { id: number; name: string; version: number; sequence: number; groupIds: number[]; cardCount: number }
-export interface AdminDashboardDetail { id: number; name: string; version: number; sequence: number; groupIds: number[]; layout: DashboardLayout }
+export interface AdminDashboardItem { id: number; name: I18nText; version: number; sequence: number; groupIds: number[]; cardCount: number }
+export interface AdminDashboardDetail { id: number; name: I18nText; version: number; sequence: number; groupIds: number[]; layout: DashboardLayout }
 
 /** 卡片查詢結果：報表結果加上卡片選項算出的部分。 */
 export interface CardResult extends ReportResult {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addCard, applyPositions, nextCardId, readingOrder, removeCard, sameLayout, updateCard } from './dashboard-layout';
+import { addCard, applyPositions, cardTitle, nextCardId, readingOrder, removeCard, sameLayout, updateCard } from './dashboard-layout';
 import type { DashboardCard, DashboardLayout } from './dashboard-types';
 
 const c = (id: string, x = 0, y = 0, over: Partial<DashboardCard> = {}): DashboardCard =>
@@ -18,12 +18,22 @@ describe('dashboard-layout', () => {
     expect(nextCardId({ cards: [] })).toBe('c1');
   });
 
+  // 名稱多語設計 §18.3 S3、S4：卡片標題沿退回鏈解析有值就用（只填繁中的標題，英文介面看到繁中標題）；沒有標題才用報表名稱
+  it('S3 a Chinese-only card title wins over an English report name in the English interface', () => {
+    expect(cardTitle({ title: { 'zh-TW': '本月訂單' } }, { 'zh-TW': '訂單', 'en-US': 'Orders' }, 'en-US')).toBe('本月訂單');
+  });
+  it('S4 a card without a title shows the report name in the interface locale', () => {
+    expect(cardTitle({ title: null }, { 'zh-TW': '訂單', 'en-US': 'Orders' }, 'en-US')).toBe('Orders');
+    expect(cardTitle({ title: { 'en-US': '' } }, { 'zh-TW': '訂單' }, 'en-US')).toBe('訂單');
+    expect(cardTitle({ title: null }, undefined, 'en-US')).toBe('');
+  });
+
   it('removeCard and updateCard only touch the named card', () => {
     const layout = { cards: [c('a'), c('b')] };
     expect(removeCard(layout, 'a').cards.map((x) => x.id)).toEqual(['b']);
-    const upd = updateCard(layout, 'b', { title: '標題', viz: 'bar' });
+    const upd = updateCard(layout, 'b', { title: { 'zh-TW': '標題' }, viz: 'bar' });
     expect(upd.cards[0]).toEqual(layout.cards[0]);
-    expect(upd.cards[1]).toMatchObject({ title: '標題', viz: 'bar' });
+    expect(upd.cards[1]).toMatchObject({ title: { 'zh-TW': '標題' }, viz: 'bar' });
   });
 
   it('applyPositions leaves cards that are not listed untouched', () => {

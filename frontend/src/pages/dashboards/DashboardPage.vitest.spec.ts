@@ -7,16 +7,16 @@ import { card, click, detail, mountPage, okResult, q, qa, type World } from './d
 import DashboardPage from './DashboardPage.vue';
 
 const LIST: DashboardList = {
-  assigned: [{ id: 1, name: '業務儀表板', version: 1, adjusted: false, hasUpdate: false }, { id: 2, name: '品質儀表板', version: 1, adjusted: false, hasUpdate: false }],
-  mine: [{ id: 3, name: '我的看板' }],
+  assigned: [{ id: 1, name: { 'zh-TW': '業務儀表板' }, version: 1, adjusted: false, hasUpdate: false }, { id: 2, name: { 'zh-TW': '品質儀表板' }, version: 1, adjusted: false, hasUpdate: false }],
+  mine: [{ id: 3, name: { 'zh-TW': '我的看板' } }],
   sharedReports: [],
 };
 const world = (over: Partial<World> = {}): World & { details: Record<number, DashboardDetail> } => ({
   list: LIST,
   details: {
-    1: detail(1, { name: '業務儀表板', layout: { cards: [card('c1'), card('c2', 2, { x: 6 })] }, reportNames: { 1: '訂單狀態', 2: '客戶金額' } }),
-    2: detail(2, { name: '品質儀表板' }),
-    3: detail(3, { name: '我的看板', kind: 'mine' as const }),
+    1: detail(1, { name: { 'zh-TW': '業務儀表板' }, layout: { cards: [card('c1'), card('c2', 2, { x: 6 })] }, reportNames: { 1: { 'zh-TW': '訂單狀態' }, 2: { 'zh-TW': '客戶金額' } } }),
+    2: detail(2, { name: { 'zh-TW': '品質儀表板' } }),
+    3: detail(3, { name: { 'zh-TW': '我的看板' }, kind: 'mine' as const }),
   },
   ...over,
 });
@@ -81,7 +81,7 @@ describe('DashboardPage', () => {
     const w = world();
     w.details[1] = detail(1, {
       layout: { cards: [card('c1', 1, { options: { sortDesc: false, cumulative: false, linkDashboardId: 2 } }), card('c2', 2, { options: { sortDesc: false, cumulative: false, linkDashboardId: 99 } })] },
-      reportNames: { 1: 'a', 2: 'b' },
+      reportNames: { 1: { 'zh-TW': 'a' }, 2: { 'zh-TW': 'b' } },
     });
     await mountDash(w);
     expect(q('card-c1')!.querySelector('[data-testid="card-link"]')).not.toBeNull();
@@ -115,7 +115,7 @@ describe('DashboardPage', () => {
 
   it('saving sends the version the screen loaded, so a later admin update is not swallowed', async () => {
     const w0 = world();
-    w0.details[1] = detail(1, { name: '業務儀表板', version: 3, layout: { cards: [card('c1'), card('c2', 2, { x: 6 })] }, reportNames: { 1: 'a', 2: 'b' } });
+    w0.details[1] = detail(1, { name: { 'zh-TW': '業務儀表板' }, version: 3, layout: { cards: [card('c1'), card('c2', 2, { x: 6 })] }, reportNames: { 1: { 'zh-TW': 'a' }, 2: { 'zh-TW': 'b' } } });
     const { w, calls } = await mountDash(w0);
     await click('dashboard-edit-toggle');
     w.findComponent(DashboardGrid).vm.$emit('change', [{ i: 'c1', x: 3, y: 0, w: 6, h: 4 }, { i: 'c2', x: 6, y: 0, w: 6, h: 4 }]);
@@ -161,16 +161,61 @@ describe('DashboardPage', () => {
   });
 
   it('create sends the name and opens the new dashboard', async () => {
-    const w = world({ extra: { 'POST /dashboards': detail(7, { name: '新的', kind: 'mine' }) } });
-    w.details[7] = detail(7, { name: '新的', kind: 'mine' });
+    const w = world({ extra: { 'POST /dashboards': detail(7, { name: { 'zh-TW': '新的' }, kind: 'mine' }) } });
+    w.details[7] = detail(7, { name: { 'zh-TW': '新的' }, kind: 'mine' });
     const { calls } = await mountDash(w);
     await click('dashboard-create');
-    const input = document.querySelector('[data-testid="dashboard-new-name"]') as HTMLInputElement;
+    const input = document.querySelector('[data-testid="dashboard-new-name"] [data-testid="i18n-zh-TW"] input') as HTMLInputElement;
     input.value = '新的';
     input.dispatchEvent(new Event('input'));
     await flushPromises();
     await click('dashboard-new-confirm');
-    expect(calls.find((c) => c.method === 'POST' && c.url === '/dashboards')!.body).toMatchObject({ name: '新的' });
+    expect(calls.find((c) => c.method === 'POST' && c.url === '/dashboards')!.body).toMatchObject({ name: { 'zh-TW': '新的' } });
+  });
+
+  // 名稱多語設計 Q2：自己的儀表板在編輯狀態用「重新命名」對話框改名，送多語物件；沒改就不送
+  it('rename opens a dialog and saves the multilingual name as an object', async () => {
+    const { calls } = await mountDash(world(), '/dashboards/3');
+    expect(q('dashboard-rename')).toBeNull();
+    await click('dashboard-edit-toggle');
+    await click('dashboard-rename');
+    const input = document.querySelector('[data-testid="dashboard-rename-dialog"] [data-testid="i18n-zh-TW"] input') as HTMLInputElement;
+    expect(input.value).toBe('我的看板');
+    await click('rename-save');
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false);
+
+    await click('dashboard-rename');
+    const again = document.querySelector('[data-testid="dashboard-rename-dialog"] [data-testid="i18n-zh-TW"] input') as HTMLInputElement;
+    again.value = ' 我的總覽 ';
+    again.dispatchEvent(new Event('input'));
+    await flushPromises();
+    await click('rename-save');
+    const put = calls.find((c) => c.method === 'PUT' && c.url === '/dashboards/3/layout');
+    expect((put!.body as { name: unknown }).name).toEqual({ 'zh-TW': '我的總覽' });
+  });
+
+  // 名稱多語設計 §10.1：卡片標題選填多語，提示沒填時顯示的報表名稱；存成物件，清空則存 null
+  it('card title is optional multilingual: hint shows the report name, saved as an object or null', async () => {
+    const { calls } = await mountDash();
+    await click('dashboard-edit-toggle');
+    await click('card-settings-c1');
+    expect(document.querySelector('[data-testid="opt-title"]')!.textContent).toContain('訂單狀態');
+    const zh = document.querySelector('[data-testid="opt-title"] [data-testid="i18n-zh-TW"] input') as HTMLInputElement;
+    zh.value = '本月訂單';
+    zh.dispatchEvent(new Event('input'));
+    await flushPromises();
+    await click('opt-save');
+    const put = calls.filter((c) => c.method === 'PUT' && c.url === '/dashboards/1/layout').pop()!;
+    const cards = (put.body as { layout: { cards: { id: string; title: unknown }[] } }).layout.cards;
+    expect(cards.find((c) => c.id === 'c1')!.title).toEqual({ 'zh-TW': '本月訂單' });
+    expect(cards.find((c) => c.id === 'c2')!.title ?? null).toBeNull();
+    expect(q('card-c1')!.querySelector('[data-testid="card-title"]')!.textContent).toBe('本月訂單');
+  });
+
+  it('assigned dashboards have no rename button', async () => {
+    await mountDash();
+    await click('dashboard-edit-toggle');
+    expect(q('dashboard-rename')).toBeNull();
   });
 
   it('delete asks to confirm', async () => {

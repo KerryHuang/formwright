@@ -2,10 +2,13 @@
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { DEFAULT_CARD_OPTIONS, type CardOptions, type DashboardCard } from 'src/domain/dynamic/dashboard-types';
+import { compactI18n } from 'src/domain/dynamic/i18n-text';
 import { REPORT_RANGE_DEFAULT_N, type ReportColumn, type ReportViz } from 'src/domain/dynamic/report-types';
+import type { I18nText } from 'src/domain/dynamic/types';
+import I18nTextInput from 'src/presentation/dynamic/designer/I18nTextInput.vue';
 
 /**
- * 卡片設定：標題、呈現方式與 spec §4 的卡片選項。排序依據只能選這張卡片目前查得到的欄（columns），
+ * 卡片設定：標題（多語、選填，名稱多語設計 §10.1；沒填時顯示報表名稱，reportName 是父元件依目前語系解析好的字串）、呈現方式與 spec §4 的卡片選項。排序依據只能選這張卡片目前查得到的欄（columns），
  * 查不到（無權限、載入失敗，或在管理畫面沒有預覽）時不提供排序。
  */
 const props = defineProps<{
@@ -13,13 +16,13 @@ const props = defineProps<{
   /** 可連結的儀表板（觀看者看得到的）。 */
   dashboards: { id: number; name: string }[];
 }>();
-const emit = defineEmits<{ close: []; save: [change: { title: string | null; viz: ReportViz; options: CardOptions }] }>();
+const emit = defineEmits<{ close: []; save: [change: { title: I18nText | null; viz: ReportViz; options: CardOptions }] }>();
 const { t } = useI18n();
 
 const VIZS: ReportViz[] = ['table', 'indicator', 'line', 'bar', 'donut'];
 const RANGES = ['today', 'thisWeek', 'lastWeek', 'thisMonth', 'lastMonth', 'thisYear', 'lastYear', 'lastDays', 'lastWeeks', 'lastMonths'];
 
-const title = ref('');
+const title = ref<I18nText>({});
 const viz = ref<ReportViz>('bar');
 const rangeKind = ref<string | null>(null);
 const rangeN = ref<number | null>(30);
@@ -32,7 +35,7 @@ const link = ref<number | null>(null);
 
 watch(() => props.card, (c) => {
   if (!c) return;
-  title.value = c.title ?? '';
+  title.value = { ...(c.title ?? {}) };
   viz.value = c.viz;
   rangeKind.value = c.options.range?.kind ?? null;
   rangeN.value = c.options.range?.n ?? REPORT_RANGE_DEFAULT_N;
@@ -58,7 +61,7 @@ function submit() {
     comparePeriods: viz.value === 'indicator' ? intOrNull(comparePeriods.value) : null,
     linkDashboardId: link.value,
   };
-  emit('save', { title: title.value.trim() || null, viz: viz.value, options });
+  emit('save', { title: compactI18n(title.value) ?? null, viz: viz.value, options });
 }
 </script>
 
@@ -67,7 +70,10 @@ function submit() {
     <q-card v-if="card" style="width: 520px; max-width: 95vw">
       <q-card-section class="text-h6">{{ t('dashboards.options.title') }}</q-card-section>
       <q-card-section class="column q-gutter-y-sm" style="max-height: 70vh; overflow: auto">
-        <q-input v-model="title" outlined dense maxlength="100" :label="t('dashboards.options.cardTitle')" :placeholder="reportName" data-testid="opt-title" />
+        <I18nTextInput
+          v-model="title" optional :maxlength="100" :label="t('dashboards.options.cardTitle')"
+          :hint="reportName ? t('dashboards.options.cardTitleHint', { name: reportName }) : undefined" data-testid="opt-title"
+        />
         <q-select
           v-model="viz" :options="VIZS" :option-label="(v: string) => t(`reports.designer.vizName.${v}`)" emit-value map-options
           outlined dense :label="t('dashboards.options.viz')" data-testid="opt-viz"

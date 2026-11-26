@@ -2,15 +2,17 @@
 import { computed, ref, toRef } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRunCard } from 'src/application/dynamic/queries/dashboards-queries';
+import { cardTitle } from 'src/domain/dynamic/dashboard-layout';
 import type { DashboardCard } from 'src/domain/dynamic/dashboard-types';
 import type { ReportColumn, ReportDateRange } from 'src/domain/dynamic/report-types';
+import type { I18nText } from 'src/domain/dynamic/types';
 import ReportResultView from 'src/presentation/reports/ReportResultView.vue';
 import { formatValue } from 'src/presentation/reports/report-format';
 import CardDrillDialog from './CardDrillDialog.vue';
 
 /** 一張卡片：各自查詢、各自顯示 spec §9 的狀態；一張壞掉不影響其他張。 */
 const props = defineProps<{
-  dashboardId: number; card: DashboardCard; reportName?: string; filterRange: ReportDateRange | null; editing: boolean;
+  dashboardId: number; card: DashboardCard; reportName?: I18nText; filterRange: ReportDateRange | null; editing: boolean;
   /** 連結的目標儀表板觀看者看得到才顯示連結。 */
   linkVisible: boolean;
 }>();
@@ -25,7 +27,8 @@ const drillKeys = ref<string[] | null>(null);
 
 // 圖表高度跟著卡片的列數走（一列 70px 加間距），扣掉標題與說明文字
 const chartHeight = computed(() => `${Math.max(140, props.card.h * 82 - 130)}px`);
-const title = computed(() => props.card.title || props.reportName || t('dashboards.card.untitled'));
+// 卡片標題依退回鏈解析有值就用，沒有才用報表名稱（名稱多語設計 §10.2）
+const title = computed(() => cardTitle(props.card, props.reportName, locale.value) || t('dashboards.card.untitled'));
 const firstMeasure = computed(() => result.value?.columns.find((c) => c.role === 'measure'));
 const compareText = computed(() => {
   const c = result.value?.compare;

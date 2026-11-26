@@ -30,7 +30,7 @@ const DEF: ReportDetail['definition'] = {
   ],
 };
 const DETAIL = (isOwner: boolean): ReportDetail => ({
-  id: 7, name: '月報', ownerName: '小王', isOwner, sharedGroupIds: [], mainModuleKey: 'orders', definition: DEF, canExport: true,
+  id: 7, name: { 'zh-TW': '月報' }, ownerName: '小王', isOwner, sharedGroupIds: [], mainModuleKey: 'orders', definition: DEF, canExport: true,
 });
 const RESULT: ReportResult = {
   state: 'ok', rowMeaning: '一張訂單', basisDate: '2026-11-05', dedupedNote: false,

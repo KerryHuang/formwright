@@ -5,13 +5,13 @@ import { detail, mountPage, q, type World } from './dashboards/dashboard-test-ki
 import HomePage from './HomePage.vue';
 
 const LIST: DashboardList = {
-  assigned: [{ id: 1, name: '業務儀表板', version: 1, adjusted: false, hasUpdate: false }, { id: 2, name: '品質儀表板', version: 1, adjusted: false, hasUpdate: false }],
+  assigned: [{ id: 1, name: { 'zh-TW': '業務儀表板' }, version: 1, adjusted: false, hasUpdate: false }, { id: 2, name: { 'zh-TW': '品質儀表板' }, version: 1, adjusted: false, hasUpdate: false }],
   mine: [],
   sharedReports: [],
 };
 const world = (over: Partial<World> = {}): World => ({
   list: LIST,
-  details: { 1: detail(1, { name: '業務儀表板' }), 2: detail(2, { name: '品質儀表板' }) },
+  details: { 1: detail(1, { name: { 'zh-TW': '業務儀表板' } }), 2: detail(2, { name: { 'zh-TW': '品質儀表板' } }) },
   ...over,
 });
 const mountHome = (w: World = world(), userId = 'u') => mountPage(w, { page: HomePage, route: '/', userId });

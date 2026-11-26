@@ -4,6 +4,9 @@ import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useCreateTaskView, useDeleteTaskView } from 'src/application/dynamic/queries/task-board-queries';
 import { MAX_BOARD_NAME, saveAsConfig } from 'src/domain/dynamic/task-board-config';
+import { compactI18n, resolveI18n } from 'src/domain/dynamic/i18n-text';
+import type { I18nText } from 'src/domain/dynamic/types';
+import I18nTextInput from 'src/presentation/dynamic/designer/I18nTextInput.vue';
 import type { ApiError } from 'src/services/api/http';
 import type { TaskViewConfig, TaskViewDetail, TaskViewKind, TaskViewList, TaskViewSummary } from 'src/domain/dynamic/task-board-types';
 import { useViewText } from './view-text';
@@ -11,6 +14,7 @@ import { useViewText } from './view-text';
 /**
  * 看板選擇器：預設看板、我的看板、分享給我的（帶建立者姓名）、另存為新看板。甘特圖（kind=gantt）用同一個元件，字換成甘特圖的（§11.5.4.1）。
  * 自己的看板可以分享與刪除；分享給我的看板只有系統管理員能刪（管理員看得到所有有分享的看板，只有刪除，不能分享或改設定）。
+ * 名稱是多語（名稱多語設計 §10），清單依目前語系解析；currentName 由父元件解析好傳入；另存時用多語輸入框。
  * 按鈕沒有 aria-label：看板名稱與「（未儲存）」就是它的可及名稱。每一列的「選這個看板」與動作按鈕是並排的兄弟節點，不互相包含。
  */
 const props = withDefaults(defineProps<{
@@ -34,7 +38,8 @@ const emit = defineEmits<{
   created: [detail: TaskViewDetail<TaskViewConfig>];
   retry: [];
 }>();
-const { t } = useI18n();
+const { t, locale } = useI18n();
+const nameOf = (v: TaskViewSummary) => resolveI18n(v.name, locale.value);
 const vt = useViewText(() => props.kind);
 const create = useCreateTaskView();
 const del = useDeleteTaskView();
@@ -53,25 +58,26 @@ defineExpose({ focusButton });
 
 // ---- 另存為新看板 ----
 const saving = ref(false);
-const name = ref('');
+const name = ref<I18nText>({});
+const nameInput = ref<{ validate(): Promise<boolean> } | null>(null);
 const nameError = ref('');
 const createError = ref('');
 const scopeSwapped = computed(() => !props.hasSubordinates && props.config?.scope === 'subordinates');
 function openSaveAs() {
-  name.value = '';
+  name.value = {};
   nameError.value = '';
   createError.value = '';
   saving.value = true;
 }
-function submitSaveAs() {
-  const trimmed = name.value.trim();
+async function submitSaveAs() {
+  const trimmed = compactI18n(name.value);
   nameError.value = trimmed ? '' : vt('picker.nameRequired');
-  if (!trimmed || !props.config) return;
+  if (!trimmed || !props.config || !(await nameInput.value?.validate())) return;
   createError.value = '';
   create.mutate({ kind: props.kind, name: trimmed, config: saveAsConfig(props.config, props.hasSubordinates) }, {
     onSuccess: (detail) => {
       saving.value = false;
-      Notify.create({ type: 'positive', message: vt('picker.created', { name: detail.name }) });
+      Notify.create({ type: 'positive', message: vt('picker.created', { name: resolveI18n(detail.name, locale.value) }) });
       emit('created', detail);
     },
     // 伺服器的錯誤文字是中文，不直接顯示
@@ -122,16 +128,16 @@ function confirmDelete() {
           <div v-for="v in mine" :key="v.id" class="row no-wrap items-center">
             <q-item v-close-popup clickable class="col" :active="currentId === v.id" :data-testid="`picker-item-${v.id}`" @click="emit('select', v.id)">
               <q-item-section>
-                <q-item-label class="ellipsis">{{ v.name }}</q-item-label>
+                <q-item-label class="ellipsis">{{ nameOf(v) }}</q-item-label>
                 <q-item-label v-if="v.shareCount" caption>{{ vt('picker.sharedCount') }}</q-item-label>
               </q-item-section>
             </q-item>
             <q-btn
-              v-close-popup flat dense round icon="share" :aria-label="vt('picker.shareFor', { name: v.name })"
+              v-close-popup flat dense round icon="share" :aria-label="vt('picker.shareFor', { name: nameOf(v) })"
               :data-testid="`picker-share-${v.id}`" @click="emit('share', v.id)"
             />
             <q-btn
-              v-close-popup flat dense round icon="delete" :aria-label="vt('picker.deleteFor', { name: v.name })"
+              v-close-popup flat dense round icon="delete" :aria-label="vt('picker.deleteFor', { name: nameOf(v) })"
               :data-testid="`picker-delete-${v.id}`" @click="deleting = v"
             />
           </div>
@@ -142,12 +148,12 @@ function confirmDelete() {
           <div v-for="v in shared" :key="v.id" class="row no-wrap items-center">
             <q-item v-close-popup clickable class="col" :active="currentId === v.id" :data-testid="`picker-item-${v.id}`" @click="emit('select', v.id)">
               <q-item-section>
-                <q-item-label class="ellipsis">{{ v.name }}</q-item-label>
+                <q-item-label class="ellipsis">{{ nameOf(v) }}</q-item-label>
                 <q-item-label caption class="ellipsis">{{ vt('picker.ownedBy', { name: ownerOf(v) }) }}</q-item-label>
               </q-item-section>
             </q-item>
             <q-btn
-              v-if="isAdmin" v-close-popup flat dense round icon="delete" :aria-label="vt('picker.deleteFor', { name: v.name })"
+              v-if="isAdmin" v-close-popup flat dense round icon="delete" :aria-label="vt('picker.deleteFor', { name: nameOf(v) })"
               :data-testid="`picker-delete-${v.id}`" @click="deleting = v"
             />
           </div>
@@ -165,8 +171,8 @@ function confirmDelete() {
       <q-card :style="$q.screen.lt.sm ? undefined : 'width: 380px; max-width: 95vw'" data-testid="picker-save-as-dialog">
         <q-card-section class="text-h6">{{ vt('picker.saveAsTitle') }}</q-card-section>
         <q-card-section class="q-pt-none column q-gutter-y-sm">
-          <q-input
-            v-model="name" dense outlined autofocus :maxlength="MAX_BOARD_NAME" :label="vt('picker.name')" :error="!!nameError" :error-message="nameError"
+          <I18nTextInput
+            ref="nameInput" v-model="name" :maxlength="MAX_BOARD_NAME" :label="vt('picker.name')" :error="nameError || undefined"
             data-testid="picker-name" @keyup.enter="submitSaveAs"
           />
           <div v-if="scopeSwapped" class="text-caption text-muted" data-testid="picker-scope-swapped">{{ vt('picker.scopeSwapped') }}</div>
@@ -183,7 +189,7 @@ function confirmDelete() {
       <q-card :style="$q.screen.lt.sm ? undefined : 'width: 380px; max-width: 95vw'" data-testid="picker-delete-confirm">
         <q-card-section class="text-h6">{{ vt('picker.deleteTitle') }}</q-card-section>
         <q-card-section class="q-pt-none">
-          <div class="text-weight-medium" style="overflow-wrap: anywhere">{{ deleting?.name }}</div>
+          <div class="text-weight-medium" style="overflow-wrap: anywhere">{{ deleting ? nameOf(deleting) : '' }}</div>
           <div>{{ deleting && !deleting.isOwner ? vt('picker.deleteBodyShared', { owner: ownerOf(deleting) }) : vt('picker.deleteBody') }}</div>
           <div v-if="deleteError" class="text-negative q-mt-sm" role="alert" data-testid="picker-delete-error">{{ deleteError }}</div>
         </q-card-section>
