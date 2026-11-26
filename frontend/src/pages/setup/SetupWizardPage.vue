@@ -1,8 +1,6 @@
 <script setup lang="ts">
-import { useQuasar } from 'quasar';
 import { computed, onBeforeUnmount, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useRouter } from 'vue-router';
 import BrandMark from 'src/presentation/brand/BrandMark.vue';
 import LocaleSwitcher from 'src/presentation/locale/LocaleSwitcher.vue';
 import SetupChecksList from 'src/presentation/setup/SetupChecksList.vue';
@@ -11,9 +9,7 @@ import { setupApi, SetupValidationError, type SetupCheckItem, type SetupComplete
 const POLL_MS = 2000;
 const TIMEOUT_MS = 120_000;
 
-const $q = useQuasar();
 const { t, te } = useI18n({ useScope: 'global' });
-const router = useRouter();
 
 type Step = 'code' | 'checks' | 'database' | 'admin' | 'company' | 'backup' | 'done';
 const step = ref<Step>('code');
@@ -57,8 +53,15 @@ async function guarded(work: () => Promise<void>) {
   unreachable.value = false;
   try {
     await work();
-  } catch {
-    unreachable.value = true;
+  } catch (e) {
+    const err = e as { status?: number; code?: string } | null;
+    if (err?.status === 403 && err.code === 'setupCodeInvalid') {
+      // 設定碼失效（例如另一個分頁已完成精靈）：任何請求都回到第一步
+      codeInvalid.value = true;
+      step.value = 'code';
+    } else {
+      unreachable.value = true;
+    }
   } finally {
     busy.value = false;
   }
@@ -112,13 +115,27 @@ const nextFromBackup = () => guarded(async () => {
   if (r.ok) step.value = 'done';
 });
 
+/** 依紅燈項目退回所屬步驟：重新檢查要帶那一步填的值，不能一律退回環境檢查（那裡的重新檢查不帶草稿）。 */
+function backToFailedStep(items: SetupCheckItem[]) {
+  const postgres = provider.value === 'postgres';
+  const stepOf = (i: SetupCheckItem): Step =>
+    i.key === 'backupDirectory' ? 'backup' : postgres && ['database', 'pgDump', 'existingSqliteData'].includes(i.key) ? 'database' : 'checks';
+  const reds = items.filter((i) => !i.ok).map(stepOf);
+  const target = stepOrder.find((s) => reds.includes(s)) ?? 'checks';
+  if (target === 'checks') checks.value = { items, ok: false };
+  else if (target === 'database') dbChecks.value = items;
+  else backupChecks.value = items;
+  step.value = target;
+}
+
 const FIELD_STEP: Record<string, Step> = { provider: 'database', connectionString: 'database', adminPassword: 'admin', siteName: 'company', backupRoot: 'backup' };
 
 function poll(ticks = 0) {
   timer = setTimeout(async () => {
     try {
       if ((await setupApi.getStatus()) === 'notInSetup' && (await setupApi.isReady())) {
-        void router.replace('/login');
+        // 整頁重新載入：一般模式從頭開機，auth/options 與語系設定才會重取（啟動狀態不會殘留設定模式的失敗結果）
+        window.location.replace('/login');
         return;
       }
     } catch {
@@ -139,19 +156,12 @@ const complete = () => guarded(async () => {
   } catch (e) {
     if (e instanceof SetupValidationError) {
       if (e.checks) {
-        checks.value = { items: e.checks, ok: false };
-        step.value = 'checks';
+        backToFailedStep(e.checks);
         return;
       }
       fieldErrors.value = e.errors ?? {};
       const first = stepOrder.find((s) => Object.keys(fieldErrors.value).some((f) => FIELD_STEP[f] === s));
       if (first) step.value = first;
-      return;
-    }
-    if ((e as { status?: number } | null)?.status === 403) {
-      // 設定碼在這段時間失效（例如另一個分頁已完成）
-      codeInvalid.value = true;
-      step.value = 'code';
       return;
     }
     throw e;
@@ -164,7 +174,6 @@ const errorText = (e: SetupFieldError) => (te(`setup.error.${e.code}`) ? t(`setu
 const errorsOf = (...fields: string[]) => fields.flatMap((f) => fieldErrors.value[f] ?? []);
 
 const reload = () => window.location.reload();
-const vertical = computed(() => $q.screen.lt.md);
 const checksOk = computed(() => checks.value?.ok === true);
 </script>
 
@@ -177,12 +186,12 @@ const checksOk = computed(() => checks.value?.ok === true);
         <LocaleSwitcher />
       </q-card-section>
 
-      <q-stepper v-model="step" flat :vertical="vertical" animated>
+      <q-stepper v-model="step" flat vertical animated>
         <q-step name="code" :title="t('setup.code.label')" icon="vpn_key" :done="doneSteps('code')">
           <div data-testid="setup-code" class="q-gutter-sm">
             <div class="text-caption">{{ t('setup.code.hint') }}</div>
             <q-input
-              v-model="code" :label="t('setup.code.label')" inputmode="numeric" autocomplete="off" dense outlined
+              v-model="code" :label="t('setup.code.label')" autocomplete="off" autocapitalize="characters" spellcheck="false" dense outlined
               data-testid="setup-code-input" @keyup.enter="submitCode"
             />
             <div v-if="codeInvalid" class="text-negative" data-testid="setup-code-invalid">{{ t('setup.code.invalid') }}</div>
@@ -218,7 +227,11 @@ const checksOk = computed(() => checks.value?.ok === true);
                     autocomplete="off" dense outlined data-testid="setup-connection"
                   >
                     <template #append>
-                      <q-icon :name="showConnection ? 'visibility_off' : 'visibility'" class="cursor-pointer" @click="showConnection = !showConnection" />
+                      <q-btn
+                        flat round dense type="button" :icon="showConnection ? 'visibility_off' : 'visibility'"
+                        :aria-label="showConnection ? t('setup.database.hide') : t('setup.database.show')" data-testid="setup-connection-toggle"
+                        @click="showConnection = !showConnection"
+                      />
                     </template>
                   </q-input>
                   <q-btn flat :label="t('setup.database.test')" :loading="busy" data-testid="setup-db-test" @click="testDatabase" />
@@ -251,7 +264,7 @@ const checksOk = computed(() => checks.value?.ok === true);
           </div>
           <q-stepper-navigation class="row q-gutter-sm no-wrap">
             <q-btn color="primary" :label="t('setup.next')" :disable="!adminPassword" data-testid="setup-next" @click="nextFromAdmin" />
-            <q-btn flat :label="t('setup.back')" @click="step = 'database'" />
+            <q-btn flat :label="t('setup.back')" data-testid="setup-back" @click="step = 'database'" />
           </q-stepper-navigation>
         </q-step>
 
@@ -262,7 +275,7 @@ const checksOk = computed(() => checks.value?.ok === true);
           </div>
           <q-stepper-navigation class="row q-gutter-sm no-wrap">
             <q-btn color="primary" :label="t('setup.next')" :disable="!siteName.trim()" data-testid="setup-next" @click="nextFromCompany" />
-            <q-btn flat :label="t('setup.back')" @click="step = 'admin'" />
+            <q-btn flat :label="t('setup.back')" data-testid="setup-back" @click="step = 'admin'" />
           </q-stepper-navigation>
         </q-step>
 
@@ -273,7 +286,7 @@ const checksOk = computed(() => checks.value?.ok === true);
           </div>
           <q-stepper-navigation class="row q-gutter-sm no-wrap">
             <q-btn color="primary" :label="t('setup.next')" :loading="busy" :disable="!backupRoot" data-testid="setup-next" @click="nextFromBackup" />
-            <q-btn flat :label="t('setup.back')" @click="step = 'company'" />
+            <q-btn flat :label="t('setup.back')" data-testid="setup-back" @click="step = 'company'" />
           </q-stepper-navigation>
         </q-step>
 

@@ -103,4 +103,10 @@ describe('維護頁', () => {
     await flushPromises();
     expect(api.getMaintenance).toHaveBeenCalledTimes(2);
   });
+
+  it('未知的 reason 退回顯示原碼，不顯示翻譯鍵', async () => {
+    api.getMaintenance.mockResolvedValue(info({ reason: 'somethingElse' as never, errorCode: null }));
+    await mountPage();
+    expect(q('maintenance-reason')!.textContent).toBe('somethingElse');
+  });
 });

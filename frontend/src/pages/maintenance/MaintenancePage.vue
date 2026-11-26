@@ -33,6 +33,7 @@ onMounted(load);
 const errorKey = computed(() => `ops.backup.error.${info.value?.errorCode}`);
 // 沒有對應句子的代碼（notConfigured、未來的新代碼）只顯示代碼那一行，避免同一個代碼印兩次
 const errorSentence = computed(() => (info.value?.errorCode && te(errorKey.value) ? labelOr(t, te, errorKey.value, info.value.errorCode) : ''));
+const reasonText = computed(() => (info.value ? labelOr(t, te, `maintenance.reason.${info.value.reason}`, info.value.reason) : ''));
 const reload = () => window.location.reload();
 </script>
 
@@ -52,7 +53,7 @@ const reload = () => window.location.reload();
 
       <template v-else-if="info">
         <q-card-section class="q-gutter-sm">
-          <div data-testid="maintenance-reason">{{ t(`maintenance.reason.${info.reason}`) }}</div>
+          <div data-testid="maintenance-reason">{{ reasonText }}</div>
           <div v-if="info.errorCode" data-testid="maintenance-error">
             <div v-if="errorSentence">{{ errorSentence }}</div>
             <div class="text-caption maintenance-code">{{ t('maintenance.errorCode', { code: info.errorCode }) }}</div>
@@ -61,7 +62,7 @@ const reload = () => window.location.reload();
 
         <q-card-section data-testid="maintenance-actions">
           <div class="text-subtitle2">{{ t('maintenance.actions.title') }}</div>
-          <ul class="q-pl-md q-my-sm">
+          <ul class="maintenance-actions">
             <li>{{ info.previousVersion ? t('maintenance.actions.rollback', { version: info.previousVersion }) : t('maintenance.actions.rollbackGeneric') }}</li>
             <li v-if="info.reason === 'preUpgradeBackupFailed'">{{ t('maintenance.actions.fixBackup') }}</li>
             <li v-if="info.reason === 'backupNotConfigured'">{{ t('maintenance.actions.fixConfig') }}</li>
@@ -82,6 +83,10 @@ const reload = () => window.location.reload();
 .maintenance-card {
   max-width: 720px;
   width: 100%;
+}
+.maintenance-actions {
+  margin: 4px 0;
+  padding-inline-start: 1.25em;
 }
 .maintenance-code {
   font-family: monospace;

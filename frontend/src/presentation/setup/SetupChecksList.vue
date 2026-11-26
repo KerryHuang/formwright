@@ -18,7 +18,7 @@ const problem = (i: SetupCheckItem) => {
   <q-list separator data-testid="setup-checks">
     <q-item v-for="i in items" :key="i.key" :data-testid="`setup-check-${i.key}`" :class="i.ok ? 'setup-check-ok' : 'setup-check-red'">
       <q-item-section avatar>
-        <q-icon :name="i.ok ? 'check_circle' : 'cancel'" :color="i.ok ? 'positive' : 'negative'" :aria-label="i.ok ? 'OK' : 'NG'" />
+        <q-icon :name="i.ok ? 'check_circle' : 'cancel'" :color="i.ok ? 'positive' : 'negative'" aria-hidden="true" />
       </q-item-section>
       <q-item-section>
         <q-item-label>{{ title(i.key) }}</q-item-label>
