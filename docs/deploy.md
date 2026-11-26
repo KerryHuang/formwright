@@ -233,7 +233,11 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 
 ### 改連接埠
 
-改設定檔的 `Server:Port`，重啟服務。Windows 另要改防火牆規則「Formwright」的連接埠（安裝時只替安裝當下選的埠開規則）。Ubuntu 用低於 1024 的埠時，服務單元會自動加 `CAP_NET_BIND_SERVICE`。Docker compose 改主機這一側：`FORMWRIGHT_PORT=9090 docker compose up -d`。
+改設定檔的 `Server:Port`，再讓服務用新埠重啟。
+
+- **Windows**：改完重啟服務；另要改防火牆規則「Formwright」的連接埠（安裝時只替安裝當下選的埠開規則）。
+- **Ubuntu**：改完設定檔後，**重跑同一行安裝指令**。腳本偵測到已安裝會走升級流程：先停服務、備份、換程式，並依設定檔裡的新埠重寫服務單元（埠低於主機「非特權埠起點」時自動加 `CAP_NET_BIND_SERVICE`），再啟動；重跑也會升級到 Releases 目前最新版。只重啟（`systemctl restart formwright`）**不會**重寫服務單元，改成低埠會綁不上。不想重跑腳本時，改用 systemd override：`sudo systemctl edit formwright`，加入 `[Service]` 與 `AmbientCapabilities=CAP_NET_BIND_SERVICE`，存檔後 `sudo systemctl daemon-reload && sudo systemctl restart formwright`。只有 `/proc/sys/net/ipv4/ip_unprivileged_port_start`（Ubuntu 預設 1024）大於新埠時才需要這個設定。升級流程不會替新埠開 ufw，要自己執行 `sudo ufw allow <新埠>/tcp`（ufw 有啟用時）。
+- **Docker compose**：改主機這一側：`FORMWRIGHT_PORT=9090 docker compose up -d`。
 
 設定檔優先於環境變數：安裝版的所有設定都以設定檔為準，精靈完成後改的也是這份；Docker compose 要改設定請改 `formwright-data` volume 裡的 `formwright.json`，不是改環境變數。
 
@@ -241,9 +245,14 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 
 - **Windows**：直接執行新版安裝程式。會先停服務、用舊版程式做一次備份，備份成功才換檔案；備份失敗就中止，舊版照常執行。備份位置沒設時會問要不要略過備份（靜默安裝要帶 `/SKIPBACKUP`，否則中止）。資料與設定不動。
 - **Ubuntu**：重跑同一行安裝指令。流程同上，備份失敗以結束碼 20 中止、舊版照跑；備份位置沒設且沒加 `--skip-backup` 以結束碼 21 中止。`--skip-backup` 只略過「備份位置沒設」，不略過備份失敗。
-- **Docker compose**：把映像換成新版（`docker compose pull && docker compose up -d`，或改 `FORMWRIGHT_IMAGE`）。換映像後第一次啟動會自動先備份、再升級資料庫；備份做完前站台連不上，用 `docker compose logs -f formwright` 看進度。備份失敗，或備份位置沒設，站台只顯示「系統維護中」頁、資料庫不動。處理方式有兩條：換回舊版映像再 `up -d`，或修好備份 volume（可寫、空間夠）後重啟容器。
+- **Docker compose**：Releases 附的 `docker-compose.yml` 固定在該版的映像版號，`docker compose pull` 只會重拉同一版，不會升級。升級用下列任一種方式：
+  - 下載新版 Release 的 `docker-compose.yml` 覆蓋舊檔，再 `docker compose pull && docker compose up -d`。
+  - 或不動檔案，pull 與 up 都帶同一個映像設定：`FORMWRIGHT_IMAGE=ghcr.io/kerryhuang/formwright:<新版號> docker compose pull && FORMWRIGHT_IMAGE=ghcr.io/kerryhuang/formwright:<新版號> docker compose up -d`（也可寫進 shell 環境，兩個指令才一致）。
+  - repo 裡的 `deploy/docker-compose.yml` 範本才指向 `latest`。
 
-映像位址 `ghcr.io/kerryhuang/formwright`，標籤是版號與 `latest`。第一次發版後，套件預設是私有，要在 GitHub 套件設定頁改成 Public 才能免登入拉取。
+  換映像後第一次啟動會自動先備份、再升級資料庫；備份做完前站台連不上，用 `docker compose logs -f formwright` 看進度。備份失敗，或備份位置沒設，站台只顯示「系統維護中」頁、資料庫不動。處理方式有兩條：換回舊版映像再 `up -d`，或修好備份 volume（可寫、空間夠）後重啟容器。
+
+映像位址 `ghcr.io/kerryhuang/formwright`，標籤是版號與 `latest`（`latest` 在該版 Release 建好後才指到新版）。第一次發版後，套件預設是私有，要在 GitHub 套件設定頁改成 Public 才能免登入拉取。
 
 ### 移除
 
