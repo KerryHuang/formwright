@@ -556,3 +556,29 @@ i3 把它們改成多語，讓：
 - `IMessageCatalog` 的「（副本）」鍵名與四語文案（Q3）。
 - 重新命名對話框的版面與文案（Q2）。
 - i3a 要不要拆 i3a1、i3a2，看實作計畫估的檔數（§17）。
+
+## 22. i3a 實作決定
+
+i3a 背景實作（2026-11-26）時自己定的技術做法，以及設計沒寫到、照保守可逆做法先做的使用者行為。標「使用者行為（代做）」的待使用者確認。§15 可寫死清單沒有新增項目。
+
+### 22.1 技術類
+
+1. **套件程式不改**：i3a 不碰 `AppService/` 與 `backend/apps/`。為了讓套件的開啟、升級、匯出、刪除檢查照常編譯，留下四個相容介面，i3c 改套件格式時拿掉：`Report.Name`（可讀寫，只動繁中，EF 忽略這個屬性）、`CreateReportRequest` 收字串的建構子、`ReportDefinitionValidator.ValidateAsync(string?, …)`、`DashboardReportReference.DashboardName`（回繁中）。
+2. **字串或物件轉換器放 Domain**（`I18nTextOrStringJsonConverter`）：API 名稱輸入與卡片標題共用；`SectionTextJsonConverter` 的讀取改成交給它，寫出不變。
+3. **名稱規則集中在 `Application/Common/I18nNameRules`**：語系鍵格式、拒收 null 值、每語上限、必填語系（`RequiredTextGuard`）。報表、儀表板、任務檢視與卡片標題共用。
+4. **卡片標題在讀版面時就清理**（`DashboardLayout.Parse`）：去空白、丟空白語系，全部空白當沒有標題；含 null 值的標題原樣保留，交給驗證回「語系 xx 的文字不能是空值」（否則 null 值會被默默清掉）。存檔前再清一次（`WithCleanTitles`）。API 回應省略 null 欄位，沒有標題的卡片沒有 `title` 鍵，前端型別兩種都收。
+5. **名稱比對改在記憶體做**：Demo 預檢的 `ReportRepository.NameExistsAsync`、`DashboardRepository.AssignedNameExistsAsync` 載入後比繁中值（名稱 JSON 不能在資料庫端比對）。
+6. **migration 手改**：照 §5.2 調整 EF 產生的順序、預設值改 `{}`、插入資料搬移 SQL（前例 SharedMailSettings）；兩種資料庫都有測試（`NameI18nMigrationTests`，`Category=Postgres`）。
+7. **刪除報表的影響清單**（`DeletePlanner`、`DeleteReportHandler`）與刪群組的影響清單依請求語系解析名稱；稽核目標名稱用系統預設語系（`dashboard.create` 稽核只補名稱，沒有 id）。
+8. **副本後綴**：新訊息鍵 `TaskViewCopySuffix`（四語），基準檔 `ServerTextBaseline/name-i18n.json`。
+9. **前端卡片標題的顯示**集中在 `dashboard-layout.ts` 的 `cardTitle()`：標題沿退回鏈有值就用，沒有才用報表名稱。
+10. **Demo 譯名**：報表、儀表板、卡片標題、看板的英文自己定，泰文、越南文是機器翻譯（`DemoText`），待母語者校對（功能清單 #30）。
+
+### 22.2 使用者行為（代做）
+
+1. **卡片標題的提示（Q2 文案之外）**：多語輸入框沒有佔位文字，元件依 §10.1 不改，所以「佔位文字是報表名稱」改成輸入框下方的提示「沒填時顯示「{報表名稱}」」（四語）。
+2. **重新命名對話框（Q2）**：自己的儀表板在編輯狀態時，名稱旁有「重新命名」按鈕；對話框標題「重新命名」，只有名稱的多語輸入框與「取消」「儲存」，沒改就不送出。指派版在儀表板頁沒有這個按鈕，改名在管理頁。
+3. **看板設定對話框也換成多語輸入框**：§10.1 只列 `BoardPicker`，但看板的改名（「儲存」）與設定裡的「另存為新看板」都在 `BoardSettingsDialog`。改名帶 `original`；另存是新增，名稱要有全部必填語系，缺的時候在名稱欄位提示缺哪個語系。
+4. **按鈕不再因名稱空白而停用**：新增儀表板、指派版新增與儲存版面、看板另存的按鈕原本在名稱空白時停用，改成可以按，由多語輸入框標出缺哪個語系（和其他用多語輸入框的畫面一致）。
+5. **報表名稱空白的訊息**：從「名稱必填」改成必填語系的通用訊息「名稱必須有繁體中文」。看板、甘特圖名稱完全空白時沿用原本的「看板名稱必填」「甘特圖名稱必填」；有文字但缺必填語系時是「看板名稱必須有英文」這類訊息（必填語系的訊息和既有 guard 一樣只有中文，不在 `IMessageCatalog` 四語表裡）。
+6. **已知限制**：刪除應用程式前的檢查（`AppDeleteInspector`，在套件程式裡）列出的報表與儀表板名稱暫時只顯示繁中，i3c 處理。看板「複製」只有 API、沒有畫面，副本後綴只在 API 與 MCP 看得到，手冊不寫。
