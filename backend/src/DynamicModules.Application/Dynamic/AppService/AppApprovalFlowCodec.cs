@@ -124,16 +124,21 @@ public static partial class AppApprovalFlowCodec
     {
         if (g.Nodes is null || !g.Nodes.Any(n => n?.Recipients?.Any(r => r?.Groups?.Any(c => !mapped(c)) == true) == true)) return g;
         // 有 null 項目的套件結構層已擋下，這裡只會拿到通過驗證的內容
-        var nodes = g.Nodes.OfType<AppApprovalNode>().ToList();
-        var edges = g.Edges?.OfType<AppApprovalEdge>().ToList() ?? [];
-        foreach (var n in nodes.ToList())
+        var nodes = g.Nodes.OfType<AppApprovalNode>().Select(n => n.Recipients is null ? n : n with
         {
-            if (n.Recipients is null) continue;
-            var recipients = n.Recipients.OfType<AppNotifyRecipient>()
+            Recipients = n.Recipients.OfType<AppNotifyRecipient>()
                 .Select(r => r.Groups is null ? r : r with { Groups = r.Groups.Where(mapped).ToList() })
-                .Where(r => r.Groups is not { Count: 0 }).ToList();
-            if (recipients.Count == 0 && Bypass(nodes, edges, n.Id) is { } done) { (nodes, edges) = done; continue; }
-            nodes[nodes.FindIndex(x => x.Id == n.Id)] = n with { Recipients = recipients };
+                .Where(r => r.Groups is not { Count: 0 }).ToList()
+        }).ToList();
+        var edges = g.Edges?.OfType<AppApprovalEdge>().ToList() ?? [];
+        // 沒有收件人的通知節點反覆嘗試跳過，直到不再有變化：一個節點跳過後，先前因後面還有別的條件線而判成不安全的節點可能變得可以跳過，
+        // 結果因此與節點在陣列裡的順序無關（複審 🟡N1）
+        var empty = nodes.Where(n => n.Recipients is { Count: 0 }).Select(n => n.Id).ToList();
+        for (var changed = true; changed;)
+        {
+            changed = false;
+            foreach (var id in empty.ToList())
+                if (Bypass(nodes, edges, id) is { } done) { (nodes, edges) = done; empty.Remove(id); changed = true; }
         }
         return g with { Nodes = nodes, Edges = edges };
     }

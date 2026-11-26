@@ -350,6 +350,28 @@ public class AppApprovalFlowCodecTests
         ShouldBeValid(f);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Graph_NotifySkipped_TwoTiersBothNotify_ResultIndependentOfNodeOrder(bool reversed)
+    {
+        // 複審 🟡N1：條件節點三條出線，order 1 → tellA、order 2 → tellB、預設 → end，兩個知會都只通知被略過的群組。
+        // 不論 tellA、tellB 在陣列裡誰先，結果相同：兩個都拿掉，條件節點只剩預設線也一起跳過
+        List<AppApprovalNode> tells = [Tell("tellA"), Tell("tellB")];
+        if (reversed) tells.Reverse();
+        var f = Graph(
+            [new("start", "start"), new("lead", "approval", T("主管"), null, Group("purchaseLead"), "any", null, null, "fallback"),
+             new("amount", "condition", T("金額")), .. tells, new("end", "end")],
+            [new("e0", "start", "lead"), new("e1", "lead", "amount"), new("e2", "amount", "tellA", null, Big, 1), new("e3", "amount", "tellB", null, Mid, 2),
+             new("e4", "amount", "end", Default: true), new("e5", "tellA", "end"), new("e6", "tellB", "end")]);
+
+        var g = AppApprovalFlowCodec.WithoutSkippedRecipients(f, c => c != "buyers");
+
+        g.Nodes!.Select(n => n.Id).Should().Equal("start", "lead", "end");
+        g.Edges!.Select(e => (e.Id, e.From, e.To)).Should().Equal(("e0", "start", "lead"), ("e1", "lead", "end"));
+        ShouldBeValid(f);
+    }
+
     [Fact]
     public void Graph_NotifySkipped_ParallelBranchesBothNotify_NodeKept_PreviewListsError()
     {
