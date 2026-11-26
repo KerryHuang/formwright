@@ -779,6 +779,8 @@ jobs:
             & net.exe localgroup $grp /delete | Out-Null
             Cleanup 'inject-ancestor'
           }
+          # 斷言失敗都會 throw；清場中的原生命令（sc、icacls、net 對已不存在的對象）可能留下非 0 的 LASTEXITCODE，GitHub 的 pwsh 包裝會拿它當步驟結果
+          $global:LASTEXITCODE = 0
 
       - name: 失敗時收集事件記錄與服務狀態
         if: failure()
