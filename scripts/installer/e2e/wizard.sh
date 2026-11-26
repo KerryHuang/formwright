@@ -16,6 +16,7 @@ RECORD_TITLE=e2e-record-1
 # 雙因素（系統預設管理員第一次存取受保護 API 前要先綁定，產品照設計的行為）：secret 與最後用過的時間步存這裡，
 # 讓同一個 job 的後續步驟（升級、重裝後登入）共用；後端拒絕重放（時間步必須大於上次用過的）
 STATE="${FW_E2E_STATE:-${RUNNER_TEMP:-/tmp}/fw-e2e-totp}"
+umask 077   # STATE 含 TOTP secret，本腳本建的檔都只給自己讀寫
 TOTP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/totp.py"
 JAR=$(mktemp)
 trap 'rm -f "$JAR"' EXIT

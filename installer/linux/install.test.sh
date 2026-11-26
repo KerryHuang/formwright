@@ -176,6 +176,19 @@ check "ensure_dirs 舊配置：父目錄先 chown root，之後才檢查 data" "
 check "ensure_dirs 舊配置：父目錄先收緊，之後才檢查 backup" "yes" "$([ -n "$lock_line" ] && [ -n "$backup_line" ] && [ "$lock_line" -lt "$backup_line" ] && echo yes || echo no)"
 check "ensure_dirs 舊配置：父目錄被收緊成 0755" "755" "$(mode_of "$r/state")"
 refuse_unsafe_path() { orig_refuse_unsafe_path "$@"; }
+# R3-1：在 `||` 左側呼叫時 set -e 不生效，第一步 chown 失敗也必須立刻中止，不碰子目錄
+for failing in "root:root STATE" "root:svc ETC"; do
+  r=$(dirs_case "fail-${failing%% *}"); mkdir -p "$r/state" "$r/etc"
+  want_args=${failing/STATE/$r/state}; want_args=${want_args/ETC/$r/etc}
+  chown() { echo "chown $*" >> "$chown_log"; [ "$*" = "$want_args" ] && return 1; return 0; }
+  : > "$chown_log"; rc=0
+  ( FW_DATA_DIR="$r/state/data" FW_BACKUP_DIR="$r/state/backup" FW_CONFIG_FILE="$r/etc/formwright.json" \
+    FW_SERVICE_USER=svc ensure_dirs ) > "$out" 2>&1 || rc=$?
+  check "ensure_dirs 在 || 左側、chown $want_args 失敗 → 非 0" "1" "$rc"
+  check "ensure_dirs chown 失敗後不碰 data／backup" "0" "$(grep -c "/data\|/backup" "$chown_log")"
+  check "ensure_dirs chown 失敗後沒有建立 data" "no" "$([ -e "$r/state/data" ] && echo yes || echo no)"
+  case "$(cat "$out")" in *"$r"*) ok "ensure_dirs chown 失敗訊息含路徑";; *) bad "ensure_dirs chown 失敗訊息含路徑" "$(cat "$out")";; esac
+done
 unset -f chown
 
 # --- 低 port 的綁定權限（M6） ---

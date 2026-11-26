@@ -174,7 +174,9 @@ jobs:
             test "$(systemctl is-active formwright || true)" = inactive
             sudo test -f "$db"
             sudo test ! -L "$db"
-            sudo -u formwright sqlite3 "$db" 'PRAGMA wal_checkpoint(TRUNCATE);' > /dev/null
+            # 結果列是「busy|WAL 頁數|已回填頁數」；busy 被當成 0 結束碼回報，所以要讀結果：TRUNCATE 完成是 0|0|0
+            ck=$(sudo -u formwright sqlite3 "$db" 'PRAGMA wal_checkpoint(TRUNCATE);')
+            test "$ck" = "0|0|0"
             sudo test -f "$db"
             sudo sha256sum "$db" | cut -d' ' -f1
           )

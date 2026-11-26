@@ -48,6 +48,7 @@ installing=正在安裝 Formwright %s …
 upgrading=正在升級 Formwright：%s → %s
 backup_running=升級前先備份資料 …
 unsafe_path=拒絕處理：%s 是符號連結或不是目錄，沒有做任何變更。請確認後手動處理再重跑。
+dirs_failed=無法設定 %s 的擁有者或權限，已中止，程式沒有更新。
 backup_failed=升級前備份失敗，升級已中止，舊版照常執行。
 backup_not_configured=備份位置沒有設定，升級已中止；確定不備份就加 --skip-backup 重跑。
 upgraded=已升級到版本 %s。
@@ -74,6 +75,7 @@ installing=Installing Formwright %s ...
 upgrading=Upgrading Formwright: %s -> %s
 backup_running=Backing up data before the upgrade ...
 unsafe_path=Refusing to continue: %s is a symbolic link or not a directory. Nothing was changed; fix it manually and re-run.
+dirs_failed=Could not set the owner or permissions of %s; stopped without updating the program.
 backup_failed=Pre-upgrade backup failed; the upgrade was cancelled and the current version is still running.
 backup_not_configured=No backup location is configured, so the upgrade was cancelled. Re-run with --skip-backup if you are sure you want to upgrade without a backup.
 upgraded=Upgraded to version %s.
@@ -258,18 +260,19 @@ refuse_unsafe_path() {
 ensure_dirs() {
   local state_dir config_dir
   state_dir=$(dirname "$FW_DATA_DIR"); config_dir=$(dirname "$FW_CONFIG_FILE")
+  # 每一步明確檢查回傳值：呼叫端可能在 `||` 左側呼叫本函式，那時 set -e 不生效
   refuse_unsafe_path "$state_dir"
   refuse_unsafe_path "$config_dir"
-  mkdir -p "$state_dir" "$config_dir"
-  chown root:root "$state_dir"
-  chmod 0755 "$state_dir"
-  chown "root:$FW_SERVICE_USER" "$config_dir"
-  chmod 0770 "$config_dir"
+  mkdir -p "$state_dir" "$config_dir" || die 1 dirs_failed "$state_dir"
+  chown root:root "$state_dir" || die 1 dirs_failed "$state_dir"
+  chmod 0755 "$state_dir" || die 1 dirs_failed "$state_dir"
+  chown "root:$FW_SERVICE_USER" "$config_dir" || die 1 dirs_failed "$config_dir"
+  chmod 0770 "$config_dir" || die 1 dirs_failed "$config_dir"
   refuse_unsafe_path "$FW_DATA_DIR"
   refuse_unsafe_path "$FW_BACKUP_DIR"
-  mkdir -p "$FW_DATA_DIR" "$FW_BACKUP_DIR"
-  chown "$FW_SERVICE_USER:$FW_SERVICE_USER" "$FW_DATA_DIR" "$FW_BACKUP_DIR"
-  chmod 0700 "$FW_DATA_DIR" "$FW_BACKUP_DIR"
+  mkdir -p "$FW_DATA_DIR" "$FW_BACKUP_DIR" || die 1 dirs_failed "$FW_DATA_DIR"
+  chown "$FW_SERVICE_USER:$FW_SERVICE_USER" "$FW_DATA_DIR" "$FW_BACKUP_DIR" || die 1 dirs_failed "$FW_DATA_DIR"
+  chmod 0700 "$FW_DATA_DIR" "$FW_BACKUP_DIR" || die 1 dirs_failed "$FW_DATA_DIR"
 }
 
 # 低於主機「非特權 port 起點」的 port，服務帳號要有綁定權限（M6）；只有需要時才加
@@ -399,7 +402,8 @@ do_upgrade() {
     abort20) systemctl start formwright || true; rm -rf "${FW_PROGRAM_DIR}.new"; die 20 backup_failed ;;
   esac
   # 舊配置的主機在這裡一併收緊權限；失敗（例如目錄是 symlink）就把舊版服務拉起來、不換程式
-  (ensure_dirs) || { systemctl start formwright || true; rm -rf "${FW_PROGRAM_DIR}.new"; exit 1; }
+  # 失敗時程式還沒換：清掉 .new、把舊版服務拉起來並確認真的在跑（拉不起來就明講），再以非 0 結束
+  (ensure_dirs) || { rm -rf "${FW_PROGRAM_DIR}.new"; systemctl start formwright || true; wait_active || die 1 start_failed "$FW_PROGRAM_DIR"; exit 1; }
   swap_program
   write_unit
   systemctl start formwright || true
