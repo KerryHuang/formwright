@@ -46,7 +46,7 @@ public sealed class ApplyLocalePackHandler(
             return ServiceResult.Invalid(LocalePackMessages.FileField, recheck.Invalid, LocalePackMessages.CodeInvalid);
         if (recheck.BooleanChanged) return Stale();
         // designData（i4e，§23.2）：寫入任何東西之前先比對各目標的內容指紋與群組撞名，不一致回 409
-        var prepared = await design.PrepareAsync(plan.Code, plan.DesignData, request.ApplySourceChanged, ct);
+        var prepared = await design.PrepareAsync(plan.Code, plan.DesignData, request.ApplySourceChanged, world.DefaultLocale, ct);
         if (prepared is null) return Stale();
 
         // 語系列：新安裝，或既有的匯入語系有欄位變動（內建語系的計畫不會帶 Locale，Q3）

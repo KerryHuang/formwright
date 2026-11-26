@@ -12,6 +12,8 @@ public static class LocalePackLimits
     public const int MaxPackNote = 500;
     public const int MaxPackBuiltFor = 20;
     public const int MaxPackBaseLocale = LocaleCode.MaxLength;
+    /// <summary><c>designData</c> 路徑最長字元數（審查 r1 🟡8；本系統產生的路徑遠短於此）。</summary>
+    public const int MaxDesignPathLength = 500;
     /// <summary><c>pack.instance</c>（本系統識別，i4e 審查 r1 🔴3）最長字元數；本系統產生的是 32 字元。</summary>
     public const int MaxPackInstance = 64;
     /// <summary>語系自稱長度（<c>Dynamic_Locale.NativeName</c> 欄長）。</summary>
@@ -38,8 +40,15 @@ public static class LocalePackLimits
     public const int MaxXlsxRows = 20000;
     /// <summary>xlsx（zip）最多幾個項目。</summary>
     public const int MaxXlsxEntries = 1000;
-    /// <summary>xlsx 實際解壓後的合計上限（防壓縮炸彈；自己串流解壓計數，不信標頭宣告的大小）。</summary>
-    public const long MaxXlsxUncompressedBytes = 100L * 1024 * 1024;
+    /// <summary>
+    /// xlsx 實際解壓後的合計上限（防壓縮炸彈；自己串流解壓計數，不信標頭宣告的大小）。審查 r1 🟡3 依實測重估：設計資料到列數上限、
+    /// 名稱都 200 字的極端樣板約 49 MB（多半是共用字串表），一般約 18 MB。
+    /// </summary>
+    public const long MaxXlsxUncompressedBytes = 64L * 1024 * 1024;
+    /// <summary>單一工作表 XML（<c>xl/worksheets/*.xml</c>）解壓後上限：ClosedXML 為儲存格建的 DOM 跟它成正比（審查 r1 🟡3；20000 列實測約 8 MB）。</summary>
+    public const long MaxXlsxWorksheetBytes = 12L * 1024 * 1024;
+    /// <summary>所有工作表 XML 解壓後合計上限（審查 r1 🟡3）。</summary>
+    public const long MaxXlsxWorksheetsTotalBytes = 24L * 1024 * 1024;
     /// <summary>單一項目解壓後超過 <see cref="XlsxRatioFloorBytes"/> 時，壓縮比不得超過這個倍數。</summary>
     public const int MaxXlsxCompressionRatio = 100;
     /// <summary>壓縮比只檢查解壓後大於這個大小的項目（小 XML 本來就壓得很小）。</summary>
@@ -54,5 +63,7 @@ public static class LocalePackReasons
         // i4e：Excel 的公式格、設計資料的逐列原因（§23.2、§23.4）
         Formula = "formula", TitleOption = "titleOption", DuplicateName = "duplicateName", NotObject = "notObject",
         // i4e 審查 r1 🔴3：local: 路徑來自別套系統（或沒帶本系統識別）
-        OtherSystem = "otherSystem";
+        OtherSystem = "otherSystem",
+        // i4e 審查 r1 🟢4：加上目標語系後超過語系數上限（名稱裡可能留著已移除語系的文字）
+        TooManyLocales = "tooManyLocales";
 }

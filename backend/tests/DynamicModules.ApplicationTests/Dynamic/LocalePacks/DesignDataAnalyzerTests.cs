@@ -18,11 +18,11 @@ public class DesignDataAnalyzerTests
 
     private static I18nText T(params (string Locale, string Value)[] values) => new(values.Select(v => KeyValuePair.Create(v.Locale, v.Value)));
 
-    private static DesignTextItem Item(string path, I18nText text, int max = 200, bool titleOption = false, bool group = false)
+    private static DesignTextItem Item(string path, I18nText text, int max = 200, bool titleOption = false, bool group = false, bool multiLine = false)
     {
         var box = new Box(text);
         return new DesignTextItem(path, "field", null, null, path.StartsWith("local:", StringComparison.Ordinal), max,
-            [new DesignTextTarget("field", "1", () => box.Text, t => box.Text = t)]) { TitleOption = titleOption, UniqueGroupName = group };
+            [new DesignTextTarget("field", "1", () => box.Text, t => box.Text = t)]) { TitleOption = titleOption, UniqueGroupName = group, MultiLine = multiLine };
     }
 
     private static ParsedLocalePack Pack(params (string Path, string Text, string? Source)[] rows) =>
@@ -43,7 +43,55 @@ public class DesignDataAnalyzerTests
         var item = Item(Field, T(("zh-TW", "狀態"), ("en-US", "Status")));
         var r = Run(Pack((Field, "状態", "狀態")), [item]);
         r.Report.Changed.Should().Be(1);
-        r.Plan.Should().ContainSingle().Which.Should().Be(new DesignDataPlanRow(Field, "状態", item.Fingerprint(), false));
+        r.Plan.Should().ContainSingle().Which.Should().Be(new DesignDataPlanRow(Field, "状態", item.Fingerprint(), false, "field:1"));
+    }
+
+    // ── 審查 r1 🟡2：去頭尾空白；名稱類拒收換行 ──
+
+    [Fact]
+    public void Text_Trimmed_WhitespaceOnlySkipped()
+    {
+        var items = new[] { Item(Field, T(("zh-TW", "狀態"))), Item("local:field:9/label", T(("zh-TW", "備註"))) };
+        var r = Run(Pack((Field, "  状態 ", null), ("local:field:9/label", " \t ", null)), items);
+        (r.Report.Changed, r.Report.Skipped).Should().Be((1, 1), "只有空白的譯文算沒翻");
+        r.Plan.Single().Text.Should().Be("状態", "存去頭尾空白後的值");
+    }
+
+    [Fact]
+    public void Text_TrimmedEqualsCurrent_Unchanged()
+    {
+        var r = Run(Pack((Field, "状態 ", null)), [Item(Field, T(("zh-TW", "狀態"), ("ja", "状態")))]);
+        (r.Report.Unchanged, r.Plan.Count).Should().Be((1, 0));
+    }
+
+    [Fact]
+    public void Newline_RejectedForNames_AllowedForMessages()
+    {
+        var items = new[] { Item(Field, T(("zh-TW", "狀態"))), Item("local:rule:9/message", T(("zh-TW", "金額不可為負")), multiLine: true) };
+        var r = Run(Pack((Field, "状\n態", null), ("local:rule:9/message", "金額は\n負にできません", null)), items);
+        r.Report.RejectedItems.Should().ContainSingle().Which.Should().Be(new RejectedItem(Field, LocalePackReasons.Control, []));
+        r.Plan.Select(p => p.Path).Should().Equal("local:rule:9/message");
+    }
+
+    // ── 審查 r1 🟡8：報告裡檔案的原文截斷 ──
+
+    [Fact]
+    public void SourceChanged_FileSourceTruncatedToMaxLength()
+    {
+        var r = Run(Pack((Field, "状態", new string('舊', 50))), [Item(Field, T(("zh-TW", "狀態")), max: 10)]);
+        r.Report.SourceChangedItems.Single().FileSource.Should().Be(new string('舊', 10));
+    }
+
+    // ── 審查 r1 🟢4：語系數上限 ──
+
+    [Fact]
+    public void TooManyLocales_Rejected()
+    {
+        var full = new I18nText(Enumerable.Range(0, Application.Common.I18nNameRules.MaxLocales).Select(i => KeyValuePair.Create(i == 0 ? "zh-TW" : $"x{i:D2}", "名")));
+        var r = Run(Pack((Field, "状態", null)), [Item(Field, full)]);
+        r.Report.RejectedItems.Should().ContainSingle().Which.Reason.Should().Be(LocalePackReasons.TooManyLocales);
+        var hasJa = new I18nText(full.Values.Where(kv => kv.Key != "x01").Append(KeyValuePair.Create("ja", "旧")));
+        Run(Pack((Field, "状態", null)), [Item(Field, hasJa)]).Plan.Should().ContainSingle("已經有目標語系就只是換值，不會多一個語系");
     }
 
     [Fact]

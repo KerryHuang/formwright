@@ -1,3 +1,4 @@
+using DynamicModules.Application.Common;
 using DynamicModules.Application.Dynamic.LocaleService.Packs;
 using DynamicModules.Domain.Localization;
 using DynamicModules.Domain.ValueObjects;
@@ -6,7 +7,8 @@ namespace DynamicModules.Application.Dynamic.LocaleService.DesignData;
 
 /// <summary>
 /// <c>designData</c> 段的分析（語系包設計 §10.3、§10.4、§23.2），純函式：輸入是解析後的列與交易內讀的可翻譯項目。
-/// 每列依序：空字串略過 → 別套系統的 <c>local:</c> 路徑拒收 → 路徑找不到 → 控制字元、長度 → 與目前值相同算不變 → 標題選項＋系統預設語系拒收 → 原文已改另記 → 會改。
+/// 每列依序：去頭尾空白後是空字串略過 → 別套系統的 <c>local:</c> 路徑拒收 → 路徑找不到 → 控制字元、長度、名稱類的換行與 tab → 語系數上限
+/// → 與目前值相同算不變 → 標題選項＋系統預設語系拒收 → 原文已改另記 → 會改（寫去頭尾空白後的值；審查 r1 🟡2）。
 /// 最後以「全部列都套用」後的群組名稱檢查同語系重名（含原文已改的列，最保守），撞到的列拒收。
 /// </summary>
 public static class DesignDataAnalyzer
@@ -34,20 +36,26 @@ public static class DesignDataAnalyzer
 
         foreach (var (path, entry) in pack.DesignData.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         {
-            if (entry.Text.Length == 0) { skipped++; continue; }
+            var value = entry.Text.Trim();
+            if (value.Length == 0) { skipped++; continue; }
             if (!sameSystem && path.StartsWith(DesignTextItem.LocalPrefix, StringComparison.Ordinal))
             {
                 rejected.Add(new RejectedItem(path, LocalePackReasons.OtherSystem, []));
                 continue;
             }
             if (!byPath.TryGetValue(path, out var item)) { notFound.Add(path); continue; }
-            if (LocaleTextSafety.Check(entry.Text, item.MaxLength) is { } reason)
+            if ((LocaleTextSafety.Check(value, item.MaxLength) ?? (item.MultiLine || value.IndexOfAny(['\n', '\t']) < 0 ? null : LocalePackReasons.Control)) is { } reason)
             {
                 rejected.Add(new RejectedItem(path, reason, reason == LocalePackReasons.TooLong ? [item.MaxLength.ToString(System.Globalization.CultureInfo.InvariantCulture)] : []));
                 continue;
             }
             var text = item.Text;
-            if (text.Values.TryGetValue(locale, out var current) && current == entry.Text) { unchanged++; continue; }
+            if (!text.Values.ContainsKey(locale) && text.Values.Count >= I18nNameRules.MaxLocales)
+            {
+                rejected.Add(new RejectedItem(path, LocalePackReasons.TooManyLocales, [I18nNameRules.MaxLocales.ToString(System.Globalization.CultureInfo.InvariantCulture)]));
+                continue;
+            }
+            if (text.Values.TryGetValue(locale, out var current) && current == value) { unchanged++; continue; }
             if (item.TitleOption && locale == systemDefault)
             {
                 rejected.Add(new RejectedItem(path, LocalePackReasons.TitleOption, []));
@@ -55,8 +63,9 @@ public static class DesignDataAnalyzer
             }
             var nowSource = SourceText(text, sourceLocale);
             var changed = !string.IsNullOrWhiteSpace(entry.Source) && entry.Source.Trim() != nowSource.Trim();
-            if (changed) sourceChanged.Add(new DesignDataSourceChange(path, entry.Source!, nowSource));
-            plan.Add(new DesignDataPlanRow(path, entry.Text, item.Fingerprint(), changed));
+            // 報告只回顯到該物件的長度上限（審查 r1 🟡8）
+            if (changed) sourceChanged.Add(new DesignDataSourceChange(path, Cut(entry.Source!.Trim(), item.MaxLength), nowSource));
+            plan.Add(new DesignDataPlanRow(path, value, item.Fingerprint(), changed, item.TargetKey));
         }
 
         foreach (var dup in DuplicateGroupNames(plan, byPath, locale))
@@ -77,6 +86,8 @@ public static class DesignDataAnalyzer
         };
         return new Result(report, plan);
     }
+
+    private static string Cut(string s, int max) => s.Length <= max ? s : s[..max];
 
     /// <summary>原文：以 [原文語系 → 繁中] 解析（§23.2）；匯出樣板的 <c>source</c> 也用這個，兩邊同一個定義。</summary>
     public static string SourceText(I18nText text, string sourceLocale) => text.Resolve(sourceLocale, [I18nText.FallbackLocale]);

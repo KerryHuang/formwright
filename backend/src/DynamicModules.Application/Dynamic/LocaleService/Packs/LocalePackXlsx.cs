@@ -43,7 +43,18 @@ public static class LocalePackXlsx
         {
             return (null, null, LocalePackMessages.XlsxInvalid);
         }
-        using (wb) return ReadWorkbook(wb);
+        using (wb)
+        {
+            // 讀格子時 ClosedXML 也可能丟例外（格式異常的檔）：一律當成不是合法樣板，回 400 而不是 500（審查 r1 🟢5）
+            try
+            {
+                return ReadWorkbook(wb);
+            }
+            catch (Exception e) when (e is not OutOfMemoryException)
+            {
+                return (null, null, LocalePackMessages.XlsxInvalid);
+            }
+        }
     }
 
     private static (JsonObject?, Problems?, MessageRef?) ReadWorkbook(XLWorkbook wb)
@@ -124,10 +135,8 @@ public static class LocalePackXlsx
                 problems.Add(new RejectedItem(key, LocalePackReasons.Formula, []));
                 continue;
             }
-            var text = FieldImportParser.StripInjectionApostrophe(Text(translation));
-            section[key] = scope == DesignData
-                ? new JsonObject { ["text"] = text, ["source"] = FieldImportParser.StripInjectionApostrophe(Text(source)) }
-                : text;
+            var text = Unescaped(translation);
+            section[key] = scope == DesignData ? new JsonObject { ["text"] = text, ["source"] = Unescaped(source) } : text;
         }
         return null;
     }
@@ -140,13 +149,20 @@ public static class LocalePackXlsx
         return value.IsText ? value.GetText() : cell.GetFormattedString();
     }
 
+    /// <summary>
+    /// 譯文與原文格：有 Excel 引號前綴的（本系統匯出的檔）內容就是原文，照收；沒有的（其他工具產生的 <c>'=</c> 跳脫）才經
+    /// <see cref="FieldImportParser.StripInjectionApostrophe"/> 去掉 <c>'</c>（審查 r1 🟡4）。
+    /// </summary>
+    private static string Unescaped(IXLCell cell) =>
+        cell.Style.IncludeQuotePrefix ? Text(cell) : FieldImportParser.StripInjectionApostrophe(Text(cell));
+
     private static void Optional(JsonObject obj, string name, string? value)
     {
         if (!string.IsNullOrWhiteSpace(value)) obj[name] = value;
     }
 
     /// <summary>
-    /// 壓縮炸彈檢查（§13.1、§23.4）：項目數、實際解壓後的合計大小、大項目的壓縮比。自己串流解壓計數，不信 zip 標頭宣告的大小；
+    /// 壓縮炸彈檢查（§13.1、§23.4）：項目數、實際解壓後的合計大小、工作表 XML 的單檔與合計大小（審查 r1 🟡3）、大項目的壓縮比。自己串流解壓計數，不信 zip 標頭宣告的大小；
     /// 讀到超過上限就停，不把整份解到記憶體。不是合法 zip 回 <see cref="LocalePackMessages.XlsxInvalid"/>。
     /// </summary>
     internal static MessageRef? CheckZip(ReadOnlyMemory<byte> bytes)
@@ -155,18 +171,22 @@ public static class LocalePackXlsx
         {
             using var zip = new ZipArchive(new MemoryStream(bytes.ToArray(), writable: false), ZipArchiveMode.Read);
             if (zip.Entries.Count > LocalePackLimits.MaxXlsxEntries) return LocalePackMessages.XlsxUnsafe;
-            long total = 0;
+            long total = 0, worksheets = 0;
             var buffer = new byte[81920];
             foreach (var entry in zip.Entries)
             {
                 long size = 0;
+                var isWorksheet = entry.FullName.StartsWith("xl/worksheets/", StringComparison.OrdinalIgnoreCase);
                 using var s = entry.Open();
                 int n;
                 while ((n = s.Read(buffer, 0, buffer.Length)) > 0)
                 {
                     size += n;
                     total += n;
-                    if (total > LocalePackLimits.MaxXlsxUncompressedBytes) return LocalePackMessages.XlsxUnsafe;
+                    if (isWorksheet) worksheets += n;
+                    if (total > LocalePackLimits.MaxXlsxUncompressedBytes
+                        || (isWorksheet && (size > LocalePackLimits.MaxXlsxWorksheetBytes || worksheets > LocalePackLimits.MaxXlsxWorksheetsTotalBytes)))
+                        return LocalePackMessages.XlsxUnsafe;
                     if (size > LocalePackLimits.XlsxRatioFloorBytes && size > Math.Max(entry.CompressedLength, 1) * LocalePackLimits.MaxXlsxCompressionRatio)
                         return LocalePackMessages.XlsxUnsafe;
                 }
