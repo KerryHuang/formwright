@@ -78,13 +78,26 @@ public static class TaskViewRules
     public static I18nText CopyName(I18nText name, Func<string, string> suffixOf) =>
         new(name.Compacted().Values.Select(kv => KeyValuePair.Create(kv.Key, CopyName(kv.Value, suffixOf(kv.Key)))));
 
-    /// <summary>名稱加後綴；超過上限時截短原名稱，保留後綴（不切斷代理字元對）。</summary>
+    /// <summary>「副本」後綴最多佔名稱上限的一半（技術上限，名稱多語設計 §15）：後綴可被語系包覆寫，太長時截短，原名稱至少留這麼多字。</summary>
+    public const int MaxCopySuffix = MaxName / 2;
+
+    /// <summary>
+    /// 名稱加後綴；超過上限時截短原名稱、保留後綴（後綴本身超過 <see cref="MaxCopySuffix"/> 先截短）。結果不超過 <see cref="MaxName"/>，
+    /// 都不切斷代理字元對（審查 🟡2：語系包覆寫成很長的後綴時不能 500）。
+    /// </summary>
     public static string CopyName(string name, string suffix)
     {
         if (name.Length + suffix.Length <= MaxName) return name + suffix;
-        var cut = MaxName - suffix.Length;
-        if (char.IsHighSurrogate(name[cut - 1])) cut--;
-        return name[..cut] + suffix;
+        suffix = Cut(suffix, MaxCopySuffix);
+        return Cut(name, MaxName - suffix.Length) + suffix;
+    }
+
+    /// <summary>截到最多 <paramref name="max"/> 個 UTF-16 字元，不留下落單的高位代理字元。</summary>
+    private static string Cut(string s, int max)
+    {
+        if (s.Length <= max) return s;
+        var cut = max > 0 && char.IsHighSurrogate(s[max - 1]) ? max - 1 : max;
+        return s[..cut];
     }
 
     public static ServiceResult Bad(string key, string message) =>

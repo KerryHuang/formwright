@@ -217,6 +217,24 @@ public class NameI18nApiTests : IDisposable
         name.GetProperty("ja").GetString().Should().Be("今週の出荷（副本）", "ja 沒有後綴文案，退回預設語系（繁中）的後綴");
     }
 
+    // 審查 🟡2：語系包把後綴覆寫成超過名稱上限，另存不能 500；後綴截到上限一半、原名稱截短，結果剛好 100 字
+    [Fact]
+    public async Task CopySuffixOverriddenTooLong_CopyStillSucceeds_WithinLimit()
+    {
+        var suffix = new string('ส', 150);
+        await LocaleTestKit.ApplyPackAsync(_app, LocaleTestKit.Pack("th", server: new Dictionary<string, string> { ["TaskViewCopySuffix"] = suffix }));
+        var res = await Client().PostAsJsonAsync(TaskViews,
+            new { kind = "board", name = new Dictionary<string, string> { ["zh-TW"] = "本週出貨", ["th"] = new string('ก', 100) } });
+        res.StatusCode.Should().Be(HttpStatusCode.Created, await res.Content.ReadAsStringAsync());
+        var id = (await JsonOf(res)).GetProperty("id").GetInt64();
+
+        var copy = await Client().PostAsync($"{TaskViews}/{id}/copy", null);
+        copy.StatusCode.Should().Be(HttpStatusCode.Created, await copy.Content.ReadAsStringAsync());
+        var name = (await JsonOf(copy)).GetProperty("name");
+        name.GetProperty("th").GetString().Should().Be(new string('ก', 50) + new string('ส', 50));
+        name.GetProperty("zh-TW").GetString().Should().Be("本週出貨（副本）", "其他語系不受影響");
+    }
+
     // ── 讀取寬鬆（§18.1 D4、D5）──
 
     [Fact]
