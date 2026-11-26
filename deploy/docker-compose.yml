@@ -1,0 +1,36 @@
+# Formwright（表匠）Docker compose 部署檔：只要這一份檔案，docker compose up -d 就能跑，不需要 .env。
+# 打開 http://<伺服器 IP>:8080/，設定碼在 docker compose logs 的 Warning 句。
+# 預設值（映像、埠、volume、路徑）由 scripts/installer/render-defaults.mjs 依 installer/install-defaults.json 寫入，不要手改標記之間的內容。
+# 改設定請改 formwright-data volume 裡的設定檔（精靈寫入），不要改環境變數：設定檔優先於環境變數。
+# >>> install-defaults
+x-fw-image: &fw-image ${FORMWRIGHT_IMAGE:-ghcr.io/example-owner/formwright:latest}
+x-fw-port: &fw-port "${FORMWRIGHT_PORT:-8080}:8080"
+x-fw-data-volume: &fw-data-volume formwright-data:/app/data
+x-fw-backup-volume: &fw-backup-volume formwright-backup:/backup
+x-fw-environment: &fw-environment
+  Install__ConfigFile: /app/data/formwright.json
+  Install__InitIfMissing: "true"
+  Install__DataDirectory: /app/data
+  Install__BackupDirectory: /backup
+x-fw-volumes: &fw-volumes
+  formwright-data:
+  formwright-backup:
+# <<< install-defaults
+
+name: formwright
+
+services:
+  formwright:
+    image: *fw-image
+    restart: unless-stopped
+    ports:
+      - *fw-port
+    volumes:
+      - *fw-data-volume
+      - *fw-backup-volume
+    environment:
+      <<: *fw-environment
+      # 換映像後第一次啟動先備份再 migration，失敗就進維護模式（設計 D-17）；只有 compose 設，不是預設路徑
+      Install__BackupBeforeUpgrade: "true"
+
+volumes: *fw-volumes
