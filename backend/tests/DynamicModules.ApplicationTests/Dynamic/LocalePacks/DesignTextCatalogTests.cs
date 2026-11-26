@@ -3,7 +3,13 @@ using System.Reflection;
 using Module = DynamicModules.Domain.Entities.Dynamic.Module;
 using DynamicModules.Application.Common.Security;
 using DynamicModules.Application.Common.Time;
+using DynamicModules.Application.Dynamic.AppService;
 using DynamicModules.Application.Dynamic.LocaleService.DesignData;
+using DynamicModules.Application.Dynamic.ModuleService.Data;
+using DynamicModules.Application.Dynamic.PrintService;
+using DynamicModules.Application.Dynamic.ReportService.Data;
+using DynamicModules.Application.Dynamic.TaskRuleService;
+using DynamicModules.Application.Dynamic.TaskService;
 using DynamicModules.Domain.Authorization;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.Repositories.Dynamic;
@@ -224,5 +230,58 @@ public class DesignTextCatalogTests
         order.SectionText()!.Values["ja"].Should().Be("営業");
         note.SectionText()!.Values["ja"].Should().Be("営業");
         order.Section.Should().Be("業務", "分組鍵（繁中）不變");
+    }
+
+    // ── 長度上限（審查 r1 🔴1）：designData 不能寫進物件自己存檔時會被擋的長度 ──
+
+    /// <summary>每種來源（與它的欄位）存檔時的上限；沒有自己上限的物件以套件格式的文字上限為準（翻譯後匯出的套件要匯得回來）。</summary>
+    private static readonly Dictionary<(string Kind, string Leaf), int> SaveLimits = new()
+    {
+        [("app", "name")] = AppPackageValidator.MaxTextLength,
+        [("module", "name")] = AppPackageValidator.MaxTextLength,
+        [("section", "name")] = ModuleRules.SectionMaxLength,
+        [("block", "name")] = AppPackageValidator.MaxTextLength,
+        [("field", "label")] = AppPackageValidator.MaxTextLength,
+        [("option", "label")] = AppPackageValidator.MaxTextLength,
+        [("rule", "message")] = AppPackageValidator.MaxTextLength,
+        [("check", "name")] = AppPackageValidator.MaxTextLength,
+        [("check", "message")] = AppPackageValidator.MaxTextLength,
+        [("event", "name")] = AppPackageValidator.MaxTextLength,
+        [("conversion", "name")] = AppPackageValidator.MaxTextLength,
+        [("print", "name")] = PrintTemplateRules.MaxNameLength,
+        [("taskRule", "name")] = TaskRuleMessages.NameMaxLength,
+        [("taskRule", "title")] = TaskEditParser.TitleMax,
+        [("taskRule", "description")] = TaskEditParser.DescriptionMax,
+        [("approvalFlow", "name")] = AppPackageValidator.MaxTextLength,
+        [("view", "name")] = AppPackageValidator.MaxTextLength,
+        [("report", "name")] = ReportRules.MaxNameLength,
+        [("dashboard", "name")] = ReportRules.MaxNameLength,
+        [("group", "name")] = PermissionGroup.NameMax,
+        [("department", "name")] = AppPackageValidator.MaxTextLength,
+        [("program", "name")] = AppPackageValidator.MaxTextLength,
+    };
+
+    [Fact]
+    public async Task MaxLength_EveryKind_EqualsSaveLimit()
+    {
+        var (world, _, _) = World();
+        var app = world.Apps[0];
+        app.Reports = [new AppReport { AppId = 7, ReportId = 95, Code = "sales" }];
+        var data = world with
+        {
+            Events = [new ModuleEvent { Id = 30, Key = "paid", SourceModuleId = 1, NameI18n = Zh("已付款") }],
+            Conversions = [new Conversion { Id = 31, Key = "to-invoice", SourceModuleId = 1, NameI18n = Zh("轉發票") }],
+            PrintTemplates = [new PrintTemplate { Id = 32, Key = "slip", ModuleId = 1, NameI18n = Zh("出貨單") }],
+            ApprovalFlows = [new ApprovalFlow { Id = 33, Key = "big", ModuleId = 1, NameI18n = Zh("大額") }],
+            Reports = [new Report { Id = 95, NameI18n = Zh("業績") }],
+        };
+        var items = (await Build(data)).Values.ToList();
+
+        var kinds = items.Select(i => (i.Kind, Leaf: i.Path[(i.Path.LastIndexOf('/') + 1)..])).Distinct().ToList();
+        kinds.Select(k => k.Kind).Distinct().Should().BeEquivalentTo(DesignTextSources.All.Select(s => s.Kind == "checkMessage" ? "check" : s.Kind).Distinct(),
+            "每種來源都要有項目，測試才涵蓋得到");
+        kinds.Should().BeEquivalentTo(SaveLimits.Keys, "對照表要剛好列出每種來源的每個欄位");
+        foreach (var i in items)
+            i.MaxLength.Should().Be(SaveLimits[(i.Kind, i.Path[(i.Path.LastIndexOf('/') + 1)..])], $"{i.Path} 的上限要引用存檔驗證的常數");
     }
 }
