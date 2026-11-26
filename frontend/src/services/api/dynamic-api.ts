@@ -223,8 +223,9 @@ export interface ApprovalSubstitution {
   stageName?: I18nText | null;
   group: string;
   groupName: I18nText;
-  kind: 'approvers' | 'candidates' | 'fallback';
-  replacedBy: 'flowFallback' | 'policyDefault';
+  /** notify: a notify node's recipient group; that group is dropped (replacedBy 'skipped') and the node is removed when no recipients remain. */
+  kind: 'approvers' | 'candidates' | 'fallback' | 'notify';
+  replacedBy: 'flowFallback' | 'policyDefault' | 'skipped';
 }
 export interface ClearedField { moduleKey: string; field: string; count: number }
 /** GET apps/{key}/delete-check：刪除會動到什麼；擋下與否由後端判斷，前端只呈現。 */
