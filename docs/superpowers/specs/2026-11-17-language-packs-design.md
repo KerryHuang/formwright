@@ -145,7 +145,8 @@ Formwright 現在只有四種語系（zh-TW、en-US、th、vi），清單寫死�
     "version": "1.2.0",
     "builtFor": "2026.11",
     "baseLocale": "zh-TW",
-    "note": "日文初版，製造業用語"
+    "note": "日文初版，製造業用語",
+    "instance": "3f9c0d6e2b8a4c17a5e1f0b29d7c6e48"
   },
   "ui": { "menu.home": "ホーム", "common.save": "保存" },
   "server": { "Forbidden": "権限がありません", "report.Yes": "はい" },
@@ -157,6 +158,7 @@ Formwright 現在只有四種語系（zh-TW、en-US、th、vi），清單寫死�
 
 - **`locale`**：§4.1 的欄位。匯入既有語系時，這段可以只帶 `code`，其他欄位沿用；有帶就更新。`direction` 只用來拒收（`rtl` 整包拒收，U10），不存；缺省視為 `ltr`。
 - **`pack.version`**：匯入者自訂的版本字串，只顯示、不比大小（最長 50 字元）。`builtFor` 是產生樣板時的平台版本，只用來提示（§5.2；最長 20 字元）。`baseLocale` 是翻譯時參照的原文語系。`note` 最長 500 字元。
+- **`pack.instance`**（選填，i4e 審查 r1 🔴3，主控裁決）：匯出樣板的那套系統的識別。`designData` 的 `local:` 路徑是本系統的資料列 Id，換一套系統就可能對到不相干的物件，所以匯入時**只有** `pack.instance` 與本系統識別相同，`local:` 列才會套用；不同或沒帶，`local:` 列一律拒收（原因 `otherSystem`），有綁定代碼的路徑照常。本系統識別存在系統設定 `system.instanceId`，啟動時沒有才產生（隨機 32 位十六進位，跨重啟不變、不帶機器名稱等可辨識資訊），不需要 migration。最長 64 字元。格式版本不升：舊版解析器本來就略過 `pack` 裡不認得的欄位，舊檔沒有這欄照舊解析（只是 `local:` 列會被拒收）。
 - **`ui`**：前端介面文字，**扁平鍵**（`a.b.c`），鍵順序依字母排序，方便 diff。值是 vue-i18n 訊息，語法限制見 §13.2。
 - **`server`**：後端訊息，鍵是 `MessageText` 常數名；`ReportText` 的鍵加 `report.` 前綴當命名空間（目前兩張表沒有同名鍵，前綴是為了讓兩張表日後各自加鍵不會撞名，也讓語系包一眼分得出來源）。`AlertMailText`（告警信與事件標題）的鍵加 `alert.` 前綴：主表 `alert.<常數名>`、代碼名稱 `alert.label.<代碼>`（例 `alert.label.severity.critical`）、健康檢查名稱 `alert.check.<代碼>`（i4c Q1，2026-11-21 使用者裁決）。值是 `string.Format` 範本，參數 `{0}`、`{1}`。**鍵是語系包的公開契約**：`MessageText`、`ReportText` 的註解要寫明「鍵改名要留別名」，否則舊語系包的句子會默默失效。
 - **`designData`**（選填）：設計資料翻譯，鍵是 §10.2 的路徑，`text` 是譯文，`source` 是翻譯當時的原文（用來偵測「原文已改」，§10.4）。官方或廠商可以用這段替內建應用程式出譯名。
@@ -475,6 +477,7 @@ Demo 站公開，任何人都能用 Demo 管理員登入。若開放匯入，一
   - 設計資料每語的長度上限引用各物件存檔驗證的常數，不另設一份（審查 r1 🔴1）：選單分區 `ModuleRules.SectionMaxLength`（100）、群組 `PermissionGroup.NameMax`（100）、列印範本 `PrintTemplateRules.MaxNameLength`（100）、報表與儀表板 `ReportRules.MaxNameLength`（100）、任務規則名稱 `TaskRuleMessages.NameMaxLength`（200）、任務標題 `TaskEditParser.TitleMax`（200）、任務說明 `TaskEditParser.DescriptionMax`（4000）；其餘沒有自己存檔上限的名稱用套件格式的 `AppPackageValidator.MaxTextLength`（200），翻譯後匯出的套件才匯得回來。測試 `MaxLength_EveryKind_EqualsSaveLimit` 逐類比對。
   - 設計資料路徑是不透明的鍵（整串比對、不跳脫）；綁定代碼優先、沒綁定用 `local:{種類}:{Id}`；選單分區以繁中分區名為鍵（§23.1）。
   - 可翻譯來源登記清單與排除清單（§23.1）寫在 `DesignTextSources`，由掃型別測試把關。
+  - `pack.instance` 最長 64 字元（`LocalePackLimits.MaxPackInstance`）；本系統識別是隨機 32 位十六進位，存在系統設定 `system.instanceId`（`SystemSetting.InstanceId`），啟動種子補上（審查 r1 🔴3）。
   - Excel 工作表名稱去掉 `[]:*?/\`、截到 31 字元、撞名加序號（Excel 的技術限制）。
   - 本段沒有新增業務政策：檔案大小沿用 A38。
 - 後端訊息鍵的命名空間：`MessageText` 無前綴、`ReportText` 為 `report.`、`AlertMailText` 為 `alert.`（`alert.label.`、`alert.check.`），是語系包 `server` 段的公開契約；`AsI18n` 產生的語系＝已安裝語系（含已停用，M3）（i4c）。
@@ -549,6 +552,7 @@ Demo 站公開，任何人都能用 Demo 管理員登入。若開放匯入，一
   - 這次匯入才新安裝的語系，`designData` 不套用；安裝後要再匯入同一個檔（§23.2）。
   - 標題樣板用到的下拉選項，目標語系是系統預設語系時拒收（`titleOption`），請到設計器改名（§23.2）。
   - 欄位規則訊息沒有代碼也沒有綁定，一律 `local:` 路徑，只在本系統有效。
+  - `local:` 列只收同一套系統匯出的樣板（`pack.instance`，§5.1）。把整個資料庫複製一份當另一套系統的起點時，兩邊識別相同，彼此的 `local:` 列會被當成同一套系統；從備份還原的是同一套系統，識別相同是刻意的。要讓複製出來的系統換識別，刪掉系統設定 `system.instanceId` 那一列後重新啟動。
   - 匯入 Excel 時文字開頭是 `'=`、`'+`、`'-`、`'@` 的譯文會去掉 `'`（沿用 `FieldImportParser` 的跳脫規則）；原文真的以這樣開頭的句子往返後少一個字。
   - `designData` 段沒有列數上限（JSON 檔受 A38 檔案大小限制，Excel 每張 20000 列）。
   - 預覽時的內容指紋只看會被改的那段文字：別人在預覽後改了同一物件的其他屬性，不會擋下套用。
@@ -825,12 +829,13 @@ Formwright 的取捨：
 - 設計資料範圍只能匯出**已安裝**的語系（新語系樣板勾設計資料回 400）。
 - 篩選：`onlyMissing`＝目標語系沒有自己的文字；設計資料沒有「原文已更新」的概念（沒存原文雜湊），只勾 `onlyBaseChanged` 時設計資料段沒有列（照既有聯集公式）。
 - **JSON**：`designData` 段每列 `{ "text": 目標語系自己的值或空字串, "source": 原文語系的值 }`，`local:` 路徑另帶 `"local": true`（解析器只讀 `text`、`source`）；`reference` 段另有 `designData`（路徑 → 參考語系的值）。
+- **本系統識別**（審查 r1 🔴3）：JSON 樣板的 `pack` 段與 Excel 說明頁（機器鍵 `pack.instance`）都寫本系統識別（§5.1）；不論勾哪些範圍都寫。預覽時語系包的 `pack.instance` 與本系統識別不同或沒帶，`designData` 的 `local:` 列一律拒收（`otherSystem`），不論路徑找不找得到；空白譯文仍算略過。前端拒收原因四語文案在 `localePacks.reasons.otherSystem`。
 - 新端點 `GET i18n/design-scopes`（系統管理員）：回應用程式與其模組清單、不屬於應用程式的模組清單，給匯出對話框的下拉選單用。
 
 ### 23.4 Excel 樣板配置（§7.1、§7.2）
 
 - 檔名 `<代碼>.langpack.xlsx`；匯入以內容判斷（zip 簽章）。工作表名稱、欄名、填寫規則依請求語系產生（後端訊息走 `IMessageCatalog`）。
-- **第 1 張「說明」**：A 欄機器鍵、B 欄值（實作時沒有另加 C 欄說明，填寫規則寫在下方）。機器鍵：`format`、`formatVersion`、`locale.code`、`locale.nativeName`、`locale.fallback`、`locale.quasarLang`、`pack.builtFor`、`pack.baseLocale`、`pack.referenceLocale`、`sheet.ui`、`sheet.server`、`sheet.designData`（後三個是各範圍工作表的名稱，只有匯出的範圍才有）。下方是填寫規則。匯入只讀第 1 張的 A、B 兩欄；`format` 不對或缺就整檔拒收。
+- **第 1 張「說明」**：A 欄機器鍵、B 欄值（實作時沒有另加 C 欄說明，填寫規則寫在下方）。機器鍵：`format`、`formatVersion`、`locale.code`、`locale.nativeName`、`locale.fallback`、`locale.quasarLang`、`pack.builtFor`、`pack.baseLocale`、`pack.referenceLocale`、`pack.instance`（本系統識別，§5.1）、`sheet.ui`、`sheet.server`、`sheet.designData`（後三個是各範圍工作表的名稱，只有匯出的範圍才有）。下方是填寫規則。匯入只讀第 1 張的 A、B 兩欄；`format` 不對或缺就整檔拒收。
 - **範圍工作表**（介面文字、系統訊息、設計資料，只出勾選的）：第 1 列欄名，第 2 列起一句一列：A 鍵／B 分類／C 原文／D 參考／E 目前譯文／F 譯文（填這欄）／G 佔位符／H 備註。F 預先填目前譯文（同 JSON 樣板），原樣匯回就是「不變」。分類：介面文字取鍵的第一段、系統訊息分 `report`／`alert`／`message`（同完整度）、設計資料是物件種類。備註：原文已更新、參數不符、只在本系統有效。
 - **匯入讀哪些欄**：A（鍵）與 F（譯文）；設計資料工作表另讀 C（原文）當 `source`（U8 要用）。匯入以 `sheet.*` 找工作表：說明有登記、活頁簿裡卻找不到（被改名）就整檔拒收，提示不要改工作表名稱。第 1 列與鍵空白的列略過。
 - **公式**：A、C、F 任一格是公式，那一列拒收（原因 `formula`），不取快取值（§7.2）。數字、日期、布林格以顯示文字取值。

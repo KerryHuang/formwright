@@ -6,7 +6,7 @@ namespace DynamicModules.Application.Dynamic.LocaleService.DesignData;
 
 /// <summary>
 /// <c>designData</c> 段的分析（語系包設計 §10.3、§10.4、§23.2），純函式：輸入是解析後的列與交易內讀的可翻譯項目。
-/// 每列依序：空字串略過 → 路徑找不到 → 控制字元、長度 → 與目前值相同算不變 → 標題選項＋系統預設語系拒收 → 原文已改另記 → 會改。
+/// 每列依序：空字串略過 → 別套系統的 <c>local:</c> 路徑拒收 → 路徑找不到 → 控制字元、長度 → 與目前值相同算不變 → 標題選項＋系統預設語系拒收 → 原文已改另記 → 會改。
 /// 最後以「全部列都套用」後的群組名稱檢查同語系重名（含原文已改的列，最保守），撞到的列拒收。
 /// </summary>
 public static class DesignDataAnalyzer
@@ -17,8 +17,9 @@ public static class DesignDataAnalyzer
     /// <param name="isNewLocale">這次匯入才新安裝：整段不套用（§23.2）。</param>
     /// <param name="sourceLocale">原文語系（<c>pack.baseLocale</c> 已安裝才用，否則繁中）。</param>
     /// <param name="systemDefault">系統預設語系（標題選項的判斷）。</param>
+    /// <param name="sameSystem">語系包的 <c>pack.instance</c> 與本系統識別相同（審查 r1 🔴3）；否則或沒帶時 <c>local:</c> 列一律拒收（<c>otherSystem</c>）。</param>
     public static Result Analyze(ParsedLocalePack pack, IReadOnlyList<DesignTextItem> items, string locale, bool isNewLocale,
-        string sourceLocale, string systemDefault)
+        string sourceLocale, string systemDefault, bool sameSystem)
     {
         var count = pack.DesignDataCount;
         if (count == 0) return new Result(new DesignDataReport(0), []);
@@ -34,6 +35,11 @@ public static class DesignDataAnalyzer
         foreach (var (path, entry) in pack.DesignData.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         {
             if (entry.Text.Length == 0) { skipped++; continue; }
+            if (!sameSystem && path.StartsWith(DesignTextItem.LocalPrefix, StringComparison.Ordinal))
+            {
+                rejected.Add(new RejectedItem(path, LocalePackReasons.OtherSystem, []));
+                continue;
+            }
             if (!byPath.TryGetValue(path, out var item)) { notFound.Add(path); continue; }
             if (LocaleTextSafety.Check(entry.Text, item.MaxLength) is { } reason)
             {

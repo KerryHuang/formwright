@@ -3,6 +3,8 @@ using DynamicModules.Application.Common.Localization;
 using DynamicModules.Application.Dynamic.LocaleService.DesignData;
 using DynamicModules.Application.Dynamic.LocaleService.Packs;
 using DynamicModules.Application.Dynamic.OpsService;
+using DynamicModules.Domain.Entities.Dynamic;
+using DynamicModules.Domain.Repositories.Dynamic;
 using MediatR;
 
 namespace DynamicModules.Application.Dynamic.LocaleService.Queries.GetLocaleTemplate;
@@ -13,7 +15,7 @@ namespace DynamicModules.Application.Dynamic.LocaleService.Queries.GetLocaleTemp
 /// Excel 的工作表名稱、欄名與填寫規則依請求語系（<see cref="IMessageCatalog"/>）。
 /// </summary>
 public sealed class GetLocaleTemplateHandler(LocaleWorldReader worlds, IOpsEnvironment ops, DesignTextCatalog catalog, IMessageCatalog messages,
-    RequestLocale locale) : IRequestHandler<GetLocaleTemplateRequest, ServiceResult>
+    RequestLocale locale, ISystemSettingRepository settings) : IRequestHandler<GetLocaleTemplateRequest, ServiceResult>
 {
     public const string XlsxContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
@@ -28,9 +30,11 @@ public sealed class GetLocaleTemplateHandler(LocaleWorldReader worlds, IOpsEnvir
             design = await catalog.BuildAsync(ct);
             if (LocaleTemplateBuilder.ValidateDesign(design, options) is { } designError) return Invalid(designError);
         }
+        // 本系統識別（§5.1 pack.instance；審查 r1 🔴3）：啟動種子補上；讀不到就不寫，匯回時 local: 列一律拒收（fail closed）
+        var instance = await settings.GetValueAsync(SystemSetting.InstanceId, ct);
         if (options.Format != LocaleTemplateBuilder.FormatXlsx)
         {
-            var (fileName, content) = LocaleTemplateBuilder.Build(world, current, options, ops.Version, design);
+            var (fileName, content) = LocaleTemplateBuilder.Build(world, current, options, ops.Version, design, instance);
             return ServiceResult.Success(new LocaleTemplateFile(fileName, content, "application/json; charset=utf-8"));
         }
 
@@ -58,7 +62,7 @@ public sealed class GetLocaleTemplateHandler(LocaleWorldReader worlds, IOpsEnvir
             [LocalePackXlsx.DesignData] = Unique(T(MessageText.LocaleXlsxSheetDesign)),
         };
         var (name, bytes, buildError) = LocaleTemplateBuilder.BuildXlsx(world, current, options, ops.Version, design, labels with { HelpSheet = help },
-            sheets, (T(MessageText.LocaleXlsxNoteBaseChanged), T(MessageText.LocaleXlsxNoteParamsChanged), T(MessageText.LocaleXlsxNoteLocal)));
+            sheets, (T(MessageText.LocaleXlsxNoteBaseChanged), T(MessageText.LocaleXlsxNoteParamsChanged), T(MessageText.LocaleXlsxNoteLocal)), instance);
         if (buildError is not null) return Invalid(buildError);
         return ServiceResult.Success(new LocaleTemplateFile(name!, bytes!, XlsxContentType));
     }

@@ -13,6 +13,9 @@ namespace DynamicModules.Application.Dynamic.LocaleService.DesignData;
 public sealed class DesignTextItem(string path, string kind, string? appKey, long? moduleId, bool local, int maxLength,
     IReadOnlyList<DesignTextTarget> targets)
 {
+    /// <summary>只在本系統有效的路徑前綴（§23.1）：後面接的是本系統的資料列 Id 或流水代碼。</summary>
+    public const string LocalPrefix = "local:";
+
     public string Path { get; } = path;
     public string Kind { get; } = kind;
     public string? AppKey { get; } = appKey;

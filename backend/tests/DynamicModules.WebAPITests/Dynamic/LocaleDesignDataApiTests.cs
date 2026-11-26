@@ -70,12 +70,22 @@ public class LocaleDesignDataApiTests : IDisposable
 
     private static string FieldPath(long id) => $"local:field:{id}/label";
 
-    private static byte[] DesignPack(string code, params (string Path, string Text, string? Source)[] rows) =>
-        DesignPack(code, null, rows);
+    /// <summary>本系統識別（審查 r1 🔴3）：啟動種子寫進系統設定。</summary>
+    private static string InstanceOf(TestApp app) =>
+        Db(app, db => db.Set<SystemSetting>().AsNoTracking().Single(s => s.Key == SystemSetting.InstanceId).Value);
 
-    private static byte[] DesignPack(string code, IReadOnlyDictionary<string, string>? ui, params (string Path, string Text, string? Source)[] rows)
+    private static byte[] DesignPack(TestApp app, string code, params (string Path, string Text, string? Source)[] rows) =>
+        DesignPack(app, code, null, rows);
+
+    /// <summary>帶本系統識別的語系包（同一套系統匯出的樣板就會帶）。</summary>
+    private static byte[] DesignPack(TestApp app, string code, IReadOnlyDictionary<string, string>? ui, params (string Path, string Text, string? Source)[] rows) =>
+        DesignPackFrom(code, ui, InstanceOf(app), rows);
+
+    /// <summary><paramref name="instance"/> 給空字串代表不帶 <c>pack.instance</c>。</summary>
+    private static byte[] DesignPackFrom(string code, IReadOnlyDictionary<string, string>? ui, string instance, params (string Path, string Text, string? Source)[] rows)
     {
         var root = JsonNode.Parse(Pack(code, code == "ja" ? "日本語" : code, ui: ui))!.AsObject();
+        if (instance.Length > 0) root["pack"] = new JsonObject { ["instance"] = instance };
         var dd = new JsonObject();
         foreach (var (path, text, source) in rows)
         {
@@ -158,7 +168,7 @@ public class LocaleDesignDataApiTests : IDisposable
         SetFieldLabel(_app, fieldId, new([KeyValuePair.Create("zh-TW", "欄位"), KeyValuePair.Create("en-US", "Field")]));
         var appName = Db(_app, db => db.Set<App>().AsNoTracking().Single(a => a.Key == Ev).NameI18n);
 
-        var report = await PreviewOkAsync(admin, DesignPack("ja", (FieldPath(fieldId), "フィールド", "欄位"), ("app:event-registration/name", "取引先", null),
+        var report = await PreviewOkAsync(admin, DesignPack(_app, "ja", (FieldPath(fieldId), "フィールド", "欄位"), ("app:event-registration/name", "取引先", null),
             ("app:gone/name", "消えた", null), ("local:field:999999/label", "", null)));
         var design = report.GetProperty("designData");
         (design.GetProperty("count").GetInt32(), design.GetProperty("changed").GetInt32(), design.GetProperty("notFound").GetInt32(),
@@ -190,7 +200,7 @@ public class LocaleDesignDataApiTests : IDisposable
         var admin = _app.AsUser();
         await InstallAsync(_app, "ja", "日本語");
         var (fieldId, _) = await CustomFieldAsync(admin);
-        var pack = DesignPack("ja", (FieldPath(fieldId), "フィールド", "舊的欄位名稱"));
+        var pack = DesignPack(_app, "ja", (FieldPath(fieldId), "フィールド", "舊的欄位名稱"));
 
         var report = await PreviewOkAsync(admin, pack);
         var design = report.GetProperty("designData");
@@ -218,7 +228,7 @@ public class LocaleDesignDataApiTests : IDisposable
         var (fieldId, _) = await CustomFieldAsync(admin);
         (await admin.PutAsJsonAsync($"{Base}/system/policies/locale.requiredText", new { value = new[] { "zh-TW", "en-US" } })).EnsureSuccessStatusCode();
 
-        var report = await PreviewOkAsync(admin, DesignPack("ja", (FieldPath(fieldId), "フィールド", "欄位")));
+        var report = await PreviewOkAsync(admin, DesignPack(_app, "ja", (FieldPath(fieldId), "フィールド", "欄位")));
         report.GetProperty("designData").GetProperty("rejected").GetInt32().Should().Be(0);
         (await Apply(admin, report, false)).StatusCode.Should().Be(HttpStatusCode.OK);
         FieldRow(_app, fieldId).LabelI18n.Values.Should().BeEquivalentTo(new Dictionary<string, string> { ["zh-TW"] = "欄位", ["ja"] = "フィールド" });
@@ -229,7 +239,7 @@ public class LocaleDesignDataApiTests : IDisposable
     {
         var admin = _app.AsUser();
         var (fieldId, _) = await CustomFieldAsync(admin);
-        var report = await PreviewOkAsync(admin, DesignPack("ko", new Dictionary<string, string> { ["menu.home"] = "홈" }, (FieldPath(fieldId), "필드", null)));
+        var report = await PreviewOkAsync(admin, DesignPack(_app, "ko", new Dictionary<string, string> { ["menu.home"] = "홈" }, (FieldPath(fieldId), "필드", null)));
         report.GetProperty("designData").GetProperty("localeNotInstalled").GetBoolean().Should().BeTrue();
 
         var res = await Apply(admin, report, false);
@@ -245,7 +255,7 @@ public class LocaleDesignDataApiTests : IDisposable
         var admin = _app.AsUser();
         await InstallAsync(_app, "ja", "日本語");
         var (fieldId, _) = await CustomFieldAsync(admin);
-        var report = await PreviewOkAsync(admin, DesignPack("ja", new Dictionary<string, string> { ["menu.home"] = "ホーム" }, (FieldPath(fieldId), "フィールド", null)));
+        var report = await PreviewOkAsync(admin, DesignPack(_app, "ja", new Dictionary<string, string> { ["menu.home"] = "ホーム" }, (FieldPath(fieldId), "フィールド", null)));
 
         SetFieldLabel(_app, fieldId, new([KeyValuePair.Create("zh-TW", "欄位"), KeyValuePair.Create("en-US", "Changed meanwhile")]));
         var res = await Apply(admin, report, false);
@@ -264,7 +274,7 @@ public class LocaleDesignDataApiTests : IDisposable
         await OpenEventsAsync(admin);
         var (fieldId, _) = await CustomFieldAsync(admin);
         // 依路徑排序：先寫應用程式名稱（app:…）、再寫欄位（local:field:… 會丟例外）——先寫的應用程式名稱要跟著回滾
-        var report = await PreviewOkAsync(admin, DesignPack("ja", new Dictionary<string, string> { ["menu.home"] = "ホーム" },
+        var report = await PreviewOkAsync(admin, DesignPack(app, "ja", new Dictionary<string, string> { ["menu.home"] = "ホーム" },
             (FieldPath(fieldId), "フィールド", null), ("app:event-registration/name", "取引先", null)));
 
         (await Apply(admin, report, false)).StatusCode.Should().Be(HttpStatusCode.InternalServerError);
@@ -290,7 +300,7 @@ public class LocaleDesignDataApiTests : IDisposable
     public async Task NonAdmin_403()
     {
         var sales = _app.AsUser("sales01");
-        (await sales.PostAsync($"{I18n}/packs/preview?fileName=t.langpack.json", new ByteArrayContent(DesignPack("ja", ("app:any/name", "取引先", null)))))
+        (await sales.PostAsync($"{I18n}/packs/preview?fileName=t.langpack.json", new ByteArrayContent(DesignPack(_app, "ja", ("app:any/name", "取引先", null)))))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await sales.PostAsJsonAsync($"{I18n}/packs/apply", new { previewId = "x", fileHash = "y", applySourceChanged = true }))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
@@ -307,7 +317,7 @@ public class LocaleDesignDataApiTests : IDisposable
         var admin = app.AsUser();
         await InstallAsync(app, "ja", "日本語");
         await OpenEventsAsync(admin);
-        var report = await PreviewOkAsync(admin, DesignPack("ja", ("app:event-registration/name", "取引先", null)));
+        var report = await PreviewOkAsync(admin, DesignPack(app, "ja", ("app:event-registration/name", "取引先", null)));
         report.GetProperty("designData").GetProperty("changed").GetInt32().Should().Be(1);
         var res = await Apply(admin, report.TryGetProperty("previewId", out var id) && id.ValueKind == JsonValueKind.String ? report
             : JsonDocument.Parse($"{{\"previewId\":\"x\",\"fileHash\":\"{report.GetProperty("fileHash").GetString()}\"}}").RootElement, true);
@@ -390,5 +400,69 @@ public class LocaleDesignDataApiTests : IDisposable
         var res = await PreviewAsync(_app.AsUser(), ms.ToArray(), "bomb.langpack.xlsx");
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await JsonOf(res)).GetProperty("errors").GetProperty("file")[0].GetString().Should().Be("Excel 檔解壓後過大或壓縮比異常，已拒收");
+    }
+
+    // ── local: 只匯回同一套系統（審查 r1 🔴3） ──
+
+    [Fact]
+    public async Task Template_WritesInstance_JsonAndExcel()
+    {
+        var admin = _app.AsUser();
+        await InstallAsync(_app, "ja", "日本語");
+        var (_, moduleId) = await CustomFieldAsync(admin);
+        var instance = InstanceOf(_app);
+        instance.Should().MatchRegex("^[0-9a-f]{32}$", "隨機產生、不帶可辨識資訊");
+
+        (await JsonOf(await Template(admin, "ja", $"designModule={moduleId}"))).GetProperty("pack").GetProperty("instance").GetString().Should().Be(instance);
+        using var wb = new XLWorkbook(new MemoryStream(await ExportXlsx(admin, $"designModule={moduleId}")));
+        var help = wb.Worksheet(1);
+        help.Column(1).CellsUsed().Single(c => c.GetText() == "pack.instance").WorksheetRow().Cell(2).GetText().Should().Be(instance);
+    }
+
+    [Fact]
+    public async Task LocalRows_OtherSystem_AllRejected()
+    {
+        var admin = _app.AsUser();
+        await InstallAsync(_app, "ja", "日本語");
+        await OpenEventsAsync(admin);
+        var (fieldId, _) = await CustomFieldAsync(admin);
+
+        var report = await PreviewOkAsync(admin, DesignPackFrom("ja", null, "0123456789abcdef0123456789abcdef",
+            (FieldPath(fieldId), "フィールド", null), ("local:field:999999/label", "ない", null), ("app:event-registration/name", "取引先", null)));
+        var design = report.GetProperty("designData");
+        (design.GetProperty("changed").GetInt32(), design.GetProperty("rejected").GetInt32(), design.GetProperty("notFound").GetInt32())
+            .Should().Be((1, 2, 0), "別系統的 local: 列一律拒收（找不到的也算拒收），有綁定的照套");
+        design.GetProperty("rejectedItems").EnumerateArray().Select(r => (r.GetProperty("key").GetString(), r.GetProperty("reason").GetString()))
+            .Should().BeEquivalentTo([(FieldPath(fieldId), "otherSystem"), ("local:field:999999/label", "otherSystem")]);
+
+        (await Apply(admin, report, true)).StatusCode.Should().Be(HttpStatusCode.OK);
+        FieldRow(_app, fieldId).LabelI18n.Values.Should().NotContainKey("ja");
+    }
+
+    [Fact]
+    public async Task LocalRows_SameSystem_Applied()
+    {
+        var admin = _app.AsUser();
+        await InstallAsync(_app, "ja", "日本語");
+        var (fieldId, _) = await CustomFieldAsync(admin);
+
+        var report = await PreviewOkAsync(admin, DesignPack(_app, "ja", (FieldPath(fieldId), "フィールド", null)));
+        (report.GetProperty("designData").GetProperty("changed").GetInt32(), report.GetProperty("designData").GetProperty("rejected").GetInt32())
+            .Should().Be((1, 0));
+        (await Apply(admin, report, false)).StatusCode.Should().Be(HttpStatusCode.OK);
+        FieldRow(_app, fieldId).LabelI18n.Values["ja"].Should().Be("フィールド");
+    }
+
+    [Fact]
+    public async Task LocalRows_NoInstance_AllRejected()
+    {
+        var admin = _app.AsUser();
+        await InstallAsync(_app, "ja", "日本語");
+        var (fieldId, _) = await CustomFieldAsync(admin);
+
+        var report = await PreviewOkAsync(admin, DesignPackFrom("ja", null, "", (FieldPath(fieldId), "フィールド", null)));
+        var design = report.GetProperty("designData");
+        design.GetProperty("changed").GetInt32().Should().Be(0, "沒帶本系統識別就無法確定 Id 對得上");
+        design.GetProperty("rejectedItems")[0].GetProperty("reason").GetString().Should().Be("otherSystem");
     }
 }

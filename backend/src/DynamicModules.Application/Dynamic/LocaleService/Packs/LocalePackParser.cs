@@ -96,14 +96,15 @@ public static class LocalePackParser
             fallback = normalized;
         }
 
-        string? packVersion = null, builtFor = null, baseLocale = null, note = null;
+        string? packVersion = null, builtFor = null, baseLocale = null, note = null, instance = null;
         if (root.TryGetProperty("pack", out var pack) && pack.ValueKind != JsonValueKind.Null)
         {
             if (pack.ValueKind != JsonValueKind.Object) return (null, LocalePackMessages.SectionNotObject("pack"));
             if (!TextField(pack, "version", "pack.version", LocalePackLimits.MaxPackVersion, out packVersion, out error)
                 || !TextField(pack, "builtFor", "pack.builtFor", LocalePackLimits.MaxPackBuiltFor, out builtFor, out error)
                 || !TextField(pack, "baseLocale", "pack.baseLocale", LocalePackLimits.MaxPackBaseLocale, out baseLocale, out error)
-                || !TextField(pack, "note", "pack.note", LocalePackLimits.MaxPackNote, out note, out error))
+                || !TextField(pack, "note", "pack.note", LocalePackLimits.MaxPackNote, out note, out error)
+                || !TextField(pack, "instance", "pack.instance", LocalePackLimits.MaxPackInstance, out instance, out error))
                 return (null, error);
         }
 
@@ -124,6 +125,7 @@ public static class LocalePackParser
             ui.Values, ui.Problems(), server.Values, server.Problems(), design.Count + designProblems.Count)
         {
             DesignData = design, DesignDataProblems = designProblems.OrderBy(r => r.Key, StringComparer.Ordinal).ToList(),
+            Instance = string.IsNullOrWhiteSpace(instance) ? null : instance.Trim(),
         }, null);
     }
 
