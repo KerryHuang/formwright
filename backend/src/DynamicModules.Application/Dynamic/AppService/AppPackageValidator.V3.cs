@@ -1,6 +1,8 @@
 using DynamicModules.Application.Dynamic.AppService.Data;
+using DynamicModules.Application.Dynamic.ReportService.Data;
 using DynamicModules.Application.Dynamic.TemplateService.Data;
 using DynamicModules.Domain.Entities.Dynamic;
+using DynamicModules.Domain.ValueObjects;
 using static DynamicModules.Application.Dynamic.TemplateService.TemplateGraph;
 
 namespace DynamicModules.Application.Dynamic.AppService;
@@ -71,7 +73,7 @@ public static partial class AppPackageValidator
             if (c is null) { errors.Add($"{at}: 不能是 null"); continue; }
             if (!AppId().IsMatch(c.Code ?? "")) errors.Add($"{at}.code: 格式錯誤（小寫英文、數字、連字號，2 到 40 字，英文開頭）");
             else if (!conversionCodes.Add(c.Code!)) errors.Add($"{at}.code: 轉換代碼重複 {c.Code}");
-            CheckText(c.Name, $"{at}.name", errors);
+            CheckText(c.Name, $"{at}.name", errors, p.FormatVersion);
             if (!modules.ContainsKey(c.Source ?? "")) { errors.Add($"{at}: 來源或目標模組不在套件內"); continue; }
             if (MasterModule(c.Target) is { } masterTarget)
             {
@@ -207,7 +209,10 @@ public static partial class AppPackageValidator
             if (r is null) { errors.Add($"{at}: 不能是 null"); continue; }
             if (!Code().IsMatch(r.Code ?? "")) errors.Add($"{at}.code: 格式錯誤");
             else if (!reportCodes.Add(r.Code!)) errors.Add($"{at}.code: 報表代號重複 {r.Code}");
-            if (string.IsNullOrWhiteSpace(r.Name) || r.Name.Length > 200) errors.Add($"{at}.name: 必須是 1 到 200 字");
+            // 名稱上限和報表 API 一樣（所有格式，名稱多語設計 §8）；格式 10 以前只收字串或只有繁中的物件
+            if (r.Name is not null && p.FormatVersion < LocaleCodeFormatVersion && r.Name.Values.Keys.Any(k => k != I18nText.FallbackLocale))
+                errors.Add($"{at}.name: formatVersion {LocaleCodeFormatVersion} 才支援多語報表名稱");
+            else CheckText(r.Name, $"{at}.name", errors, p.FormatVersion, ReportRules.MaxNameLength);
             foreach (var g in r.ShareWith)
                 if (!groupCodes.Contains(g)) errors.Add($"{at}.shareWith: 群組 {g} 沒有在 groups 宣告");
             if (r.Definition is null) { errors.Add($"{at}.definition: 缺少報表定義"); continue; }

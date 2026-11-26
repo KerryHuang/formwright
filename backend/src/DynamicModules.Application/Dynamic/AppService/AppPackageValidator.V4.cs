@@ -54,7 +54,7 @@ public static partial class AppPackageValidator
             if (e is null) { errors.Add($"{at}: 不能是 null"); continue; }
             if (!AppId().IsMatch(e.Code ?? "")) errors.Add($"{at}.code: 格式錯誤（小寫英文、數字、連字號，2 到 40 字，英文開頭）");
             else if (!eventCodes.Add(e.Code!)) errors.Add($"{at}.code: 事件代號重複 {e.Code}");
-            CheckText(e.Name, $"{at}.name", errors);
+            CheckText(e.Name, $"{at}.name", errors, p.FormatVersion);
             if (e.Trigger is null) { errors.Add($"{at}.trigger: 缺少觸發設定"); continue; }
             if (e.Effects.Count == 0) errors.Add($"{at}.effects: 至少要有一個效果");
             if (e.Effects.Any(x => x is null)) { errors.Add($"{at}.effects: 不能有 null"); continue; }
@@ -103,7 +103,7 @@ public static partial class AppPackageValidator
             if (c is null) { errors.Add($"{at}: 不能是 null"); continue; }
             if (!AppId().IsMatch(c.Code ?? "")) errors.Add($"{at}.code: 格式錯誤（小寫英文、數字、連字號，2 到 40 字，英文開頭）");
             else if (!checkCodes.Add(c.Code!)) errors.Add($"{at}.code: 檢查代號重複 {c.Code}");
-            CheckText(c.Name, $"{at}.name", errors);
+            CheckText(c.Name, $"{at}.name", errors, p.FormatVersion);
             if (c.Assert?.Limit is null) { errors.Add($"{at}.assert: 缺少上限設定"); continue; }
             foreach (var error in AppEffectsCodec.ToInput(c, lookups).Errors) errors.Add($"{at}: {error}");
         }

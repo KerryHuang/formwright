@@ -148,8 +148,8 @@ public static partial class AppPackageValidator
         var m = p.Manifest;
         if (!AppId().IsMatch(m.Id ?? "")) errors.Add($"manifest.id: 格式錯誤（小寫英文、數字、連字號，2 到 40 字，英文開頭）");
         if (!SemVer().IsMatch(m.Version ?? "")) errors.Add("manifest.version: 必須是 MAJOR.MINOR.PATCH");
-        CheckText(m.Name, "manifest.name", errors);
-        if (m.Description is not null) CheckText(m.Description, "manifest.description", errors);
+        CheckText(m.Name, "manifest.name", errors, p.FormatVersion);
+        if (m.Description is not null) CheckText(m.Description, "manifest.description", errors, p.FormatVersion);
         if (m.Icon is { Length: > 100 }) errors.Add("manifest.icon: 不能超過 100 字");
         if (m.Vendor is { Length: > 100 }) errors.Add("manifest.vendor: 不能超過 100 字");
         if (m.Requires.Apps.Count > 10) errors.Add("manifest.requires.apps: 最多 10 個");
@@ -168,7 +168,7 @@ public static partial class AppPackageValidator
             var g = p.Groups[i];
             if (g is null) { errors.Add($"groups[{i}]: 不能是 null"); continue; }
             if (!Code().IsMatch(g.Code ?? "")) errors.Add($"groups[{i}].code: 格式錯誤");
-            CheckText(g.Name, $"groups[{i}].name", errors);
+            CheckText(g.Name, $"groups[{i}].name", errors, p.FormatVersion);
         }
 
         if (p.Modules.Count == 0) errors.Add("modules: 至少要有一個模組");
@@ -178,38 +178,64 @@ public static partial class AppPackageValidator
         foreach (var mod in p.Modules.Where(x => x is not null))
         {
             var at = mod.Code ?? "?";
-            CheckText(mod.Name, $"{at}.name", errors);
+            CheckText(mod.Name, $"{at}.name", errors, p.FormatVersion);
+            if (mod.Section is { } section) TemplateValidator.CheckSection(section, $"{at}.section", p.FormatVersion >= LocaleCodeFormatVersion, errors);
             var fields = mod.Blocks.Where(b => b is not null).SelectMany(b => b.Fields).Where(f => f is not null).ToList();
-            foreach (var b in mod.Blocks.Where(b => b is not null)) CheckText(b.Label, $"{at}.blocks.{b.Code}.label", errors);
+            foreach (var b in mod.Blocks.Where(b => b is not null)) CheckText(b.Label, $"{at}.blocks.{b.Code}.label", errors, p.FormatVersion);
             foreach (var f in fields)
             {
-                CheckText(f.Label, $"{at}.{f.Code}.label", errors);
-                foreach (var o in f.Options.Where(o => o is not null)) CheckText(o.Label, $"{at}.{f.Code}.options.{o.Code}", errors);
+                CheckText(f.Label, $"{at}.{f.Code}.label", errors, p.FormatVersion);
+                foreach (var o in f.Options.Where(o => o is not null)) CheckText(o.Label, $"{at}.{f.Code}.options.{o.Code}", errors, p.FormatVersion);
                 CheckConfigKeys(at, f, p.FormatVersion, errors);
+                CheckExcludeFromAi(f, $"{at}.{f.Code}", errors, p.FormatVersion);
             }
-            foreach (var v in mod.Views.Where(v => v is not null)) CheckText(v.Name, $"{at}.views", errors);
+            foreach (var v in mod.Views.Where(v => v is not null)) CheckText(v.Name, $"{at}.views", errors, p.FormatVersion);
         }
         return errors;
     }
 
     /// <summary>
-    /// 套件格式 2–8 收的語系鍵（格式定義，語系包設計 §10.5「舊格式不放寬」；放寬是 i4f）。不引用內建語系：之後內建語系變多，舊格式仍是這四個。
+    /// 套件格式 2–9 收的語系鍵（格式定義，語系包設計 §10.5「舊格式不放寬」）。不引用內建語系：之後內建語系變多，舊格式仍是這四個。
+    /// 格式 <see cref="LocaleCodeFormatVersion"/> 起改成只驗語系代碼格式（i4f，名稱多語設計 §8 第 2 點）。
     /// </summary>
     internal static readonly string[] FormatLocales = ["zh-TW", "en-US", "th", "vi"];
+
+    /// <summary>語系鍵改只驗代碼格式、報表名稱可多語、欄位可帶 excludeFromAi 的格式版號（名稱多語設計 §8；格式 9 是流程圖，不放寬這些）。</summary>
+    public const int LocaleCodeFormatVersion = 10;
+
+    /// <summary>一般文字（名稱、標籤）每語系的字數上限：套件格式的技術限制（設計 §10）。</summary>
+    private const int MaxTextLength = 200;
 
     /// <summary>格式不收的第一個語系鍵；全部收回 null。</summary>
     private static string? NonFormatLocale(I18nText text) => text.Values.Keys.FirstOrDefault(k => !FormatLocales.Contains(k));
 
-    /// <summary>zh-TW 必填、語系鍵在 <see cref="FormatLocales"/>、每語系 1 到 200 字。v1 的 HasZhTw 不擋不支援的語系鍵，v2 在這一層就擋。</summary>
-    private static void CheckText(I18nText? text, string at, List<string> errors)
+    /// <summary>這個格式不收的第一個語系鍵：格式 2–9 只收 <see cref="FormatLocales"/>；格式 10 起交給 <see cref="I18nText.IsWellFormed"/> 驗代碼格式。</summary>
+    private static string? UnsupportedLocale(I18nText text, int version) => version >= LocaleCodeFormatVersion ? null : NonFormatLocale(text);
+
+    /// <summary>
+    /// zh-TW 必填、語系鍵依格式（<see cref="UnsupportedLocale"/>）、拒收 null 值、語系鍵最多 <see cref="I18nNameRules.MaxLocales"/> 個、每語系 1 到 <paramref name="maxLength"/> 字。
+    /// v1 的 HasZhTw 不擋不支援的語系鍵，v2 在這一層就擋。
+    /// </summary>
+    private static void CheckText(I18nText? text, string at, List<string> errors, int version, int maxLength = MaxTextLength)
     {
         if (text is null) { errors.Add($"{at}: 缺少名稱"); return; }
+        if (text.Values.FirstOrDefault(kv => kv.Value is null) is { Key: { } nullKey }) { errors.Add($"{at}: {I18nNameRules.NullValue(nullKey)}"); return; }
+        if (text.Values.Count > I18nNameRules.MaxLocales) { errors.Add($"{at}: {I18nNameRules.TooManyLocales}"); return; }
         // 套件仍要求繁中，不跟政策 locale.requiredText（判斷 12）
         if (!text.HasText(I18nText.FallbackLocale)) errors.Add($"{at}: {I18nText.FallbackLocale} 為必填");
-        else if (NonFormatLocale(text) is { } unknown) errors.Add($"{at}: 不支援的語系：{unknown}");
+        else if (UnsupportedLocale(text, version) is { } unknown) errors.Add($"{at}: 不支援的語系：{unknown}");
         else if (!text.IsWellFormed(out var error)) errors.Add($"{at}: {error}");
         foreach (var (locale, value) in text.Values)
-            if (value.Length is 0 or > 200) errors.Add($"{at}: {locale} 必須是 1 到 200 字");
+            if (value.Length is 0 || value.Length > maxLength) errors.Add($"{at}: {locale} 必須是 1 到 {maxLength} 字");
+    }
+
+    /// <summary>
+    /// 欄位的「不提供給 AI」旗標（名稱多語設計 §8.1）：格式 10 才有；舊格式帶了（不論 true 或 false）整份拒絕，舊讀取器會靜默丟掉旗標。
+    /// </summary>
+    private static void CheckExcludeFromAi(TemplateField f, string at, List<string> errors, int version)
+    {
+        if (f.ExcludeFromAi is not null && version < LocaleCodeFormatVersion)
+            errors.Add($"{at}.excludeFromAi: formatVersion {LocaleCodeFormatVersion} 才支援");
     }
 
     /// <summary>v1 的 FieldConfig 反序列化會靜默忽略未知鍵，reqired: true 這類拼錯不會被發現；v2 拒絕。</summary>

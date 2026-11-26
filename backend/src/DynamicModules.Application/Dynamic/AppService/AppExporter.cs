@@ -617,16 +617,16 @@ public sealed partial class AppExporter(
             try { definition = ReportDefinition.Parse(report.DefinitionJson); }
             catch (System.Text.Json.JsonException)
             {
-                warnings.Add($"報表「{report.Name}」的定義無法讀取，未匯出");
+                warnings.Add($"報表「{report.NameI18n.Resolve(I18nText.FallbackLocale)}」的定義無法讀取，未匯出");
                 continue;
             }
             var (converted, errors) = AppReportCodec.ToPackage(definition, names);
             if (converted is null)
             {
-                warnings.Add($"報表「{report.Name}」未匯出（{string.Join("；", errors)}）");
+                warnings.Add($"報表「{report.NameI18n.Resolve(I18nText.FallbackLocale)}」未匯出（{string.Join("；", errors)}）");
                 continue;
             }
-            result.Add(new AppPackageReport(link.Code, report.Name, report.Shares.Select(s => groupCode(s.GroupId)).ToList(), converted));
+            result.Add(new AppPackageReport(link.Code, report.NameI18n.Compacted(), report.Shares.Select(s => groupCode(s.GroupId)).ToList(), converted));
         }
         return result;
     }

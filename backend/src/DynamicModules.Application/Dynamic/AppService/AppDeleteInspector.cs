@@ -73,10 +73,10 @@ public sealed class AppDeleteInspector(
         {
             var references = await dashboards.ListReferencesAsync(reportId, ct);
             if (references.Count == 0) continue;
-            var reportName = (await reports.GetAsync(reportId, ct))?.Name;
+            var reportName = (await reports.GetAsync(reportId, ct))?.NameI18n.Resolve(requestLocale.Current);
             foreach (var reference in references)
                 blockers.Add(new(reference.IsPersonalVersion ? DeleteBlockerKind.PersonalDashboard : DeleteBlockerKind.Dashboard,
-                    null, reference.DashboardId, reference.DashboardName, ReportName: reportName));
+                    null, reference.DashboardId, reference.DashboardNameI18n.Resolve(requestLocale.Current), ReportName: reportName));
         }
         foreach (var dependent in (await dependencies.DependentsOfAsync(app, ct)).Apps)
             blockers.Add(new(DeleteAppHandler.DependentKind, null, null, dependent.Key));
@@ -85,7 +85,7 @@ public sealed class AppDeleteInspector(
         // 和 DELETE 一起刪的報表（找不到的略過）
         var ownReports = new List<DeleteAppReport>();
         foreach (var reportId in ownReportIds.Order())
-            if (await reports.GetAsync(reportId, ct) is { } report) ownReports.Add(new(report.Id, report.Name));
+            if (await reports.GetAsync(reportId, ct) is { } report) ownReports.Add(new(report.Id, report.NameI18n.Resolve(requestLocale.Current)));
 
         var purge = new PurgeCounts(records, indexRows, historyRows);
         var cleared = contributions.Where(c => c.Fate == ContributionFate.Purge).Sum(c => c.Values);

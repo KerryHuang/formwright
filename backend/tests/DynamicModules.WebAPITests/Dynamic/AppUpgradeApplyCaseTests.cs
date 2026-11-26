@@ -576,7 +576,7 @@ public class AppUpgradeApplyCaseTests : IDisposable
         var reportId = Query((db, _) => db.Set<App>().Include(a => a.Reports).Single(a => a.Key == Key).Reports.Single().ReportId);
         var saved = Query((db, _) => db.Set<Report>().Single(r => r.Id == reportId));
         saved.OwnerUserId.Should().Be("admin", "擁有者不變（§9.4）");
-        saved.Name.Should().Be("客戶狀態");
+        saved.NameI18n.Resolve("zh-TW").Should().Be("客戶狀態");
         Query((db, _) => db.Set<ReportShare>().Count(s => s.ReportId == reportId)).Should().Be(2);
     }
 

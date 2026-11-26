@@ -307,7 +307,7 @@ public class InventoryApprovalTests : IDisposable
         var res = await _admin.GetAsync($"{Apps}/inventory/export");
         res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
         var exported = await JsonOf(res);
-        exported.GetProperty("formatVersion").GetInt32().Should().Be(9);
+        exported.GetProperty("formatVersion").GetInt32().Should().Be(10);
 
         var flows = exported.GetProperty("approvalFlows").EnumerateArray().ToList();
         flows.Select(f => f.GetProperty("code").GetString()).Should().Equal("inv-po-large", "inv-po-medium");

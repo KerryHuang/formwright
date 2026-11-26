@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using DynamicModules.Application.Common;
 using DynamicModules.Application.Dynamic.AppService.Data;
 using DynamicModules.Application.Dynamic.FieldService.Commands.AddOption;
+using DynamicModules.Application.Dynamic.FieldService.Commands.UpdateField;
 using DynamicModules.Application.Dynamic.ModuleService.Data;
 using DynamicModules.Application.Dynamic.TemplateService;
 using DynamicModules.Application.Dynamic.TemplateService.Commands.InstantiateTemplate;
@@ -66,7 +67,8 @@ public sealed class MasterMerger(
         if (!Same(current.FieldAccess, incoming.FieldAccess) || !Same(current.OptionScopes, incoming.OptionScopes)
             || !Same(current.Reports, incoming.Reports))
             warnings.Add("欄位例外、選項範圍與報表沒有合併，保留既有的");
-        return (current with { Modules = result }, warnings);
+        // 補進來的模組、欄位可能用到新格式才有的寫法（格式 10 的 excludeFromAi、語系代碼），合併結果取兩份較新的版號驗證（名稱多語設計 §24）
+        return (current with { FormatVersion = Math.Max(current.FormatVersion, incoming.FormatVersion), Modules = result }, warnings);
     }
 
     private static TemplateModule MergeModule(TemplateModule current, TemplateModule incoming, List<string> warnings, LocaleContext lc)
@@ -145,6 +147,7 @@ public sealed class MasterMerger(
 
         var inputs = new List<ContributionInput>();
         var optionAdds = new List<(string Member, long FieldId, TemplateOption Option)>();
+        var aiFlags = new List<Field>();
         var touched = new HashSet<long>();
         foreach (var im in incoming.Modules)
         {
@@ -188,6 +191,8 @@ public sealed class MasterMerger(
                     {
                         var existing = dbFields[fieldId];
                         if (existing.Type != f.Type) { warnings.Add(TypeKept(Label(existing.LabelI18n, lc), f.Code)); continue; }
+                        // 「不提供給 AI」只加不減（名稱多語設計 §8.1）：套件標 true 而現值不是才寫；false 或省略不動既有的 true
+                        if (f.ExcludeFromAi == true && !existing.ExcludeFromAi) aiFlags.Add(existing);
                         foreach (var o in f.Options)
                         {
                             if (!baseOptions.TryGetValue(o.Code, out var optionId)) optionAdds.Add((im.Code, fieldId, NewOption(o)));
@@ -227,6 +232,12 @@ public sealed class MasterMerger(
                 ids.FieldIds.Where(x => !seedFields.ContainsKey(x.Key)).Select(x => new AppField { AppId = master.Id, Name = x.Key, FieldId = x.Value }),
                 ids.OptionIds.Where(x => !seedOptions.ContainsKey(x.Key)).Select(x => new AppOption { AppId = master.Id, Name = x.Key, OptionId = x.Value }),
                 ids.BlockIds.Where(x => !existingBlocks.Contains(x.Value)).Select(x => new AppBlock { AppId = master.Id, Name = x.Key, BlockId = x.Value }));
+        }
+        // 已存在的欄位補上旗標：走一般的欄位修改（要權限設定，沒有就 403、整個匯入回滾），其他設定照現值送
+        foreach (var field in aiFlags)
+        {
+            var flagged = await sender.Send(new UpdateFieldRequest(field.Id, field.Type, field.LabelI18n, field.Config, field.BlockId, ExcludeFromAi: true), ct);
+            if (!flagged.IsSuccess) return flagged;
         }
         foreach (var (member, fieldId, option) in optionAdds)
         {

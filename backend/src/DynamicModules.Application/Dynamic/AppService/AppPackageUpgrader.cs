@@ -64,7 +64,7 @@ public static partial class AppPackageUpgrader
         var manifest = new AppManifest(t.Key, "1.0.0", t.Name, t.Description,
             t.Modules.Select(m => m.Icon).FirstOrDefault(i => i is not null), null, requires);
         var groups = groupCodes.Select(kv => new AppGroup(kv.Value, new I18nText([KeyValuePair.Create("zh-TW", kv.Key)]))).ToList();
-        return (new AppPackageData(AppPackageData.FormatName, AppPackageData.CurrentFormatVersion, manifest, groups, modules,
+        return (new AppPackageData(AppPackageData.FormatName, AppPackageAdapter.AppFormatOf(t.FormatVersion), manifest, groups, modules,
             null, null, null, null, null, null, null, null), []);
     }
 

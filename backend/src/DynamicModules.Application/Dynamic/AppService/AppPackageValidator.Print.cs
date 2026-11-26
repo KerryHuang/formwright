@@ -21,7 +21,7 @@ public static partial class AppPackageValidator
             if (t.Module is null || !moduleCodes.Contains(t.Module)) { errors.Add($"{at}.module: 模組 {t.Module} 不在套件內"); continue; }
             if (!PrintTemplateRules.KeyPattern().IsMatch(t.Code ?? "")) errors.Add($"{at}.code: 格式錯誤（小寫英文、數字、連字號，2 到 40 字，英文開頭）");
             else if (!seen.Add((t.Module, t.Code!))) errors.Add($"{at}.code: 模組 {t.Module} 已有代號 {t.Code}");
-            CheckText(t.Name, $"{at}.name", errors);
+            CheckText(t.Name, $"{at}.name", errors, p.FormatVersion);
             if (string.IsNullOrWhiteSpace(t.Body)) { errors.Add($"{at}.body: 必填"); continue; }
             if (t.Body.Length > PrintTemplateRules.MaxBodyLength) { errors.Add($"{at}.body: 最多 {PrintTemplateRules.MaxBodyLength} 字"); continue; }
 

@@ -37,7 +37,7 @@ public class DemoDashboardsTests(DemoGeneratedFixture fx)
         fx.Generated();
         var stored = await Stored();
         var groups = await fx.Host.Db.Context.Set<PermissionGroup>().AsNoTracking().ToDictionaryAsync(g => g.Id, g => g.Key);
-        var reports = await fx.Host.Db.Context.Set<Report>().AsNoTracking().ToDictionaryAsync(r => r.Name, r => r.Id);
+        var reports = await fx.Host.Db.Context.Set<Report>().AsNoTracking().ToDictionaryAsync(r => r.NameI18n.Resolve("zh-TW"), r => r.Id);
 
         stored.Should().OnlyContain(d => d.OwnerUserId == null);
         stored.Select(d => d.NameI18n.Resolve("zh-TW")).Should().Equal(DemoDashboards.Names);

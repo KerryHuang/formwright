@@ -450,7 +450,7 @@ public sealed partial class TemplateExportTests : IDisposable
         res.StatusCode.Should().Be(HttpStatusCode.OK);
         res.Content.Headers.ContentType!.MediaType.Should().Be("application/json");
         res.Content.Headers.ContentDisposition!.FileName.Should().Be("order.template.json");
-        (await res.Content.ReadAsStringAsync()).Should().Contain("\n  \"formatVersion\": 1");
+        (await res.Content.ReadAsStringAsync()).Should().Contain("\n  \"formatVersion\": 2");
     }
 
     [Fact]

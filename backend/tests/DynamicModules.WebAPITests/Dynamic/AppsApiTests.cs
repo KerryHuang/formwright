@@ -805,7 +805,8 @@ public class AppsApiTests : IDisposable
         {
             var appId = db.Set<App>().Single(a => a.Key == "crm-sales").Id;
             return db.Set<AppReport>().Where(r => r.AppId == appId)
-                .Join(db.Set<Report>(), ar => ar.ReportId, r => r.Id, (_, r) => new { r.Id, r.Name }).OrderBy(r => r.Id).ToList();
+                .Join(db.Set<Report>(), ar => ar.ReportId, r => r.Id, (_, r) => new { r.Id, r.NameI18n }).OrderBy(r => r.Id).ToList()
+                .Select(r => new { r.Id, Name = r.NameI18n.Resolve("zh-TW") }).ToList();
         });
         expected.Should().NotBeEmpty();
 
@@ -816,6 +817,22 @@ public class AppsApiTests : IDisposable
         await OpenTplAOk();
         await Close("tpl-a");
         (await DeleteCheckOk("tpl-a")).GetProperty("reports").GetArrayLength().Should().Be(0);
+    }
+
+    /// <summary>
+    /// 內建 CRM 的報表名稱四語（名稱多語設計 §21，驗收 P9），刪除預檢的報表名稱照請求語系解析（§22.3 第 6 點）。
+    /// </summary>
+    [Fact]
+    public async Task DeleteCheck_ReportNames_InRequestLocale_BuiltInCrmHasEnglish()
+    {
+        await OpenOk("crm-sales");
+        await Close("crm-sales");
+        var req = new HttpRequestMessage(HttpMethod.Get, $"{Apps}/crm-sales/delete-check");
+        req.Headers.Add("X-Locale", "en-US");
+        var res = await _admin.SendAsync(req);
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        var names = (await JsonOf(res)).GetProperty("reports").EnumerateArray().Select(r => r.GetProperty("name").GetString()).ToList();
+        names.Should().BeEquivalentTo("Opportunities by stage", "Order amount by salesperson (excl. tax)");
     }
 
     [Fact]

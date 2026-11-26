@@ -8,7 +8,7 @@ using DynamicModules.Application.Dynamic.TemplateService.Data;
 
 namespace DynamicModules.Application.Dynamic.AppService;
 
-/// <summary>讀進來的套件：v1（範本格式）或 v2；失敗時只有 Errors。</summary>
+/// <summary>讀進來的套件：v1（範本格式 1 或 2；FormatVersion 一律是 1，範本自己的版號在 V1.FormatVersion）或 v2；失敗時只有 Errors。</summary>
 public record AppParseResult(int? FormatVersion, AppPackageData? V2, TemplatePackage? V1, IReadOnlyList<string> Errors)
 {
     public bool Ok => Errors.Count == 0;
@@ -74,7 +74,8 @@ public static class AppJson
         if (obj["formatVersion"] is not JsonValue fv || !fv.TryGetValue<int>(out var version))
             return Fail("缺少 formatVersion（整數）");
 
-        if (version == 1)
+        // 範本檔（沒有 format 屬性）：格式 1 一律是範本；範本格式 2 和套件格式 2 同號，以有沒有 format 區分（名稱多語設計 §8.1）
+        if (version == 1 || (version == TemplatePackage.CurrentFormatVersion && obj["format"] is null && obj["key"] is not null))
         {
             var (template, error) = TemplateJson.Parse(text);
             return template is null ? Fail(error ?? "範本格式錯誤") : new AppParseResult(1, null, template, []);

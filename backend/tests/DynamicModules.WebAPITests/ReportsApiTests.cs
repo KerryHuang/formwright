@@ -1,3 +1,4 @@
+using DynamicModules.Application.Common;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -200,7 +201,7 @@ public class ReportsApiTests
             var db = scope.ServiceProvider.GetRequiredService<DynamicDbContext>();
             var report = new Report
             {
-                OwnerUserId = "admin", Name = "大額", RowVersion = "x",
+                OwnerUserId = "admin", NameI18n = I18nNameRules.ZhOnly("大額"), RowVersion = "x",
                 DefinitionJson = JsonSerializer.Serialize(def, new JsonSerializerOptions(JsonSerializerDefaults.Web))
             };
             db.Set<Report>().Add(report);

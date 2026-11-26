@@ -120,10 +120,10 @@ public class TemplateValidatorTests
     }
 
     [Fact]
-    public void FormatVersion_Not1()
+    public void FormatVersion_Not1Or2()
     {
         var p = Base();
-        p["formatVersion"] = 2;
+        p["formatVersion"] = 3;
         Validate(p).Should().ContainSingle().Which.Should().Contain("formatVersion");
     }
 

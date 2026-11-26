@@ -130,6 +130,33 @@ public class SharedMasterMergeTests : IDisposable
         DbField(_rig, "bp", "partner.grade").ExcludeFromAi.Should().BeFalse("套件補進來的新欄位一律 false");
     }
 
+    /// <summary>
+    /// 格式 10 起套件帶旗標（名稱多語設計 §8.1，驗收 P13）：匯出帶出 true；重匯時旗標省略或寫 false 不清掉既有的 true，
+    /// 既有欄位標 true 會補上、新欄位標 true 照寫入（系統管理員有權限設定）。
+    /// </summary>
+    [Fact]
+    public async Task Format10_Reimport_FlagIsAddOnly_ExistingAndNewFieldsGetTrue()
+    {
+        await _rig.ImportAllAsync();
+        await _rig.OpenOkAsync("crmx");
+        await _rig.ExcludeFromAiAsync(Partner, _rig.FieldId("bp", "partner.phone"));
+
+        var (exported, _) = await _rig.ExportAsync("bp");
+        var bp = Node(exported.GetRawText());
+        bp["formatVersion"]!.GetValue<int>().Should().Be(10);
+        FieldNode(bp, "phone")["excludeFromAi"]!.GetValue<bool>().Should().BeTrue("匯出帶出旗標");
+        FieldNode(bp, "phone").Remove("excludeFromAi");
+        FieldNode(bp, "role")["excludeFromAi"] = true;
+        var grade = Field("grade", "enum", "等級", null, ("gold", "金牌"));
+        grade["excludeFromAi"] = true;
+        MainFields(bp).Add(grade);
+        await _rig.ImportMergeOkAsync(bp.ToJsonString());
+
+        DbField(_rig, "bp", "partner.phone").ExcludeFromAi.Should().BeTrue("省略不清掉既有的 true");
+        DbField(_rig, "bp", "partner.role").ExcludeFromAi.Should().BeTrue("既有欄位補標");
+        DbField(_rig, "bp", "partner.grade").ExcludeFromAi.Should().BeTrue("新欄位照套件寫入");
+    }
+
     [Fact]
     public async Task ReimportingAMasterAlreadyOpen_OnlyAddsByPersistentCode_AvoidsContributorCodes_AndNeverDeletesOrOverwrites()
     {
