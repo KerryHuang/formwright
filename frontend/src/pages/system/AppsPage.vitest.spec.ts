@@ -127,6 +127,32 @@ describe('AppsPage', () => {
     expect(api.openApp).toHaveBeenCalledWith('a', { groupMap: {}, masters, locale: 'zh-TW' });
   });
 
+  it('open: fields the package hides from AI are counted, and expand to module．field names (P17)', async () => {
+    api.previewOpenApp.mockResolvedValue({
+      ...okPreview,
+      aiExcludedFields: [
+        { field: 'doc.idNo', module: { 'zh-TW': '文件', 'en-US': 'Document' }, label: { 'zh-TW': '身分證字號', 'en-US': 'ID number' } },
+        { field: 'doc.salary', module: { 'zh-TW': '文件' }, label: { 'zh-TW': '薪資' } },
+      ],
+    });
+    await mountPage([pkg('a', null)], [], undefined, true, 'en-US');
+    await click('app-open');
+    const section = q('open-ai-excluded')!;
+    expect(section.textContent).toContain('Fields to be marked "Hide from AI tools": 2');
+    (section.querySelector('.q-item') as HTMLElement).click();
+    await flushPromises();
+    expect(section.textContent).toContain('Document．ID number');
+    expect(section.textContent).toContain('文件．薪資');
+  });
+
+  it('open: no AI section when nothing is hidden from AI', async () => {
+    api.previewOpenApp.mockResolvedValue(okPreview);
+    await mountPage([pkg('a', null)], []);
+    await click('app-open');
+    expect(q('open-dialog')).not.toBeNull();
+    expect(q('open-ai-excluded')).toBeNull();
+  });
+
   it('open: unbound master symbols are blockers', async () => {
     api.previewOpenApp.mockResolvedValue({ ...okPreview, canOpen: false, masters: [], unbound: ['ship.customer.fill.map: bp/partner.phone'] });
     await mountPage([pkg('a', null)], []);
