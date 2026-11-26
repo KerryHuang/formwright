@@ -5,6 +5,7 @@ import * as quasar from 'quasar';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createI18n } from 'vue-i18n';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
+import enUS from 'shared/i18n/en-US/ui.json';
 import { bodyOf, HttpFail, mockHttp, type Call } from 'src/test-utils/mock-http';
 import { installedLocales, setLocaleInfos } from 'src/i18n/locale-settings';
 import LocalePackImportDialog from './LocalePackImportDialog.vue';
@@ -560,5 +561,15 @@ describe('LocalePackImportDialog 設計資料（i4e）', () => {
     await tick();
     expect(q('pack-design-applied')!.textContent).toContain('7');
     w.unmount();
+  });
+});
+
+describe('匯入對話框走查文案（審查 r3）', () => {
+  it('繁中提示以動詞開頭；英文「仍套用」不分單複數', () => {
+    expect(zhTW.localePacks.dialog.hint.startsWith('可匯入 .langpack.json')).toBe(true);
+    const i18n = createI18n({ legacy: false, locale: 'en-US', messages: { 'en-US': enUS } });
+    const one = i18n.global.t('localePacks.design.applySourceChanged', { n: 1 });
+    expect(one).toContain('1');
+    expect(one).not.toMatch(/\b1 rows\b/);
   });
 });
