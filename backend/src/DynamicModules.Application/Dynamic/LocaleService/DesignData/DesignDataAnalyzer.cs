@@ -44,18 +44,19 @@ public static class DesignDataAnalyzer
                 continue;
             }
             if (!byPath.TryGetValue(path, out var item)) { notFound.Add(path); continue; }
-            if ((LocaleTextSafety.Check(value, item.MaxLength) ?? (item.MultiLine || value.IndexOfAny(['\n', '\t']) < 0 ? null : LocalePackReasons.Control)) is { } reason)
+            var text = item.Text;
+            // 和目前值相同就不寫，排在內容檢查之前：目前值本來就含換行或已超過調嚴後的上限時，原樣匯回算不變（審查 r3 N4）
+            if (text.Values.TryGetValue(locale, out var current) && current == value) { unchanged++; continue; }
+            if ((LocaleTextSafety.Check(value, item.MaxLength) ?? (item.MultiLine || value.IndexOfAny(NameBreaks) < 0 ? null : LocalePackReasons.Control)) is { } reason)
             {
-                rejected.Add(new RejectedItem(path, reason, reason == LocalePackReasons.TooLong ? [item.MaxLength.ToString(System.Globalization.CultureInfo.InvariantCulture)] : []));
+                rejected.Add(new RejectedItem(path, reason, LocaleTextSafety.LimitArgs(reason, item.MaxLength)));
                 continue;
             }
-            var text = item.Text;
             if (!text.Values.ContainsKey(locale) && text.Values.Count >= I18nNameRules.MaxLocales)
             {
                 rejected.Add(new RejectedItem(path, LocalePackReasons.TooManyLocales, [I18nNameRules.MaxLocales.ToString(System.Globalization.CultureInfo.InvariantCulture)]));
                 continue;
             }
-            if (text.Values.TryGetValue(locale, out var current) && current == value) { unchanged++; continue; }
             if (item.TitleOption && locale == systemDefault)
             {
                 rejected.Add(new RejectedItem(path, LocalePackReasons.TitleOption, []));
@@ -81,11 +82,16 @@ public static class DesignDataAnalyzer
         {
             Changed = plan.Count(r => !r.SourceChanged), Unchanged = unchanged, Skipped = skipped, NotFound = notFound.Count,
             SourceChanged = sourceChanged.Count, Rejected = rejected.Count,
-            NotFoundPaths = notFound.Take(max).ToList(), SourceChangedItems = sourceChanged.Take(max).ToList(),
-            RejectedItems = rejected.OrderBy(r => r.Key, StringComparer.Ordinal).Take(max).ToList(),
+            // 回顯的路徑經 Shown 清理（Excel 讀取階段的拒收列沒經過 designData 段的檢查；審查 r3 🟡8）
+            NotFoundPaths = notFound.Take(max).Select(LocaleTextSafety.Shown).ToList(),
+            SourceChangedItems = sourceChanged.Take(max).Select(s => s with { Path = LocaleTextSafety.Shown(s.Path) }).ToList(),
+            RejectedItems = rejected.OrderBy(r => r.Key, StringComparer.Ordinal).Take(max).Select(r => r with { Key = LocaleTextSafety.Shown(r.Key) }).ToList(),
         };
         return new Result(report, plan);
     }
+
+    /// <summary>名稱類（非多行）拒收的斷行字元：換行、Tab，以及 Unicode 的行分隔、段落分隔（審查 r3 N3，部分元件會顯示成換行）。</summary>
+    private static readonly char[] NameBreaks = ['\n', '\t', '\u2028', '\u2029'];
 
     private static string Cut(string s, int max) => s.Length <= max ? s : s[..max];
 

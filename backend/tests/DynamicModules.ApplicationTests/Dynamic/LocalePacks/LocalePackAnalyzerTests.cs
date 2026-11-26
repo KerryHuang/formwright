@@ -51,6 +51,31 @@ public class LocalePackAnalyzerTests
         return a.Error!.Resolve("zh-TW");
     }
 
+    // ── 審查 r3 🟡8：報告回顯的鍵（拒收清單、多餘的鍵）禁用字元換成 U+FFFD、截到上限，不原樣回顯 ──
+
+    [Fact]
+    public void Report_UiKeys_ShownSafely()
+    {
+        var longKey = "x." + new string('k', LocalePackLimits.MaxDesignPathLength);
+        var pack = Parse("{\"format\":\"formwright-langpack\",\"formatVersion\":1,\"locale\":{\"code\":\"ja\",\"nativeName\":\"日本語\"},"
+            + "\"ui\":{\"menu.home\":\"ホーム\",\"x\\u202Ey\":\"多\",\"a\\u202Eb\":\"1\",\"a\\u202Eb\":\"2\",\"" + longKey + "\":\"長\"}}");
+        var ui = Ok(pack, World()).Report!.Ui;
+        ui.ExtraKeys.Should().Contain("x\uFFFDy").And.Contain(longKey[..LocalePackLimits.MaxDesignPathLength]);
+        ui.ExtraKeys.Should().NotContain(k => k.Contains('\u202E'));
+        ui.RejectedItems.Select(r => (r.Key, r.Reason)).Should().Contain(("a\uFFFDb", LocalePackReasons.Duplicate));
+    }
+
+    /// <summary>審查 r3 N1：介面文字、伺服器訊息過長的拒收帶出上限數字。</summary>
+    [Fact]
+    public void Report_TooLong_CarriesMax()
+    {
+        var tooLong = new string('長', LocalePackLimits.MaxTextLength + 1);
+        var pack = Parse("{\"format\":\"formwright-langpack\",\"formatVersion\":1,\"locale\":{\"code\":\"ja\",\"nativeName\":\"日本語\"},"
+            + "\"ui\":{\"menu.home\":\"" + tooLong + "\"}}");
+        Ok(pack, World()).Report!.Ui.RejectedItems.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new RejectedItem("menu.home", LocalePackReasons.TooLong, [LocalePackLimits.MaxTextLength.ToString(System.Globalization.CultureInfo.InvariantCulture)]));
+    }
+
     // ── 共用案例（票 #68）──
 
     private static readonly JsonElement Cases = JsonDocument.Parse(File.ReadAllText(Path.Combine(BuiltinServerTextTests.RepoRoot(), "shared", "i18n-message-cases.json")))

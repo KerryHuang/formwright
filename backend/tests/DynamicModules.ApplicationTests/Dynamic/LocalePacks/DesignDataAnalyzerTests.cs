@@ -73,6 +73,29 @@ public class DesignDataAnalyzerTests
         r.Plan.Select(p => p.Path).Should().Equal("local:rule:9/message");
     }
 
+    // ── 審查 r3 N3：名稱類也拒收 Unicode 的行分隔、段落分隔字元；N4：目前值本來就含換行時原樣匯回算不變 ──
+
+    [Fact]
+    public void LineSeparators_RejectedForNames_AllowedForMessages()
+    {
+        var items = new[]
+        {
+            Item(Field, T(("zh-TW", "狀態"))), Item("local:field:9/label", T(("zh-TW", "備註"))),
+            Item("local:rule:9/message", T(("zh-TW", "金額不可為負")), multiLine: true),
+        };
+        var r = Run(Pack((Field, "状\u2028態", null), ("local:field:9/label", "メ\u2029モ", null), ("local:rule:9/message", "金額は\u2028負", null)), items);
+        r.Report.RejectedItems.Select(x => (x.Key, x.Reason)).Should().BeEquivalentTo([
+            (Field, LocalePackReasons.Control), ("local:field:9/label", LocalePackReasons.Control)]);
+        r.Plan.Select(p => p.Path).Should().Equal("local:rule:9/message");
+    }
+
+    [Fact]
+    public void CurrentHasNewline_SameTextBack_Unchanged()
+    {
+        var r = Run(Pack((Field, "状\n態", null)), [Item(Field, T(("zh-TW", "狀態"), ("ja", "状\n態")))]);
+        (r.Report.Unchanged, r.Report.Rejected, r.Plan.Count).Should().Be((1, 0, 0));
+    }
+
     // ── 審查 r1 🟡8：報告裡檔案的原文截斷 ──
 
     [Fact]

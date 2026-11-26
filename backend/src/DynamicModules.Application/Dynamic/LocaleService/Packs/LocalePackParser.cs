@@ -132,8 +132,9 @@ public static class LocalePackParser
     /// <summary>
     /// <c>designData</c>（§5.1、§23.2）：每列是 <c>{ text, source }</c> 物件；不是物件 → <c>notObject</c>；<c>text</c>、<c>source</c> 有帶但不是字串 →
     /// <c>notString</c>；沒帶 <c>text</c> 當空字串（略過）。同一路徑出現兩次兩筆都不收（<c>duplicate</c>）。其他屬性（樣板的 <c>local</c>）略過。
-    /// 路徑與 <c>source</c> 也過安全檢查（審查 r1 🟡8）：路徑含禁用字元或超過 <see cref="LocalePackLimits.MaxDesignPathLength"/>、原文含禁用字元，該列拒收；
-    /// 拒收清單回顯的路徑經 <see cref="Shown"/> 處理，不原樣回顯。<c>text</c> 的檢查在分析時做（長度上限依物件而定）。
+    /// 路徑與 <c>source</c> 也過安全檢查（審查 r1 🟡8）：路徑含禁用字元或超過 <see cref="LocalePackLimits.MaxDesignPathLength"/>，該列拒收；
+    /// 原文含禁用字元時當成沒帶原文（不比對「原文已改」，不拒收；審查 r3 N4）；
+    /// 拒收清單回顯的路徑經 <see cref="LocaleTextSafety.Shown"/> 處理，不原樣回顯。<c>text</c> 的檢查在分析時做（長度上限依物件而定）。
     /// </summary>
     private static void ReadDesignData(JsonElement dd, Dictionary<string, DesignDataEntry> entries, List<RejectedItem> problems)
     {
@@ -144,7 +145,7 @@ public static class LocalePackParser
             var path = prop.Name;
             if (LocaleTextSafety.Check(path, LocalePackLimits.MaxDesignPathLength) is { } pathProblem)
             {
-                if (seen.Add(path)) problems.Add(new RejectedItem(Shown(path), pathProblem, []));
+                if (seen.Add(path)) problems.Add(new RejectedItem(LocaleTextSafety.Shown(path), pathProblem, LocaleTextSafety.LimitArgs(pathProblem, LocalePackLimits.MaxDesignPathLength)));
                 continue;
             }
             if (duplicate.Contains(path)) continue;
@@ -169,22 +170,13 @@ public static class LocalePackParser
                 problems.Add(new RejectedItem(path, LocalePackReasons.NotString, []));
                 continue;
             }
+            // 原文只用來比對「原文已改」：含禁用字元（例：目前值本來就有 \r）時當成沒帶、不比對，不拒收整列（審查 r3 N4）
             var sourceText = hasSource ? source.GetString() : null;
-            if (sourceText is not null && sourceText.Any(c => LocaleTextSafety.IsForbidden(c)))
-            {
-                problems.Add(new RejectedItem(path, LocalePackReasons.Control, []));
-                continue;
-            }
+            if (sourceText is not null && sourceText.Any(c => LocaleTextSafety.IsForbidden(c))) sourceText = null;
             entries[path] = new DesignDataEntry(hasText ? text.GetString()! : "", sourceText);
         }
     }
 
-    /// <summary>拒收清單回顯用：禁用字元（雙向控制等）換成 U+FFFD、截到路徑上限，避免在報告裡偽裝顯示順序或撐大報告。</summary>
-    private static string Shown(string path)
-    {
-        var shown = new string(path.Select(c => LocaleTextSafety.IsForbidden(c) ? '\uFFFD' : c).ToArray());
-        return shown.Length > LocalePackLimits.MaxDesignPathLength ? shown[..LocalePackLimits.MaxDesignPathLength] : shown;
-    }
 
     /// <summary>選填的文字欄：沒帶、null、空白當成沒帶；非字串、控制字元或超長是整包錯誤。</summary>
     private static bool TextField(JsonElement obj, string name, string label, int maxLength, out string? value, out MessageRef? error)

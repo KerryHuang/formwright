@@ -244,16 +244,22 @@ public class LocalePackParserTests
         p.DesignDataCount.Should().Be(5);
     }
 
-    /// <summary>審查 r1 🟡8：路徑與原文也過安全檢查；拒收清單回顯的路徑把禁用字元換成 U+FFFD、截到上限，不原樣回顯。</summary>
+    /// <summary>
+    /// 審查 r1 🟡8：路徑過安全檢查；拒收清單回顯的路徑把禁用字元換成 U+FFFD、截到上限，不原樣回顯；過長帶出上限（r3 N1）。
+    /// 審查 r3 N4：原文含禁用字元（例：目前值本來就有 \r）不拒收整列，當成沒帶原文（不比對）。
+    /// </summary>
     [Fact]
-    public void DesignData_UnsafePathOrSource_Rejected_KeySanitized()
+    public void DesignData_UnsafePath_Rejected_KeySanitized_UnsafeSourceIgnored()
     {
         var longPath = new string('p', LocalePackLimits.MaxDesignPathLength + 1);
         var p = Ok(Pack(rest: "\"designData\":{\"a\\u202Eb\":{\"text\":\"X\"},\"" + longPath + "\":{\"text\":\"Y\"},"
             + "\"c\":{\"text\":\"Z\",\"source\":\"s\\u2066t\"},\"d\":{\"text\":\"W\",\"source\":\"ok\"}}"));
-        p.DesignData.Keys.Should().BeEquivalentTo(["d"]);
-        p.DesignDataProblems.Select(x => (x.Key, x.Reason)).Should().BeEquivalentTo([
-            ("a\uFFFDb", LocalePackReasons.Control), (longPath[..LocalePackLimits.MaxDesignPathLength], LocalePackReasons.TooLong), ("c", LocalePackReasons.Control)]);
+        p.DesignData.Keys.Should().BeEquivalentTo(["c", "d"]);
+        p.DesignData["c"].Should().Be(new DesignDataEntry("Z", null));
+        p.DesignData["d"].Source.Should().Be("ok");
+        p.DesignDataProblems.Select(x => (x.Key, x.Reason, string.Join(",", x.Args))).Should().BeEquivalentTo([
+            ("a\uFFFDb", LocalePackReasons.Control, ""),
+            (longPath[..LocalePackLimits.MaxDesignPathLength], LocalePackReasons.TooLong, LocalePackLimits.MaxDesignPathLength.ToString(System.Globalization.CultureInfo.InvariantCulture))]);
         p.DesignDataCount.Should().Be(4);
     }
 
