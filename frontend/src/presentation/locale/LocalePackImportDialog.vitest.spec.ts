@@ -534,17 +534,21 @@ describe('LocalePackImportDialog 設計資料（i4e）', () => {
     w.unmount();
   });
 
-  it('拒收原因顯示文字（公式、標題選項、別套系統、語系數上限）', async () => {
-    const w = await mountDialog((c) => (c.url === '/i18n/packs/preview' ? report({ designData: design({ count: 4, rejected: 4, rejectedItems: [
+  it('拒收原因顯示文字（公式、標題選項、別套系統、語系數上限、過長；上限帶出數字）', async () => {
+    const w = await mountDialog((c) => (c.url === '/i18n/packs/preview' ? report({ designData: design({ count: 5, rejected: 5, rejectedItems: [
       { key: 'local:field:9/label', reason: 'formula', args: [] }, { key: 'app:crm/module:order/option:open/label', reason: 'titleOption', args: [] },
       { key: 'local:field:10/label', reason: 'otherSystem', args: [] }, { key: 'local:field:11/label', reason: 'tooManyLocales', args: ['30'] },
+      { key: 'local:field:12/label', reason: 'tooLong', args: ['4000'] },
     ] }) }) : undefined));
     await pick();
     const text = q('report-design-rejected-list')!.textContent!;
     expect(text).toContain(zhTW.localePacks.reasons.formula);
     expect(text).toContain(zhTW.localePacks.reasons.titleOption);
     expect(text).toContain(zhTW.localePacks.reasons.otherSystem);
-    expect(text).toContain(zhTW.localePacks.reasons.tooManyLocales);
+    // 審查 r3 N1：超過上限的拒收要看得到上限數字（backend.md 使用者裁決）
+    expect(text).toContain(zhTW.localePacks.reasons.tooManyLocales.replace('{max}', '30'));
+    expect(text).toContain(zhTW.localePacks.reasons.tooLong.replace('{max}', '4000'));
+    expect(text).not.toContain('{max}');
     w.unmount();
   });
 
