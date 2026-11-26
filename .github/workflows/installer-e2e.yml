@@ -461,12 +461,12 @@ jobs:
           # B03：wwwroot 沒有 source map
           Assert (@(Get-ChildItem 'C:\Program Files\Formwright\wwwroot' -Recurse -Filter '*.map').Count -eq 0) 'wwwroot 不該有 source map'
 
-      - name: acl（TD-04、B01）
+      - name: acl（TD-04、B01、M02）
         run: |
           . ./scripts/installer/e2e/windows-lib.ps1
-          icacls $Data | Write-Host
-          Assert-OnlyTrustedAces @('C:\ProgramData\Formwright\data', 'C:\ProgramData\Formwright\formwright.json')
-          Assert-OnlyTrustedAces @("$Data\setup-code")
+          icacls 'C:\ProgramData\Formwright' | Write-Host
+          Assert-AclState
+          Assert (Test-Path "$Data\setup-code") 'setup-code 不在'
 
       - name: backup-red（AC-05）
         run: |
@@ -490,27 +490,37 @@ jobs:
             sc.exe qfailure Formwright; sc.exe qfailureflag Formwright
             throw
           }
-          # 精靈完成後服務建立的金鑰等產物也只有三個 SID
-          Assert-OnlyTrustedAces @('C:\ProgramData\Formwright\data', 'C:\ProgramData\Formwright\formwright.json')
+          # 精靈完成後：父目錄仍是完整預期集合；服務自己建的金鑰等檔案可由服務帳號擁有
+          Assert-AclState -AllowServiceOwner
 
-      - name: upgrade（AC-06、M02、M05）
+      - name: upgrade（AC-06、M02、M05、M06）
         run: |
           . ./scripts/installer/e2e/windows-lib.ps1
-          # M02 回歸：升級前人為留下既有的明確授權（Users 讀取），升級後必須被清掉
+          # M02 回歸：升級前人為留下既有授權與一般使用者擁有的子項，升級後必須被收斂
           Icacls $Data /grant 'BUILTIN\Users:(OI)(CI)R'
+          Icacls $Data /setowner 'BUILTIN\Users'
           Icacls 'C:\ProgramData\Formwright\formwright.json' /grant 'BUILTIN\Users:R'
-          Wiz backups $Base | Out-Null
+          # M06 回歸：先手動放一條舊版留下的寬規則（只有 port、不限來源與程式），不帶參數升級後必須被收斂成一條受限的規則
+          New-NetFirewallRule -DisplayName Formwright -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8080 | Out-Null
+          $before = @((Wiz backups $Base) | ConvertFrom-Json)
+          $beforeIds = @($before | ForEach-Object { [long]$_.id })
           $start = Now-Utc
           Assert ((Install-Fw $env:V2 'upgrade') -eq 0) '升級結束碼不是 0'
           Version-Is $env:V2
           Wiz verify-kept $Base | Out-Null
-          Assert-OnlyTrustedAces @('C:\ProgramData\Formwright\data', 'C:\ProgramData\Formwright\formwright.json')
+          Assert-AclState -AllowServiceOwner
+          $rules = @(Get-NetFirewallRule -DisplayName Formwright)
+          Assert ($rules.Count -eq 1) "升級後防火牆規則應剛好一條、實得 $($rules.Count)"
+          $remote = @(($rules[0] | Get-NetFirewallAddressFilter).RemoteAddress)
+          Assert (@($remote | Where-Object { $_ -ieq 'LocalSubnet' }).Count -eq $remote.Count -and $remote.Count -ge 1) "升級後 RemoteAddress 應為 LocalSubnet、實得 $($remote -join ',')"
+          Assert ((($rules[0] | Get-NetFirewallApplicationFilter).Program) -ieq 'C:\Program Files\Formwright\DynamicModules.WebAPI.exe') '升級後規則沒有限定程式'
+          # 備份：升級前後的 run id 差集裡要有新的成功 Manual 備份，且時間不早於起點（不靠同秒的舊備份）
           $runs = @((Wiz backups $Base) | ConvertFrom-Json)
-          $cands = @($runs | Where-Object { "$($_.trigger)".ToLower() -eq 'manual' -and $null -eq $_.requestedUserId -and "$($_.status)".ToLower() -eq 'succeeded' })
-          $hit = @($cands | Where-Object { (To-UtcOffset $_.queuedUnix) -ge $start })
-          Assert ($hit.Count -ge 1) "升級後沒有新的成功 Manual 備份（起點 $($start.ToString('o'))）"
-          # 管理員（安裝程式）產生的備份產物也只有三個 SID，服務帳號沒有 FullControl
-          Assert-OnlyTrustedAces @($Backup)
+          $new = @($runs | Where-Object { $beforeIds -notcontains [long]$_.id })
+          $hit = @($new | Where-Object {
+            "$($_.trigger)".ToLower() -eq 'manual' -and $null -eq $_.requestedUserId -and "$($_.status)".ToLower() -eq 'succeeded' -and
+            (To-UtcOffset $_.queuedUnix) -ge $start })
+          Assert ($hit.Count -ge 1) "升級後沒有新的成功 Manual 備份（起點 $($start.ToString('o'))、新增 $($new.Count) 筆）"
 
       - name: upgrade-backup-fails（AC-07、D-20）
         run: |
@@ -524,9 +534,24 @@ jobs:
             $rc = Install-Fw $env:V3 'backup-fails-zh' @('/LANG=chinesetraditional')
             Assert ($rc -ne 0) '備份失敗時（繁中）安裝程式結束碼應非 0'
             Assert ((Log-Text 'setup-backup-fails-zh.log') -match '升級前備份失敗') '繁中 log 缺「升級前備份失敗」'
+            # 舊版必須被拉回來：自動啟動、執行中、就緒（版號還是 V2）
             Wait-Service 'Running'
+            Assert ((Get-Service Formwright).StartType -eq 'Automatic') '備份失敗後服務啟動類型應恢復成 Automatic'
             Version-Is $env:V2
           } finally { Icacls $Backup /remove:d '*S-1-1-0' }
+
+      - name: crash-window-upgrade（M03：服務剛崩潰、SCM 已排程重啟時升級）
+        run: |
+          . ./scripts/installer/e2e/windows-lib.ps1
+          # 殺掉程序：失敗復原會在 5 秒後排程重啟；馬上升級，安裝程式必須先停用服務擋住那次重啟
+          Stop-Process -Name 'DynamicModules.WebAPI' -Force
+          $rc = Install-Fw $env:V2 'crash-window'
+          Assert ($rc -eq 0) "崩潰視窗內升級結束碼應為 0、實得 $rc"
+          Assert ((Log-Text 'setup-crash-window.log') -match 'config Formwright start= disabled -> 0') 'log 缺「先停用服務」'
+          Wait-Service 'Running'
+          Assert ((Get-Service Formwright).StartType -eq 'Automatic') '升級後服務啟動類型應為 Automatic'
+          Version-Is $env:V2
+          Wiz verify-kept $Base | Out-Null
 
       - name: remove-reinstall（AC-08）與 reinstall-without-backup（M06 reinstall 重建規則）
         run: |
@@ -544,6 +569,11 @@ jobs:
           Assert (@($remote | Where-Object { $_ -like '192.0.2.0/*' }).Count -ge 1 -and @($remote | Where-Object { $_ -like '198.51.100.0/*' }).Count -ge 1) "RemoteAddress 沒有照 /FIREWALLSCOPE：$($remote -join ',')"
           Assert ((Http-Code "$Base/api/setup/status") -eq 404) '重裝後不該有精靈'
           Wiz verify-kept $Base | Out-Null
+          # M06：不帶 /FIREWALLSCOPE 再安裝一次（升級），要沿用上次的範圍（RegisterPreviousData），不退回預設
+          Assert ((Install-Fw $env:V2 'rerun-keeps-scope') -eq 0) '再次安裝結束碼不是 0'
+          $remote = @(((Get-NetFirewallRule -DisplayName Formwright -ErrorAction Stop) | Get-NetFirewallAddressFilter).RemoteAddress)
+          Assert (@($remote | Where-Object { $_ -like '192.0.2.0/*' }).Count -ge 1 -and @($remote | Where-Object { $_ -like '198.51.100.0/*' }).Count -ge 1) "升級沒有沿用上次的範圍：$($remote -join ',')"
+          Version-Is $env:V2
 
       - name: config-lost-existing-data（AC-13、D-16）
         run: |
@@ -576,37 +606,54 @@ jobs:
           Assert ((Uninstall-Fw 'delete' @('/DELETEDATA')) -eq 0) '移除結束碼不是 0'
           Assert (-not (Test-Path 'C:\ProgramData\Formwright')) '/DELETEDATA 後資料目錄還在'
 
-      - name: failure-injection（M04、M02）
+      - name: failure-injection（M04、M02、N01）
         run: |
           . ./scripts/installer/e2e/windows-lib.ps1
-          # 起不來的服務在失敗復原下會被一再重啟；清理前先關掉復原動作，才能乾淨移除
+          # 每個案例結束都驗：服務不存在、沒有殘留程序、資料目錄不在、防火牆規則不在
           function Cleanup([string]$Name) {
-            cmd.exe /c 'sc failure Formwright reset= 0 actions= ""' | Out-Null
+            Quiesce-Fw
             Assert ((Uninstall-Fw $Name @('/DELETEDATA')) -eq 0) '清理（移除）結束碼不是 0'
-            Assert (-not (Test-Path 'C:\ProgramData\Formwright')) '清理後資料目錄還在'
+            Assert-FwGone
           }
-          # 1) 連接埠被占用：服務起不來 → 安裝程式必須以 20 結束，log 有失敗步驟，不能假成功
+          # 1) 連接埠被占用：服務起不來。安裝程式必須以 20 結束、服務維持停用並停止（不會無限重啟）、log 有失敗步驟
           $l = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Any, 8080)
           $l.Start()
           try {
-            $rc = Install-Fw $env:V1 'inject-port'
-            Assert ($rc -eq 20) "服務起不來時結束碼應為 20、實得 $rc"
-            Assert ((Log-Text 'setup-inject-port.log') -match 'Setup did not complete: start service') 'log 缺「start service」失敗'
-          } finally { $l.Stop(); Cleanup 'inject-port' }
-          # 2) 資料目錄裡有 junction：ACL 步驟必須拒絕（不跟隨），安裝以 20 結束，服務不會啟動
+            try {
+              $rc = Install-Fw $env:V1 'inject-port'
+              Assert ($rc -eq 20) "服務起不來時結束碼應為 20、實得 $rc"
+              Assert ((Log-Text 'setup-inject-port.log') -match 'Setup did not complete: service readiness') 'log 缺「service readiness」失敗'
+              $s = Get-Service Formwright
+              Assert ($s.StartType -eq 'Disabled' -and $s.Status -eq 'Stopped') "失敗後服務應為 Disabled／Stopped、實得 $($s.StartType)／$($s.Status)"
+            } finally {
+              Quiesce-Fw   # 先確保服務停用並停止，再釋放故障條件
+              $l.Stop()
+            }
+          } finally { Cleanup 'inject-port' }
+          # 2) 資料目錄裡有 junction：安裝程式必須拒絕（不跟隨），以 20 結束；目標的內容與權限不能變
           $target = Join-Path $env:RUNNER_TEMP 'junction-target'
           New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Set-Content -Path "$target\sentinel.txt" -Value 'sentinel'
+          $aclBefore = (Get-Acl -LiteralPath $target).Sddl
+          $sentinelBefore = (Get-Acl -LiteralPath "$target\sentinel.txt").Sddl
           New-Item -ItemType Directory -Force -Path $Data | Out-Null
-          New-Item -ItemType Junction -Path "$Data\evil" -Target $target | Out-Null
           try {
-            $rc = Install-Fw $env:V1 'inject-junction'
-            Assert ($rc -eq 20) "junction 時結束碼應為 20、實得 $rc"
-            Assert ((Log-Text 'setup-inject-junction.log') -match 'reparse point refused') 'log 缺「reparse point refused」'
-            $s = Get-Service Formwright -ErrorAction SilentlyContinue
-            Assert ($null -eq $s -or $s.Status -ne 'Running') 'junction 時服務不該在跑'
+            New-Item -ItemType Junction -Path "$Data\evil" -Target $target | Out-Null
+            try {
+              $rc = Install-Fw $env:V1 'inject-junction'
+              Assert ($rc -eq 20) "junction 時結束碼應為 20、實得 $rc"
+              Assert ((Log-Text 'setup-inject-junction.log') -match 'reparse point refused') 'log 缺「reparse point refused」'
+              $s = Get-Service Formwright -ErrorAction SilentlyContinue
+              Assert ($null -ne $s -and $s.StartType -eq 'Disabled' -and $s.Status -eq 'Stopped') 'junction 失敗後服務應為 Disabled／Stopped'
+              Assert ((Get-Content "$target\sentinel.txt") -eq 'sentinel') 'junction 目標的哨兵檔內容變了'
+              Assert ((Get-Acl -LiteralPath $target).Sddl -ceq $aclBefore) 'junction 目標目錄的 ACL 變了'
+              Assert ((Get-Acl -LiteralPath "$target\sentinel.txt").Sddl -ceq $sentinelBefore) 'junction 目標檔案的 ACL 變了'
+            } finally {
+              Quiesce-Fw
+              if (Test-Path -LiteralPath "$Data\evil") { [IO.Directory]::Delete("$Data\evil") }   # 只刪連結，不動目標
+            }
           } finally {
-            [IO.Directory]::Delete("$Data\evil")   # 只刪連結，不動目標
-            Cleanup 'inject-junction'
+            try { Cleanup 'inject-junction' } finally { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue }
           }
 
       - name: 失敗時收集事件記錄與服務狀態

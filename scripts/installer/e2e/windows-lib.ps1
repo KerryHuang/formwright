@@ -20,23 +20,61 @@ function To-UtcOffset($UnixSeconds) {
 }
 function Now-Utc { [DateTimeOffset]::FromUnixTimeSeconds([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) }
 
-# B01：列出路徑（目錄會連同其下所有項目）的所有 ACE，只能有 SYSTEM、Administrators、服務帳號三個 SID，且服務帳號沒有 FullControl
-function Assert-OnlyTrustedAces([string[]]$Paths) {
-  $svc = (New-Object Security.Principal.NTAccount('NT SERVICE\Formwright')).Translate([Security.Principal.SecurityIdentifier]).Value
-  $allowed = @('S-1-5-18', 'S-1-5-32-544', $svc)
-  $all = foreach ($p in $Paths) {
-    if (Test-Path -LiteralPath $p -PathType Container) { Get-Item -LiteralPath $p -Force; Get-ChildItem -LiteralPath $p -Recurse -Force } else { Get-Item -LiteralPath $p -Force }
+# B01／M02：資料父目錄的完整預期集合（照安裝程式 set-acl.ps1 的驗證）：
+#  父目錄：擁有者 Administrators、受保護（不繼承）、恰好三個 Allow ACE（SYSTEM、Administrators 完全控制；服務帳號 Modify、沒有 WriteDACL／WriteOwner），皆 OI CI、非繼承；
+#  父目錄之下每個項目：沒有任何明確 ACE（全部繼承）、不是受保護、擁有者是 Administrators 或 SYSTEM（-AllowServiceOwner 時也接受服務帳號：精靈完成後服務自己建的檔案）。
+function Assert-AclState([string]$Parent = 'C:\ProgramData\Formwright', [switch]$AllowServiceOwner) {
+  $sid = [Security.Principal.SecurityIdentifier]
+  $svc = (New-Object Security.Principal.NTAccount('NT SERVICE\Formwright')).Translate($sid).Value
+  $admins = 'S-1-5-32-544'; $system = 'S-1-5-18'
+  $acl = Get-Acl -LiteralPath $Parent
+  Assert ($acl.GetOwner($sid).Value -eq $admins) "$Parent 的擁有者不是 Administrators"
+  Assert ($acl.AreAccessRulesProtected) "$Parent 還在繼承權限"
+  $rules = @($acl.GetAccessRules($true, $true, $sid))
+  Assert ($rules.Count -eq 3) "$Parent 應有 3 個 ACE、實得 $($rules.Count)"
+  $want = [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
+  foreach ($r in $rules) {
+    $id = $r.IdentityReference.Value; $mask = [int]$r.FileSystemRights
+    Assert ("$($r.AccessControlType)" -eq 'Allow' -and -not $r.IsInherited) "$id 的 ACE 不是明確的 Allow"
+    Assert ($r.InheritanceFlags -eq $want -and "$($r.PropagationFlags)" -eq 'None') "$id 的 ACE 繼承旗標不是 OI CI"
+    if ($id -eq $system -or $id -eq $admins) { Assert (($mask -band 0x1F01FF) -eq 0x1F01FF) "$id 應為完全控制" }
+    elseif ($id -eq $svc) {
+      Assert (($mask -band 0x301BF) -eq 0x301BF) '服務帳號應有 Modify'
+      Assert (($mask -band 0xC0000) -eq 0) '服務帳號不該有 WriteDACL／WriteOwner'
+      Assert (($mask -band 0x1F01FF) -ne 0x1F01FF) '服務帳號不該是完全控制'
+    } else { throw "FAIL: $Parent 有不該有的 ACE：$id" }
   }
-  Assert (@($all).Count -ge 1) '沒有可檢查的路徑'
-  foreach ($item in $all) {
-    foreach ($ace in (Get-Acl -LiteralPath $item.FullName).Access) {
-      $sid = $ace.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
-      Assert ($allowed -contains $sid) "$($item.FullName) 有不該有的 ACE：$($ace.IdentityReference)（$sid）"
-      if ($sid -eq $svc) {
-        Assert (($ace.FileSystemRights -band [Security.AccessControl.FileSystemRights]::FullControl) -ne [Security.AccessControl.FileSystemRights]::FullControl) "$($item.FullName) 服務帳號不該有 FullControl"
-      }
-    }
+  $owners = @($admins, $system); if ($AllowServiceOwner) { $owners += $svc }
+  foreach ($item in (Get-ChildItem -LiteralPath $Parent -Recurse -Force)) {
+    $a = Get-Acl -LiteralPath $item.FullName
+    Assert ($owners -contains $a.GetOwner($sid).Value) "$($item.FullName) 的擁有者是 $($a.Owner)"
+    Assert (-not $a.AreAccessRulesProtected) "$($item.FullName) 的權限不繼承"
+    foreach ($r in $a.GetAccessRules($true, $true, $sid)) { Assert $r.IsInherited "$($item.FullName) 有明確 ACE：$($r.IdentityReference)" }
   }
+}
+
+# sc.exe 的結束碼檢查（原生指令的非 0 不會讓 step 失敗）；-Allow 列出可接受的碼
+function Sc-Checked([string[]]$ScArgs, [int[]]$Allow = @(0)) {
+  & "$env:SystemRoot\System32\sc.exe" @ScArgs | Out-Null
+  if ($Allow -notcontains $LASTEXITCODE) { throw "FAIL: sc.exe $ScArgs（結束碼 $LASTEXITCODE）" }
+}
+
+# N01：讓故障服務靜止：先停用（擋住已排程的 SCM 重啟）並確認 STOPPED；服務不存在（1060）視為已靜止
+function Quiesce-Fw {
+  $s = Get-Service Formwright -ErrorAction SilentlyContinue
+  if ($null -eq $s) { return }
+  Sc-Checked @('config', 'Formwright', 'start=', 'disabled')
+  Sc-Checked @('stop', 'Formwright') -Allow @(0, 1062)
+  Wait-Service 'Stopped' 60
+  Assert ($null -eq (Get-Process -Name 'DynamicModules.WebAPI' -ErrorAction SilentlyContinue)) '服務已停止但程序還在'
+}
+
+# N01：每個失敗注入案例結束後的乾淨狀態
+function Assert-FwGone {
+  Assert ($null -eq (Get-Service Formwright -ErrorAction SilentlyContinue)) '服務還在'
+  Assert ($null -eq (Get-Process -Name 'DynamicModules.WebAPI' -ErrorAction SilentlyContinue)) '還有 DynamicModules.WebAPI 程序'
+  Assert (-not (Test-Path 'C:\ProgramData\Formwright')) '資料目錄還在'
+  Assert ($null -eq (Get-NetFirewallRule -DisplayName Formwright -ErrorAction SilentlyContinue)) '防火牆規則還在'
 }
 
 # 靜默執行安裝程式，回傳結束碼；log 落在 $LogDir\setup-<名稱>.log

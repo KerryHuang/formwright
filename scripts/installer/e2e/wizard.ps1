@@ -22,8 +22,8 @@ function Step($m) { [Console]::Error.WriteLine("==> $m") }
 function Fail($m) { [Console]::Error.WriteLine("FAIL: $m"); exit 1 }
 
 # Http <方法> <url> [-Json <物件>] [-Headers @{}]：回傳狀態碼，本文放 $script:Body（原始字串）
-function Http([string]$Method, [string]$Url, $Json = $null, [hashtable]$Headers = @{}) {
-  $p = @{ Method = $Method; Uri = $Url; WebSession = $script:Session; SkipHttpErrorCheck = $true; Headers = $Headers }
+function Http([string]$Method, [string]$Url, $Json = $null, [hashtable]$Headers = @{}, [int]$TimeoutSec = 30) {
+  $p = @{ Method = $Method; Uri = $Url; WebSession = $script:Session; SkipHttpErrorCheck = $true; Headers = $Headers; TimeoutSec = $TimeoutSec }
   if ($null -ne $Json) { $p.Body = ($Json | ConvertTo-Json -Compress -Depth 10); $p.ContentType = 'application/json; charset=utf-8' }
   try { $r = Invoke-WebRequest @p } catch { $script:Body = "$_"; $script:Headers = $null; return 0 }
   $script:Body = [string]$r.Content
@@ -141,7 +141,7 @@ function CmdBackups([string]$Base) {
     $pending = @($j.runs | Where-Object { IsPending $_ })
     if ($null -eq $j.current -and $pending.Count -eq 0) {
       ConvertTo-Json -Compress -Depth 5 -InputObject @($j.runs | ForEach-Object {
-        [ordered]@{ trigger = $_.trigger; requestedUserId = $_.requestedUserId; status = $_.status; queuedUtc = (DateStr $_.queuedUtc); queuedUnix = (UnixSeconds $_.queuedUtc); finishedUtc = (DateStr $_.finishedUtc) }
+        [ordered]@{ id = $_.id; trigger = $_.trigger; requestedUserId = $_.requestedUserId; status = $_.status; queuedUtc = (DateStr $_.queuedUtc); queuedUnix = (UnixSeconds $_.queuedUtc); finishedUtc = (DateStr $_.finishedUtc) }
       })
       return
     }
@@ -211,12 +211,20 @@ function CmdFull([string]$Base, [string]$Code, [string]$Backup) {
   Step '等站台以一般模式回來（complete 之後 60 秒內）'
   $ok = $false
   while ([DateTime]::UtcNow -lt $deadline) {
+    # 每次請求的 timeout 不超過剩餘時間（至少 1 秒、最多 5 秒），不會在截止之後才回來
+    $left = [int][Math]::Ceiling(($deadline - [DateTime]::UtcNow).TotalSeconds)
+    if ($left -lt 1) { break }
+    $t = [Math]::Min(5, $left)
     $svcOk = $true
     if ($env:FW_E2E_SERVICE) {
       $svc = Get-Service $env:FW_E2E_SERVICE -ErrorAction SilentlyContinue
       $svcOk = ($null -ne $svc -and $svc.Status -eq 'Running')
     }
-    if ($svcOk -and (Http 'GET' "$Base/api/setup/status") -eq 404 -and (Http 'GET' "$Base/api/health/ready") -eq 200) { $ok = $true; break }
+    if ($svcOk -and (Http 'GET' "$Base/api/setup/status" $null @{} $t) -eq 404 -and (Http 'GET' "$Base/api/health/ready" $null @{} $t) -eq 200) {
+      # 成功後再比一次截止時間：最後一輪可能在截止前開始、之後才回來
+      if ([DateTime]::UtcNow -le $deadline) { $ok = $true }
+      break
+    }
     Start-Sleep -Seconds 1
   }
   if (-not $ok) { Fail '站台（或服務）沒有在 complete 之後 60 秒內回到一般模式' }
