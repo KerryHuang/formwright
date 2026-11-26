@@ -44,7 +44,16 @@ InstallInitializer.EnsureForContainer(builder.Configuration, Console.Out);
 // 安裝版設定檔是最高優先的來源，要在讀 Database:Provider 之前加上（安裝版設計 TD-01）
 InstallConfig.AddConfigFile(builder.Configuration);
 // 設定模式（全新安裝、精靈還沒跑完）：不碰資料庫，只開精靈
-if (InstallConfig.IsPending(builder.Configuration)) return await SetupHost.RunAsync(builder);
+if (InstallConfig.IsPending(builder.Configuration))
+{
+    // 裝好放著、隔週升級：沒有資料可備份，回 0 讓升級繼續（仍是設定模式）
+    if (args.Contains("--backup-now"))
+    {
+        Console.Out.WriteLine("FORMWRIGHT_BACKUP_SETUP_PENDING");
+        return 0;
+    }
+    return await SetupHost.RunAsync(builder);
+}
 // 不在服務管理員底下時兩者都不做事（dotnet run、Docker、測試不受影響）
 builder.Services.AddWindowsService(o => o.ServiceName = "Formwright");
 builder.Services.AddSystemd();
@@ -242,6 +251,9 @@ if (localeProblems.Count > 0)
     throw new InvalidOperationException("內建語系資源不齊：" + string.Join("；", localeProblems));
 }
 await InitializeDatabaseAsync(app, databaseDirectory);
+// 安裝程式升級前呼叫（D-09、TD-07）：備份完就結束，不啟動 Kestrel、不跑 hosted service；結束碼 0／1／2
+if (args.Contains("--backup-now"))
+    return await PreUpgradeBackup.RunAsync(app.Services, Console.Out, CancellationToken.None);
 // 建置 Demo 映像時用（Dockerfile.demo）：產生完 Demo 資料就結束，失敗回非 0 讓建置失敗
 if (args.Contains("--generate-demo-data"))
 {
