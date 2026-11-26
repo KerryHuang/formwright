@@ -1,9 +1,10 @@
 using DynamicModules.Domain.Entities.Dynamic;
+using DynamicModules.Domain.ValueObjects;
 
 namespace DynamicModules.Domain.Repositories.Dynamic;
 
 /// <summary>一份儀表板版面與它的來源。IsPersonal 為 true 是某位使用者對指派版的個人版（Id 與 Name 屬於被個人化的儀表板）。</summary>
-public record DashboardLayoutSource(long Id, string Name, string? OwnerUserId, bool IsPersonal, string LayoutJson);
+public record DashboardLayoutSource(long Id, I18nText Name, string? OwnerUserId, bool IsPersonal, string LayoutJson);
 
 /// <summary>安全刪除專用：引用盤點需要的全域讀取，以及永久清除資料的批次刪除。清除必須在呼叫端的交易內執行。</summary>
 public interface IDeletionRepository

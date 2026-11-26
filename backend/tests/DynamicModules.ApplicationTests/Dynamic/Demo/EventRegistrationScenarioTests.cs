@@ -58,7 +58,7 @@ public class EventRegistrationScenarioTests(DemoGeneratedFixture fx)
     public async Task StatsReport_HasData()
     {
         fx.Generated();
-        var report = await fx.Host.Db.Context.Set<Report>().AsNoTracking().SingleAsync(r => r.Name == "活動報名統計");
+        var report = (await fx.Host.Db.Context.Set<Report>().AsNoTracking().ToListAsync()).Single(r => r.Name == "活動報名統計");
         var run = (ReportResult)(await fx.As("sales01", new RunReportRequest(report.Id, null, "zh-TW"))).Data!;
         run.State.Should().Be("ok", run.Message);
         run.Total!["n"].Should().Be(3);

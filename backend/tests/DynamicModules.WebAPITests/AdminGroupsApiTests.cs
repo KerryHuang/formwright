@@ -358,7 +358,7 @@ public class AdminGroupsApiTests
         {
             var dashboard = new Dashboard
             {
-                Name = "業務總覽", Assignments = [new DashboardAssignment { GroupId = id }, new DashboardAssignment { GroupId = other }]
+                NameI18n = DynamicModules.Application.Common.I18nNameRules.ZhOnly("業務總覽"), Assignments = [new DashboardAssignment { GroupId = id }, new DashboardAssignment { GroupId = other }]
             };
             db.Set<Dashboard>().Add(dashboard);
             db.SaveChanges();

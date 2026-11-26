@@ -11,7 +11,6 @@ public static class TaskViewMessages
     public static string TooManyShares(int max) => $"每個看板最多分享給 {max} 個對象";
     public const string ShareKindInvalid = "分享對象的種類必須是使用者、群組或部門";
     public const string ShareTargetMissing = "分享對象不存在";
-    public const string CopySuffix = "（副本）";
     public const string SourceBoth = "只能帶看板 Id 或看板設定其中一個";
 
     // 依檢視種類挑字：甘特圖用另一組（MessageText 四語），看板既有的字不動（看板設計 §11.5.2.7，GT-T9）
@@ -19,6 +18,9 @@ public static class TaskViewMessages
 
     public static MessageRef NameRequiredOf(string kind) =>
         IsGantt(kind) ? MessageRef.Of(MessageText.TaskGanttNameRequired) : MessageRef.Literal(NameRequired);
+
+    /// <summary>名稱主詞（必填語系訊息用：「看板名稱必須有越南文」）。</summary>
+    public static string NameSubjectOf(string kind) => IsGantt(kind) ? "甘特圖名稱" : "看板名稱";
 
     public static MessageRef NameTooLongOf(string kind, int max) =>
         IsGantt(kind) ? MessageRef.Of(MessageText.TaskGanttNameTooLong, max) : MessageRef.Literal(NameTooLong(max));

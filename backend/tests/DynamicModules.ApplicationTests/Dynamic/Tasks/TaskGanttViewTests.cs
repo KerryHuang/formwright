@@ -3,6 +3,7 @@ using DynamicModules.Application.Dynamic.TaskViewService;
 using DynamicModules.Domain.Entities.Dynamic;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using static DynamicModules.Application.Common.I18nNameRules;
 
 namespace DynamicModules.ApplicationTests.Dynamic.Tasks;
 
@@ -13,7 +14,7 @@ public class TaskGanttViewTests : TaskBoardTestBase
 
     private async Task<TaskViewDetail> CreateGantt(string owner, string name = "展覽", string? config = GanttConfig)
     {
-        var r = await SendAs(owner, new CreateTaskViewRequest("gantt", name, config is null ? null : J(config)));
+        var r = await SendAs(owner, new CreateTaskViewRequest("gantt", ZhOnly(name), config is null ? null : J(config)));
         r.IsCreated.Should().BeTrue(r.Message + string.Join(";", r.Errors.SelectMany(e => e.Value)));
         return (TaskViewDetail)r.Data!;
     }
@@ -44,7 +45,7 @@ public class TaskGanttViewTests : TaskBoardTestBase
     [InlineData("""{"version":1,"groupBy":"parent","scope":"assigned","scale":"year"}""", "甘特圖刻度必須是 day、week 或 month")]
     public async Task G20_StrictWrite_400_Config(string config, string message)
     {
-        var r = await SendAs("sales01", new CreateTaskViewRequest("gantt", "展覽", J(config)));
+        var r = await SendAs("sales01", new CreateTaskViewRequest("gantt", ZhOnly("展覽"), J(config)));
 
         r.Errors.Should().ContainKey("config");
         r.Errors["config"].Should().ContainSingle().Which.Should().Contain(message);
@@ -56,22 +57,22 @@ public class TaskGanttViewTests : TaskBoardTestBase
     {
         const string nullRange = """{"version":1,"groupBy":"parent","scope":"assigned","scale":"week","filters":{"dueRange":null}}""";
 
-        (await SendAs("sales01", new CreateTaskViewRequest("gantt", "展覽", J(nullRange)))).Errors["config"]
+        (await SendAs("sales01", new CreateTaskViewRequest("gantt", ZhOnly("展覽"), J(nullRange)))).Errors["config"]
             .Should().Equal("甘特圖用時間範圍，不用到期日區間");
         var v = await CreateGantt("sales01");
-        (await SendAs("sales01", new UpdateTaskViewRequest(v.Id, "展覽", J(nullRange), v.RowVersion))).Errors["config"]
+        (await SendAs("sales01", new UpdateTaskViewRequest(v.Id, ZhOnly("展覽"), J(nullRange), v.RowVersion))).Errors["config"]
             .Should().Equal("甘特圖用時間範圍，不用到期日區間");
-        (await SendAs("sales01", new UpdateTaskViewRequest(v.Id, "展覽", J("""{"version":1,"groupBy":"parent","scope":"assigned","scale":"week","sort":null}"""), v.RowVersion)))
+        (await SendAs("sales01", new UpdateTaskViewRequest(v.Id, ZhOnly("展覽"), J("""{"version":1,"groupBy":"parent","scope":"assigned","scale":"week","sort":null}"""), v.RowVersion)))
             .Errors.Should().ContainKey("config");
     }
 
     [Fact]
     public async Task G20_BoardConfigOnGantt_400_GanttNameMessages()
     {
-        (await SendAs("sales01", new CreateTaskViewRequest("gantt", "展覽", J(StatusConfig)))).Errors.Should().ContainKey("config");
-        (await SendAs("sales01", new CreateTaskViewRequest("gantt", " ", null))).Errors["name"].Should().Equal("甘特圖名稱必填");
-        (await SendAs("sales01", new CreateTaskViewRequest("gantt", new string('名', 101), null))).Errors["name"].Should().Equal("甘特圖名稱最多 100 字");
-        (await SendAs("sales01", new CreateTaskViewRequest("board", " ", null))).Errors["name"].Should().Equal("看板名稱必填");
+        (await SendAs("sales01", new CreateTaskViewRequest("gantt", ZhOnly("展覽"), J(StatusConfig)))).Errors.Should().ContainKey("config");
+        (await SendAs("sales01", new CreateTaskViewRequest("gantt", ZhOnly(" "), null))).Errors["name"].Should().Equal("甘特圖名稱必填");
+        (await SendAs("sales01", new CreateTaskViewRequest("gantt", ZhOnly(new string('名', 101)), null))).Errors["name"].Should().Equal("甘特圖名稱最多 100 字");
+        (await SendAs("sales01", new CreateTaskViewRequest("board", ZhOnly(" "), null))).Errors["name"].Should().Equal("看板名稱必填");
     }
 
     [Fact]
@@ -90,22 +91,22 @@ public class TaskGanttViewTests : TaskBoardTestBase
     public async Task G22_Update_GanttFormat_Stale409_Shared403_Copy()
     {
         var v = await CreateGantt("manager01");
-        (await SendAs("manager01", new UpdateTaskViewRequest(v.Id, "展覽", J(StatusConfig), v.RowVersion))).Errors.Should().ContainKey("config");
-        var ok = await SendAs("manager01", new UpdateTaskViewRequest(v.Id, "展覽二",
+        (await SendAs("manager01", new UpdateTaskViewRequest(v.Id, ZhOnly("展覽"), J(StatusConfig), v.RowVersion))).Errors.Should().ContainKey("config");
+        var ok = await SendAs("manager01", new UpdateTaskViewRequest(v.Id, ZhOnly("展覽二"),
             J("""{"version":1,"groupBy":"none","scope":"involved","scale":"day","showSubtasks":false}"""), v.RowVersion));
         ok.IsSuccess.Should().BeTrue(ok.Message + string.Join(";", ok.Errors.SelectMany(e => e.Value)));
         var updated = (TaskViewDetail)ok.Data!;
         updated.Kind.Should().Be("gantt");
         updated.Config.GetProperty("scale").GetString().Should().Be("day");
         // 只改名、不帶設定：保留現有的甘特設定
-        var renamed = (TaskViewDetail)(await SendAs("manager01", new UpdateTaskViewRequest(v.Id, "展覽三", null, updated.RowVersion))).Data!;
+        var renamed = (TaskViewDetail)(await SendAs("manager01", new UpdateTaskViewRequest(v.Id, ZhOnly("展覽三"), null, updated.RowVersion))).Data!;
         renamed.Config.GetProperty("groupBy").GetString().Should().Be("none");
-        var stale = await SendAs("manager01", new UpdateTaskViewRequest(v.Id, "展覽四", null, v.RowVersion));
+        var stale = await SendAs("manager01", new UpdateTaskViewRequest(v.Id, ZhOnly("展覽四"), null, v.RowVersion));
         stale.IsConflict.Should().BeTrue();
         stale.Code.Should().Be("stale");
 
         (await Share("manager01", v.Id, ("user", "sales01"))).IsSuccess.Should().BeTrue();
-        (await SendAs("sales01", new UpdateTaskViewRequest(v.Id, "改", null, renamed.RowVersion))).IsForbidden.Should().BeTrue();
+        (await SendAs("sales01", new UpdateTaskViewRequest(v.Id, ZhOnly("改"), null, renamed.RowVersion))).IsForbidden.Should().BeTrue();
         var copied = await SendAs("sales01", new CopyTaskViewRequest(v.Id));
         copied.IsCreated.Should().BeTrue(copied.Message);
         var copy = (TaskViewDetail)copied.Data!;
@@ -157,7 +158,7 @@ public class TaskGanttViewTests : TaskBoardTestBase
     {
         var view = new TaskView
         {
-            Kind = "gantt", OwnerUserId = "sales01", Name = "舊格式", RowVersion = Guid.NewGuid().ToString(),
+            Kind = "gantt", OwnerUserId = "sales01", NameI18n = ZhOnly("舊格式"), RowVersion = Guid.NewGuid().ToString(),
             ConfigJson = """{"version":1,"groupBy":"assignee","scope":"visible","scale":"year","colour":"red","filters":{"dueRange":{"kind":"thisWeek"},"keyword":" expo "}}"""
         };
         view.StampCreated("sales01", SeedTime);

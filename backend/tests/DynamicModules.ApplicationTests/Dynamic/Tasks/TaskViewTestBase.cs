@@ -2,6 +2,7 @@ using DynamicModules.Application.Common;
 using DynamicModules.Application.Dynamic.TaskViewService;
 using DynamicModules.Persistence.Seed;
 using FluentAssertions;
+using static DynamicModules.Application.Common.I18nNameRules;
 
 namespace DynamicModules.ApplicationTests.Dynamic.Tasks;
 
@@ -33,7 +34,7 @@ public abstract class TaskViewTestBase : TaskTestBase
 
     protected async Task<TaskViewDetail> CreateView(string owner, string name = "業務部任務", string config = StatusConfig)
     {
-        var r = await SendAs(owner, new CreateTaskViewRequest("board", name, J(config)));
+        var r = await SendAs(owner, new CreateTaskViewRequest("board", ZhOnly(name), J(config)));
         r.IsCreated.Should().BeTrue(r.Message + string.Join(";", r.Errors.SelectMany(e => e.Value)));
         return (TaskViewDetail)r.Data!;
     }

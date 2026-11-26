@@ -72,6 +72,10 @@ public class I18nText
     /// <summary><paramref name="required"/> 中沒有文字的語系（保留傳入順序）。</summary>
     public IReadOnlyList<string> MissingLocales(IEnumerable<string> required) => required.Where(l => !HasText(l)).ToList();
 
+    /// <summary>存檔用的乾淨副本：各語系去前後空白，去掉空白與空值的語系（名稱多語設計 §7.1、§7.2）。</summary>
+    public I18nText Compacted() =>
+        new(_values.Where(kv => !string.IsNullOrWhiteSpace(kv.Value)).Select(kv => KeyValuePair.Create(kv.Key, kv.Value.Trim())));
+
     /// <summary>內容相同：各語系去前後空白、忽略空值後比對（§3.5「改了才檢查」）。</summary>
     public bool SameAs(I18nText? other)
     {

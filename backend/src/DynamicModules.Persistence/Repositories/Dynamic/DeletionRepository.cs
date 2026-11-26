@@ -4,6 +4,7 @@ using DynamicModules.Domain.Data;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.Repositories.Dynamic;
 using Microsoft.EntityFrameworkCore;
+using DynamicModules.Domain.ValueObjects;
 
 namespace DynamicModules.Persistence.Repositories.Dynamic;
 
@@ -45,15 +46,15 @@ public class DeletionRepository(DynamicDbContext db) : IDeletionRepository
     public async Task<List<DashboardLayoutSource>> ListDashboardLayoutsAsync(CancellationToken ct)
     {
         var dashboards = await db.Set<Dashboard>().AsNoTracking().OrderBy(d => d.Id)
-            .Select(d => new { d.Id, d.Name, d.OwnerUserId, d.LayoutJson }).ToListAsync(ct);
+            .Select(d => new { d.Id, d.NameI18n, d.OwnerUserId, d.LayoutJson }).ToListAsync(ct);
         var personal = await db.Set<DashboardPersonalVersion>().AsNoTracking()
             .OrderBy(p => p.DashboardId).ThenBy(p => p.UserId)
             .Select(p => new { p.DashboardId, p.UserId, p.LayoutJson }).ToListAsync(ct);
-        var names = dashboards.ToDictionary(d => d.Id, d => d.Name);
+        var names = dashboards.ToDictionary(d => d.Id, d => d.NameI18n);
         return
         [
-            .. dashboards.Select(d => new DashboardLayoutSource(d.Id, d.Name, d.OwnerUserId, false, d.LayoutJson)),
-            .. personal.Select(p => new DashboardLayoutSource(p.DashboardId, names.GetValueOrDefault(p.DashboardId, $"#{p.DashboardId}"), p.UserId, true, p.LayoutJson)),
+            .. dashboards.Select(d => new DashboardLayoutSource(d.Id, d.NameI18n, d.OwnerUserId, false, d.LayoutJson)),
+            .. personal.Select(p => new DashboardLayoutSource(p.DashboardId, names.GetValueOrDefault(p.DashboardId) ?? new I18nText(), p.UserId, true, p.LayoutJson)),
         ];
     }
 

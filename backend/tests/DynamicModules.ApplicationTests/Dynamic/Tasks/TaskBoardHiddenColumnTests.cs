@@ -3,6 +3,7 @@ using DynamicModules.Application.Dynamic.TaskService;
 using DynamicModules.Application.Dynamic.TaskViewService;
 using DynamicModules.Domain.Tasks;
 using FluentAssertions;
+using static DynamicModules.Application.Common.I18nNameRules;
 
 namespace DynamicModules.ApplicationTests.Dynamic.Tasks;
 
@@ -61,7 +62,7 @@ public class TaskBoardHiddenColumnTests : TaskBoardTestBase
 
         var columns = await SendAs("admin", new GetTaskBoardColumnsRequest(null, J(config)));
         var page = await SendAs("admin", new GetTaskBoardColumnPageRequest(TaskBoardConfig.Unassigned, null, J(config), 0));
-        var save = await SendAs("admin", new CreateTaskViewRequest("board", "藏人的看板", J(config)));
+        var save = await SendAs("admin", new CreateTaskViewRequest("board", ZhOnly("藏人的看板"), J(config)));
 
         foreach (var r in new[] { columns, page, save })
         {

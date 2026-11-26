@@ -62,6 +62,7 @@ public interface IAccountRepository
 
 public record BlockingOption(string Module, string Field, string Option);
 
+/// <summary>Reports、Dashboards 是分享或指派給這個群組的報表與儀表板名稱，依呼叫端給的語系解析。</summary>
 public record GroupImpact(
     int MemberCount, List<string> Modules, int FieldPermissionCount, int DataScopeCount, List<BlockingOption> BlockingOptions, List<string> Reports,
     List<string> Dashboards);

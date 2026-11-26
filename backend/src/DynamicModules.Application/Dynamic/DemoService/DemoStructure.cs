@@ -11,6 +11,7 @@ using DynamicModules.Application.Dynamic.ReportService.Data;
 using DynamicModules.Application.Dynamic.TemplateService.Data;
 using DynamicModules.Domain.Reports;
 using DynamicModules.Domain.Repositories.Dynamic;
+using DynamicModules.Domain.ValueObjects;
 using MediatR;
 
 namespace DynamicModules.Application.Dynamic.DemoService;
@@ -85,7 +86,7 @@ public sealed class DemoStructure(
         if (reportFailure is not null) return (null, reportFailure);
         foreach (var appId in DemoCatalog.AppIds)
             foreach (var report in (await apps.GetByKeyAsync(appId, ct))!.Reports)
-                reportIds[(await reports.GetAsync(report.ReportId, ct))!.Name] = report.ReportId;
+                reportIds[(await reports.GetAsync(report.ReportId, ct))!.NameI18n.Resolve(I18nText.FallbackLocale)] = report.ReportId;
 
         var failed = await CreateDashboardsAsync(reportIds, groupIds, ct);
         if (failed is not null) return (null, failed);
@@ -181,13 +182,14 @@ public sealed class DemoStructure(
         var reportIds = new Dictionary<string, long>();
         foreach (var spec in DemoReports.All)
         {
-            var step = $"建報表 {spec.Name}";
+            var name = spec.Name.Resolve(I18nText.FallbackLocale);
+            var step = $"建報表 {name}";
             var created = await sender.Send(new CreateReportRequest(spec.Name, spec.Build(ids)), ct);
             if (!created.IsSuccess) return (reportIds, Fail(step, created));
             var id = ((ReportDetail)created.Data!).Id;
             var shared = await sender.Send(new SetReportSharesRequest(id, [.. spec.GroupKeys.Select(k => groupIds[k])]), ct);
             if (!shared.IsSuccess) return (reportIds, Fail(step, shared));
-            reportIds[spec.Name] = id;
+            reportIds[name] = id;
         }
         return (reportIds, null);
     }
@@ -198,7 +200,7 @@ public sealed class DemoStructure(
     {
         foreach (var spec in DemoDashboards.All)
         {
-            var step = $"建儀表板 {spec.Name}";
+            var step = $"建儀表板 {spec.Name.Resolve(I18nText.FallbackLocale)}";
             var layout = new DashboardLayout([.. spec.Cards.Select((c, i) =>
                 new DashboardCard($"c{i + 1}", reportIds[c.ReportName], c.Title, c.Viz, c.X, c.Y, c.W, c.H, c.Options))]);
             var created = await sender.Send(new AdminCreateDashboardRequest(spec.Name, layout), ct);

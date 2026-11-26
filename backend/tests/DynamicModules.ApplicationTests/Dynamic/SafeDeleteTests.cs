@@ -514,7 +514,7 @@ public class SafeDeleteTests : DesignerTestBase
     public async Task Field_UsedAsAssignedDashboardCardSortKey_ListsDashboard()
     {
         var (name, _) = await CustWithFields();
-        var dashboard = new Dashboard { OwnerUserId = null, Name = "營運總覽", LayoutJson = LayoutSortedBy($"main:{name.Id}:") };
+        var dashboard = new Dashboard { OwnerUserId = null, NameI18n = I18nNameRules.ZhOnly("營運總覽"), LayoutJson = LayoutSortedBy($"main:{name.Id}:") };
         Ctx.Set<Dashboard>().Add(dashboard);
         await Ctx.SaveForTestsAsync();
         await Deactivate(name.Id);
@@ -531,7 +531,7 @@ public class SafeDeleteTests : DesignerTestBase
     public async Task Field_UsedAsUsersOwnDashboardCardSortKey_ListsDashboard()
     {
         var (name, _) = await CustWithFields();
-        var dashboard = new Dashboard { OwnerUserId = "sales01", Name = "我的看板", LayoutJson = LayoutSortedBy($"child:5:{name.Id}") };
+        var dashboard = new Dashboard { OwnerUserId = "sales01", NameI18n = I18nNameRules.ZhOnly("我的看板"), LayoutJson = LayoutSortedBy($"child:5:{name.Id}") };
         Ctx.Set<Dashboard>().Add(dashboard);
         await Ctx.SaveForTestsAsync();
         await Deactivate(name.Id);
@@ -543,7 +543,7 @@ public class SafeDeleteTests : DesignerTestBase
     public async Task Field_UsedInAPersonalVersionOfAnAssignedDashboard_ListsPersonalDashboard()
     {
         var (name, _) = await CustWithFields();
-        var assigned = new Dashboard { OwnerUserId = null, Name = "營運總覽", LayoutJson = LayoutSortedBy(null) };
+        var assigned = new Dashboard { OwnerUserId = null, NameI18n = I18nNameRules.ZhOnly("營運總覽"), LayoutJson = LayoutSortedBy(null) };
         Ctx.Set<Dashboard>().Add(assigned);
         await Ctx.SaveForTestsAsync();
         Ctx.Set<DashboardPersonalVersion>().Add(new DashboardPersonalVersion
@@ -562,7 +562,7 @@ public class SafeDeleteTests : DesignerTestBase
     public async Task Field_DashboardLayoutThatCannotBeParsed_BlocksFailClosed()
     {
         var (name, _) = await CustWithFields();
-        Ctx.Set<Dashboard>().Add(new Dashboard { OwnerUserId = null, Name = "壞掉的版面", LayoutJson = "{ not json" });
+        Ctx.Set<Dashboard>().Add(new Dashboard { OwnerUserId = null, NameI18n = I18nNameRules.ZhOnly("壞掉的版面"), LayoutJson = "{ not json" });
         await Ctx.SaveForTestsAsync();
         await Deactivate(name.Id);
 
@@ -574,7 +574,7 @@ public class SafeDeleteTests : DesignerTestBase
     {
         await NewModule("cust");
         var name = await MustAdd("cust", FieldType.Text, new FieldConfig { IsFilterable = true }, "名稱");
-        Ctx.Set<Dashboard>().Add(new Dashboard { OwnerUserId = null, Name = "營運總覽", LayoutJson = LayoutSortedBy($"main:{name.Id}:") });
+        Ctx.Set<Dashboard>().Add(new Dashboard { OwnerUserId = null, NameI18n = I18nNameRules.ZhOnly("營運總覽"), LayoutJson = LayoutSortedBy($"main:{name.Id}:") });
         await Ctx.SaveForTestsAsync();
 
         var r = await Send(new DeleteModuleRequest("cust", 0));

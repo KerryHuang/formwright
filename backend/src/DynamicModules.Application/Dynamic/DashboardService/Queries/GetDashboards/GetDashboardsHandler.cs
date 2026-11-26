@@ -23,10 +23,10 @@ public class GetDashboardsHandler(IDashboardRepository dashboards, IReportReposi
         var names = await reportAccess.UserNamesAsync(ct);
 
         return ServiceResult.Success(new DashboardList(
-            assigned.Select(d => new DashboardListItem(d.Id, d.Name, d.Version, personal.ContainsKey(d.Id),
+            assigned.Select(d => new DashboardListItem(d.Id, d.NameI18n, d.Version, personal.ContainsKey(d.Id),
                 personal.TryGetValue(d.Id, out var p) && p.BaseVersion < d.Version)).ToList(),
-            mine.Select(d => new MyDashboardItem(d.Id, d.Name)).ToList(),
+            mine.Select(d => new MyDashboardItem(d.Id, d.NameI18n)).ToList(),
             visible.Where(r => r.OwnerUserId != viewer.UserId).OrderBy(r => r.Id)
-                .Select(r => new SharedReportItem(r.Id, r.Name, names.GetValueOrDefault(r.OwnerUserId, r.OwnerUserId))).ToList()));
+                .Select(r => new SharedReportItem(r.Id, r.NameI18n, names.GetValueOrDefault(r.OwnerUserId, r.OwnerUserId))).ToList()));
     }
 }

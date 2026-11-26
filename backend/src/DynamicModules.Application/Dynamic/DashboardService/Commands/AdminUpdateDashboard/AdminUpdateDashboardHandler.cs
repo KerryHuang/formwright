@@ -1,4 +1,5 @@
 using DynamicModules.Application.Common;
+using DynamicModules.Application.Common.Audit;
 using DynamicModules.Application.Common.Time;
 using DynamicModules.Application.Dynamic.DashboardService.Data;
 using DynamicModules.Application.Dynamic.ReportService;
@@ -11,7 +12,7 @@ namespace DynamicModules.Application.Dynamic.DashboardService.Commands.AdminUpda
 
 /// <summary>更新指派版：版本加一，不動任何個人版（個人版的基準版本較舊時使用者會看到「已更新」）。</summary>
 public class AdminUpdateDashboardHandler(IDashboardRepository dashboards, IUnitOfWork uow, IBusinessTime time, DashboardAccess access, ReportAccess reportAccess,
-    ReportLimitReader limitReader)
+    ReportLimitReader limitReader, RequiredTextGuard requiredText, RequestLocale requestLocale, AuditContext audit)
     : IRequestHandler<AdminUpdateDashboardRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(AdminUpdateDashboardRequest request, CancellationToken ct)
@@ -22,16 +23,17 @@ public class AdminUpdateDashboardHandler(IDashboardRepository dashboards, IUnitO
 
         var viewer = await reportAccess.ViewerAsync(ct);
         var errors = DashboardRules.CheckLayout(request.Layout, await limitReader.GetAsync(ct), await limitReader.MaxCardsAsync(ct), DashboardLayout.Parse(d.LayoutJson).Cards.Count);
-        if (ReportRules.CheckName(request.Name) is { } nameError) errors.Add(nameError);
+        if (ReportRules.CheckName(requiredText, request.Name, d.NameI18n) is { } nameError) errors.Add(nameError);
         if (errors.Count == 0 && await access.CheckReportsAsync(request.Layout, DashboardLayout.Parse(d.LayoutJson).ReportIds(), viewer, ct) is { } reportError)
             errors.Add(reportError);
         if (errors.Count > 0) return ServiceResult.Invalid(ReportRules.ToErrors("layout", errors));
 
-        d.Name = request.Name.Trim();
-        d.LayoutJson = DashboardLayout.Serialize(request.Layout.WithoutFromAssigned());
+        d.NameI18n = request.Name!.Compacted();
+        d.LayoutJson = DashboardLayout.Serialize(request.Layout.WithCleanTitles().WithoutFromAssigned());
         d.Version++;
         d.StampModified(viewer.UserId, time.Now);
         await uow.CommitAsync(ct);
+        audit.Target(label: d.NameI18n.Resolve(requestLocale.SystemDefault));
         return ServiceResult.Success(d.ToAdminDetail());
     }
 }

@@ -9,6 +9,7 @@ using DynamicModules.Domain.Reports;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using DynamicModules.Application.Common;
 
 namespace DynamicModules.ApplicationTests.Dynamic.Demo;
 
@@ -39,14 +40,14 @@ public class DemoDashboardsTests(DemoGeneratedFixture fx)
         var reports = await fx.Host.Db.Context.Set<Report>().AsNoTracking().ToDictionaryAsync(r => r.Name, r => r.Id);
 
         stored.Should().OnlyContain(d => d.OwnerUserId == null);
-        stored.Select(d => d.Name).Should().Equal(DemoDashboards.Names);
+        stored.Select(d => d.NameI18n.Resolve("zh-TW")).Should().Equal(DemoDashboards.Names);
         foreach (var spec in DemoDashboards.All)
         {
-            var dashboard = stored.Single(d => d.Name == spec.Name);
-            dashboard.Assignments.Select(a => groups[a.GroupId]).Should().BeEquivalentTo(spec.GroupKeys, spec.Name);
+            var dashboard = stored.Single(d => d.NameI18n.SameAs(spec.Name));
+            dashboard.Assignments.Select(a => groups[a.GroupId]).Should().BeEquivalentTo(spec.GroupKeys, Zh(spec.Name));
             var layout = DashboardLayout.Parse(dashboard.LayoutJson);
-            layout.Cards.Should().HaveCountGreaterThanOrEqualTo(spec.Name == DemoDashboards.Crm ? 2 : 4, spec.Name);
-            DashboardRules.CheckLayout(layout, Factory, int.Parse(PolicyCatalog.DashboardMaxCards.Factory)).Should().BeEmpty(spec.Name);
+            layout.Cards.Should().HaveCountGreaterThanOrEqualTo(Zh(spec.Name) == DemoDashboards.Crm ? 2 : 4, Zh(spec.Name));
+            DashboardRules.CheckLayout(layout, Factory, int.Parse(PolicyCatalog.DashboardMaxCards.Factory)).Should().BeEmpty(Zh(spec.Name));
             layout.Cards.Select(c => c.ReportId).Should().OnlyContain(id => reports.ContainsValue(id));
         }
         // 業務主管、設備（保養）、品保各一張
@@ -60,13 +61,13 @@ public class DemoDashboardsTests(DemoGeneratedFixture fx)
         fx.Generated();
         foreach (var dashboard in await Stored())
         {
-            var spec = DemoDashboards.All.Single(s => s.Name == dashboard.Name);
+            var spec = DemoDashboards.All.Single(s => s.Name.SameAs(dashboard.NameI18n));
             var owner = Owners[spec.GroupKeys[0]];
             foreach (var card in DashboardLayout.Parse(dashboard.LayoutJson).Cards)
             {
                 var result = await Run(owner, dashboard.Id, card.Id);
                 // 主要對象的每張卡片都有真實資料，不是壞掉也不是空的
-                result.State.Should().Be("ok", $"{spec.Name} / {card.Id}：{result.Message}");
+                result.State.Should().Be("ok", $"{Zh(spec.Name)} / {card.Id}：{result.Message}");
             }
         }
     }
@@ -75,7 +76,7 @@ public class DemoDashboardsTests(DemoGeneratedFixture fx)
     public async Task FloorUser_SeesRestrictedCard_NotBrokenDashboard()
     {
         fx.Generated();
-        var equipment = (await Stored()).Single(d => d.Name == DemoDashboards.Equipment);
+        var equipment = (await Stored()).Single(d => d.NameI18n.Resolve("zh-TW") == DemoDashboards.Equipment);
         var cards = DashboardLayout.Parse(equipment.LayoutJson).Cards;
 
         var states = new List<string>();
@@ -90,7 +91,7 @@ public class DemoDashboardsTests(DemoGeneratedFixture fx)
     public async Task SalesOne_vs_SalesManager_SameDashboard_DifferentNumbers()
     {
         fx.Generated();
-        var sales = (await Stored()).Single(d => d.Name == DemoDashboards.Sales);
+        var sales = (await Stored()).Single(d => d.NameI18n.Resolve("zh-TW") == DemoDashboards.Sales);
         var card = DashboardLayout.Parse(sales.LayoutJson).Cards.First(c => c.Viz == "bar");
 
         var manager = await Run("manager01", sales.Id, card.Id);
@@ -123,11 +124,13 @@ public class DemoDashboardsTests(DemoGeneratedFixture fx)
     public async Task Preflight_ExistingDemoDashboard_Conflict()
     {
         await using var host = await DemoTestHost.CreateAsync();
-        host.Db.Context.Set<Dashboard>().Add(new Dashboard { Name = DemoDashboards.Names[0] });
+        host.Db.Context.Set<Dashboard>().Add(new Dashboard { NameI18n = I18nNameRules.ZhOnly(DemoDashboards.Names[0]) });
         await host.Db.Context.SaveChangesAsync();
 
         var conflicts = await host.Services.GetRequiredService<DemoPreflight>().ConflictsAsync(CancellationToken.None);
 
         conflicts.Should().Contain($"儀表板「{DemoDashboards.Names[0]}」已存在");
     }
+
+    private static string Zh(DynamicModules.Domain.ValueObjects.I18nText t) => t.Resolve("zh-TW");
 }

@@ -5,6 +5,7 @@ using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.Tasks;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using static DynamicModules.Application.Common.I18nNameRules;
 
 namespace DynamicModules.ApplicationTests.Dynamic.Tasks;
 
@@ -405,7 +406,7 @@ public class TaskGanttQueryTests : TaskBoardTestBase
         r.Message.Should().Be("這個甘特圖已刪除或不再分享給你");
         (await Raw("sales01", viewId: 999_999)).Message.Should().Be("這個甘特圖已刪除或不再分享給你");
 
-        var created = await SendAs("sales01", new CreateTaskViewRequest("gantt", "展覽", J(Config(scope: "visible"))));
+        var created = await SendAs("sales01", new CreateTaskViewRequest("gantt", ZhOnly("展覽"), J(Config(scope: "visible"))));
         var gantt = (TaskViewDetail)created.Data!;
         (await Raw("sales02", viewId: gantt.Id)).Message.Should().Be("這個甘特圖已刪除或不再分享給你", "沒分享給他");
         (await Gantt("sales01", viewId: gantt.Id)).Config.GetProperty("scope").GetString().Should().Be("visible");
@@ -428,7 +429,7 @@ public class TaskGanttQueryTests : TaskBoardTestBase
     {
         await SeedTask("業務一的", createdBy: "sales01", assignee: "sales01", due: N(20));
         await SeedTask("業務二的", createdBy: "sales02", assignee: "sales02", due: N(20));
-        var created = await SendAs("manager01", new CreateTaskViewRequest("gantt", "大家的", J(Config(scope: "visible"))));
+        var created = await SendAs("manager01", new CreateTaskViewRequest("gantt", ZhOnly("大家的"), J(Config(scope: "visible"))));
         var view = (TaskViewDetail)created.Data!;
         (await Share("manager01", view.Id, ("user", "sales01"))).IsSuccess.Should().BeTrue();
 

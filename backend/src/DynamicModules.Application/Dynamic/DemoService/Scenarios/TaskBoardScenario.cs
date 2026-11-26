@@ -93,7 +93,7 @@ public sealed class TaskBoardScenario : IDemoScenario
     private static void PlanBoards(DemoPlan plan, Func<DateTime> next)
     {
         var board = new Holder();
-        plan.Run(next(), "manager01", "看板 業務部負載 建立", (ctx, ct) => ctx.Sender.Send(new CreateTaskViewRequest("board", "業務部負載",
+        plan.Run(next(), "manager01", "看板 業務部負載 建立", (ctx, ct) => ctx.Sender.Send(new CreateTaskViewRequest("board", DemoText.Of("業務部負載", "Sales team workload", "ภาระงานฝ่ายขาย", "Khối lượng công việc phòng Kinh doanh"),
             JsonSerializer.SerializeToElement(new
             {
                 version = 1, groupBy = "assignee", scope = "subordinates",
@@ -101,7 +101,7 @@ public sealed class TaskBoardScenario : IDemoScenario
             })), ct));
         plan.Run(next(), "manager01", "看板 業務部任務 建立", async (ctx, ct) =>
         {
-            var r = await ctx.Sender.Send(new CreateTaskViewRequest("board", "業務部任務",
+            var r = await ctx.Sender.Send(new CreateTaskViewRequest("board", DemoText.Of("業務部任務", "Sales team tasks", "งานของฝ่ายขาย", "Công việc phòng Kinh doanh"),
                 JsonSerializer.SerializeToElement(new
                 {
                     version = 1, groupBy = "status", scope = "visible",
