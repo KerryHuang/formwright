@@ -65,7 +65,8 @@
 |---|---|---|---|
 | A 的專案側（記憶「段收尾後自己換新」） | plugin＋記憶 | feedback-review 佇列 20261126083527-899c38 | 已寫入 |
 | B | 專案層 rules | feedback-review 佇列 20261126083527-5e3d09 | 已寫入 |
-| C、D | 專案層 gate／腳本 | 開 backlog 票 | 待使用者決定 |
+| C | 專案層 gate／腳本 | backlog 票 #119 | 已開 |
+| D | 專案層 gate／腳本 | backlog 票 #120 | 已開 |
 
 ## 值得固化的好模式
 
