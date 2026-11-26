@@ -9,6 +9,7 @@ const { t, te } = useI18n();
 
 const COUNTS = ['added', 'changed', 'unchanged', 'skipped', 'sameAsBuiltin', 'extra', 'rejected'] as const;
 const SECTIONS = ['ui', 'server'] as const;
+const DESIGN_COUNTS = ['changed', 'unchanged', 'skipped', 'notFound', 'sourceChanged', 'rejected'] as const;
 
 const percent = (have: number, total: number) => (total > 0 ? Math.round((have / total) * 100) : 0);
 const fieldList = (fields: string[]) => fields.map((f) => t(`localePacks.report.fields.${f}`)).join('、');
@@ -37,6 +38,9 @@ const topMissing = computed(() => props.report.completeness.topMissing.map((m) =
 })));
 const rejectedSections = computed(() => SECTIONS.filter((s) => props.report[s].rejected > 0));
 const extraSections = computed(() => SECTIONS.filter((s) => props.report[s].extra > 0));
+const design = computed(() => props.report.designData);
+/** 清單只列前幾筆時，標出「列出 N 筆，共 M 筆」。 */
+const more = (shown: number, total: number) => (total > shown ? t('localePacks.report.rejectedMore', { shown, total }) : '');
 </script>
 
 <template>
@@ -122,8 +126,37 @@ const extraSections = computed(() => SECTIONS.filter((s) => props.report[s].extr
       <ul class="report-rejected"><li v-for="w in report.warnings" :key="w.code + w.args.join()">{{ warningText(w) }}</li></ul>
     </div>
 
-    <div v-if="report.designData.count" class="q-mt-md text-muted" data-testid="report-design-data">
-      {{ t('localePacks.report.designData', { n: report.designData.count }) }}
+    <div v-if="design.count" class="q-mt-md" data-testid="report-design-data">
+      <div class="text-weight-medium">{{ t('localePacks.design.title') }}</div>
+      <div v-if="design.localeNotInstalled" class="text-warning text-body2" style="overflow-wrap: anywhere" data-testid="report-design-not-installed">
+        {{ t('localePacks.design.localeNotInstalled', { n: design.count }) }}
+      </div>
+      <template v-else>
+        <dl class="report-counts">
+          <div v-for="c in DESIGN_COUNTS" :key="c" :data-testid="`report-design-${c}`" class="report-count">
+            <dt>{{ t(`localePacks.design.counts.${c}`) }}</dt>
+            <dd>{{ design[c] }}</dd>
+          </div>
+        </dl>
+        <div v-if="design.sourceChangedItems.length" class="q-mt-sm" data-testid="report-design-source-changed">
+          <div class="text-caption text-muted">{{ t('localePacks.design.sourceChangedTitle') }} {{ more(design.sourceChangedItems.length, design.sourceChanged) }}</div>
+          <ul class="report-rejected">
+            <li v-for="item in design.sourceChangedItems" :key="item.path">
+              <code>{{ item.path }}</code>：{{ t('localePacks.design.sourceChangedRow', { file: item.fileSource, current: item.currentSource }) }}
+            </li>
+          </ul>
+        </div>
+        <div v-if="design.notFoundPaths.length" class="q-mt-sm" data-testid="report-design-not-found">
+          <div class="text-caption text-muted">{{ t('localePacks.design.notFoundTitle') }} {{ more(design.notFoundPaths.length, design.notFound) }}</div>
+          <ul class="report-rejected"><li v-for="path in design.notFoundPaths" :key="path"><code>{{ path }}</code></li></ul>
+        </div>
+        <div v-if="design.rejectedItems.length" class="q-mt-sm" data-testid="report-design-rejected-list">
+          <div class="text-caption text-muted">{{ t('localePacks.report.rejectedTitle') }} {{ more(design.rejectedItems.length, design.rejected) }}</div>
+          <ul class="report-rejected">
+            <li v-for="item in design.rejectedItems" :key="item.key"><code>{{ item.key }}</code>：{{ reasonText(item) }}</li>
+          </ul>
+        </div>
+      </template>
     </div>
   </div>
 </template>

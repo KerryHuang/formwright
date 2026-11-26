@@ -2,20 +2,27 @@
 import { useQuasar } from 'quasar';
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { LocaleAdminEntry, LocaleTemplateOptions } from 'src/domain/dynamic/locale-pack-types';
+import { useDesignScopes } from 'src/application/dynamic/queries/locale-packs-queries';
+import { resolveI18n } from 'src/domain/dynamic/i18n-text';
+import type { LocaleAdminEntry, LocaleTemplateOptions, LocaleTemplateScope } from 'src/domain/dynamic/locale-pack-types';
 import { leftoverMessages } from 'src/presentation/dynamic/designer/api-error';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 import { isForbidden, type ApiError } from 'src/services/api/http';
 
 // 匯出翻譯樣板（語系包設計 §7.1；i4d2）：target 是已安裝語系時固定顯示；null 是「新語系樣板」，要自己填代碼與自稱。
 // 驗證全在後端；這裡只擋一定會被擋的（範圍都不勾、代碼空白）。樣板大於語系包大小上限時照樣下載，只提示（Q8）。
+// 設計資料（i4e，§23.3、§23.5）只給已安裝語系，預設不勾；勾了才取可選的應用程式與模組。格式 JSON 或 Excel。
 const props = defineProps<{ modelValue: boolean; target: LocaleAdminEntry | null; locales: LocaleAdminEntry[]; packMaxBytes: number; defaultSource: string; defaultReference: string }>();
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>();
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const $q = useQuasar();
 
 const scopeUi = ref(true);
 const scopeServer = ref(true);
+const scopeDesign = ref(false);
+const designApp = ref('');
+const designModule = ref<number | null>(null);
+const format = ref<'json' | 'xlsx'>('json');
 const onlyMissing = ref(false);
 const onlyChanged = ref(false);
 const source = ref(props.defaultSource);
@@ -33,7 +40,8 @@ let generation = 0;
 
 function reset() {
   generation++;
-  scopeUi.value = true; scopeServer.value = true; onlyMissing.value = false; onlyChanged.value = false;
+  scopeUi.value = true; scopeServer.value = true; scopeDesign.value = false; designApp.value = ''; designModule.value = null; format.value = 'json';
+  onlyMissing.value = false; onlyChanged.value = false;
   source.value = props.defaultSource; reference.value = props.defaultReference;
   code.value = ''; nativeName.value = ''; fallback.value = ''; quasarLang.value = '';
   busy.value = false; error.value = null; tooLarge.value = null;
@@ -41,6 +49,8 @@ function reset() {
 watch(() => props.modelValue, (open) => { if (open) reset(); else generation++; }, { immediate: true });
 
 const isNew = computed(() => !props.target);
+const wantDesign = computed(() => scopeDesign.value && !isNew.value);
+const scopes = useDesignScopes(wantDesign);
 const targetCode = computed(() => props.target?.code ?? code.value.trim());
 const choices = computed(() => props.locales.map((l) => ({ value: l.code, label: `${l.nativeName}（${l.code}）` })));
 const referenceChoices = computed(() => [{ value: '', label: t('localePacks.export.referenceNone') }, ...choices.value]);
@@ -50,18 +60,40 @@ const changedCount = computed(() => {
   const r = props.target?.review;
   return r ? r.ui.baseChanged + r.ui.paramsChanged + r.server.baseChanged + r.server.paramsChanged : 0;
 });
-const canDownload = computed(() => (scopeUi.value || scopeServer.value) && targetCode.value !== '' && !busy.value);
+const NO_APP = '-';
+const appChoices = computed(() => [
+  { value: '', label: t('localePacks.export.designAppAll') },
+  ...(scopes.data.value?.apps ?? []).map((a) => ({ value: a.key, label: resolveI18n(a.name, locale.value) || a.key })),
+  { value: NO_APP, label: t('localePacks.export.designAppNone') },
+]);
+const moduleChoices = computed(() => {
+  const data = scopes.data.value;
+  const modules = !data ? [] : designApp.value === NO_APP ? data.unbound
+    : designApp.value ? (data.apps.find((a) => a.key === designApp.value)?.modules ?? []) : [...data.apps.flatMap((a) => a.modules), ...data.unbound];
+  return [{ value: null, label: t('localePacks.export.designModuleAll') },
+    ...modules.map((m) => ({ value: m.id, label: resolveI18n(m.name, locale.value) || String(m.id) }))];
+});
+watch(designApp, () => { designModule.value = null; });
+const formatChoices = computed(() => [
+  { value: 'json', label: t('localePacks.export.formatJson') },
+  { value: 'xlsx', label: t('localePacks.export.formatXlsx') },
+]);
+const canDownload = computed(() => (scopeUi.value || scopeServer.value || wantDesign.value) && targetCode.value !== '' && !busy.value);
 
 /** 以 MB 顯示，最多兩位小數（上限很小時一位小數會四捨五入成 0）。 */
 const mb = (bytes: number) => String(Math.round((bytes / 1048576) * 100) / 100);
 
 async function doDownload() {
   const options: LocaleTemplateOptions = {
-    scopes: [...(scopeUi.value ? ['ui' as const] : []), ...(scopeServer.value ? ['server' as const] : [])],
+    scopes: ([['ui', scopeUi.value], ['server', scopeServer.value], ['designData', wantDesign.value]] as [LocaleTemplateScope, boolean][])
+      .filter(([, on]) => on).map(([s]) => s),
     onlyMissing: onlyMissing.value,
     onlyBaseChanged: onlyChanged.value,
     source: source.value,
     reference: reference.value,
+    ...(wantDesign.value && designApp.value ? { designApp: designApp.value } : {}),
+    ...(wantDesign.value && designModule.value !== null ? { designModule: String(designModule.value) } : {}),
+    ...(format.value === 'xlsx' ? { format: 'xlsx' as const } : {}),
     ...(isNew.value ? {
       nativeName: nativeName.value,
       ...(fallback.value ? { fallback: fallback.value } : {}),
@@ -121,9 +153,19 @@ async function doDownload() {
         <div class="column no-wrap">
           <q-checkbox v-model="scopeUi" dense :label="t('localePacks.report.sections.ui')" data-testid="export-scope-ui" />
           <q-checkbox v-model="scopeServer" dense :label="t('localePacks.report.sections.server')" data-testid="export-scope-server" />
+          <q-checkbox v-if="!isNew" v-model="scopeDesign" dense :label="t('localePacks.export.scopeDesign')" data-testid="export-scope-design" />
+          <template v-if="wantDesign">
+            <q-select v-model="designApp" dense outlined emit-value map-options class="q-mt-sm" :options="appChoices" :loading="scopes.isLoading.value"
+              :label="t('localePacks.export.designApp')" data-testid="export-design-app" />
+            <q-select v-model="designModule" dense outlined emit-value map-options class="q-mt-sm" :options="moduleChoices"
+              :label="t('localePacks.export.designModule')" data-testid="export-design-module" />
+          </template>
           <q-checkbox v-model="onlyMissing" dense class="q-mt-sm" :label="t('localePacks.export.onlyMissing')" data-testid="export-only-missing" />
           <q-checkbox v-model="onlyChanged" dense :disable="changedCount === 0" :label="t('localePacks.export.onlyChanged')" data-testid="export-only-changed" />
         </div>
+
+        <div class="text-weight-medium q-mt-md">{{ t('localePacks.export.format') }}</div>
+        <q-option-group v-model="format" dense inline type="radio" :options="formatChoices" data-testid="export-format" />
 
         <p class="text-caption text-muted q-mt-md q-mb-none">{{ t('localePacks.export.hint') }}</p>
         <div v-if="error" class="q-mt-md text-negative" style="overflow-wrap: anywhere" data-testid="export-error">{{ error }}</div>
