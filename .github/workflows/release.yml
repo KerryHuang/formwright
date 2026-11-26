@@ -1,0 +1,168 @@
+# 從 tag（v*.*.*）產生安裝檔、映像與 GitHub Release（設計 D-13、D-19）。
+# tag 由使用者手動打：git tag v0.1.0 && git push origin v0.1.0。
+# 打包步驟沿用 installer-e2e.yml 的寫法（tarball 檔案在壓縮檔根目錄，含 VERSION 與 wwwroot）。
+name: release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash   # GitHub 對明指 bash 的 shell 加 -eo pipefail
+
+jobs:
+  e2e:
+    uses: ./.github/workflows/installer-e2e.yml
+    permissions:
+      contents: read
+
+  artifacts:
+    needs: e2e
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: 版號（取自 tag，不含開頭的 v）
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || { echo "tag 格式不對：$GITHUB_REF_NAME"; exit 1; }
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: backend/global.json
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - name: 建前端
+        working-directory: frontend
+        run: |
+          bun install --frozen-lockfile --ignore-scripts
+          bunx quasar prepare
+          APP_VERSION="$VERSION" bunx quasar build
+      - name: 帶入版號與來源 repo 到 install.sh、docker-compose.yml
+        run: node scripts/installer/render-defaults.mjs --version "$VERSION" --repo "$GITHUB_REPOSITORY"
+      - name: 發佈 linux-x64 並打包
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          pub="$RUNNER_TEMP/pub-linux"
+          dotnet publish backend/src/DynamicModules.WebAPI/DynamicModules.WebAPI.csproj -c Release -r linux-x64 \
+            --self-contained true -p:AppVersion="$VERSION" -p:GitCommit="${{ github.sha }}" -o "$pub"
+          rm -rf "$pub/wwwroot"; cp -r frontend/dist/spa "$pub/wwwroot"
+          printf '%s' "$VERSION" > "$pub/VERSION"
+          tar -czf "$RUNNER_TEMP/out/formwright-$VERSION-linux-x64.tar.gz" -C "$pub" .
+          cp installer/linux/install.sh deploy/docker-compose.yml "$RUNNER_TEMP/out/"
+          ls -l "$RUNNER_TEMP/out"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: ${{ runner.temp }}/out/*
+          retention-days: 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-wwwroot
+          path: frontend/dist/spa
+          retention-days: 3
+
+  windows-installer:
+    needs: artifacts
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - name: 版號（取自 tag，不含開頭的 v）
+        run: |
+          $v = $env:GITHUB_REF_NAME -replace '^v', ''
+          if ($v -notmatch '^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$') { throw "tag 格式不對：$env:GITHUB_REF_NAME" }
+          "VERSION=$v" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: backend/global.json
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-wwwroot
+          path: ${{ runner.temp }}/wwwroot
+      - name: 發佈 win-x64 並編成安裝程式
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
+            choco install innosetup --no-progress -y
+            $env:PATH += ';C:\Program Files (x86)\Inno Setup 6'
+          }
+          $out = Join-Path $env:RUNNER_TEMP 'setup'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $pub = Join-Path $env:RUNNER_TEMP 'pub-win'
+          dotnet publish backend/src/DynamicModules.WebAPI/DynamicModules.WebAPI.csproj -c Release -r win-x64 --self-contained true -p:AppVersion=$env:VERSION -p:GitCommit=${{ github.sha }} -o $pub
+          if ($LASTEXITCODE -ne 0) { throw 'dotnet publish 失敗' }
+          Remove-Item -Recurse -Force (Join-Path $pub 'wwwroot') -ErrorAction SilentlyContinue
+          Copy-Item -Recurse (Join-Path $env:RUNNER_TEMP 'wwwroot') (Join-Path $pub 'wwwroot')
+          node scripts/installer/render-defaults.mjs --version $env:VERSION --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -ne 0) { throw 'render-defaults 失敗' }
+          iscc "/DFwPublishDir=$pub" "/O$out" installer\windows\formwright.iss
+          if ($LASTEXITCODE -ne 0) { throw 'iscc 失敗' }
+          Get-ChildItem $out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: ${{ runner.temp }}/setup/Formwright-Setup-*.exe
+          retention-days: 3
+
+  image:
+    needs: e2e
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: 版號與映像位址（owner 轉小寫）
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || { echo "tag 格式不對：$GITHUB_REF_NAME"; exit 1; }
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/formwright" >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ env.VERSION }}
+            ${{ env.IMAGE }}:latest
+          build-args: |
+            APP_VERSION=${{ env.VERSION }}
+            GIT_COMMIT=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+  release:
+    needs: [artifacts, windows-installer, image]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-{linux,windows}
+          path: ${{ runner.temp }}/dl
+          merge-multiple: true
+      - name: 產生 SHA256SUMS 並建立 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$RUNNER_TEMP/dl"
+          ls -l
+          # sha256sum 文字格式「<hash>  <檔名>」，檔名不含路徑，install.sh 以檔名精確比對
+          sha256sum formwright-*-linux-x64.tar.gz Formwright-Setup-*.exe install.sh docker-compose.yml > SHA256SUMS
+          cat SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" \
+            formwright-*-linux-x64.tar.gz Formwright-Setup-*.exe install.sh docker-compose.yml SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --title "Formwright ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag
