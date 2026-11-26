@@ -47,9 +47,53 @@ function WaitStatus([string]$Url, [int]$Want, [int]$Seconds) {
   }
   return $false
 }
+# 雙因素（產品要求系統預設管理員先綁定）：STATE 檔兩行，secret 與最後用過的時間步；後端拒絕重放，
+# 所以 step = max(現在, 上次+1)，超過「現在+1」（後端容許前後各一步）就等下一個時間窗。同 wizard.sh。
+$StateDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }
+$State = if ($env:FW_E2E_STATE) { $env:FW_E2E_STATE } else { Join-Path $StateDir 'fw-e2e-totp' }
+$Totp = Join-Path $PSScriptRoot 'totp.py'
+
+function SaveState([string]$Secret, [string]$Step) {
+  Set-Content -Path $State -Value @($Secret, $Step) -Encoding ascii
+  # 含 TOTP secret：去繼承，只留目前使用者
+  $me = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+  icacls $State /inheritance:r /grant:r "${me}:(F)" | Out-Null
+  if ($LASTEXITCODE -ne 0) { Fail "無法限制 $State 的權限" }
+}
+function HasState { (Test-Path $State) -and ((Get-Content $State -TotalCount 1) -ne $null) }
+function TotpCode {
+  $lines = @(Get-Content $State)
+  $secret = $lines[0]
+  $last = if ($lines.Count -ge 2 -and $lines[1]) { [long]$lines[1] } else { -1 }
+  while ($true) {
+    $now = [long][Math]::Floor([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() / 30)
+    $step = [Math]::Max($now, $last + 1)
+    if ($step -le $now + 1) { break }
+    Start-Sleep -Seconds 5
+  }
+  SaveState $secret "$step"
+  $code = (python -I $Totp $secret --step $step | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0 -or $code -notmatch '^\d{6}$') { Fail 'totp.py 沒有產出 6 位碼' }
+  $code
+}
+function Enroll2fa([string]$Base) {
+  $c = Http 'POST' "$Base$Api/account/two-factor/setup" @{ password = $AdminPassword }
+  Expect '雙因素 setup' 200 $c
+  SaveState ((Json).secret) ''
+  $c = Http 'POST' "$Base$Api/account/two-factor/enable" @{ code = (TotpCode) }
+  Expect '雙因素 enable' 200 $c
+}
+# 登入；被要求第二步就帶 TOTP；還沒綁定過就綁定
 function Login([string]$Base) {
   $c = Http 'POST' "$Base$Api/auth/login" @{ userId = $AdminUser; password = $AdminPassword }
   Expect '登入' 200 $c
+  if ((Json).twoFactorRequired -eq $true) {
+    if (-not (HasState)) { Fail "登入要求雙因素，但沒有已綁定的 secret（$State）" }
+    $c = Http 'POST' "$Base$Api/auth/two-factor" @{ code = (TotpCode) }
+    Expect '雙因素登入' 200 $c
+  } elseif (-not (HasState)) {
+    Enroll2fa $Base
+  }
 }
 function DefaultBackup { if ($env:FW_E2E_BACKUP_DIR) { $env:FW_E2E_BACKUP_DIR } else { 'C:\ProgramData\Formwright\backup' } }
 
@@ -140,6 +184,7 @@ function CreateModuleAndRecord([string]$Base) {
 }
 
 function CmdFull([string]$Base, [string]$Code, [string]$Backup) {
+  Remove-Item $State -Force -ErrorAction SilentlyContinue
   Step 'GET / 是 HTML'
   $c = Http 'GET' "$Base/"; Expect 'GET /' 200 $c
   if ("$($script:Headers['Content-Type'])" -notmatch '^text/html') { Fail 'GET / 不是 HTML' }
@@ -163,6 +208,8 @@ function CmdFull([string]$Base, [string]$Code, [string]$Backup) {
   $c = Http 'POST' "$Base$Api/auth/login" @{ userId = $AdminUser; password = $AdminPassword }
   Expect '登入' 200 $c
   if ((Json).mustChangePassword -ne $false) { Fail 'mustChangePassword 不是 false' }
+  Step '綁定雙因素（產品要求系統預設管理員先綁定）'
+  Enroll2fa $Base
   $c = Http 'GET' "$Base/api/setup/status"; Expect '完成後 status' 404 $c
   Step '備份位置等於精靈填的（AC-03）'
   $c = Http 'GET' "$Base$Api/system/ops/backups"; Expect '備份清單' 200 $c
