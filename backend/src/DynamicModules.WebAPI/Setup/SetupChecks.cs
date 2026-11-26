@@ -16,10 +16,14 @@ public sealed record SetupCheckItem(string Key, bool Ok, string? Path = null, st
 /// 設定精靈的環境檢查（D-03 第 1、2 步、D-16、TD-06）：資料、金鑰、備份目錄可寫，備份位置不和資料重疊，資料庫連得上且沒有舊資料，PostgreSQL 再查 pg_dump。
 /// 設定模式是部署機制、沒有資料庫可給 MediatR 管線，所以放 WebAPI（同 <c>SetupHost</c>）。
 /// </summary>
-public sealed class SetupChecks(IConfiguration configuration)
+public sealed class SetupChecks(IConfiguration configuration, IHostEnvironment environment)
 {
     private const string MigrationsTable = "__EFMigrationsHistory";
     private const int ConnectTimeoutSeconds = 5;
+
+    /// <summary>provider 只認 sqlite、postgres（null＝sqlite）；其他值要回錯，不能默默當成 SQLite。</summary>
+    public static bool IsKnownProvider(string? provider) =>
+        provider is null || string.Equals(provider, "sqlite", StringComparison.OrdinalIgnoreCase) || string.Equals(provider, "postgres", StringComparison.OrdinalIgnoreCase);
 
     public async Task<IReadOnlyList<SetupCheckItem>> RunAsync(SetupDraft draft, CancellationToken ct)
     {
@@ -34,15 +38,18 @@ public sealed class SetupChecks(IConfiguration configuration)
             DirectoryItem("keysDirectory", keys),
             BackupItem(backup, data, keys),
         };
+        // D-16：資料目錄已有 SQLite 資料時，不論選哪種資料庫都要擋（選 PostgreSQL 時舊的 formwright.db 不能被默默留在原地）
+        var sqlite = SqliteItem();
         if (postgres)
         {
+            if (sqlite.Problem == "existingData") items.Add(sqlite with { Key = "existingSqliteData" });
             var (database, serverMajor) = await PostgresItemAsync(draft.ConnectionString, ct);
             items.Add(database);
             items.Add(PgDumpItem(database.Ok ? serverMajor : null));
         }
         else
         {
-            items.Add(SqliteItem());
+            items.Add(sqlite);
         }
         return items;
     }
@@ -53,14 +60,18 @@ public sealed class SetupChecks(IConfiguration configuration)
         return Writable(path) ? new SetupCheckItem(key, true, path) : new SetupCheckItem(key, false, path, "notWritable");
     }
 
-    private static SetupCheckItem BackupItem(string? backup, string? data, string? keys)
+    private SetupCheckItem BackupItem(string? backup, string? data, string? keys)
     {
         if (string.IsNullOrWhiteSpace(backup)) return new SetupCheckItem("backupDirectory", false, Problem: "notAbsolute");
         if (!Path.IsPathRooted(backup)) return new SetupCheckItem("backupDirectory", false, backup, "notAbsolute");
-        foreach (var dir in new[] { data, keys })
+        // 和一般模式（Program.cs 的 BackupSettings.Create）同一條守衛、同一份受保護目錄：資料、附件、金鑰、網站檔
+        var contentRoot = environment.ContentRootPath;
+        string?[] protectedDirectories = [data, configuration["Attachments:Root"], keys, Path.Combine(contentRoot, "wwwroot")];
+        if (BackupSettings.Create(backup, contentRoot, protectedDirectories).Settings.Invalid)
         {
-            if (!string.IsNullOrWhiteSpace(dir) && BackupSettings.Overlaps(backup, dir))
-                return new SetupCheckItem("backupDirectory", false, backup, "overlaps", new Dictionary<string, string> { ["with"] = dir });
+            var with = protectedDirectories.OfType<string>().FirstOrDefault(d => BackupSettings.Overlaps(Path.GetFullPath(backup, contentRoot), Path.GetFullPath(d, contentRoot)));
+            return new SetupCheckItem("backupDirectory", false, backup, "overlaps",
+                with is null ? null : new Dictionary<string, string> { ["with"] = with });
         }
         return DirectoryItem("backupDirectory", backup);
     }

@@ -45,10 +45,10 @@ public class SetupCodeTests : IDisposable
         SetupCode.Read(_dir).Should().Be(a);
     }
 
-    [Fact]
+    [UnixFact]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
     public void Ensure_FileIsOwnerOnly()
     {
-        if (OperatingSystem.IsWindows()) return; // Windows 靠資料目錄的 ACL
         SetupCode.Ensure(_dir, out _);
         File.GetUnixFileMode(Path.Combine(_dir, SetupCode.FileName)).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }

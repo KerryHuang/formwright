@@ -33,6 +33,9 @@ public static class SetupEndpoints
                 try { draft = await http.Request.ReadFromJsonAsync<SetupDraft>(ct); }
                 catch (JsonException) { return Results.Json(new { code = "invalid" }, statusCode: StatusCodes.Status400BadRequest); }
             }
+            if (!SetupChecks.IsKnownProvider(draft?.Provider))
+                return Results.Json(new { code = "invalid", errors = new { provider = new[] { new SetupFieldError("providerUnknown") } } },
+                    statusCode: StatusCodes.Status422UnprocessableEntity);
             var items = await checks.RunAsync(draft ?? new SetupDraft(), ct);
             return Results.Json(new { items, ok = items.All(i => i.Ok) });
         });

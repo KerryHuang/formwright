@@ -6,6 +6,8 @@ using DynamicModules.TestSupport;
 using DynamicModules.WebAPI.Setup;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace DynamicModules.WebAPITests.Setup;
 
@@ -42,10 +44,10 @@ public class SetupChecksTests
         Item(json, "backupDirectory").GetProperty("path").GetString().Should().Be(f.BackupDirectory);
     }
 
-    [Fact]
+    [ChmodFact]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
     public async Task BackupNotWritable_IsRed_AC05()
     {
-        if (OperatingSystem.IsWindows()) return;
         using var f = new SetupHostFactory();
         File.SetUnixFileMode(f.BackupDirectory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
         try
@@ -104,6 +106,50 @@ public class SetupChecksTests
         var after = new FileInfo(db);
         (after.LastWriteTimeUtc, after.Length).Should().Be((mtime, size));
         Directory.GetFiles(f.DataDirectory).OrderBy(x => x).Should().Equal(filesBefore, "檢查不留 WAL／shm");
+    }
+
+    /// <summary>D-16：資料目錄已有 SQLite 資料時，改選 PostgreSQL 也要擋（舊的 formwright.db 不能被默默留在原地）。</summary>
+    [Fact]
+    public async Task ExistingSqliteDatabase_BlocksEvenWhenPostgresChosen()
+    {
+        using var f = new SetupHostFactory();
+        using (var conn = new SqliteConnection($"Data Source={Path.Combine(f.DataDirectory, InstallInitializer.DatabaseFileName)}"))
+        {
+            conn.Open();
+            MigratedDatabaseTemplate.RestoreInto(conn);
+        }
+        SqliteConnection.ClearAllPools();
+
+        var (_, _, json) = await Check(f, new { Provider = "postgres", ConnectionString = "Host=127.0.0.1;Port=1;Database=x;Username=u;Password=p" });
+
+        var item = Item(json, "existingSqliteData");
+        item.GetProperty("ok").GetBoolean().Should().BeFalse();
+        Problem(item).Should().Be("existingData");
+        item.GetProperty("params").GetProperty("configFile").GetString().Should().Be(f.ConfigFile);
+        json.GetProperty("ok").GetBoolean().Should().BeFalse();
+    }
+
+    /// <summary>備份位置和一般模式用同一條守衛：包住網站檔目錄（內容根目錄底下的 wwwroot）也算重疊。</summary>
+    [Fact]
+    public async Task BackupContainingWebRoot_IsOverlaps()
+    {
+        using var f = new SetupHostFactory();
+        var contentRoot = f.Services.GetRequiredService<IHostEnvironment>().ContentRootPath;
+
+        var (_, _, json) = await Check(f, new { BackupRoot = contentRoot });
+
+        var item = Item(json, "backupDirectory");
+        Problem(item).Should().Be("overlaps");
+        item.GetProperty("params").GetProperty("with").GetString().Should().Be(Path.Combine(contentRoot, "wwwroot"));
+    }
+
+    [Fact]
+    public async Task UnknownProvider_Is422Invalid()
+    {
+        using var f = new SetupHostFactory();
+        var (status, _, json) = await Check(f, new { Provider = "mysql" });
+        status.Should().Be(HttpStatusCode.UnprocessableEntity);
+        json.GetProperty("code").GetString().Should().Be("invalid");
     }
 
     [Fact]

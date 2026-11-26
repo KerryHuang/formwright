@@ -24,11 +24,12 @@ public static class SetupHost
         builder.Services.AddSingleton<SetupChecks>();
         builder.Services.AddSingleton(SetupRestart.Process);
 
-        // 每次以設定模式啟動都記設定碼（Docker 從 compose logs 看得到，D-11）
         var code = SetupCode.Ensure(dataDirectory, out _);
         var app = builder.Build();
-        app.Lifetime.ApplicationStarted.Register(() =>
-            app.Logger.LogWarning("設定精靈的設定碼：{Code}", code));
+        // 只有容器模式把設定碼記進啟動 log（Docker 沒有安裝程式可顯示，從 compose logs 看，D-11）；
+        // Windows／Ubuntu 由安裝程式顯示，不寫 log（Windows 的事件記錄本機使用者都讀得到）
+        if (builder.Configuration.GetValue<bool>(InstallConfig.InitIfMissingKey))
+            app.Lifetime.ApplicationStarted.Register(() => app.Logger.LogWarning("設定精靈的設定碼：{Code}", code));
 
         SetupEndpoints.Map(app, dataDirectory);
 

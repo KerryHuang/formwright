@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace DynamicModules.WebAPITests.Setup;
@@ -104,12 +105,28 @@ public class SetupModeTests
         (await client.GetAsync("/api/v3/dynamic/i18n/ui/xx-XX")).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    /// <summary>D-11：Windows／Ubuntu 的設定碼由安裝程式顯示，不寫 log（Windows 預設會進本機互動使用者讀得到的事件記錄）。</summary>
     [Fact]
-    public void SetupMode_LogsCode()
+    public void SetupMode_NativeInstall_DoesNotLogCode()
     {
         using var f = new SetupHostFactory();
         f.CreateClient();
-        f.Logs.Entries.Should().Contain(e => e.Level == LogLevel.Warning && e.Message.Contains(f.Code));
+        f.Logs.Entries.Should().NotContain(e => e.Message.Contains(f.Code));
+    }
+
+    /// <summary>Docker 沒有安裝程式可顯示，設定碼只能從啟動 log 看到。</summary>
+    [Fact]
+    public void SetupMode_Container_LogsCode()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"fw-ctr-{Guid.NewGuid():N}");
+        try
+        {
+            using var f = new ContainerFactory(root);
+            f.CreateClient();
+            var code = DynamicModules.WebAPI.Setup.SetupCode.Read(Path.Combine(root, "data"))!;
+            f.Logs.Entries.Should().Contain(e => e.Level == LogLevel.Warning && e.Message.Contains(code));
+        }
+        finally { try { Directory.Delete(root, true); } catch { /* 暫存 */ } }
     }
 
     [Fact]
@@ -128,8 +145,11 @@ public class SetupModeTests
 
     private sealed class ContainerFactory(string root) : Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program>
     {
+        public TestLogSink Logs { get; } = new();
+
         protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
         {
+            builder.ConfigureLogging(l => l.AddProvider(Logs));
             builder.UseSetting(DynamicModules.WebAPI.Setup.InstallConfig.ConfigFileKey, Path.Combine(root, "data", "formwright.json"));
             builder.UseSetting(DynamicModules.WebAPI.Setup.InstallConfig.DataDirectoryKey, Path.Combine(root, "data"));
             builder.UseSetting(DynamicModules.WebAPI.Setup.InstallConfig.BackupDirectoryKey, Path.Combine(root, "backup"));

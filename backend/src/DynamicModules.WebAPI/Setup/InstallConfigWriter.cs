@@ -14,8 +14,10 @@ public static class InstallConfigWriter
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var tmp = path + ".tmp";
-        File.WriteAllText(tmp, content.ToJsonString(Indented));
-        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(tmp, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        // 一次建成 0600（選 PostgreSQL 時裡面有密碼），不留 umask 權限的空窗
+        var options = new FileStreamOptions { Mode = FileMode.Create, Access = FileAccess.Write };
+        if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        using (var writer = new StreamWriter(tmp, new System.Text.UTF8Encoding(false), options)) writer.Write(content.ToJsonString(Indented));
         File.Move(tmp, path, overwrite: true);
     }
 }

@@ -44,8 +44,10 @@ public static class SetupCode
         Directory.CreateDirectory(dataDirectory);
         var code = Generate();
         var path = Path.Combine(dataDirectory, FileName);
-        File.WriteAllText(path, code);
-        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        // 一次建成 0600，不留 umask 權限的空窗（同 SetupPayload.Write）
+        var options = new FileStreamOptions { Mode = FileMode.Create, Access = FileAccess.Write };
+        if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        using (var writer = new StreamWriter(path, new System.Text.UTF8Encoding(false), options)) writer.Write(code);
         created = true;
         return code;
     }

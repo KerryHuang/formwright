@@ -53,8 +53,6 @@ public sealed class MaintenanceModeTests : IDisposable
         return app;
     }
 
-    private static bool CannotChmod => OperatingSystem.IsWindows() || Environment.UserName == "root";
-
     private void LockBackup()
     {
         if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(BackupRoot, UnixFileMode.UserRead | UnixFileMode.UserExecute);
@@ -106,10 +104,9 @@ public sealed class MaintenanceModeTests : IDisposable
         File.ReadAllText(MarkerFile).Should().Be(BuildInfo.Version);
     }
 
-    [Fact]
+    [ChmodFact]
     public async Task Upgrade_BackupFails_EntersMaintenance_AC12()
     {
-        if (CannotChmod) return;
         File.WriteAllText(MarkerFile, "0.0.1-old");
         using var app = NewApp();
         await DeleteLastMigration(app);   // 模擬新版有待套用的 migration
@@ -140,10 +137,9 @@ public sealed class MaintenanceModeTests : IDisposable
         finally { UnlockBackup(); }
     }
 
-    [Fact]
+    [ChmodFact]
     public async Task Maintenance_ControllersNotReachable()
     {
-        if (CannotChmod) return;
         File.WriteAllText(MarkerFile, "0.0.1-old");
         using var app = NewApp();
         LockBackup();
@@ -185,10 +181,9 @@ public sealed class MaintenanceModeTests : IDisposable
         body.GetProperty("errorCode").GetString().Should().Be("unexpected");
     }
 
-    [Fact]
+    [ChmodFact]
     public async Task Maintenance_StaticFile_NoPathTraversal()
     {
-        if (CannotChmod) return;
         File.WriteAllText(MarkerFile, "0.0.1-old");
         using var app = NewApp();
         LockBackup();
@@ -213,10 +208,9 @@ public sealed class MaintenanceModeTests : IDisposable
         hosted.Should().Contain(typeof(MaintenanceGatedHostedService<SchedulerHostedService>), "包裝真的套上了");
     }
 
-    [Fact]
+    [ChmodFact]
     public async Task Maintenance_ThenFixed_RestartUpgrades()
     {
-        if (CannotChmod) return;
         File.WriteAllText(MarkerFile, "0.0.1-old");
         using var first = NewApp();
         LockBackup();
@@ -254,10 +248,9 @@ public sealed class MaintenanceModeTests : IDisposable
         inactive.Stops.Should().Be(1);
     }
 
-    [Fact]
+    [ChmodFact]
     public async Task Maintenance_ServesBuiltinUiMessages()
     {
-        if (CannotChmod) return;
         File.WriteAllText(MarkerFile, "0.0.1-old");
         using var app = NewApp();
         LockBackup();

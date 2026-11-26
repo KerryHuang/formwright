@@ -33,6 +33,7 @@ public static class SetupCompletion
     public static Dictionary<string, SetupFieldError[]> Validate(SetupCompleteBody body, out string siteName)
     {
         var errors = new Dictionary<string, SetupFieldError[]>();
+        if (!SetupChecks.IsKnownProvider(body.Provider)) errors["provider"] = [new("providerUnknown")];
         var min = MinPasswordLength;
         if ((body.AdminPassword?.Length ?? 0) < min)
             errors["adminPassword"] = [new("passwordTooShort", new Dictionary<string, object> { ["min"] = min })];

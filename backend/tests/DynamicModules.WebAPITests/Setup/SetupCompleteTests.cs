@@ -122,6 +122,19 @@ public class SetupCompleteTests
     }
 
     [Fact]
+    public async Task Complete_UnknownProvider_Is422Invalid_AndConfigUnchanged()
+    {
+        using var f = new SetupHostFactory();
+        var (client, spy) = Spied(f);
+        var before = File.ReadAllText(f.ConfigFile);
+        var res = await Complete(client, f, new { Provider = "mysql", AdminPassword = Password, SiteName = "青禾貿易", BackupRoot = f.BackupDirectory });
+        res.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        (await Json(res)).GetProperty("code").GetString().Should().Be("invalid");
+        File.ReadAllText(f.ConfigFile).Should().Be(before);
+        spy.Codes.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task ExistingData_BlocksComplete_AC13()
     {
         using var f = new SetupHostFactory();
