@@ -76,6 +76,68 @@ public class LocalePackXlsxTests
         pack["designData"]!["local:field:9/label"]!["source"]!.GetValue<string>().Should().Be("-負");
     }
 
+    /// <summary>
+    /// 審查 r1 🟡4：本系統匯出的格子用 Excel 原生引號前綴，內容就是原文；目前譯文本來就以 <c>'=</c> 開頭時，原樣匯回要一字不差，
+    /// 不能再被當成跳脫去掉 <c>'</c>（否則什麼都沒改也會被當成「會改」）。
+    /// </summary>
+    [Fact]
+    public void RoundTrip_TextStartingWithApostrophe_Kept()
+    {
+        var bytes = Template(
+            new LocalePackXlsx.Sheet(LocalePackXlsx.Ui, "介面", [Row("k.0", "原", "'=合計"), Row("k.1", "原", "'+81")]),
+            new LocalePackXlsx.Sheet(LocalePackXlsx.DesignData, "設計資料", [Row("app:crm/name", "'=原文", "'@譯文")]));
+        using (var wb = new XLWorkbook(new MemoryStream(bytes)))
+            wb.Worksheet("介面").Cell(2, 6).Style.IncludeQuotePrefix.Should().BeTrue();
+
+        var pack = Read(bytes);
+        pack["ui"]!["k.0"]!.GetValue<string>().Should().Be("'=合計");
+        pack["ui"]!["k.1"]!.GetValue<string>().Should().Be("'+81");
+        pack["designData"]!["app:crm/name"]!["text"]!.GetValue<string>().Should().Be("'@譯文");
+        pack["designData"]!["app:crm/name"]!["source"]!.GetValue<string>().Should().Be("'=原文");
+    }
+
+    /// <summary>其他工具產生的檔（格子沒有引號前綴、文字本身以 <c>'=</c> 開頭）：照舊當跳脫去掉 <c>'</c>（<c>FieldImportParser</c> 的規則）。</summary>
+    [Fact]
+    public void OtherTool_LiteralApostrophe_Stripped()
+    {
+        // ClosedXML 寫入時會把開頭的 ' 轉成引號前綴，只能直接改共用字串表造出「字面的 '=x」
+        var bytes = ReplaceSharedString(Edit(Template(new LocalePackXlsx.Sheet(LocalePackXlsx.Ui, "介面", [Row("k.0", "原", "")])),
+            wb => wb.Worksheet("介面").Cell(2, 6).Value = "PLACEHOLDER"), "PLACEHOLDER", "'=x");
+        using (var wb = new XLWorkbook(new MemoryStream(bytes)))
+            (wb.Worksheet("介面").Cell(2, 6).GetText(), wb.Worksheet("介面").Cell(2, 6).Style.IncludeQuotePrefix).Should().Be(("'=x", false), "前提：格子內容是字面的 '=x");
+        Read(bytes)["ui"]!["k.0"]!.GetValue<string>().Should().Be("=x");
+    }
+
+    private static byte[] ReplaceSharedString(byte[] bytes, string from, string to)
+    {
+        using var ms = new MemoryStream();
+        ms.Write(bytes);
+        using (var zip = new ZipArchive(ms, ZipArchiveMode.Update, leaveOpen: true))
+        {
+            var entry = zip.GetEntry("xl/sharedStrings.xml")!;
+            string xml;
+            using (var r = new StreamReader(entry.Open())) xml = r.ReadToEnd();
+            xml.Should().Contain(from);
+            entry.Delete();
+            using var w = new StreamWriter(zip.CreateEntry("xl/sharedStrings.xml").Open());
+            w.Write(xml.Replace(from, to, StringComparison.Ordinal));
+        }
+        return ms.ToArray();
+    }
+
+    /// <summary>審查 r1 🟢5：讀格子時 ClosedXML 丟的例外（這裡是經過時間格式配上超出範圍的數值）回 <c>XlsxInvalid</c>，不是 500。</summary>
+    [Fact]
+    public void CellReadThrows_XlsxInvalid()
+    {
+        var bytes = Edit(Template(new LocalePackXlsx.Sheet(LocalePackXlsx.Ui, "介面", [Row("k.0", "原", "")])), wb =>
+        {
+            var c = wb.Worksheet("介面").Cell(2, 6);
+            c.Value = 1e300;
+            c.Style.NumberFormat.Format = "[h]:mm:ss";
+        });
+        Error(bytes).Should().Be(Application.Dynamic.LocaleService.LocalePackMessages.XlsxInvalid.Resolve("zh-TW"));
+    }
+
     [Fact]
     public void Formula_WholeRowRejected_OthersKept()
     {
@@ -153,6 +215,52 @@ public class LocalePackXlsxTests
         });
         bytes.Length.Should().BeLessThan(100 * 1024);
         Error(bytes).Should().Be("Excel 檔解壓後過大或壓縮比異常，已拒收");
+    }
+
+    // ── 審查 r1 🟡3：工作表 XML 另設上限（ClosedXML 為儲存格建的 DOM 跟它成正比）；壓縮比正常的大檔也擋 ──
+
+    /// <summary>壓縮比很低的內容（亂數轉 base64，約 1.3 倍）：只觸發大小上限，不觸發壓縮比檢查。</summary>
+    private static void Incompressible(ZipArchive zip, string name, long bytes)
+    {
+        var rnd = new Random(1);
+        var buf = new byte[3 * 1024];
+        using var s = zip.CreateEntry(name, CompressionLevel.Fastest).Open();
+        for (long written = 0; written < bytes; written += 4096)
+        {
+            rnd.NextBytes(buf);
+            s.Write(System.Text.Encoding.ASCII.GetBytes(Convert.ToBase64String(buf)));
+        }
+    }
+
+    private const string Unsafe = "Excel 檔解壓後過大或壓縮比異常，已拒收";
+
+    [Fact]
+    public void Worksheet_OverSingleLimit_Rejected() =>
+        Error(Zip(zip => Incompressible(zip, "xl/worksheets/sheet2.xml", LocalePackLimits.MaxXlsxWorksheetBytes + 4096))).Should().Be(Unsafe);
+
+    [Fact]
+    public void Worksheets_OverTotalLimit_Rejected() =>
+        Error(Zip(zip =>
+        {
+            var each = LocalePackLimits.MaxXlsxWorksheetsTotalBytes / 3 + 4096;
+            for (var i = 2; i <= 4; i++) Incompressible(zip, $"xl/worksheets/sheet{i}.xml", each);
+        })).Should().Be(Unsafe);
+
+    [Fact]
+    public void OtherEntry_OverWorksheetLimit_OnlyTotalApplies() =>
+        Error(Zip(zip => Incompressible(zip, "xl/sharedStrings.xml", LocalePackLimits.MaxXlsxWorksheetBytes + 4096)))
+            .Should().NotBe(Unsafe, "共用字串表只受合計上限限制（這份不是樣板，會在下一步被判定不是樣板）");
+
+    /// <summary>上限不能擋到合法的樣板：設計資料到列數上限、介面文字 3000 列、每格文字都不同（實測約 18 MB）。</summary>
+    [Fact]
+    public void LegitTemplate_AtRowLimit_Accepted()
+    {
+        LocalePackXlsx.Row R(int i) => new($"app:event-registration/module:event/field:f{i:D5}/label", "field",
+            $"{i}原文原文原文原文原文", $"{i}參考參考參考參考參考", $"{i}譯文譯文譯文譯文譯文", "", "只在本系統有效");
+        var bytes = Template(
+            new LocalePackXlsx.Sheet(LocalePackXlsx.Ui, "介面", Enumerable.Range(0, 3000).Select(R).ToList()),
+            new LocalePackXlsx.Sheet(LocalePackXlsx.DesignData, "設計資料", Enumerable.Range(3000, LocalePackLimits.MaxXlsxRows).Select(R).ToList()));
+        Read(bytes)["designData"]!.AsObject().Count.Should().Be(LocalePackLimits.MaxXlsxRows);
     }
 
     [Fact]

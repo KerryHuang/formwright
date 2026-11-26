@@ -145,7 +145,7 @@ public sealed class DesignTextBuild
     /// （<see cref="AppPackageValidator.MaxTextLength"/>），翻譯後匯出的套件才匯得回來。
     /// </summary>
     private static DesignTextItem Item(string path, string kind, string? app, long? moduleId, bool local, DesignTextTarget target,
-        int max = AppPackageValidator.MaxTextLength) => new(path, kind, app, moduleId, local, max, [target]);
+        int max = AppPackageValidator.MaxTextLength, bool multiLine = false) => new(path, kind, app, moduleId, local, max, [target]) { MultiLine = multiLine };
 
     // ── 各來源 ──
 
@@ -211,7 +211,7 @@ public sealed class DesignTextBuild
     internal IEnumerable<DesignTextItem> Rules() =>
         Data.Modules.SelectMany(m => m.Rules.Where(r => r.MessageI18n is not null).OrderBy(r => r.Id).Select(r =>
             Item($"local:rule:{r.Id}/message", "rule", AppOfModule(m.Id), m.Id, true,
-                Target(AuditTargets.Rule, r.Id, () => r.MessageI18n, t => { r.MessageI18n = t; TouchModule(m.Id); }))));
+                Target(AuditTargets.Rule, r.Id, () => r.MessageI18n, t => { r.MessageI18n = t; TouchModule(m.Id); }), multiLine: true)));
 
     /// <summary>有 <c>Key</c> 的模組內物件：模組有應用程式綁定才用代碼（§23.1）。</summary>
     internal IEnumerable<DesignTextItem> Keyed<T>(string kind, IEnumerable<T> rows, Func<T, long> id, Func<T, string> key, Func<T, long> moduleId,
@@ -232,8 +232,8 @@ public sealed class DesignTextBuild
             var target = Target(AuditTargets.Check, c.Id, () => c.Definition.Message,
                 t => { c.Definition = c.Definition with { Message = t }; Stamp(c); });
             return ModulePrefix(c.ModuleId) is { } prefix && c.Key.Length > 0
-                ? Item($"{prefix}/check:{c.Key}/message", "check", AppOfModule(c.ModuleId), c.ModuleId, false, target)
-                : Item($"local:check:{c.Id}/message", "check", AppOfModule(c.ModuleId), c.ModuleId, true, target);
+                ? Item($"{prefix}/check:{c.Key}/message", "check", AppOfModule(c.ModuleId), c.ModuleId, false, target, multiLine: true)
+                : Item($"local:check:{c.Id}/message", "check", AppOfModule(c.ModuleId), c.ModuleId, true, target, multiLine: true);
         });
 
     private static string AuditKindOf(string kind) => kind switch
@@ -261,7 +261,7 @@ public sealed class DesignTextBuild
                     Target(AuditTargets.TaskRule, r.Id, () => task.TitleI18n, t => { task.TitleI18n = t; Stamp(r); }), TaskEditParser.TitleMax));
                 if (task.DescriptionI18n is not null)
                     list.Add(Item($"{taskRoot}/description", "taskRule", app, r.ModuleId, !bound,
-                        Target(AuditTargets.TaskRule, r.Id, () => task.DescriptionI18n, t => { task.DescriptionI18n = t; Stamp(r); }), TaskEditParser.DescriptionMax));
+                        Target(AuditTargets.TaskRule, r.Id, () => task.DescriptionI18n, t => { task.DescriptionI18n = t; Stamp(r); }), TaskEditParser.DescriptionMax, multiLine: true));
             }
             return list;
         });

@@ -284,4 +284,14 @@ public class DesignTextCatalogTests
         foreach (var i in items)
             i.MaxLength.Should().Be(SaveLimits[(i.Kind, i.Path[(i.Path.LastIndexOf('/') + 1)..])], $"{i.Path} 的上限要引用存檔驗證的常數");
     }
+
+    /// <summary>審查 r1 🟡2：只有訊息與任務說明可以多行，其他名稱類拒收換行。</summary>
+    [Fact]
+    public async Task MultiLine_OnlyMessagesAndDescription()
+    {
+        var items = await Build(World().Data);
+        items.Values.Where(i => i.MultiLine).Select(i => i.Path).Should().BeEquivalentTo([
+            "local:rule:50/message", "app:crm/module:order/check:overdue/message", "local:check:61/message",
+            "app:crm/module:order/taskRule:follow/task:call/description"]);
+    }
 }

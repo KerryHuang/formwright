@@ -31,6 +31,12 @@ public sealed class DesignTextItem(string path, string kind, string? appKey, lon
     /// <summary>群組名稱：同語系不能重複（§23.2）。</summary>
     public bool UniqueGroupName { get; init; }
 
+    /// <summary>可以多行的文字（欄位規則訊息、檢查的違規訊息、任務說明）；其他名稱類拒收換行與 tab（審查 r1 🟡2）。</summary>
+    public bool MultiLine { get; init; }
+
+    /// <summary>目標識別（<c>種類:Id</c>，逗號分隔）：記進計畫列，套用時比對（審查 r1 🟢3）。</summary>
+    public string TargetKey => string.Join(',', Targets.Select(t => t.AuditKind + ":" + t.Id));
+
     /// <summary>目前的多語文字（第一個目標；多目標時各目標本來就同名）。</summary>
     public I18nText Text => Targets[0].Get() ?? new I18nText();
 

@@ -30,9 +30,10 @@ public sealed record DesignDataEntry(string Text, string? Source);
 
 /// <summary>
 /// 要寫的一列設計資料（存進預覽列 <c>PlanJson</c>，§23.2）：<see cref="Fingerprint"/> 是預覽時目標的內容指紋，套用時不一致回 409；
-/// <see cref="SourceChanged"/> 為 true 的列只在套用請求勾「仍套用這些列」時寫。
+/// <see cref="SourceChanged"/> 為 true 的列只在套用請求勾「仍套用這些列」時寫。<see cref="Targets"/> 是預覽時的目標（<c>種類:Id</c>，逗號分隔；審查 r1 🟢3）：
+/// 預覽後同一路徑改綁到別的物件、文字又剛好相同時，指紋擋不住，靠它回 409。舊版預覽沒有這欄（null）一律當不一致。
 /// </summary>
-public sealed record DesignDataPlanRow(string Path, string Text, string Fingerprint, bool SourceChanged);
+public sealed record DesignDataPlanRow(string Path, string Text, string Fingerprint, bool SourceChanged, string? Targets = null);
 
 /// <summary>原文已改的一列：檔案裡的原文與資料庫目前的原文。</summary>
 public sealed record DesignDataSourceChange(string Path, string FileSource, string CurrentSource);

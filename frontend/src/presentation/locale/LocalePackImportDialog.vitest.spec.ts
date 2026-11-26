@@ -534,16 +534,17 @@ describe('LocalePackImportDialog 設計資料（i4e）', () => {
     w.unmount();
   });
 
-  it('拒收原因顯示文字（公式、標題選項、別套系統）', async () => {
-    const w = await mountDialog((c) => (c.url === '/i18n/packs/preview' ? report({ designData: design({ count: 3, rejected: 3, rejectedItems: [
+  it('拒收原因顯示文字（公式、標題選項、別套系統、語系數上限）', async () => {
+    const w = await mountDialog((c) => (c.url === '/i18n/packs/preview' ? report({ designData: design({ count: 4, rejected: 4, rejectedItems: [
       { key: 'local:field:9/label', reason: 'formula', args: [] }, { key: 'app:crm/module:order/option:open/label', reason: 'titleOption', args: [] },
-      { key: 'local:field:10/label', reason: 'otherSystem', args: [] },
+      { key: 'local:field:10/label', reason: 'otherSystem', args: [] }, { key: 'local:field:11/label', reason: 'tooManyLocales', args: ['30'] },
     ] }) }) : undefined));
     await pick();
     const text = q('report-design-rejected-list')!.textContent!;
     expect(text).toContain(zhTW.localePacks.reasons.formula);
     expect(text).toContain(zhTW.localePacks.reasons.titleOption);
     expect(text).toContain(zhTW.localePacks.reasons.otherSystem);
+    expect(text).toContain(zhTW.localePacks.reasons.tooManyLocales);
     w.unmount();
   });
 
