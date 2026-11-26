@@ -84,9 +84,10 @@ public class LocaleTemplateApiTests : IDisposable
         (await FileError(await Export(admin, "JA_x"))).Should().Be("語系代碼「JA_x」格式不對（例：ja、zh-Hant-HK）");
         (await FileError(await Export(admin, "id"))).Should().Be("新語系要填自稱（locale.nativeName）");
         (await FileError(await Export(admin, "id", Both + "&nativeName=Bahasa&fallback=ko"))).Should().Be("上層語系「ko」還沒安裝");
-        (await FileError(await Export(admin, "th", "scopes=ui&scopes=designData"))).Should().Be("匯出範圍只能是 ui、server，至少要選一個");
-        (await FileError(await Export(admin, "th", "scopes=ui&scopes=designData", "en-US")))
-            .Should().Be("The export scope must be ui and/or server, with at least one selected");
+        (await FileError(await Export(admin, "th", "scopes=ui&scopes=records"))).Should().Be("匯出範圍只能是 ui、server、designData，至少要選一個");
+        (await FileError(await Export(admin, "th", "scopes=ui&scopes=records", "en-US")))
+            .Should().Be("The export scope must be ui, server and/or designData, with at least one selected");
+        (await FileError(await Export(admin, "th", Both + "&format=pdf"))).Should().Be("格式只能是 json 或 xlsx");
         (await FileError(await Export(admin, "th", Both + "&reference=ko"))).Should().Be("語系 ko 沒有安裝");
     }
 

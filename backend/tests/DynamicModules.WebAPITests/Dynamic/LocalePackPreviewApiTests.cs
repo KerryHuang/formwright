@@ -110,7 +110,7 @@ public class LocalePackPreviewApiTests : IDisposable
     {
         var admin = _app.AsUser();
         (await FileError(await Preview(admin, "not json"u8.ToArray()))).Should().Be("檔案不是語系包（.langpack.json）");
-        (await FileError(await Preview(admin, [0x50, 0x4B, 0x03, 0x04, 0, 0]))).Should().Be("本版只收 .langpack.json，Excel 翻譯樣板之後支援");
+        (await FileError(await Preview(admin, [0x50, 0x4B, 0x03, 0x04, 0, 0]))).Should().Be("這不是 Formwright 翻譯樣板（第一張工作表找不到格式資訊）");
         (await FileError(await Preview(admin, Fixture("rtl.langpack.json")))).Should().Be("本版不支援由右至左的語言");
         var v2 = "{\"format\":\"formwright-langpack\",\"formatVersion\":2,\"locale\":{\"code\":\"ja\"}}"u8.ToArray();
         (await FileError(await Preview(admin, v2))).Should().Be("這份語系包的格式版本 2 比系統支援的 1 新");

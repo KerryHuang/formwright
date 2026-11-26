@@ -83,6 +83,8 @@ public static class AuditActions
         new("field.delete", Design, H),
         new("option.add", Design, W),
         new("option.update", Design, W),
+        // 語系包 designData 段逐物件的翻譯（語系包設計 §23.2）：一般寫入
+        new("design.translate", Design, W),
         // 設計：規則、流程、事件、檢查、分錄、任務規則、簽核、列印、轉單、範本
         new("rule.save", Design, W),
         new("workflow.save", Design, W),

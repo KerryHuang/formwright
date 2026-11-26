@@ -26,7 +26,6 @@ public static class LocalePackMessages
         MessageRef.Of(MessageText.LocalePackTooLarge, (bytes / 1048576.0).ToString("0.###", CultureInfo.InvariantCulture));
 
     public static MessageRef NotJson => MessageRef.Of(MessageText.LocalePackNotJson);
-    public static MessageRef ExcelNotYet => MessageRef.Of(MessageText.LocalePackExcelNotYet);
     public static MessageRef FormatUnknown => MessageRef.Of(MessageText.LocalePackFormatUnknown);
     public static MessageRef FormatTooNew(long version, int supported) => MessageRef.Of(MessageText.LocalePackFormatTooNew, version, supported);
     public static MessageRef TooDeep => MessageRef.Of(MessageText.LocalePackTooDeep, LocalePackLimits.MaxJsonDepth);
@@ -54,4 +53,15 @@ public static class LocalePackMessages
     public static MessageRef BooleanCollision(string locale, string other, string word) => MessageRef.Of(MessageText.LocaleBooleanCollision, locale, other, word);
     public static MessageRef TemplateLocaleNotInstalled(string code) => MessageRef.Of(MessageText.LocaleTemplateLocaleNotInstalled, code);
     public static MessageRef TemplateScopeInvalid => MessageRef.Of(MessageText.LocaleTemplateScopeInvalid);
+
+    // ── i4e：設計資料與 Excel 樣板（設計 §23） ──
+    public static MessageRef XlsxInvalid => MessageRef.Of(MessageText.LocaleXlsxInvalid);
+    public static MessageRef XlsxSheetMissing(string sheet) => MessageRef.Of(MessageText.LocaleXlsxSheetMissing, sheet);
+    public static MessageRef XlsxUnsafe => MessageRef.Of(MessageText.LocaleXlsxUnsafe);
+    public static MessageRef XlsxTooManySheets => MessageRef.Of(MessageText.LocaleXlsxTooManySheets, LocalePackLimits.MaxXlsxSheets);
+    public static MessageRef XlsxTooManyRows(string sheet) => MessageRef.Of(MessageText.LocaleXlsxTooManyRows, sheet, LocalePackLimits.MaxXlsxRows);
+    public static MessageRef TemplateDesignTooMany => MessageRef.Of(MessageText.LocaleTemplateDesignTooMany, LocalePackLimits.MaxXlsxRows);
+    public static MessageRef TemplateDesignNewLocale => MessageRef.Of(MessageText.LocaleTemplateDesignNewLocale);
+    public static MessageRef TemplateDesignScopeInvalid(string scope) => MessageRef.Of(MessageText.LocaleTemplateDesignScopeInvalid, scope);
+    public static MessageRef TemplateFormatInvalid => MessageRef.Of(MessageText.LocaleTemplateFormatInvalid);
 }

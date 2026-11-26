@@ -14,7 +14,25 @@ public sealed record ParsedLocalePack(
     string? PackVersion, string? BuiltFor, string? BaseLocale, string? Note,
     IReadOnlyDictionary<string, string> Ui, IReadOnlyList<RejectedItem> UiProblems,
     IReadOnlyDictionary<string, string> Server, IReadOnlyList<RejectedItem> ServerProblems,
-    int DesignDataCount);
+    int DesignDataCount)
+{
+    /// <summary><c>designData</c> 段（i4e，§23.2）：路徑 → 譯文與原文；形狀不對、重複的路徑在 <see cref="DesignDataProblems"/>。</summary>
+    public IReadOnlyDictionary<string, DesignDataEntry> DesignData { get; init; } = new Dictionary<string, DesignDataEntry>(StringComparer.Ordinal);
+
+    public IReadOnlyList<RejectedItem> DesignDataProblems { get; init; } = [];
+}
+
+/// <summary><c>designData</c> 的一列：<see cref="Text"/> 是譯文（空字串＝沒翻），<see cref="Source"/> 是翻譯當時的原文（null 或空＝不比對，U8）。</summary>
+public sealed record DesignDataEntry(string Text, string? Source);
+
+/// <summary>
+/// 要寫的一列設計資料（存進預覽列 <c>PlanJson</c>，§23.2）：<see cref="Fingerprint"/> 是預覽時目標的內容指紋，套用時不一致回 409；
+/// <see cref="SourceChanged"/> 為 true 的列只在套用請求勾「仍套用這些列」時寫。
+/// </summary>
+public sealed record DesignDataPlanRow(string Path, string Text, string Fingerprint, bool SourceChanged);
+
+/// <summary>原文已改的一列：檔案裡的原文與資料庫目前的原文。</summary>
+public sealed record DesignDataSourceChange(string Path, string FileSource, string CurrentSource);
 
 /// <summary>一句被拒收：鍵、原因代碼（<see cref="Domain.Localization.LocalePackReasons"/>）與給畫面組字的參數。</summary>
 public sealed record RejectedItem(string Key, string Reason, IReadOnlyList<string> Args);
@@ -51,6 +69,10 @@ public sealed record LocalePackPlan(
     LocalePackInfo Pack)
 {
     private readonly IReadOnlyList<string> _uiConfirm = [], _serverConfirm = [];
+    private readonly IReadOnlyList<DesignDataPlanRow> _designData = [];
+
+    /// <summary>要寫的設計資料（i4e）；i4d 形狀的 <c>PlanJson</c> 沒有這欄，正規化成空清單。</summary>
+    public IReadOnlyList<DesignDataPlanRow> DesignData { get => _designData; init => _designData = value ?? []; }
 
     /// <summary>
     /// 原樣再匯入的「原文已更新」句子（i4d2 計畫判斷 7、Q3）：套用時只換新記下的原文雜湊，譯文不變。i4d1 形狀的 <c>PlanJson</c> 沒有這欄，
@@ -98,7 +120,28 @@ public sealed record MissingCategory(string Segment, string Category, int Missin
 /// <summary>這次套用會清掉的已失效覆寫句數（i4d2 計畫判斷 8）；不寫新版本時兩個都是 0。</summary>
 public sealed record OrphanedDroppedReport(int Ui, int Server);
 
-public sealed record DesignDataReport(int Count);
+/// <summary>
+/// <c>designData</c> 段的預覽計數（§6.3、§23.2）：<see cref="Count"/> 是檔案裡的列數（含形狀不對的）；<see cref="Changed"/> 會改、
+/// <see cref="SourceChanged"/> 原文已改（預設略過）、<see cref="NotFound"/> 找不到路徑；清單只列前 <see cref="LocalePackLimits.MaxListedItems"/> 筆。
+/// <see cref="LocaleNotInstalled"/>：這次匯入才新安裝的語系，整段不套用。i4d 形狀的報告只有 <c>count</c>，其他欄正規化成 0 與空清單。
+/// </summary>
+public sealed record DesignDataReport(int Count)
+{
+    private readonly IReadOnlyList<string> _notFoundPaths = [];
+    private readonly IReadOnlyList<DesignDataSourceChange> _sourceChangedItems = [];
+    private readonly IReadOnlyList<RejectedItem> _rejectedItems = [];
+
+    public int Changed { get; init; }
+    public int Unchanged { get; init; }
+    public int Skipped { get; init; }
+    public int NotFound { get; init; }
+    public int SourceChanged { get; init; }
+    public int Rejected { get; init; }
+    public bool LocaleNotInstalled { get; init; }
+    public IReadOnlyList<string> NotFoundPaths { get => _notFoundPaths; init => _notFoundPaths = value ?? []; }
+    public IReadOnlyList<DesignDataSourceChange> SourceChangedItems { get => _sourceChangedItems; init => _sourceChangedItems = value ?? []; }
+    public IReadOnlyList<RejectedItem> RejectedItems { get => _rejectedItems; init => _rejectedItems = value ?? []; }
+}
 
 /// <summary>警告（代碼＋參數，畫面用 <c>localePacks.warnings.&lt;代碼&gt;</c> 組字）。</summary>
 public sealed record LocalePackWarning(string Code, IReadOnlyList<string> Args);

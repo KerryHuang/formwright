@@ -43,8 +43,8 @@ public class LocalePackParserTests
     public void Broken_Json() => Error("{\"format\":").Should().Be("檔案不是語系包（.langpack.json）");
 
     [Fact]
-    public void Xlsx_Signature() =>
-        Parse([0x50, 0x4B, 0x03, 0x04, 0x14, 0x00]).Error!.Resolve("zh-TW").Should().Be("本版只收 .langpack.json，Excel 翻譯樣板之後支援");
+    public void Xlsx_Signature_NotZip_Invalid() =>
+        Parse([0x50, 0x4B, 0x03, 0x04, 0x14, 0x00]).Error!.Resolve("zh-TW").Should().Be("這不是 Formwright 翻譯樣板（第一張工作表找不到格式資訊）");
 
     [Fact]
     public void Bom_SameAsWithout()
@@ -219,4 +219,31 @@ public class LocalePackParserTests
         var p = Ok(Pack(rest: "\"future\":{\"x\":1},\"designData\":{\"module:a/name\":{\"text\":\"A\"},\"module:b/name\":{\"text\":\"B\"}}"));
         p.DesignDataCount.Should().Be(2);
     }
+
+    // ── designData（i4e，§23.2） ──
+
+    [Fact]
+    public void DesignData_Read_TextAndSource()
+    {
+        var p = Ok(Pack(rest: "\"designData\":{\"app:crm/name\":{\"text\":\"顧客管理\",\"source\":\"客戶關係\",\"local\":false},\"local:field:9/label\":{\"source\":\"備註\"}}"));
+        p.DesignData.Should().BeEquivalentTo(new Dictionary<string, DesignDataEntry>
+        {
+            ["app:crm/name"] = new("顧客管理", "客戶關係"),
+            ["local:field:9/label"] = new("", "備註"),
+        });
+        p.DesignDataProblems.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DesignData_PerRowProblems()
+    {
+        var p = Ok(Pack(rest: "\"designData\":{\"a\":\"x\",\"b\":{\"text\":1},\"c\":{\"text\":\"C\",\"source\":[\"x\"]},\"d\":{\"text\":\"1\"},\"d\":{\"text\":\"2\"},\"e\":{\"text\":\"E\"}}"));
+        p.DesignData.Keys.Should().BeEquivalentTo(["e"]);
+        p.DesignDataProblems.Select(x => (x.Key, x.Reason)).Should().Equal(
+            ("a", LocalePackReasons.NotObject), ("b", LocalePackReasons.NotString), ("c", LocalePackReasons.NotString), ("d", LocalePackReasons.Duplicate));
+        p.DesignDataCount.Should().Be(5);
+    }
+
+    [Fact]
+    public void DesignData_Array_SectionNotObject() => Error(Pack(rest: "\"designData\":[1]")).Should().Be("designData 段必須是 JSON 物件");
 }

@@ -4,6 +4,7 @@ using DynamicModules.Application.Dynamic.LocaleService.Commands.ClearLocaleOverr
 using DynamicModules.Application.Dynamic.LocaleService.Commands.PreviewLocalePack;
 using DynamicModules.Application.Dynamic.LocaleService.Commands.RemoveLocale;
 using DynamicModules.Application.Dynamic.LocaleService.Commands.RollbackLocalePack;
+using DynamicModules.Application.Dynamic.LocaleService.Queries.GetDesignScopes;
 using DynamicModules.Application.Dynamic.LocaleService.Queries.GetLocaleTemplate;
 using DynamicModules.Application.Dynamic.LocaleService.Queries.GetLocales;
 using DynamicModules.Application.Dynamic.LocaleService.Queries.GetUiMessages;
@@ -57,10 +58,19 @@ public class I18nController(IMediator mediator) : ControllerBase
         return result.ToActionResult(this);
     }
 
-    /// <summary>套用預覽過的語系包（i4d1 計畫判斷 12、16）：本文 <c>{ previewId, fileHash }</c>，成功回 <see cref="ApplyLocalePackResponse"/>。</summary>
+    /// <summary>
+    /// 套用預覽過的語系包（i4d1 計畫判斷 12、16）：本文 <c>{ previewId, fileHash, applySourceChanged }</c>（最後一個是 i4e 的「仍套用這些列」，
+    /// 預設 false），成功回 <see cref="ApplyLocalePackResponse"/>。
+    /// </summary>
     [HttpPost("packs/apply")]
     public async Task<IActionResult> ApplyPack([FromBody] ApplyLocalePackBody body) =>
-        (await mediator.Send(new ApplyLocalePackRequest(body.PreviewId ?? "", body.FileHash ?? ""), HttpContext.RequestAborted)).ToActionResult(this);
+        (await mediator.Send(new ApplyLocalePackRequest(body.PreviewId ?? "", body.FileHash ?? "", body.ApplySourceChanged ?? false),
+            HttpContext.RequestAborted)).ToActionResult(this);
+
+    /// <summary>匯出設計資料時可選的應用程式與模組（i4e，設計 §23.3；系統管理員）。</summary>
+    [HttpGet("design-scopes")]
+    public async Task<IActionResult> DesignScopes() =>
+        (await mediator.Send(new GetDesignScopesRequest(), HttpContext.RequestAborted)).ToActionResult(this);
 
     /// <summary>語系清單（系統管理員；讀資料庫，不讀快照）。</summary>
     [HttpGet("locales")]
@@ -78,19 +88,22 @@ public class I18nController(IMediator mediator) : ControllerBase
         (await mediator.Send(new ClearLocaleOverridesRequest(code), HttpContext.RequestAborted)).ToActionResult(this);
 
     /// <summary>
-    /// 匯出 JSON 翻譯樣板（i4d2 計畫判斷 9）：成功回附件 <c>&lt;代碼&gt;.langpack.json</c>，失敗走 <c>ToActionResult</c>（400 <c>localePackInvalid</c>）。
+    /// 匯出翻譯樣板（i4d2 計畫判斷 9；i4e 加 <c>designData</c> 範圍、<c>designApp</c>、<c>designModule</c>、<c>format=json|xlsx</c>）：成功回附件
+    /// <c>&lt;代碼&gt;.langpack.json</c> 或 <c>.langpack.xlsx</c>，失敗走 <c>ToActionResult</c>（400 <c>localePackInvalid</c>）。
     /// <c>source</c>、<c>reference</c> 取原始查詢值：預設 binder 會把空字串轉成 null，而 <c>reference=</c>（空字串）代表不附參考段。
     /// </summary>
     [HttpGet("locales/{code}/template")]
     public async Task<IActionResult> Template(string code, [FromQuery(Name = "scopes")] string[]? scopes, [FromQuery] bool onlyMissing,
-        [FromQuery] bool onlyBaseChanged, [FromQuery] string? nativeName, [FromQuery] string? fallback, [FromQuery] string? quasarLang)
+        [FromQuery] bool onlyBaseChanged, [FromQuery] string? nativeName, [FromQuery] string? fallback, [FromQuery] string? quasarLang,
+        [FromQuery] string? designApp, [FromQuery] string? designModule, [FromQuery] string? format)
     {
         string Raw(string name, string fallbackValue) => Request.Query.TryGetValue(name, out var v) ? v.ToString() : fallbackValue;
         var options = new LocaleTemplateOptions(code, scopes ?? [], onlyMissing, onlyBaseChanged,
-            Raw("source", LocaleTemplateOptions.DefaultSource), Raw("reference", LocaleTemplateOptions.DefaultReference), nativeName, fallback, quasarLang);
+            Raw("source", LocaleTemplateOptions.DefaultSource), Raw("reference", LocaleTemplateOptions.DefaultReference), nativeName, fallback, quasarLang,
+            designApp, designModule, format ?? "json");
         var result = await mediator.Send(new GetLocaleTemplateRequest(options), HttpContext.RequestAborted);
         return result.IsSuccess && result.Data is LocaleTemplateFile file
-            ? File(file.Content, "application/json; charset=utf-8", file.FileName)
+            ? File(file.Content, file.ContentType, file.FileName)
             : result.ToActionResult(this);
     }
 
@@ -103,4 +116,4 @@ public class I18nController(IMediator mediator) : ControllerBase
     }
 }
 
-public sealed record ApplyLocalePackBody(string? PreviewId, string? FileHash);
+public sealed record ApplyLocalePackBody(string? PreviewId, string? FileHash, bool? ApplySourceChanged = null);

@@ -7,4 +7,8 @@ namespace DynamicModules.Application.Dynamic.LocaleService.Commands.ApplyLocaleP
 /// <see cref="Enabled"/>＝這個語系是否在 <c>locale.enabled</c> 的生效值裡（前端用它決定顯示「現在啟用」）。
 /// </summary>
 public sealed record ApplyLocalePackResponse(string Code, bool IsNew, bool NoChanges,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] long? PackId, bool Enabled);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] long? PackId, bool Enabled)
+{
+    /// <summary>這次寫進設計資料的列數（i4e）。</summary>
+    public int DesignDataApplied { get; init; }
+}

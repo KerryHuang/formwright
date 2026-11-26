@@ -41,9 +41,9 @@ public static class LocaleCompleteness
             .OrderByDescending(c => c.Missing).ThenBy(c => c.Category, StringComparer.Ordinal).ThenBy(c => c.Segment, StringComparer.Ordinal)
             .Take(take).ToList();
 
-    private static string UiCategory(string key) => key.Split('.')[0];
+    internal static string UiCategory(string key) => key.Split('.')[0];
 
-    private static string ServerCategory(string key) =>
+    internal static string ServerCategory(string key) =>
         key.StartsWith("report.", StringComparison.Ordinal) ? "report" : key.StartsWith("alert.", StringComparison.Ordinal) ? "alert" : "message";
 
     private static bool Has(IReadOnlyDictionary<string, string>? layer, string key) => layer is not null && layer.TryGetValue(key, out var t) && t.Length > 0;
