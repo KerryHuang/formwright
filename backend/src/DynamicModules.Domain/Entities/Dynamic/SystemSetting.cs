@@ -16,6 +16,7 @@ public class SystemSetting
     /// <summary>
     /// 本系統識別（語系包設計 §5.1 <c>pack.instance</c>；審查 r1 🔴3）：啟動種子補上的隨機 32 位十六進位，跨重啟不變、不帶可辨識資訊。
     /// 語系包的 <c>local:</c> 路徑是本系統的資料列 Id，只在識別相同時才套用。
+    /// 不是維運資訊（<c>GET system/ops/info</c>、log scope）裡的 <c>instanceId</c>：那個是每次啟動都換、帶機器名稱的執行個體識別，兩者不可互換（審查 r3 N2）。
     /// </summary>
     public const string InstanceId = "system.instanceId";
     public const string ThemeDefaultMode = "theme.defaultMode";

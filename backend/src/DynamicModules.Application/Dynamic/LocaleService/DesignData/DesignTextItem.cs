@@ -46,6 +46,15 @@ public sealed class DesignTextItem(string path, string kind, string? appKey, lon
     /// <summary>目標識別（<c>種類:Id</c>，逗號分隔）：記進計畫列，套用時比對（審查 r1 🟢3）。</summary>
     public string TargetKey => string.Join(',', Targets.Select(t => t.AuditKind + ":" + t.Id));
 
+    /// <summary>
+    /// 複製並覆寫（審查 r3 N5）：重建項目（標題選項、改成 <c>local:</c> 路徑）一律走這裡，所有 init 屬性都帶過去，新增屬性時只改這一處。
+    /// </summary>
+    public DesignTextItem Copy(string? path = null, bool? local = null, bool? titleOption = null) =>
+        new(path ?? Path, Kind, AppKey, ModuleId, local ?? Local, MaxLength, Targets)
+        {
+            TitleOption = titleOption ?? TitleOption, UniqueGroupName = UniqueGroupName, SystemOnly = SystemOnly, MultiLine = MultiLine,
+        };
+
     /// <summary>目前的多語文字（第一個目標；多目標時各目標本來就同名）。</summary>
     public I18nText Text => Targets[0].Get() ?? new I18nText();
 

@@ -76,7 +76,7 @@ public static class LocalePackAnalyzer
                 ?? UiMessageSyntax.Check(text, BuiltinLocaleResources.UiPlaceholderNames.GetValueOrDefault(key) ?? NoNames);
             if (reason is not null)
             {
-                ui.Reject(key, reason, reason == LocalePackReasons.Placeholder ? UiAllowed(key) : []);
+                ui.Reject(key, reason, reason == LocalePackReasons.Placeholder ? UiAllowed(key) : LocaleTextSafety.LimitArgs(reason, LocalePackLimits.MaxTextLength));
                 continue;
             }
             ui.Compare(key, text, uiBuiltin?.GetValueOrDefault(key), current?.Ui);
@@ -92,7 +92,7 @@ public static class LocalePackAnalyzer
             var reason = LocaleTextSafety.Check(text, LocalePackLimits.MaxTextLength) ?? ServerTemplateSyntax.Check(text, zh!);
             if (reason is not null)
             {
-                server.Reject(key, reason, reason == LocalePackReasons.Placeholder ? ServerAllowed(zh!) : []);
+                server.Reject(key, reason, reason == LocalePackReasons.Placeholder ? ServerAllowed(zh!) : LocaleTextSafety.LimitArgs(reason, LocalePackLimits.MaxTextLength));
                 continue;
             }
             var own = BuiltinServerText.TryGet(code, key, out var b) ? b : null;
@@ -370,10 +370,12 @@ public static class LocalePackAnalyzer
 
         public SectionReport Report()
         {
+            // 回顯的鍵經 Shown 清理（含 Excel 讀取階段與解析器的拒收列；審查 r3 🟡8）
             var rejected = _rejected.OrderBy(r => r.Key, StringComparer.Ordinal).ToList();
             return new SectionReport(_added, _changed, _unchanged, _skipped, _same, _extra,
-                _extraKeys.Order(StringComparer.Ordinal).Take(LocalePackLimits.MaxListedItems).ToList(),
-                rejected.Count, rejected.Take(LocalePackLimits.MaxListedItems).ToList()) { Confirmed = Confirm.Count };
+                _extraKeys.Order(StringComparer.Ordinal).Take(LocalePackLimits.MaxListedItems).Select(LocaleTextSafety.Shown).ToList(),
+                rejected.Count, rejected.Take(LocalePackLimits.MaxListedItems).Select(r => r with { Key = LocaleTextSafety.Shown(r.Key) }).ToList())
+            { Confirmed = Confirm.Count };
         }
     }
 }

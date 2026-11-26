@@ -468,4 +468,33 @@ public class LocaleDesignDataApiTests : IDisposable
         design.GetProperty("changed").GetInt32().Should().Be(0, "沒帶本系統識別就無法確定 Id 對得上");
         design.GetProperty("rejectedItems")[0].GetProperty("reason").GetString().Should().Be("otherSystem");
     }
+
+    // ── 審查 r3 N6 ──
+
+    [Fact]
+    public async Task LocalRows_ThisSystemHasNoIdentity_AllRejected()
+    {
+        var admin = _app.AsUser();
+        await InstallAsync(_app, "ja", "日本語");
+        var (fieldId, _) = await CustomFieldAsync(admin);
+        var pack = DesignPack(_app, "ja", (FieldPath(fieldId), "フィールド", null));
+        Db(_app, db => db.Set<SystemSetting>().Where(s => s.Key == SystemSetting.InstanceId).ExecuteDelete()).Should().Be(1);
+
+        var design = (await PreviewOkAsync(admin, pack)).GetProperty("designData");
+        design.GetProperty("changed").GetInt32().Should().Be(0, "本系統讀不到識別時 fail closed：無法確定 Id 對得上");
+        design.GetProperty("rejectedItems").EnumerateArray().Select(r => (r.GetProperty("key").GetString(), r.GetProperty("reason").GetString()))
+            .Should().Equal((FieldPath(fieldId), "otherSystem"));
+    }
+
+    [Fact]
+    public async Task Template_UiScopeOnly_StillWritesInstance()
+    {
+        var admin = _app.AsUser();
+        await InstallAsync(_app, "ja", "日本語");
+        var res = await admin.GetAsync($"{I18n}/locales/ja/template?scopes=ui");
+        res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        var json = await JsonOf(res);
+        json.TryGetProperty("designData", out _).Should().BeFalse();
+        json.GetProperty("pack").GetProperty("instance").GetString().Should().Be(InstanceOf(_app), "不論勾哪些範圍都寫本系統識別（§23.3）");
+    }
 }

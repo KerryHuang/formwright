@@ -104,10 +104,7 @@ public class DesignTextCatalog(IDesignTextRepository repository, ICurrentUser us
         var at = Array.FindLastIndex(segments, s => s == item.Kind || s.StartsWith(item.Kind + ":", StringComparison.Ordinal));
         if (at < 0) return null;
         var path = string.Join('/', new[] { $"{DesignTextItem.LocalPrefix}{item.Kind}:{item.Targets[0].Id}" }.Concat(segments[(at + 1)..]));
-        return new DesignTextItem(path, item.Kind, item.AppKey, item.ModuleId, true, item.MaxLength, item.Targets)
-        {
-            TitleOption = item.TitleOption, UniqueGroupName = item.UniqueGroupName, MultiLine = item.MultiLine,
-        };
+        return item.Copy(path: path, local: true);
     }
 }
 
@@ -222,12 +219,9 @@ public sealed class DesignTextBuild
                 var item = _optionBinding.TryGetValue(o.Id, out var bind)
                     ? Bound(bind, "option", "label", m.Id, target)
                     : Item($"local:option:{o.Id}/label", "option", AppOfModule(m.Id), m.Id, true, target);
-                return titleFields.Contains(f.Id) ? WithTitle(item) : item;
+                return titleFields.Contains(f.Id) ? item.Copy(titleOption: true) : item;
             }));
         });
-
-    private static DesignTextItem WithTitle(DesignTextItem i) =>
-        new(i.Path, i.Kind, i.AppKey, i.ModuleId, i.Local, i.MaxLength, i.Targets) { TitleOption = true };
 
     private DesignTextItem Bound((string App, string Name) bind, string kind, string leaf, long moduleId, DesignTextTarget target)
     {

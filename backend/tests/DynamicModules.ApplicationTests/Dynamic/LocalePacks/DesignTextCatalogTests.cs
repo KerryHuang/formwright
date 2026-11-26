@@ -332,4 +332,29 @@ public class DesignTextCatalogTests
             "local:rule:50/message", "app:crm/module:order/check:overdue/message", "local:check:61/message",
             "app:crm/module:order/taskRule:follow/task:call/description"]);
     }
+
+    /// <summary>
+    /// 審查 r3 N5：重建項目（標題選項、改成 local: 路徑）走同一個「複製並覆寫」：所有 init 屬性都要帶過去，
+    /// 之後新增屬性時這個測試會自動涵蓋（用反射列出 init 屬性）。
+    /// </summary>
+    [Fact]
+    public void Copy_KeepsAllInitProperties_OverridesOnlyGiven()
+    {
+        var target = new DesignTextTarget("field", "1", () => null, _ => { });
+        var source = new DesignTextItem("app:crm/module:order/field:a/label", "field", "crm", 7, false, 100, [target]);
+        var inits = typeof(DesignTextItem).GetProperties()
+            .Where(p => p.SetMethod?.ReturnParameter.GetRequiredCustomModifiers().Contains(typeof(System.Runtime.CompilerServices.IsExternalInit)) == true)
+            .ToList();
+        inits.Should().NotBeEmpty();
+        foreach (var p in inits) p.SetValue(source, true);
+
+        var copy = source.Copy(path: "local:field:1/label", local: true);
+        (copy.Path, copy.Local, copy.Kind, copy.AppKey, copy.ModuleId, copy.MaxLength).Should().Be(("local:field:1/label", true, "field", "crm", 7L, 100));
+        copy.Targets.Should().BeSameAs(source.Targets);
+        foreach (var p in inits) p.GetValue(copy).Should().Be(true, p.Name + " 要複製過去");
+
+        var titled = new DesignTextItem("app:crm/module:order/option:o/label", "option", "crm", 7, false, 100, [target]) { MultiLine = true, SystemOnly = true }
+            .Copy(titleOption: true);
+        (titled.TitleOption, titled.MultiLine, titled.SystemOnly, titled.Local).Should().Be((true, true, true, false));
+    }
 }

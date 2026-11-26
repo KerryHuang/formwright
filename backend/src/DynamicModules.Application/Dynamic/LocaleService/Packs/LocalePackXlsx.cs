@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.IO.Compression;
 using System.Text.Json.Nodes;
+using System.Xml;
 using ClosedXML.Excel;
 using DynamicModules.Application.Common;
 using DynamicModules.Application.Dynamic.ExportService;
@@ -163,7 +164,8 @@ public static class LocalePackXlsx
 
     /// <summary>
     /// 壓縮炸彈檢查（§13.1、§23.4）：項目數、實際解壓後的合計大小、工作表 XML 的單檔與合計大小（審查 r1 🟡3）、大項目的壓縮比。自己串流解壓計數，不信 zip 標頭宣告的大小；
-    /// 讀到超過上限就停，不把整份解到記憶體。不是合法 zip 回 <see cref="LocalePackMessages.XlsxInvalid"/>。
+    /// 讀到超過上限就停，不把整份解到記憶體。工作表依 [Content_Types].xml 的宣告辨識（審查 r3 🟡3：ClosedXML 依關聯找工作表，不限路徑），
+    /// 加上 xl/worksheets/ 前綴的聯集。不是合法 zip 或內容類型表壞掉回 <see cref="LocalePackMessages.XlsxInvalid"/>。
     /// </summary>
     internal static MessageRef? CheckZip(ReadOnlyMemory<byte> bytes)
     {
@@ -171,12 +173,13 @@ public static class LocalePackXlsx
         {
             using var zip = new ZipArchive(new MemoryStream(bytes.ToArray(), writable: false), ZipArchiveMode.Read);
             if (zip.Entries.Count > LocalePackLimits.MaxXlsxEntries) return LocalePackMessages.XlsxUnsafe;
+            if (WorksheetParts(zip) is not { } declared) return LocalePackMessages.XlsxUnsafe;
             long total = 0, worksheets = 0;
             var buffer = new byte[81920];
             foreach (var entry in zip.Entries)
             {
                 long size = 0;
-                var isWorksheet = entry.FullName.StartsWith("xl/worksheets/", StringComparison.OrdinalIgnoreCase);
+                var isWorksheet = entry.FullName.StartsWith("xl/worksheets/", StringComparison.OrdinalIgnoreCase) || declared(entry.FullName);
                 using var s = entry.Open();
                 int n;
                 while ((n = s.Read(buffer, 0, buffer.Length)) > 0)
@@ -193,10 +196,47 @@ public static class LocalePackXlsx
             }
             return null;
         }
-        catch (Exception e) when (e is InvalidDataException or IOException or NotSupportedException)
+        catch (Exception e) when (e is InvalidDataException or IOException or NotSupportedException or XmlException)
         {
             return LocalePackMessages.XlsxInvalid;
         }
+    }
+
+    private const string ContentTypesPart = "[Content_Types].xml";
+    private const string WorksheetContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml";
+
+    /// <summary>
+    /// 讀 [Content_Types].xml，回傳「這個項目是不是工作表」的判斷（Override 依部件名稱、Default 依副檔名，都不分大小寫）。
+    /// 沒有內容類型表時只靠前綴（之後 ClosedXML 也開不了）；表超過 <see cref="LocalePackLimits.MaxXlsxContentTypesBytes"/> 回 null（拒收）。
+    /// </summary>
+    private static Func<string, bool>? WorksheetParts(ZipArchive zip)
+    {
+        var entry = zip.Entries.FirstOrDefault(e => string.Equals(e.FullName, ContentTypesPart, StringComparison.OrdinalIgnoreCase));
+        if (entry is null) return _ => false;
+        using var raw = new MemoryStream();
+        using (var s = entry.Open())
+        {
+            var buffer = new byte[81920];
+            int n;
+            while ((n = s.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                raw.Write(buffer, 0, n);
+                if (raw.Length > LocalePackLimits.MaxXlsxContentTypesBytes) return null;
+            }
+        }
+        raw.Position = 0;
+        var parts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var extensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var reader = XmlReader.Create(raw, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null }))
+        {
+            while (reader.Read())
+            {
+                if (reader.NodeType != XmlNodeType.Element || reader.GetAttribute("ContentType") != WorksheetContentType) continue;
+                if (reader.LocalName == "Override" && reader.GetAttribute("PartName") is { } part) parts.Add(part.TrimStart('/'));
+                else if (reader.LocalName == "Default" && reader.GetAttribute("Extension") is { } ext) extensions.Add(ext);
+            }
+        }
+        return name => parts.Contains(name) || (Path.GetExtension(name) is { Length: > 1 } ext && extensions.Contains(ext[1..]));
     }
 
     // ── 寫 ──

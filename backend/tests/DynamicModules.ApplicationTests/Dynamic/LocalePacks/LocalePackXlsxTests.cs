@@ -138,6 +138,20 @@ public class LocalePackXlsxTests
         Error(bytes).Should().Be(Application.Dynamic.LocaleService.LocalePackMessages.XlsxInvalid.Resolve("zh-TW"));
     }
 
+    /// <summary>審查 r3 🟡8：Excel 讀取階段的拒收列（重複鍵、公式）不經 designData 段的檢查，報告回顯時一樣要清理。</summary>
+    [Fact]
+    public void ExcelRejectedKeys_ShownSafely()
+    {
+        var bytes = Edit(Template(new LocalePackXlsx.Sheet(LocalePackXlsx.DesignData, "設計資料",
+                [Row("a\u202Eb", "原", "譯"), Row("a\u202Eb", "原", "譯2"), Row("c\u2066d", "原", "譯3")])),
+            wb => wb.Worksheet("設計資料").Cell(4, 6).FormulaA1 = "1+1");
+        var (pack, error) = LocalePackParser.Parse(bytes.AsMemory());
+        error.Should().BeNull();
+        var report = Application.Dynamic.LocaleService.DesignData.DesignDataAnalyzer.Analyze(pack!, [], "ja", false, "zh-TW", "zh-TW", true).Report;
+        report.RejectedItems.Select(r => (r.Key, r.Reason)).Should().BeEquivalentTo([
+            ("a\uFFFDb", LocalePackReasons.Duplicate), ("c\uFFFDd", LocalePackReasons.Formula)]);
+    }
+
     [Fact]
     public void Formula_WholeRowRejected_OthersKept()
     {
@@ -244,6 +258,32 @@ public class LocalePackXlsxTests
         {
             var each = LocalePackLimits.MaxXlsxWorksheetsTotalBytes / 3 + 4096;
             for (var i = 2; i <= 4; i++) Incompressible(zip, $"xl/worksheets/sheet{i}.xml", each);
+        })).Should().Be(Unsafe);
+
+    // ── 審查 r3 🟡3：工作表依 [Content_Types].xml 辨識，不只看 xl/worksheets/ 前綴 ──
+
+    private static void ContentTypes(ZipArchive zip, string body)
+    {
+        using var w = new StreamWriter(zip.CreateEntry("[Content_Types].xml").Open());
+        w.Write($"<?xml version=\"1.0\" encoding=\"UTF-8\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">{body}</Types>");
+    }
+
+    private const string WorksheetType = "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml";
+
+    [Fact]
+    public void Worksheet_NonStandardPath_ByOverride_OverSingleLimit_Rejected() =>
+        Error(Zip(zip =>
+        {
+            ContentTypes(zip, $"<Override PartName=\"/xl/A.xml\" ContentType=\"{WorksheetType}\"/>");
+            Incompressible(zip, "xl/a.xml", LocalePackLimits.MaxXlsxWorksheetBytes + 4096);
+        })).Should().Be(Unsafe);
+
+    [Fact]
+    public void Worksheet_NonStandardPath_ByDefaultExtension_OverSingleLimit_Rejected() =>
+        Error(Zip(zip =>
+        {
+            ContentTypes(zip, $"<Default Extension=\"ws\" ContentType=\"{WorksheetType}\"/>");
+            Incompressible(zip, "data/b.WS", LocalePackLimits.MaxXlsxWorksheetBytes + 4096);
         })).Should().Be(Unsafe);
 
     [Fact]

@@ -14,6 +14,8 @@ public static class LocalePackLimits
     public const int MaxPackBaseLocale = LocaleCode.MaxLength;
     /// <summary><c>designData</c> 路徑最長字元數（審查 r1 🟡8；本系統產生的路徑遠短於此）。</summary>
     public const int MaxDesignPathLength = 500;
+    /// <summary>報告回顯的鍵最長字元數（拒收清單、多餘的鍵；<see cref="LocaleTextSafety.Shown"/>）：和路徑上限相同，合法的路徑完整顯示。</summary>
+    public const int MaxShownKeyLength = MaxDesignPathLength;
     /// <summary><c>pack.instance</c>（本系統識別，i4e 審查 r1 🔴3）最長字元數；本系統產生的是 32 字元。</summary>
     public const int MaxPackInstance = 64;
     /// <summary>語系自稱長度（<c>Dynamic_Locale.NativeName</c> 欄長）。</summary>
@@ -49,6 +51,8 @@ public static class LocalePackLimits
     public const long MaxXlsxWorksheetBytes = 12L * 1024 * 1024;
     /// <summary>所有工作表 XML 解壓後合計上限（審查 r1 🟡3）。</summary>
     public const long MaxXlsxWorksheetsTotalBytes = 24L * 1024 * 1024;
+    /// <summary>[Content_Types].xml 解壓後最大位元組數（辨識工作表用，先於其他項目讀進記憶體解析；正常只有幾 KB）。</summary>
+    public const long MaxXlsxContentTypesBytes = 1024 * 1024;
     /// <summary>單一項目解壓後超過 <see cref="XlsxRatioFloorBytes"/> 時，壓縮比不得超過這個倍數。</summary>
     public const int MaxXlsxCompressionRatio = 100;
     /// <summary>壓縮比只檢查解壓後大於這個大小的項目（小 XML 本來就壓得很小）。</summary>
