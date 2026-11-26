@@ -1,12 +1,13 @@
 # Formwright installer: rebuild the permissions of the data parent directory (run by the installer as administrator, every install).
 # Windows PowerShell 5.1 compatible; ASCII only (5.1 reads BOM-less files as ANSI).
 # Order: (1) lock the parent (one Set-Acl: owner Administrators + protected, brand-new DACL);
-# (2) let icacls itself recurse below it, without following links: owner -> Administrators (/setowner /T /C /L), then /reset /T /C /L on
-#     every child (removes every explicit ACE, children inherit only); (3) only then walk the tree and verify each item against the
-#     authoritative expected set (owner Administrators or SYSTEM, non-null DACL, exactly 3 inherited ACEs: SYSTEM and Administrators
-#     Full Control, service account Modify; inheritance flags right for files and directories). A reparse point anywhere = failure.
-# Accepted residual risk (decided by the owner): while icacls is recursing, an account that was already granted write access to a
-# child could still plant a link ahead of the reset. /L never follows links, so the effect stays inside the tree, and step (3) fails on it.
+# (2) walk the tree top-down ourselves, one item at a time (icacls never recurses: /T walks into junctions even with /L, CI proved it):
+#     a directory's children are listed only after that directory was reset, so nobody but administrators and the stopped service
+#     can add or rename entries in it. Each child: refuse a link -> owner Administrators and /reset (no /T, /L) -> refuse a link again
+#     (an account with an explicit ACE on that very child could have turned it into a link before the reset; after the reset it cannot)
+#     -> descend. (3) Verify each item against the authoritative expected set (owner Administrators or SYSTEM, non-null DACL, exactly
+#     3 inherited ACEs: SYSTEM and Administrators Full Control, service account Modify; inheritance flags right for files and
+#     directories). A reparse point anywhere = failure, before anything below or behind it is touched.
 # Any failure exits non-zero (message goes to -LogFile).
 param(
   [Parameter(Mandatory = $true)][string]$Parent,
@@ -29,6 +30,18 @@ function Test-Reparse([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { return $false }
   $attr = (Get-Item -LiteralPath $Path -Force).Attributes
   return (($attr -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+}
+
+function Reset-Tree([string]$Dir) {
+  # $Dir itself is already reset (or is the locked parent).
+  foreach ($item in Get-ChildItem -LiteralPath $Dir -Force) {
+    $path = $item.FullName
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "reparse point refused: $path" }
+    Run-Icacls @($path, '/setowner', '*S-1-5-32-544', '/C', '/L')
+    Run-Icacls @($path, '/reset', '/C', '/L')
+    if (Test-Reparse $path) { throw "reparse point refused: $path" }
+    if ((Get-Item -LiteralPath $path -Force).PSIsContainer) { Reset-Tree $path }
+  }
 }
 
 # Walk by hand: Get-ChildItem -Recurse would follow junctions. Returns every item below $Dir (links are never entered).
@@ -76,7 +89,7 @@ try {
   $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sidService, 'Modify', $flags, $none, $allow)))
   Set-Acl -LiteralPath $Parent -AclObject $acl
 
-  # 3. Create what is missing, then let icacls recurse (links are never followed: /L). Owner first, then reset every child's DACL.
+  # 3. Create what is missing, then reset the tree top-down (see the header).
   foreach ($d in @($Data, $Backup)) {
     if (Test-Path -LiteralPath $d) {
       if (-not (Test-Path -LiteralPath $d -PathType Container)) { throw "not a directory: $d" }
@@ -84,8 +97,7 @@ try {
       New-Item -ItemType Directory -Path $d | Out-Null
     }
   }
-  Run-Icacls @($Parent, '/setowner', '*S-1-5-32-544', '/T', '/C', '/L')
-  Run-Icacls @(($Parent.TrimEnd('\') + '\*'), '/reset', '/T', '/C', '/L')
+  Reset-Tree $Parent
 
   # 4. Read everything back.
   $now = Get-Acl -LiteralPath $Parent

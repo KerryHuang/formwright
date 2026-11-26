@@ -4,8 +4,8 @@
 ; 不簽章（D-04）、只內網（D-05）、解除安裝預設保留資料（D-10）。
 ; 靜默參數：/SKIPBACKUP（備份位置沒設時略過升級前備份）、/DELETEDATA（解除安裝時一併刪資料）、/PORT=<n>（全新安裝的連接埠）、
 ; /FIREWALLSCOPE=<遠端位址範圍>（防火牆允許的來源，localsubnet 或位址、CIDR、範圍，逗號分隔；沒給就沿用上次安裝的值，再沒有就用 install-defaults.json 的 firewallRemoteIp）。
-; 權限（set-acl.ps1）：先鎖父目錄，再由 icacls 自己遞迴（不跟隨連結）重設子項，最後以預期集合逐項驗證。已接受的剩餘風險：icacls 遞迴期間，
-; 事先被另行授予某子項寫入權的帳號仍可能搶在 reset 前插入連結；因為 /L 不跟隨，影響限於樹內，驗證步驟會擋下。
+; 權限（set-acl.ps1）：先鎖父目錄，再由上而下逐項重設子項（icacls 不帶 /T：/T 即使加 /L 仍會走進 junction），目錄重設後才列它的子項，
+; 遇連結一律中止、不碰連結後面的東西；最後以預期集合逐項驗證。
 ; 結束碼：0 成功；20 安裝後步驟失敗（服務、權限、初始化、防火牆、啟動，已記進安裝 log）；其餘見 Inno Setup「Setup Exit Codes」。
 
 ; 本檔與 ChineseTraditional.isl 是不帶 BOM 的 UTF-8，Inno Setup 6.3 起才支援
