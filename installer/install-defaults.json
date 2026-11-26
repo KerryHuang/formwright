@@ -1,0 +1,25 @@
+{
+  "port": 8080,
+  "windows": {
+    "programDir": "C:\\Program Files\\Formwright",
+    "dataDir": "C:\\ProgramData\\Formwright\\data",
+    "backupDir": "C:\\ProgramData\\Formwright\\backup",
+    "configFile": "C:\\ProgramData\\Formwright\\formwright.json"
+  },
+  "linux": {
+    "programDir": "/opt/formwright",
+    "dataDir": "/var/lib/formwright/data",
+    "backupDir": "/var/lib/formwright/backup",
+    "configFile": "/etc/formwright/formwright.json",
+    "serviceUser": "formwright"
+  },
+  "docker": {
+    "programDir": "/app",
+    "dataVolume": "formwright-data",
+    "dataMount": "/app/data",
+    "backupVolume": "formwright-backup",
+    "backupMount": "/backup",
+    "configFile": "/app/data/formwright.json",
+    "imageName": "formwright"
+  }
+}
