@@ -741,3 +741,86 @@ Formwright 的取捨：
 - 前端 import 搬家用 alias 還是轉出口（§8.1）。
 - 語系頁、匯入預覽、匯出對話框的版面與文案（四語）。
 - `shared/i18n/` 搬家時 git 歷史的保留方式（`git mv`）。
+
+## 23. i4e 實作決定（2026-11-26，實作者暫定）
+
+本節定 §22「可翻譯來源的完整清單與路徑命名」「`AppBindings` 沒覆蓋到的物件類型」與 i4e 的 Excel 樣板配置。標「（技術）」的是實作者自訂、可推翻；標「使用者行為（代做）」的是設計沒涵蓋、會改使用者看得到的行為，實作者照保守、可逆的做法先做，待使用者確認。
+
+### 23.1 可翻譯來源清單（T13 的登記清單）
+
+路徑是**不透明的鍵**：整串比對、不解析，所以代碼裡有 `/`、`:` 也不必跳脫（技術）。`{a}` 是應用程式代號（`App.Key`，即套件 `manifest.id`）；`{mp}` 是綁定名稱的模組部分，與 `AppBindings` 的寫法相同：應用程式自己的模組是模組代號，貢獻到共用主檔的是 `主檔代號/模組代號`。「沒綁定」那欄是客戶自建、或沒有應用程式綁定的物件，路徑只在本系統有效，匯出時備註欄標「只在本系統有效」。
+
+| 物件 | 欄位 | 有綁定 | 沒綁定 |
+|---|---|---|---|
+| 應用程式 | `App.NameI18n` | `app:{a}/name` | — |
+| 模組 | `Module.NameI18n` | `app:{a}/module:{m}/name` | `local:module:{id}/name` |
+| 選單分區 | `Module.SectionI18n` | `section:{分區繁中名}/name` | 同左 |
+| 區塊 | `Block.LabelI18n` | `app:{a}/module:{mp}/block:{b}/name` | `local:block:{id}/name` |
+| 欄位 | `Field.LabelI18n` | `app:{a}/module:{mp}/field:{f}/label` | `local:field:{id}/label` |
+| 選項（含狀態） | `FieldOption.LabelI18n` | `app:{a}/module:{mp}/option:{o}/label` | `local:option:{id}/label` |
+| 欄位規則訊息 | `Rule.MessageI18n` | — | `local:rule:{id}/message` |
+| 檢查 | `ModuleCheck.NameI18n` | `app:{a}/module:{m}/check:{key}/name` | `local:check:{id}/name` |
+| 檢查的違規訊息 | `ModuleCheck.Definition.Message` | `app:{a}/module:{m}/check:{key}/message` | `local:check:{id}/message` |
+| 事件 | `ModuleEvent.NameI18n` | `app:{a}/module:{m}/event:{key}/name` | `local:event:{id}/name` |
+| 轉換 | `Conversion.NameI18n` | `app:{a}/module:{m}/conversion:{key}/name` | `local:conversion:{id}/name` |
+| 列印範本 | `PrintTemplate.NameI18n` | `app:{a}/module:{m}/print:{key}/name` | `local:print:{id}/name` |
+| 任務規則 | `TaskRule.NameI18n` | `app:{a}/module:{m}/taskRule:{key}/name` | `local:taskRule:{id}/name` |
+| 任務規則的任務 | `TaskRuleTask.TitleI18n`、`DescriptionI18n` | 規則路徑 `/task:{code}/title`、`/description` | 同左（規則是 `local:` 時跟著是） |
+| 簽核流程 | `ApprovalFlow.NameI18n` | `app:{a}/module:{m}/approvalFlow:{key}/name` | `local:approvalFlow:{id}/name` |
+| 共用清單檢視 | `ListView.NameI18n`（`OwnerUserId` 為 null） | — | `local:view:{id}/name` |
+| 應用程式報表 | `Report.NameI18n`（有 `AppReport` 綁定） | `app:{a}/report:{code}/name` | — |
+| 指派版儀表板 | `Dashboard.NameI18n`（`OwnerUserId` 為 null） | — | `local:dashboard:{id}/name` |
+| 群組 | `PermissionGroup.NameI18n` | `group:{key}/name` | 同左 |
+| 部門 | `Department.NameI18n` | `department:{code}/name` | 同左 |
+| 權限目錄項目 | `DynamicProgram.NameI18n` | `program:{code}/name` | 同左 |
+
+說明（技術）：
+
+- 檢查、事件、轉換、列印範本、任務規則、簽核流程有自己的 `Key`，但「跨客戶一致」只靠模組的應用程式綁定成立，所以掛在綁定模組下才用代碼，否則一律用 Id（§10.2 第 3 點）。事件與轉換以來源模組判斷。
+- 選項的綁定代碼在模組層（`AppOption` 的名稱是 `模組.選項`），路徑不含欄位代碼；§10.2 樣板的 `field:{f}/option:{o}` 在綁定裡查不到欄位時會失敗，改成模組層。狀態就是狀態欄位的選項，不另列 `state:`。
+- 欄位規則沒有代碼、也沒有綁定，一律 `local:`。
+- 選單分區的分組鍵是繁中名稱（`Module.Section`），同一個分區名的所有模組一起改；這是平台資料，代碼就是分組鍵。
+- **排除**（掃型別測試的白名單，附原因）：
+  - `ApprovalStageRun.NameSnapshot`、`ApprovalInstance.FlowSetSnapshot`（含流程名稱與定義）：執行期快照，記的是當時的值。
+  - `ApprovalFlowVersion.Definition`（關卡名稱；流程圖的節點名稱、通知範本標題與內文、連線標籤）：版本化定義，被實例綁定後不能改；要改關卡名稱經流程設計器發新版。列已知限制（§15）。
+  - `TaskView.NameI18n`、個人清單檢視（`ListView.OwnerUserId` 有值）、個人儀表板（`Dashboard.OwnerUserId` 有值）、非應用程式報表（`Report` 沒有 `AppReport` 綁定）：使用者自己建立、自己命名的資料，不是設計資料。**使用者行為（代做）**：系統管理員的翻譯樣板看不到、也改不到它們的名稱；要改照舊由擁有者自己改。
+  - 儀表板卡片標題（`Dashboard.LayoutJson` 裡的 `title`）：JSON 字串欄，掃型別測試看不到；本段不翻，列已知限制。
+- **掃型別測試**：反射 `DynamicModules.Domain.Entities.Dynamic` 命名空間的實體類別，遞迴走進 Domain 組件內的屬性型別（含集合元素；同命名空間的值物件 record，例如存在 JSON 欄的 `CheckDefinition`，也走進去），收集所有 `I18nText` 屬性路徑；每一條必須在登記清單或排除清單，兩份清單也不能有多餘的項目。
+
+### 23.2 `designData` 段的套用規則
+
+- **目標語系**就是語系包的 `locale.code`。這次匯入才新安裝的語系，`designData` 整段不套用，報告標「語系尚未安裝：設計資料這次不套用，安裝後再匯入同一個檔」，其餘照常安裝（§10.3「目標必須已安裝」）。**使用者行為（代做）**：官方的日文包第一次匯入只裝語系與介面翻譯，設計資料要再匯入一次。
+- **原文比對**（U8）：原文語系是 `pack.baseLocale`（已安裝才用，否則繁中）；資料庫的值以 `[原文語系 → 繁中]` 解析，與檔案的 `source` 去頭尾空白後比，不同就是「原文已改」。`source` 空或沒帶不比對。
+- **逐格寫入**：新值＝舊的多語文字複製一份、只換目標語系那格（重新指派整個 `I18nText`，EF 才偵測得到）。與目前值相同算「不變」、不寫。
+- **驗證**（各物件既有規則）：每語最多 200 字（報表與儀表板沿用各自的 100 字）；控制字元與雙向控制字元拒收（§13.2）；群組名稱同語系不能重複（以套用後的全部群組比對，不分大小寫，同 `GroupNameExistsAsync`）。必填語系**不檢查**：只改目標那一格、空字串本來就略過，只改日文不會因為缺英文被擋（§10.3）。
+- **用在記錄標題的選項**：標題樣板用到的下拉選項，若目標語系是系統預設語系，改名要重寫既有記錄的標題（`UpdateOptionHandler` 的邏輯，受結案、帳本凍結、簽核中限制），`designData` 不做這件事，該列拒收（原因 `titleOption`），提示到設計器改。**使用者行為（代做）**。
+- **副作用照既有更新慣例**：模組內的物件（模組、區塊、欄位、選項、規則）改了就 `Module.TouchVersion`；應用程式換 `RowVersion`；報表換 `RowVersion`；指派版儀表板 `Version` 加一；其他物件蓋修改戳記（有的話）。
+- **併發 409**（§6.3）：預覽時對每個要寫的目標記下**該段多語文字的內容指紋**，存在預覽列的 `PlanJson`，套用時目標不見或指紋不同就 409。用內容指紋取代「更新時間」（技術）：選項、區塊、規則、群組、部門、權限目錄項目沒有可靠的修改時間；指紋只看會被改的那段文字，別人改了同一物件的其他屬性不會誤擋。所以**不加 migration**。
+- **「仍套用這些列」**：原文已改的列在計畫裡另外記著，預覽報告列前 50 筆（路徑、檔案的原文、目前的原文）；套用請求帶 `applySourceChanged: true` 才寫。
+- **交易**：語系列、覆寫層版本、設計資料、稽核同一個交易；任何一步丟例外整批回滾。
+- **稽核**：語系包那一筆的 `designData` 記 `{ count, applied, sourceChangedApplied }`；每個改到的物件另寫一筆 `design.translate`（設計分組、一般寫入），目標是物件種類與 Id、目標名稱用系統預設語系，摘要記路徑、語系、舊值、新值（照「寫進資料的系統文字用預設語系」）。
+
+### 23.3 匯出
+
+- `GET i18n/locales/{code}/template` 的 `scopes` 多一個 `designData`；另加 `designApp`（應用程式代號；`-`＝不屬於任何應用程式的平台資料與本系統自建物件）、`designModule`（模組 Id，可與 `designApp` 併用）、`format`（`json` 預設、`xlsx`）。
+- 設計資料範圍只能匯出**已安裝**的語系（新語系樣板勾設計資料回 400）。
+- 篩選：`onlyMissing`＝目標語系沒有自己的文字；設計資料沒有「原文已更新」的概念（沒存原文雜湊），只勾 `onlyBaseChanged` 時設計資料段沒有列（照既有聯集公式）。
+- **JSON**：`designData` 段每列 `{ "text": 目標語系自己的值或空字串, "source": 原文語系的值 }`，`local:` 路徑另帶 `"local": true`（解析器只讀 `text`、`source`）；`reference` 段另有 `designData`（路徑 → 參考語系的值）。
+- 新端點 `GET i18n/design-scopes`（系統管理員）：回應用程式與其模組清單、不屬於應用程式的模組清單，給匯出對話框的下拉選單用。
+
+### 23.4 Excel 樣板配置（§7.1、§7.2）
+
+- 檔名 `<代碼>.langpack.xlsx`；匯入以內容判斷（zip 簽章）。工作表名稱、欄名、填寫規則依請求語系產生（後端訊息走 `IMessageCatalog`）。
+- **第 1 張「說明」**：A 欄機器鍵、B 欄值、C 欄給人看的說明。機器鍵：`format`、`formatVersion`、`locale.code`、`locale.nativeName`、`locale.fallback`、`locale.quasarLang`、`pack.builtFor`、`pack.baseLocale`、`pack.referenceLocale`、`sheet.ui`、`sheet.server`、`sheet.designData`（後三個是各範圍工作表的名稱，只有匯出的範圍才有）。下方是填寫規則。匯入只讀第 1 張的 A、B 兩欄；`format` 不對或缺就整檔拒收。
+- **範圍工作表**（介面文字、系統訊息、設計資料，只出勾選的）：第 1 列欄名，第 2 列起一句一列：A 鍵／B 分類／C 原文／D 參考／E 目前譯文／F 譯文（填這欄）／G 佔位符／H 備註。F 預先填目前譯文（同 JSON 樣板），原樣匯回就是「不變」。分類：介面文字取鍵的第一段、系統訊息分 `report`／`alert`／`message`（同完整度）、設計資料是物件種類。備註：原文已更新、參數不符、只在本系統有效。
+- **匯入讀哪些欄**：A（鍵）與 F（譯文）；設計資料工作表另讀 C（原文）當 `source`（U8 要用）。匯入以 `sheet.*` 找工作表：說明有登記、活頁簿裡卻找不到（被改名）就整檔拒收，提示不要改工作表名稱。第 1 列與鍵空白的列略過。
+- **公式**：A、C、F 任一格是公式，那一列拒收（原因 `formula`），不取快取值（§7.2）。數字、日期、布林格以顯示文字取值。
+- **`'` 前綴**：匯出時 C、D、E、F 的文字開頭是 `= + - @` 就加 `'`（`CsvWriter.EscapeFormula`）；匯入時 C、F 以 `FieldImportParser.StripInjectionApostrophe` 去掉。
+- **技術上限**（列進 §14）：工作表最多 10 張、每張最多 20000 列（不含欄名列；匯出超過時回 400 請選應用程式或模組縮小範圍）；zip 項目最多 1000 個；實際解壓後合計最多 100 MB、單一項目解壓超過 1 MB 時壓縮比不得超過 100（自己串流解壓計數，不信 zip 標頭宣告的大小）。檔案大小沿用 A38。
+
+### 23.5 畫面
+
+- 匯出對話框：範圍多一個「設計資料」，勾了才出現「應用程式」「模組」兩個下拉（選填）；新增「格式」（JSON／Excel）。新語系樣板不列設計資料。
+- 匯入對話框：檔案選擇收 `.xlsx`；報告的設計資料段列「會改、不變、略過、找不到、原文已改、拒收」與前 50 筆清單；原文已改大於 0 時出現「仍套用這些列（N 列）」勾選框，勾了套用時一併寫入。
+- 確認框：回到上一版的確認框加一句「設計資料的翻譯不會跟著回到上一版」（§6.4）。
+- Demo 站：可預覽、可匯出（含 Excel），不能套用（既有 403）；種子不改（同 i4d2 Q7）。
