@@ -1,0 +1,41 @@
+# 待驗指標帳本
+# due 只能是 new_chains 或 date；status：open｜passed｜failed｜side-effect｜retired
+# checks：每次驗證追加一筆，不改舊筆；未到期也記 not-due。
+
+metrics:
+  - id: M-20261126-01
+    source: 20261126-autopilot-slowness/report.md
+    layer: workspace:unattended（換手判準）
+    metric: 主鏈每次 API 呼叫的平均 context
+    criterion: 2026-11-26 之後 7 天，平均 context ≤ 170K，且沒有 session 峰值超過 250K（以 message id 去重計）；換手後前 10 輪的 Read／Grep 次數沒有比現況多一倍以上
+    due: {date: "2026-12-03"}
+    if_not: 有重工尖峰就把門檻調回 250K；沒有尖峰就降到 150K
+    status: open
+    checks: []
+  - id: M-20261126-02
+    source: 20261126-autopilot-slowness/report.md
+    layer: workspace:unattended
+    metric: 因額度用完而停工的空窗
+    criterion: 2026-11-26 之後 7 天，帳本記載額度停工的空窗總計 < 12 小時
+    due: {date: "2026-12-03"}
+    if_not: 查 Codex／agy 端用量
+    status: open
+    checks: []
+  - id: M-20261126-03
+    source: 20261126-autopilot-slowness/report.md
+    layer: 專案層 .claude/rules（審查必修自查表）
+    metric: 計畫審查輪數
+    criterion: 2026-11-26 之後 7 天，計畫審查超過 2 輪的工作段數 = 0
+    due: {date: "2026-12-03"}
+    if_not: 自查表改成起草 prompt 內建
+    status: open
+    checks: []
+  - id: M-20261126-04
+    source: 20261126-autopilot-slowness/report.md
+    layer: 專案層 gate（顯示類自動檢查）
+    metric: 走查抓到的顯示類必修
+    criterion: 2026-11-26 之後 7 天，走查必修中屬原始代碼外露、缺鍵、820 橫捲的 = 0
+    due: {date: "2026-12-03"}
+    if_not: 檢查範圍擴到所有畫面
+    status: open
+    checks: []
