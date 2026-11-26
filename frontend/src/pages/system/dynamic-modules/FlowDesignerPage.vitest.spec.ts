@@ -247,7 +247,7 @@ describe('FlowDesignerPage', () => {
 
   it('the plus on a line inserts the chosen kind; connect asks canConnect and refuses into start', async () => {
     const w = await mountAt(url());
-    expect(JSON.parse(w.get('[data-testid="plus-e2-condition"]').attributes('data-kinds')!).map((k: { kind: string }) => k.kind)).toEqual(['approval', 'condition', 'fork']);
+    expect(JSON.parse(w.get('[data-testid="plus-e2-condition"]').attributes('data-kinds')!).map((k: { kind: string }) => k.kind)).toEqual(['approval', 'condition', 'notify', 'fork']);
     expect(w.get('[data-testid="connect-a-s"]').attributes('data-ok')).toBe('false');
     await w.get('[data-testid="plus-e2-condition"]').trigger('click');
     expect(w.find('[data-testid="n-cond-1"]').exists()).toBe(true);
