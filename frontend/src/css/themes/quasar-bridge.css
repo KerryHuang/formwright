@@ -709,6 +709,12 @@ textarea:focus-visible {
     box-shadow: var(--t-card-shadow) !important;
   }
 
+  /* 列表是 bordered q-table、不是 q-card，外框一樣用粗框加硬投影；放在卡片裡的表格不再疊一層 */
+  [data-style='signature'] .q-table--bordered:not(.q-card .q-table--bordered) {
+    border: var(--t-card-border) solid var(--t-border);
+    box-shadow: var(--t-card-shadow);
+  }
+
   /* 手機：模糊半徑縮小，減少捲動時的重繪成本 */
   @media (max-width: 599.98px) {
     [data-style='glass'] {

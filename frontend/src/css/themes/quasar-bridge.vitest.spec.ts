@@ -16,6 +16,12 @@ function bodiesOf(css: string, sel: string): string[] {
 }
 
 describe('quasar-bridge.css', () => {
+  it('表匠招牌：列表（bordered q-table）外框也是粗框加硬投影，卡片裡的表格不重複', () => {
+    const [body] = bodiesOf(bridge, "[data-style='signature'] .q-table--bordered:not(.q-card .q-table--bordered)");
+    expect(body).toMatch(/border:\s*var\(--t-card-border\) solid var\(--t-border\)/);
+    expect(body).toMatch(/box-shadow:\s*var\(--t-card-shadow\)/);
+  });
+
   it('表匠招牌：手機寬度的 md 間距不超過頁面內距 8px，q-gutter-md 不會撐出橫向捲動', () => {
     const phone = [...bridge.matchAll(/@media \(max-width: 599\.98px\) \{([\s\S]*?)\n {0,2}\}/g)].map((m) => m[1]).join('\n');
     const bodies = bodiesOf(phone, "[data-style='signature']");
