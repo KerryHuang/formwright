@@ -16,6 +16,20 @@ function bodiesOf(css: string, sel: string): string[] {
 }
 
 describe('quasar-bridge.css', () => {
+  it('表匠招牌：手機寬度的 md 間距不超過頁面內距 8px，q-gutter-md 不會撐出橫向捲動', () => {
+    const phone = [...bridge.matchAll(/@media \(max-width: 599\.98px\) \{([\s\S]*?)\n {0,2}\}/g)].map((m) => m[1]).join('\n');
+    const bodies = bodiesOf(phone, "[data-style='signature']");
+    expect(bodies.some((b) => /--t-space-md:\s*8px/.test(b))).toBe(true);
+  });
+
+  it('表匠招牌：掛 no-shadow 的卡片也吃風格的硬投影，巢狀卡片不重複', () => {
+    const [body] = bodiesOf(bridge, "[data-style='signature'] .q-card.no-shadow:not(.q-card .q-card)");
+    expect(body).toMatch(/box-shadow:\s*var\(--t-card-shadow\)\s*!important/);
+    for (const s of ['workbench', 'airy', 'enterprise', 'industrial', 'glass', 'bento', 'command']) {
+      expect(bridge, s).not.toContain(`[data-style='${s}'] .q-card.no-shadow`);
+    }
+  });
+
   it.each([
     ['.text-primary', 'color', '--t-primary-text'],
     ['.bg-primary.text-white', 'color', '--t-on-primary'],

@@ -704,10 +704,20 @@ textarea:focus-visible {
     font-weight: var(--t-heading-weight);
   }
 
+  /* 表匠招牌：硬投影是這個風格的招牌，畫面上的卡片多半掛了 Quasar 的 no-shadow（!important），這裡只對本風格蓋回來；巢狀卡片不再疊一層 */
+  [data-style='signature'] .q-card.no-shadow:not(.q-card .q-card) {
+    box-shadow: var(--t-card-shadow) !important;
+  }
+
   /* 手機：模糊半徑縮小，減少捲動時的重繪成本 */
   @media (max-width: 599.98px) {
     [data-style='glass'] {
       --t-chrome-blur: 8px;
+    }
+
+    /* 表匠招牌：手機版頁面內距只有 8px，md 間距超過它時 q-gutter-md 的負邊距會撐出橫向捲動 */
+    [data-style='signature'] {
+      --t-space-md: 8px;
     }
   }
 
