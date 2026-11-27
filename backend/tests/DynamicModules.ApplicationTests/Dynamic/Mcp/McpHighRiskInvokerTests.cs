@@ -155,6 +155,57 @@ public class McpHighRiskInvokerTests : McpWriteTestBase
         (audit.RiskLevel, audit.ConfirmationOutcome).Should().Be((AuditRiskLevel.Write, null));
     }
 
+    /// <summary>
+    /// R1：對話框還沒回答時管理員把工具移出清單，使用者拒絕、取消、沒勾、沒回答：一律 confirmation_declined、不刪、碼作廢；
+    /// 帶 requestState 的請求不因現在降為一般寫入就略過回答驗證。
+    /// </summary>
+    [Theory]
+    [InlineData("decline", null)]
+    [InlineData("cancel", null)]
+    [InlineData("accept", false)]
+    [InlineData(null, null)]
+    public async Task RemovedWhilePending_NotApproved_Declined_NoWrite(string? action, bool? confirmed)
+    {
+        var state = await ElicitationState();
+        await SetSystem(PolicyCatalog.McpHighRiskTools, "approve,reject");
+
+        var r = await Run(DeleteArgs(Target), Eliciting(state, action is null ? null : new McpElicitationAnswer(action, confirmed)));
+
+        CodeOf(r).Should().Be(McpErrorCodes.ConfirmationDeclined, r.Text);
+        Exists(Target).Should().BeTrue();
+        Codes().Single().DeclinedUtc.Should().NotBeNull();
+    }
+
+    /// <summary>R1：拒絕後移出清單，再拿同一個 state 送同意：不得寫入（state 一律驗）。</summary>
+    [Fact]
+    public async Task Declined_ThenRemoved_ThenAccept_NoWrite()
+    {
+        var state = await ElicitationState();
+        CodeOf(await Run(DeleteArgs(Target), Eliciting(state, new McpElicitationAnswer("decline", null)))).Should().Be(McpErrorCodes.ConfirmationDeclined);
+        await SetSystem(PolicyCatalog.McpHighRiskTools, "approve,reject");
+
+        var r = await Run(DeleteArgs(Target), Eliciting(state, new McpElicitationAnswer("accept", true)));
+
+        CodeOf(r).Should().Be(McpErrorCodes.ConfirmationInvalid, r.Text);
+        Exists(Target).Should().BeTrue();
+    }
+
+    /// <summary>R1：移出清單後同意待回答的對話框：照確認原本的安全要求驗碼後執行，稽核仍記高風險與 elicitation。</summary>
+    [Fact]
+    public async Task RemovedWhilePending_Accept_ConfirmedThenExecutes()
+    {
+        var state = await ElicitationState();
+        await SetSystem(PolicyCatalog.McpHighRiskTools, "approve,reject");
+
+        var r = await Run(DeleteArgs(Target), Eliciting(state, new McpElicitationAnswer("accept", true)));
+
+        r.IsError.Should().BeFalse(r.Text);
+        Exists(Target).Should().BeFalse();
+        Codes().Single().UsedUtc.Should().NotBeNull();
+        var audit = (await McpRows()).Last();
+        (audit.RiskLevel, audit.ConfirmationOutcome).Should().Be((AuditRiskLevel.HighRisk, AuditConfirmationOutcome.Confirmed));
+    }
+
     /// <summary>政策值壞掉（直接寫進不合法的值）：退回出廠值，delete_record 仍是高風險（fail closed）。</summary>
     [Fact]
     public async Task BrokenPolicyValue_FallsBackToFactory()

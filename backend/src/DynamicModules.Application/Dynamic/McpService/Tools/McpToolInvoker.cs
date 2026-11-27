@@ -165,6 +165,9 @@ public sealed class McpToolInvoker(
             {
                 highRisk = await policies.ReadHighRiskAsync(ct);
                 risk = McpToolCatalog.EffectiveRisk(tool.Descriptor, highRisk.Tools);
+                // 帶 requestState 的是對既有對話框的回覆（審查 R1）：照該確認原本的安全要求驗回答與碼，
+                // 不因政策在對話框開著時改成一般寫入就略過——否則拒絕反而觸發寫入
+                if (context.RequestState is not null) risk = McpRisk.HighRisk;
                 auditRisk = risk == McpRisk.HighRisk ? AuditRiskLevel.HighRisk : AuditRiskLevel.Write;
             }
             var writePath = risk != McpRisk.Read && tool.UsesWritePath;
