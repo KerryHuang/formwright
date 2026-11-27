@@ -181,6 +181,102 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
         (await Call("delete_record", args)).GetProperty("data").GetProperty("preview").GetProperty("cascadeDelete").GetArrayLength().Should().Be(1);
     }
 
+    // ───────── 刪除預演不洩漏看不到的來源（審查 R3）─────────
+
+    /// <summary>
+    /// 業務群組對目標模組有完整權限；來源模組有一個指向目標的參照欄位（<paramref name="onDelete"/>），依 <paramref name="restriction"/> 限制業務群組：
+    /// aiExcluded＝欄位不提供給 AI、groupHidden＝欄位對業務群組隱藏、noRead＝來源模組沒授權、outOfScope＝資料範圍只有自己的（來源記錄是 admin 的）、
+    /// none＝都看得到。回目標記錄與來源模組、欄位 key。
+    /// </summary>
+    private async Task<(long Id, string RowVersion, string Source, string RefKey)> HiddenSourceRig(string onDelete, string restriction)
+    {
+        var target = await CreateModule(_admin);
+        var source = await CreateModule(_admin);
+        var (refId, refKey, blockId) = await AddField(_admin, source, "reference", new { refTarget = new { kind = "module", key = target }, onDelete });
+        await Activate(_admin, target);
+        await Activate(_admin, source);
+        _app.GrantBusinessGroups(target);
+        var sales = DashboardTestKit.GroupId(_app, "sales");
+        if (restriction != "noRead")
+        {
+            var fields = restriction == "groupHidden" ? new object[] { new { fieldId = refId, groupId = sales, access = "hidden" } } : [];
+            var res = await _admin.PutAsJsonAsync($"{Base}/modules/{source}/permissions", new
+            {
+                groups = new[]
+                {
+                    new
+                    {
+                        groupId = sales,
+                        privileges = new { read = true, add = true, edit = true, delete = true, printExport = true, pricing = true, approve = false },
+                        scope = restriction == "outOfScope" ? "own" : "all",
+                    },
+                },
+                users = Array.Empty<object>(), fields, options = Array.Empty<object>(),
+            });
+            res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+        }
+        if (restriction == "aiExcluded")
+        {
+            var m = await JsonOf(await _admin.GetAsync($"{Base}/modules/{source}"));
+            var f = m.GetProperty("blocks").EnumerateArray().SelectMany(b => b.GetProperty("fields").EnumerateArray())
+                .Single(x => x.GetProperty("id").GetInt64() == refId);
+            var put = await _admin.PutAsJsonAsync($"{Base}/fields/{refId}", new Dictionary<string, object>
+            {
+                ["type"] = "reference", ["label"] = new Dictionary<string, string> { ["zh-TW"] = "欄位" },
+                ["config"] = f.GetProperty("config"), ["blockId"] = blockId, ["excludeFromAi"] = true,
+            });
+            put.StatusCode.Should().Be(HttpStatusCode.OK, await put.Content.ReadAsStringAsync());
+        }
+        var targetTitle = await TitleKey(_admin, target);
+        var created = await _admin.PostAsJsonAsync($"{Base}/modules/{target}/records", new { values = new Dictionary<string, object> { [targetTitle] = "要刪的主檔" } });
+        created.StatusCode.Should().Be(HttpStatusCode.Created, await created.Content.ReadAsStringAsync());
+        var rec = await JsonOf(created);
+        var id = rec.GetProperty("id").GetInt64();
+        var sourceTitle = await TitleKey(_admin, source);
+        var linked = await _admin.PostAsJsonAsync($"{Base}/modules/{source}/records",
+            new { values = new Dictionary<string, object> { [refKey] = id, [sourceTitle] = "指向主檔的來源" } });
+        linked.StatusCode.Should().Be(HttpStatusCode.Created, await linked.Content.ReadAsStringAsync());
+        return (id, rec.GetProperty("rowVersion").GetString()!, source, refKey);
+    }
+
+    private async Task<McpClient> Sales01()
+    {
+        EnsureUser(_app, "sales01", u => (u.IsDemoAccount, u.MustChangePassword) = (false, false));
+        return await ConnectAsync(_app, IssueToken(_app, "sales01", WriteScopes).Raw);
+    }
+
+    /// <summary>
+    /// 來源看得到、預演列出清空或連帶刪除的清單：確認碼與對話框同意都照常執行
+    /// （迴歸：對話框摘要截短時清單裡的物件曾丟「已經有父節點」而回 internal_error）。
+    /// </summary>
+    [Theory]
+    [InlineData("setNull", true)]
+    [InlineData("cascade", true)]
+    [InlineData("setNull", false)]
+    public async Task Delete_VisibleSources_ConfirmedBothWays(string onDelete, bool elicitation)
+    {
+        var (id, rv, _, _) = await HiddenSourceRig(onDelete, "none");
+        EnsureUser(_app, "sales01", u => (u.IsDemoAccount, u.MustChangePassword) = (false, false));
+        var token = IssueToken(_app, "sales01", WriteScopes).Raw;
+        JsonElement r;
+        if (elicitation)
+        {
+            var (client, asked) = await ElicitingClient(() => Answer("accept", true), token);
+            await using var _c = client;
+            r = (await CallRaw(client, "delete_record", DeleteArgs(id, rv))).StructuredContent!.Value;
+            asked.Should().ContainSingle();
+        }
+        else
+        {
+            await using var sales = await ConnectAsync(_app, token);
+            var args = DeleteArgs(id, rv);
+            r = await Call("delete_record", WithCode(args, ConfirmCode(await Call("delete_record", args, sales))), sales);
+        }
+
+        Ok(r);
+        Exists(id).Should().BeFalse();
+    }
+
     /// <summary>管理員把 delete_record 移出清單：改成一般寫入，直接執行、寫入稽核級別是 Write、沒有確認列。</summary>
     [Fact]
     public async Task Delete_RemovedFromList_DirectWrite()

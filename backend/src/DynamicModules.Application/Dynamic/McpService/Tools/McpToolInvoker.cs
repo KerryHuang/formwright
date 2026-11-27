@@ -376,28 +376,20 @@ public sealed class McpToolInvoker(
     /// </summary>
     private static string? ElicitationPreview(object? summary, Func<int, string> truncated)
     {
-        var node = JsonSerializer.SerializeToNode(summary, McpResultFormatter.Json);
-        node = Shorten(node, truncated);
+        var node = Shorten(JsonSerializer.SerializeToNode(summary, McpResultFormatter.Json), truncated);
         var text = node is null ? "null" : node.ToJsonString(ElicitationJson);
         return text.Length > ElicitationPreviewMax ? null : text;
     }
 
-    private static JsonNode? Shorten(JsonNode? node, Func<int, string> truncated)
+    // 一律產生新節點：直接把子節點塞回原容器會丟「已經有父節點」
+    private static JsonNode? Shorten(JsonNode? node, Func<int, string> truncated) => node switch
     {
-        switch (node)
-        {
-            case JsonObject o:
-                foreach (var key in o.Select(p => p.Key).ToList()) o[key] = Shorten(o[key], truncated);
-                return o;
-            case JsonArray a:
-                for (var i = 0; i < a.Count; i++) a[i] = Shorten(a[i], truncated);
-                return a;
-            case JsonValue v when v.TryGetValue<string>(out var s) && s.Length > ElicitationLongTextMax:
-                return JsonValue.Create(s[..ElicitationLongTextMax] + truncated(s.Length));
-            default:
-                return node?.DeepClone();
-        }
-    }
+        JsonObject o => new JsonObject(o.Select(p => KeyValuePair.Create(p.Key, Shorten(p.Value, truncated)))),
+        JsonArray a => new JsonArray(a.Select(x => Shorten(x, truncated)).ToArray()),
+        JsonValue v when v.TryGetValue<string>(out var s) && s.Length > ElicitationLongTextMax =>
+            JsonValue.Create(s[..ElicitationLongTextMax] + truncated(s.Length)),
+        _ => node?.DeepClone(),
+    };
 
     /// <summary>對話框說明的預演摘要上限（技術限制，對話框不是捲動長文的地方）。</summary>
     private const int ElicitationPreviewMax = 3000;
