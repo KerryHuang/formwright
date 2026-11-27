@@ -69,7 +69,12 @@ async function mountPage(width: number, s: Setup = {}) {
   return w;
 }
 
+// Picking an item closes the menu from a setTimeout(0) (v-close-popup), which flushPromises (setImmediate) may overtake:
+// wait for the menu to be gone, or the next click on "More" would close the old menu instead of opening a new one.
+const menuClosed = () => vi.waitFor(() => expect(document.body.querySelector('.q-menu')).toBeNull());
+
 const openMore = async (w: ReturnType<typeof mount>) => {
+  await menuClosed();
   await w.find('[data-testid="record-more"]').trigger('click');
   await flushPromises();
   return [...document.body.querySelectorAll<HTMLElement>('.q-menu .q-item')];
@@ -143,7 +148,7 @@ describe('DetailPage sticky header', () => {
     await flushPromises();
     expect(api.printRecord).toHaveBeenCalledWith(5, 'sheet', 'zh-TW');
     expect(document.body.querySelector('[data-testid="print-preview"]')).not.toBeNull();
-    expect(document.body.querySelector('.q-menu')).toBeNull();
+    await menuClosed();
   });
 
   it('phone: More → delete asks first and cancelling leaves the record alone', async () => {
