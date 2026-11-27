@@ -449,6 +449,9 @@ public sealed class McpToolInvoker(
     internal static McpToolOutcome Mapped(McpToolOutcome outcome)
     {
         if (outcome.Failure is not { } r) return outcome;
+        // 審查過、不含來源識別資訊的權限拒絕（mcp2b 複審 N4）：照 handler 的訊息給，其餘 Forbidden 一律通用訊息
+        if (r.IsForbidden && r.MessageKey is { } key && SafeForbiddenKeys.Contains(key))
+            return outcome with { ErrorCode = McpErrorCodes.Forbidden };
         if (r.IsForbidden || r.IsUnauthorized)
             return outcome with { ErrorCode = McpErrorCodes.Forbidden, ErrorMessage = MessageRef.Of(MessageText.Forbidden) };
         if (r.IsNotFound)
@@ -469,6 +472,9 @@ public sealed class McpToolInvoker(
         // 其餘（Invalid、Unprocessable、TooManyRequests）照 handler 的訊息
         return outcome with { ErrorCode = r.IsTooManyRequests ? McpErrorCodes.RateLimited : McpErrorCodes.Invalid };
     }
+
+    /// <summary>Forbidden 可以照原訊息回給 AI 的訊息鍵（白名單，新增要經審查）：「刪除會影響看不到的資料，請改在畫面上刪除」。</summary>
+    private static readonly HashSet<string> SafeForbiddenKeys = new(StringComparer.Ordinal) { MessageText.DeletePreviewRestricted };
 
     /// <summary>衝突的機器碼與參數（<c>code</c>、<c>params.&lt;名稱&gt;</c>）；都沒有時是 null。</summary>
     private static Dictionary<string, MessageRef>? ConflictFields(ServiceResult r)

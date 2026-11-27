@@ -239,6 +239,21 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
         return (id, rec.GetProperty("rowVersion").GetString()!, source, refKey);
     }
 
+    private static string RestrictedMessage(JsonElement r) => r.GetProperty("error").GetProperty("message").GetString()!;
+
+    /// <summary>N4：其他權限拒絕照舊用通用訊息遮掉（白名單只放「改在畫面刪除」這一句）。</summary>
+    [Fact]
+    public async Task Delete_NoDeletePermission_GenericForbidden()
+    {
+        var (id, rv) = await NewRecord();
+        await using var sales = await Sales01();
+
+        var r = await Call("delete_record", DeleteArgs(id, rv), sales);
+
+        Code(r).Should().BeOneOf(McpErrorCodes.Forbidden, McpErrorCodes.NotFound);
+        RestrictedMessage(r).Should().NotContain("請改在畫面上刪除");
+    }
+
     private async Task<McpClient> Sales01()
     {
         EnsureUser(_app, "sales01", u => (u.IsDemoAccount, u.MustChangePassword) = (false, false));
@@ -266,6 +281,7 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
         var r = await Call("delete_record", DeleteArgs(id, rv), sales);
 
         Code(r).Should().Be(McpErrorCodes.Forbidden, r.GetRawText());
+        RestrictedMessage(r).Should().Contain("無法列出完整影響").And.Contain("請改在畫面上刪除", "N4：安全拒絕文案要到達輸出");
         r.GetRawText().Should().NotContain(source).And.NotContain(refKey);
         Exists(id).Should().BeTrue();
         Query(_app, db => db.Set<McpConfirmation>().Count()).Should().Be(0);
@@ -346,6 +362,7 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
         var r = (await CallRaw(client, "delete_record", DeleteArgs(id, rv))).StructuredContent!.Value;
 
         Code(r).Should().Be(McpErrorCodes.Forbidden, r.GetRawText());
+        RestrictedMessage(r).Should().Contain("請改在畫面上刪除");
         asked.Should().BeEmpty();
         Exists(id).Should().BeTrue();
     }
