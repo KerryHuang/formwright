@@ -288,7 +288,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 6. `Start-Service Formwright`，用瀏覽器或 `Invoke-RestMethod http://127.0.0.1:<埠>/api/version` 確認有回應（埠見 `C:\ProgramData\Formwright\formwright.json` 的 `Server:Port`，預設 8080）。
 7. **不要用檔案總管進 `C:\ProgramData\Formwright` 按「繼續」**：Windows 會替你的帳號加一條明確授權。管理員帳號的授權不擋升級（見上面「資料目錄權限」），但其他帳號的授權會。
 
-**Ubuntu**（2026-11-27 在 WSL2 Ubuntu 24.04 以 root 照下面這段實跑：備份沒有附件時略過附件、還原後資料與備份一致、服務正常啟動。一般 sudo 帳號與備份裡有附件的真機情況未演練；附件清單的逐筆核對是實跑之後加的；有附件、附件池空或缺檔、大小不符、清單雜湊或行數不符這幾種在 Ubuntu 24.04 容器內用假的 `systemctl` 驗過，不含真服務與真附件）：服務名 `formwright`，資料 `/var/lib/formwright/data`，備份 `/var/lib/formwright/backup`，資料庫檔 `formwright.db`；資料目錄與備份目錄擁有者是 `formwright:formwright`、0700，一般登入帳號進不去，所以檔案的列舉與複製都放在同一個 root shell 裡做。升級流程只對 `/var/lib/formwright`、`/etc/formwright`、`data`、`backup` 這幾個目錄重設擁有者與權限，**不檢查也不重設其下檔案**，所以還原後檔案的擁有者要維持 `formwright`，否則服務寫不進去。把 `<名稱>` 換成要還原的那份：
+**Ubuntu**（2026-11-27 在 WSL2 Ubuntu 24.04 以 root 照下面這段實跑：備份沒有附件時略過附件、還原後資料與備份一致、服務正常啟動。一般 sudo 帳號與備份裡有附件的真機情況未演練；附件清單的逐筆核對是實跑之後加的；有附件、附件池空或缺檔、大小不符、清單雜湊或行數不符這幾種在 Ubuntu 24.04 容器內用假的 `systemctl` 驗過，不含真服務與真附件）：服務名 `formwright`，資料 `/var/lib/formwright/data`，備份 `/var/lib/formwright/backup`，資料庫檔 `formwright.db`；資料目錄與備份目錄擁有者是 `formwright:formwright`、0700，一般登入帳號進不去，所以檔案的列舉與複製都放在同一個 root shell 裡做。升級流程只對 `/var/lib/formwright`、`/etc/formwright`、`data`、`backup` 這幾個目錄重設擁有者與權限（另外只處理自己的升級紀錄目錄 `logs`，見上面的[升級](#升級)），**不檢查也不重設 `data`、`backup` 其下的檔案**，所以還原後檔案的擁有者要維持 `formwright`，否則服務寫不進去。把 `<名稱>` 換成要還原的那份：
 
 ```bash
 sudo systemctl stop formwright
@@ -327,18 +327,19 @@ sudo sh -c 'set -e
     [ "$lines" = "$count" ] || fail "附件清單有 $lines 行，和 manifest 的附件數 $count 不一致"
     TAB=$(printf "\t")
     # 第一輪只檢查：清單裡每一個附件都在附件池、大小相符
-    while IFS="$TAB" read -r aid size; do
-      echo "$aid" | grep -qx "[0-9a-f]\{32\}" || fail "附件清單裡有格式不對的附件編號"
+    while IFS="$TAB" read -r aid size || [ -n "$aid" ]; do
+      case "$aid" in *[!0-9a-f]*) fail "附件清單裡有格式不對的附件編號" ;; esac
+      [ ${#aid} -eq 32 ] || fail "附件清單裡有格式不對的附件編號"
       rel="$(echo "$aid" | cut -c1-2)/$(echo "$aid" | cut -c3-4)/$aid"
       src="$BACKUP/attachments/$rel"
       [ -f "$src" ] && [ "$(stat -c %s "$src")" = "$size" ] || fail "附件池 $BACKUP/attachments/ 缺少 $rel 或大小不符（請把同一備份根目錄的 attachments/ 一起找回再重跑）"
     done < "$LIST"
     # 第二輪只複製清單裡的附件，複製後核對目的檔
-    while IFS="$TAB" read -r aid size; do
+    while IFS="$TAB" read -r aid size || [ -n "$aid" ]; do
       rel="$(echo "$aid" | cut -c1-2)/$(echo "$aid" | cut -c3-4)/$aid"
       dst="$DATA/attachments/$rel"
-      mkdir -p "${dst%/*}" && cp "$BACKUP/attachments/$rel" "$dst" && [ "$(stat -c %s "$dst")" = "$size" ] || fail "附件 $rel 複製失敗"
-      chown formwright:formwright "$DATA/attachments" "$DATA/attachments/${rel%%/*}" "${dst%/*}" "$dst" || fail "附件 $rel 改擁有者失敗"
+      mkdir -p "${dst%/*}" && cp "$BACKUP/attachments/$rel" "$dst" && [ "$(stat -c %s "$dst")" = "$size" ] || fail "附件 $rel 複製失敗（附件目錄可能留下 root 擁有的項目，修好後重跑會補正，不要直接啟動服務）"
+      chown formwright:formwright "$DATA/attachments" "$DATA/attachments/${rel%%/*}" "${dst%/*}" "$dst" || fail "附件 $rel 改擁有者失敗（附件目錄可能留下 root 擁有的項目，修好後重跑會補正，不要直接啟動服務）"
     done < "$LIST"
     echo "已核對並複製 $count 個附件"
   fi
@@ -398,14 +399,15 @@ sudo sh -c 'set -e
      [ "$lines" = "$count" ] || fail "附件清單有 $lines 行，和 manifest 的附件數 $count 不一致"
      TAB=$(printf "\t")
      # 第一輪只檢查：清單裡每一個附件都在附件池、大小相符
-     while IFS="$TAB" read -r aid size; do
-       echo "$aid" | grep -qx "[0-9a-f]\{32\}" || fail "附件清單裡有格式不對的附件編號"
+     while IFS="$TAB" read -r aid size || [ -n "$aid" ]; do
+       case "$aid" in *[!0-9a-f]*) fail "附件清單裡有格式不對的附件編號" ;; esac
+       [ ${#aid} -eq 32 ] || fail "附件清單裡有格式不對的附件編號"
        rel="$(echo "$aid" | cut -c1-2)/$(echo "$aid" | cut -c3-4)/$aid"
        src="$BACKUP/attachments/$rel"
        [ -f "$src" ] && [ "$(stat -c %s "$src")" = "$size" ] || fail "附件池 $BACKUP/attachments/ 缺少 $rel 或大小不符（請把同一備份根目錄的 attachments/ 一起找回再重跑）"
      done < "$LIST"
      # 第二輪只複製清單裡的附件，複製後核對目的檔
-     while IFS="$TAB" read -r aid size; do
+     while IFS="$TAB" read -r aid size || [ -n "$aid" ]; do
        rel="$(echo "$aid" | cut -c1-2)/$(echo "$aid" | cut -c3-4)/$aid"
        dst="$DATA/attachments/$rel"
        mkdir -p "${dst%/*}" && cp "$BACKUP/attachments/$rel" "$dst" && [ "$(stat -c %s "$dst")" = "$size" ] || fail "附件 $rel 複製失敗"
