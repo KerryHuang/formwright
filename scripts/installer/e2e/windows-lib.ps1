@@ -195,8 +195,11 @@ function Wait-Service([string]$Status, [int]$Seconds = 60) {
 
 function Version-Is([string]$Want) {
   Wait-Code "$Base/api/health/ready" 200
-  $v = (Invoke-RestMethod "$Base/api/version").version
+  # 比對原始 JSON：Invoke-RestMethod 會把 ISO 字串轉成 DateTime，驗不到格式
+  $raw = (Invoke-WebRequest "$Base/api/version" -UseBasicParsing).Content
+  $v = ($raw | ConvertFrom-Json).version
   Assert ($v -ceq $Want) "版本應為 $Want、實得 $v"
+  Assert ($raw -cmatch '"builtAt":"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z"') "builtAt 應為 UTC ISO 時間（不是 dev）、實得 $raw"
 }
 
 # 呼叫 wizard.ps1；有任何非 0 結束碼就丟錯。回傳 stdout 字串

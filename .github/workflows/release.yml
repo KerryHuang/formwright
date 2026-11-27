@@ -65,8 +65,9 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/out"
           pub="$RUNNER_TEMP/pub-linux"
+          built=$(date -u +%Y-%m-%dT%H:%M:%SZ)   # 同 Dockerfile 的格式
           dotnet publish backend/src/DynamicModules.WebAPI/DynamicModules.WebAPI.csproj -c Release -r linux-x64 \
-            --self-contained true -p:AppVersion="$VERSION" -p:GitCommit="${{ github.sha }}" -o "$pub"
+            --self-contained true -p:AppVersion="$VERSION" -p:GitCommit="${{ github.sha }}" -p:BuildTime="$built" -o "$pub"
           rm -rf "$pub/wwwroot"; cp -r frontend/dist/spa "$pub/wwwroot"
           printf '%s' "$VERSION" > "$pub/VERSION"
           tar -czf "$RUNNER_TEMP/out/formwright-$VERSION-linux-x64.tar.gz" -C "$pub" .
@@ -114,7 +115,9 @@ jobs:
           $out = Join-Path $env:RUNNER_TEMP 'setup'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           $pub = Join-Path $env:RUNNER_TEMP 'pub-win'
-          dotnet publish backend/src/DynamicModules.WebAPI/DynamicModules.WebAPI.csproj -c Release -r win-x64 --self-contained true -p:AppVersion=$env:VERSION -p:GitCommit=${{ github.sha }} -o $pub
+          # 同 Dockerfile 的格式；InvariantCulture 讓 ':' 不跟著系統地區設定換字元
+          $built = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
+          dotnet publish backend/src/DynamicModules.WebAPI/DynamicModules.WebAPI.csproj -c Release -r win-x64 --self-contained true -p:AppVersion=$env:VERSION -p:GitCommit=${{ github.sha }} "-p:BuildTime=$built" -o $pub
           if ($LASTEXITCODE -ne 0) { throw 'dotnet publish 失敗' }
           Remove-Item -Recurse -Force (Join-Path $pub 'wwwroot') -ErrorAction SilentlyContinue
           Copy-Item -Recurse (Join-Path $env:RUNNER_TEMP 'wwwroot') (Join-Path $pub 'wwwroot')

@@ -66,10 +66,11 @@ jobs:
       - name: 發佈三個版本的 tarball
         run: |
           mkdir -p "$RUNNER_TEMP/pkgs"
+          built=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           for v in "$V1" "$V2" "$V3"; do
             out="$RUNNER_TEMP/pub-$v"
             dotnet publish backend/src/DynamicModules.WebAPI/DynamicModules.WebAPI.csproj -c Release -r linux-x64 \
-              --self-contained true -p:AppVersion="$v" -o "$out"
+              --self-contained true -p:AppVersion="$v" -p:BuildTime="$built" -o "$out"
             rm -rf "$out/wwwroot"; cp -r "$RUNNER_TEMP/web/wwwroot" "$out/wwwroot"; cp -r "$RUNNER_TEMP/web/sourcemaps" "$out/sourcemaps"
             printf '%s' "$v" > "$out/VERSION"
             tar -czf "$RUNNER_TEMP/pkgs/formwright-$v-linux-x64.tar.gz" -C "$out" .
@@ -144,6 +145,7 @@ jobs:
           start=$(date -u +%Y-%m-%dT%H:%M:%S)
           sudo FORMWRIGHT_PACKAGE="$P2" bash installer/linux/install.sh
           curl -fsS "$URL/api/version" > v.json; jq -e --arg v "$V2" '.version == $v' v.json
+          jq -e '.builtAt != "dev" and (.builtAt | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))' v.json
           bash "$W" verify-kept "$URL"
           bash "$W" backups "$URL" > after.json
           jq -e --arg s "$start" '[.[] | select((.trigger|tostring|ascii_downcase)=="manual" and .requestedUserId == null
@@ -403,9 +405,10 @@ jobs:
           }
           $out = Join-Path $env:RUNNER_TEMP 'setup'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $built = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
           foreach ($v in @($env:V1, $env:V2, $env:V3)) {
             $pub = Join-Path $env:RUNNER_TEMP "pub-$v"
-            dotnet publish backend/src/DynamicModules.WebAPI/DynamicModules.WebAPI.csproj -c Release -r win-x64 --self-contained true -p:AppVersion=$v -o $pub
+            dotnet publish backend/src/DynamicModules.WebAPI/DynamicModules.WebAPI.csproj -c Release -r win-x64 --self-contained true -p:AppVersion=$v "-p:BuildTime=$built" -o $pub
             if ($LASTEXITCODE -ne 0) { throw "dotnet publish $v 失敗" }
             Remove-Item -Recurse -Force (Join-Path $pub 'wwwroot') -ErrorAction SilentlyContinue
             Copy-Item -Recurse (Join-Path $env:RUNNER_TEMP 'web\wwwroot') (Join-Path $pub 'wwwroot')
