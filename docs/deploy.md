@@ -252,7 +252,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 ### 升級
 
 - **Windows**：直接執行新版安裝程式。會先停服務、用舊版程式做一次備份，備份成功才換檔案；備份失敗就中止，安裝程式會把舊版服務重新啟動並等它回應；舊版沒能重新啟動時訊息會明說，要手動啟動服務。備份位置沒設時會問要不要略過備份（靜默安裝要帶 `/SKIPBACKUP`，否則中止）。資料與設定不動。
-- **Ubuntu**：重跑同一行安裝指令。流程同上，備份失敗以結束碼 20 中止、舊版照跑；備份位置沒設且沒加 `--skip-backup` 以結束碼 21 中止。`--skip-backup` 只略過「備份位置沒設」，不略過備份失敗。
+- **Ubuntu**：重跑同一行安裝指令。流程同上，備份失敗以結束碼 20 中止、舊版照跑；備份位置沒設且沒加 `--skip-backup` 以結束碼 21 中止。`--skip-backup` 只略過「備份位置沒設」，不略過備份失敗。升級前備份的完整輸出不印在終端，寫進 `/var/log/formwright/upgrade-<UTC 時間>-<程序編號>.log`（目錄 root 0700、檔案 0600；每次升級一個，不自動清除），終端只印一行結果；備份中止時另外印出紀錄檔路徑與最後 20 行。紀錄檔建不出來（例如 `/var/log/formwright` 是符號連結、磁碟滿）時在停服務之前就中止，舊版照跑。
 - **Docker compose**：Releases 附的 `docker-compose.yml` 固定在該版的映像版號，`docker compose pull` 只會重拉同一版，不會升級。升級用下列任一種方式：
   - 下載新版 Release 的 `docker-compose.yml` 覆蓋舊檔，再 `docker compose pull && docker compose up -d`。
   - 或不動檔案，pull 與 up 都帶同一個映像設定：`FORMWRIGHT_IMAGE=ghcr.io/kerryhuang/formwright:<新版號> docker compose pull && FORMWRIGHT_IMAGE=ghcr.io/kerryhuang/formwright:<新版號> docker compose up -d`（也可寫進 shell 環境，兩個指令才一致）。
@@ -377,7 +377,7 @@ docker run --rm -v formwright_formwright-data:/data -v formwright_formwright-bac
 ### 移除
 
 - **Windows**：「設定 → 應用程式」解除安裝。預設保留資料，要連資料一起刪就在詢問時選「是」（靜默解除安裝帶 `/DELETEDATA`）。
-- **Ubuntu**：`remove` 只移除程式與服務，資料與設定保留，之後可重新安裝；`purge` 連資料、設定與服務帳號一併刪除，要輸入 `yes` 確認（沒有終端機時加 `--yes`）。備份位置設在預設目錄之外時不會被刪，腳本會列出路徑。
+- **Ubuntu**：`remove` 只移除程式與服務，資料與設定保留，之後可重新安裝；`purge` 連資料、設定、升級紀錄（`/var/log/formwright/`）與服務帳號一併刪除，要輸入 `yes` 確認（沒有終端機時加 `--yes`）。備份位置設在預設目錄之外時不會被刪，腳本會列出路徑。
 - **Docker compose**：`docker compose down` 保留 volume；`docker compose down -v` 連資料與備份 volume 一起刪。
 
 ### 資料庫與備份工具
@@ -391,7 +391,7 @@ docker run --rm -v formwright_formwright-data:/data -v formwright_formwright-bac
 ### 看 log
 
 - Windows：事件檢視器（Windows 記錄 → 應用程式）。
-- Ubuntu：`journalctl -u formwright`。
+- Ubuntu：`journalctl -u formwright`。升級前備份那一次的輸出不在 journal，在 `/var/log/formwright/`（用 `sudo` 讀）。
 - Docker compose：`docker compose logs formwright`。
 
 ## 本機試跑容器

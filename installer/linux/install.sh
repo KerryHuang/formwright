@@ -25,6 +25,8 @@ FW_REPO=''
 # 測試用：FW_ROOT 是 /etc、/opt 的路徑前綴（正式執行為空）；FW_ARCH 取代 uname -m
 FW_ROOT="${FW_ROOT:-}"
 FW_UNIT_FILE=/etc/systemd/system/formwright.service
+# 升級前備份的完整輸出（程式的 JSON log）寫在這裡，只有 root 讀得到
+FW_LOG_DIR=/var/log/formwright
 FW_LANG="${FW_LANG:-en}"
 
 ACTION=install
@@ -47,6 +49,12 @@ need_tool=缺少必要指令：%s
 installing=正在安裝 Formwright %s …
 upgrading=正在升級 Formwright：%s → %s
 backup_running=升級前先備份資料 …
+backup_done=升級前備份完成。
+backup_skipped=備份位置沒有設定，依 --skip-backup 略過升級前備份。
+backup_pending=設定精靈還沒完成，沒有資料需要備份。
+backup_log=升級前備份的詳細紀錄（只有 root 讀得到）：%s
+backup_log_tail=紀錄的最後 20 行：
+log_failed=無法建立紀錄檔 %s，已中止，程式沒有更新。
 unsafe_path=拒絕處理：%s 是符號連結或不是目錄，沒有做任何變更。請確認後手動處理再重跑。
 dirs_failed=無法設定 %s 的擁有者或權限，已中止，程式沒有更新。
 backup_failed=升級前備份失敗，升級已中止，舊版照常執行。
@@ -74,6 +82,12 @@ need_tool=Required command not found: %s
 installing=Installing Formwright %s ...
 upgrading=Upgrading Formwright: %s -> %s
 backup_running=Backing up data before the upgrade ...
+backup_done=Pre-upgrade backup completed.
+backup_skipped=No backup location is configured; the pre-upgrade backup was skipped because of --skip-backup.
+backup_pending=The setup wizard has not been completed; there is nothing to back up.
+backup_log=Full pre-upgrade backup log (readable by root only): %s
+backup_log_tail=Last 20 lines of the log:
+log_failed=Could not create the log file %s; stopped without updating the program.
 unsafe_path=Refusing to continue: %s is a symbolic link or not a directory. Nothing was changed; fix it manually and re-run.
 dirs_failed=Could not set the owner or permissions of %s; stopped without updating the program.
 backup_failed=Pre-upgrade backup failed; the upgrade was cancelled and the current version is still running.
@@ -387,20 +401,47 @@ do_reinstall() {
   print_url
 }
 
+# 建立這次升級的紀錄檔 UPGRADE_LOG（目錄 root 0700、檔案 0600）。
+# /var/log 在 Ubuntu 上 syslog 群組可寫，所以目錄同樣擋 symlink；noclobber 讓既有檔案（含 symlink）不會被覆寫。
+UPGRADE_LOG=""
+create_upgrade_log() {
+  refuse_unsafe_path "$FW_LOG_DIR"
+  # 每一步明確檢查回傳值：呼叫端在 `||` 左側呼叫本函式，那時 set -e 不生效
+  mkdir -p "$FW_LOG_DIR" || die 1 log_failed "$UPGRADE_LOG"
+  chown root:root "$FW_LOG_DIR" || die 1 log_failed "$UPGRADE_LOG"
+  chmod 0700 "$FW_LOG_DIR" || die 1 log_failed "$UPGRADE_LOG"
+  (umask 077; set -C; : > "$UPGRADE_LOG") || die 1 log_failed "$UPGRADE_LOG"
+}
+
+# 備份失敗時印紀錄檔位置與結尾，讓使用者不必另外去找原因
+show_backup_log() {
+  msg backup_log "$UPGRADE_LOG"
+  msg backup_log_tail
+  tail -n 20 "$UPGRADE_LOG" || true
+}
+
 do_upgrade() {
   local old_version
   old_version=$(installed_version)
   msg upgrading "$old_version" "$PACKAGE_VERSION"
   stage_package
+  # 停服務之前先備好紀錄檔：建不出來就中止，舊版照跑（子 shell 攔下 die，才清得掉 .new）
+  UPGRADE_LOG="$FW_LOG_DIR/upgrade-$(date -u +%Y%m%dT%H%M%SZ)-$$.log"
+  (create_upgrade_log) || { rm -rf "${FW_PROGRAM_DIR}.new"; exit 1; }
   # 先用舊版（替換檔案之前）備份：新版 migration 會在啟動時先跑
   systemctl stop formwright || true
   msg backup_running
   local rc=0
-  (cd "$FW_PROGRAM_DIR" && as_service ./DynamicModules.WebAPI --backup-now "--Install:ConfigFile=$FW_CONFIG_FILE") || rc=$?
+  # 紀錄檔由 root 開好再交給子程序寫，服務帳號不需要進得了紀錄目錄
+  (cd "$FW_PROGRAM_DIR" && as_service ./DynamicModules.WebAPI --backup-now "--Install:ConfigFile=$FW_CONFIG_FILE") >> "$UPGRADE_LOG" 2>&1 || rc=$?
   case "$(backup_exit_to_action "$rc")" in
-    abort21) systemctl start formwright || true; rm -rf "${FW_PROGRAM_DIR}.new"; die 21 backup_not_configured ;;
-    abort20) systemctl start formwright || true; rm -rf "${FW_PROGRAM_DIR}.new"; die 20 backup_failed ;;
+    abort21) systemctl start formwright || true; rm -rf "${FW_PROGRAM_DIR}.new"; show_backup_log >&2; die 21 backup_not_configured ;;
+    abort20) systemctl start formwright || true; rm -rf "${FW_PROGRAM_DIR}.new"; show_backup_log >&2; die 20 backup_failed ;;
   esac
+  # 結束碼 0 不一定做了備份（精靈沒跑完），2 搭配 --skip-backup 也會往下走：照實說
+  if [ "$rc" != 0 ]; then msg backup_skipped
+  elif grep -q '^FORMWRIGHT_BACKUP_SETUP_PENDING' "$UPGRADE_LOG"; then msg backup_pending
+  else msg backup_done; fi
   # 舊配置的主機在這裡一併收緊權限；失敗（例如目錄是 symlink）就把舊版服務拉起來、不換程式
   # 失敗時程式還沒換：清掉 .new、把舊版服務拉起來並確認真的在跑（拉不起來就明講），再以非 0 結束
   (ensure_dirs) || { rm -rf "${FW_PROGRAM_DIR}.new"; systemctl start formwright || true; wait_active || die 1 start_failed "$FW_PROGRAM_DIR"; exit 1; }
@@ -428,7 +469,7 @@ do_purge() {
   if [ "$OPT_YES" != 1 ]; then
     [ -r /dev/tty ] || die 1 purge_need_yes
     local answer=""
-    msg purge_confirm "$state_dir, $config_dir" > /dev/tty
+    msg purge_confirm "$state_dir, $config_dir, $FW_LOG_DIR" > /dev/tty
     read -r answer < /dev/tty || true
     [ "$answer" = yes ] || { msg purge_cancelled; exit 1; }
   fi
@@ -436,7 +477,7 @@ do_purge() {
   backup_root=$(read_config | awk '/"Backup"[[:space:]]*:/ { f = 1 } f && /"Root"/ { print; exit }' \
     | sed -n 's/.*"Root"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)
   do_remove >/dev/null
-  rm -rf "$state_dir" "$config_dir"
+  rm -rf "$state_dir" "$config_dir" "$FW_LOG_DIR"
   if id "$FW_SERVICE_USER" >/dev/null 2>&1; then userdel "$FW_SERVICE_USER" || true; fi
   msg purge_done
   case "$backup_root" in

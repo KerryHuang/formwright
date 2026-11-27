@@ -270,4 +270,74 @@ check "purge 取 Backup 區段的 Root（不是 Attachments 的）" "/b" "$(cfg_
 check "root 不直接 sed 設定檔" "0" "$(grep -cE 'sed .*"\$FW_CONFIG_FILE"' "$here/install.sh")"
 check "install.sh 檔頭列出 FORMWRIGHT_DOWNLOAD_BASE" "yes" "$(head -n 12 "$here/install.sh" | grep -q FORMWRIGHT_DOWNLOAD_BASE && echo yes || echo no)"
 
+# --- 升級前備份的輸出寫進 log 檔、終端只印一行（#145）：stub 掉 systemd 與換程式的步驟 ---
+up_case() { # <名稱> <備份結束碼> <備份最後一行> [OPT_SKIP_BACKUP]；回傳升級的 exit code，終端輸出在 $out
+  up="$tmp/up-$1"; rm -rf "$up"; mkdir -p "$up/prog"
+  # shellcheck disable=SC2034  # 這些變數由子 shell 內的 do_upgrade、msg 讀取
+  ( set -e
+    FW_PROGRAM_DIR="$up/prog" FW_LOG_DIR="$up/log" FW_LANG="${UP_LANG:-en}" OPT_SKIP_BACKUP="${4:-0}" PACKAGE_VERSION=2.0.0
+    stage_package() { mkdir -p "$FW_PROGRAM_DIR.new"; }
+    installed_version() { echo 1.0.0; }
+    systemctl() { echo "systemctl $*" >> "$up/calls"; }
+    chown() { echo "chown $*" >> "$up/calls"; }
+    ensure_dirs() { :; }; swap_program() { :; }; write_unit() { :; }; wait_active() { :; }
+    as_service() {
+      local i; for i in $(seq 1 30); do echo "{\"LogLevel\":\"Information\",\"n\":$i}"; done
+      echo '{"LogLevel":"Warning","stream":"stderr"}' >&2
+      echo "$backup_line"; return "$backup_rc"
+    }
+    backup_rc="$2"; backup_line="$3"
+    do_upgrade ) >"$out" 2>&1
+  echo $?
+}
+has() { grep -qF -- "$2" "$1" 2>/dev/null && echo yes || echo no; }
+up_log() { find "$up/log" -name 'upgrade-*.log' 2>/dev/null | head -n 1; }
+
+rc=$(up_case ok 0 'FORMWRIGHT_BACKUP_OK k1'); up="$tmp/up-ok"
+check "升級：備份成功 exit 0" "0" "$rc"
+check "升級：終端沒有 JSON log" "no" "$(has "$out" '"LogLevel"')"
+check "升級：終端印備份完成" "yes" "$(has "$out" 'Pre-upgrade backup completed.')"
+log=$(up_log)
+check "升級：log 含 stdout 與機器標記" "yes" "$(has "$log" 'FORMWRIGHT_BACKUP_OK k1')"
+check "升級：log 含 stderr" "yes" "$(has "$log" '"stream":"stderr"')"
+check "升級：log 目錄 0700" "700" "$(mode_of "$up/log")"
+check "升級：log 檔 0600" "600" "$(mode_of "$log")"
+check "升級：log 目錄給 root" "yes" "$(has "$up/calls" "chown root:root $up/log")"
+
+for case_ in "1 20 Pre-upgrade" "2 21 No"; do
+  read -r brc want head_ <<< "$case_"
+  rc=$(up_case "fail$brc" "$brc" "FORMWRIGHT_BACKUP_X code$brc"); up="$tmp/up-fail$brc"; log=$(up_log)
+  check "升級：備份結束碼 $brc → exit $want" "$want" "$rc"
+  check "升級 ${want}：印既有訊息" "yes" "$(grep -q "^$head_" "$out" && echo yes || echo no)"
+  check "升級 ${want}：印 log 路徑" "yes" "$([ -n "$log" ] && has "$out" "$log" || echo no)"
+  check "升級 ${want}：只印最後 20 行（含最後一行）" "yes" "$(has "$out" "FORMWRIGHT_BACKUP_X code$brc")"
+  check "升級 ${want}：JSON 行數 19（最後 20 行扣掉標記行）" "19" "$(grep -c '"LogLevel"' "$out")"
+  check "升級 ${want}：舊版服務拉起來" "yes" "$(has "$up/calls" 'systemctl start formwright')"
+  check "升級 ${want}：清掉 .new" "no" "$([ -e "$up/prog.new" ] && echo yes || echo no)"
+  check "升級 ${want}：不印備份完成" "no" "$(has "$out" 'Pre-upgrade backup completed.')"
+done
+
+rc=$(up_case skip 2 'FORMWRIGHT_BACKUP_NOT_CONFIGURED notConfigured' 1)
+check "升級：--skip-backup exit 0" "0" "$rc"
+check "升級：--skip-backup 明說略過、不說完成" "yes|no" "$(has "$out" 'skipped because of --skip-backup')|$(has "$out" 'Pre-upgrade backup completed.')"
+rc=$(up_case pending 0 'FORMWRIGHT_BACKUP_SETUP_PENDING')
+check "升級：精靈未完成 exit 0" "0" "$rc"
+check "升級：精靈未完成明說沒有資料可備份、不說完成" "yes|no" "$(has "$out" 'nothing to back up')|$(has "$out" 'Pre-upgrade backup completed.')"
+UP_LANG=zh-TW; rc=$(up_case zh 0 'FORMWRIGHT_BACKUP_OK k2'); unset UP_LANG
+check "升級：繁中訊息" "yes" "$(has "$out" '升級前備份完成')"
+
+# log 目錄是 symlink：停服務之前就中止，目標不動
+up="$tmp/up-sym"; mkdir -p "$tmp/up-target"
+# shellcheck disable=SC2034  # 同上：子 shell 內讀取
+rc=$( ( FW_PROGRAM_DIR="$tmp/up-symprog" FW_LOG_DIR="$tmp/up-symlog" PACKAGE_VERSION=2.0.0
+  ln -s "$tmp/up-target" "$tmp/up-symlog"
+  stage_package() { mkdir -p "$FW_PROGRAM_DIR.new"; }
+  systemctl() { echo "systemctl $*" >> "$tmp/up-sym.calls"; }
+  chown() { echo "chown $*" >> "$tmp/up-sym.calls"; }
+  do_upgrade ) >"$out" 2>&1; echo $? )
+check "升級：log 目錄是 symlink → exit 1" "1" "$rc"
+check "升級：symlink 時沒有停服務、沒有 chown" "no" "$([ -e "$tmp/up-sym.calls" ] && echo yes || echo no)"
+check "升級：symlink 目標沒有被寫入" "" "$(ls -A "$tmp/up-target")"
+check "升級：symlink 時清掉 .new" "no" "$([ -e "$tmp/up-symprog.new" ] && echo yes || echo no)"
+
 exit $fail

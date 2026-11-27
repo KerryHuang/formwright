@@ -181,17 +181,23 @@ sudo cat /var/lib/formwright/data/setup-code
 
 重新貼一次第 2 節的安裝指令（預發版用有版號的網址，正式版用 `latest` 的網址，尾端一樣帶 `--lang zh-TW`）。腳本偵測到已安裝，會先停止服務、用舊版做一次備份，備份成功才換成新版，你的資料與設定都不動。
 
-**升級時畫面跑出一大段英文，是壞掉了嗎？** 不是。升級過程中會印出好幾段很長的英文 JSON（資料庫更新的訊息與警告），這是已知現象。你只要看**最後一行**：
+**升級成功時畫面長什麼樣子？** 大致如下（版號依實際版本）：
 
 ```
-正在升級 Formwright：0.1.0-rc.2 → 0.1.0-rc.2
+正在升級 Formwright：<舊版號> → <新版號>
 升級前先備份資料 …
-（中間是一大段 JSON，可以忽略）
-FORMWRIGHT_BACKUP_OK <一串碼>
-已升級到版本 0.1.0-rc.2。
+升級前備份完成。
+已升級到版本 <新版號>。
 ```
 
-看到「已升級到版本 …」就是成功。如果升級前備份失敗，腳本會中止並保持舊版運作（結束碼 20）；沒有設備份位置時也會中止（結束碼 21），先設好備份位置再重跑。
+看到「已升級到版本 …」就是成功。0.1.0-rc.1、0.1.0-rc.2 的安裝腳本會在中間印出一大段英文 JSON，同樣只要看最後有沒有「已升級到版本 …」。
+
+**升級中止了怎麼辦？** 升級前備份失敗時，腳本會中止並保持舊版運作（結束碼 20）；沒有設備份位置時也會中止（結束碼 21），先設好備份位置再重跑。兩種情況畫面都會印出紀錄檔位置與最後 20 行（英文的 JSON，是備份程式的原始紀錄）。完整紀錄在 `/var/log/formwright/`，每次升級一個 `upgrade-<UTC 時間>-<編號>.log`，只有 root 讀得到：
+
+```bash
+sudo ls /var/log/formwright/
+sudo cat /var/log/formwright/upgrade-<檔名其餘部分>.log
+```
 
 **`remove` 和 `purge` 差在哪裡？怎麼解除安裝？**
 
@@ -201,7 +207,7 @@ FORMWRIGHT_BACKUP_OK <一串碼>
   curl -fsSL https://github.com/KerryHuang/formwright/releases/download/v0.1.0-rc.2/install.sh | sudo bash -s -- remove --lang zh-TW
   ```
 
-- **`purge`（全部刪除，無法復原）**：連資料、設定、備份與服務帳號一起刪。會問你要不要確認，要輸入 `yes`（只輸入 `y` 不算）。
+- **`purge`（全部刪除，無法復原）**：連資料、設定、備份、升級紀錄（`/var/log/formwright/`）與服務帳號一起刪。會問你要不要確認，要輸入 `yes`（只輸入 `y` 不算）。
 
   ```bash
   curl -fsSL https://github.com/KerryHuang/formwright/releases/download/v0.1.0-rc.2/install.sh | sudo bash -s -- purge --lang zh-TW

@@ -143,9 +143,18 @@ jobs:
         run: |
           bash "$W" backups "$URL" > before.json
           start=$(date -u +%Y-%m-%dT%H:%M:%S)
-          sudo FORMWRIGHT_PACKAGE="$P2" bash installer/linux/install.sh
+          sudo FORMWRIGHT_PACKAGE="$P2" bash installer/linux/install.sh 2>&1 | tee up.txt
           curl -fsS "$URL/api/version" > v.json; jq -e --arg v "$V2" '.version == $v' v.json
           jq -e '.builtAt != "dev" and (.builtAt | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))' v.json
+          # #145：終端只印一行結果，程式的 JSON log 進 root 才讀得到的紀錄檔
+          if grep -q '"LogLevel"' up.txt; then echo "升級的終端輸出不該有 JSON log"; exit 1; fi
+          grep -q 'Pre-upgrade backup completed' up.txt
+          test "$(sudo stat -c '%U %a' /var/log/formwright)" = 'root 700'
+          log=$(sudo find /var/log/formwright -name 'upgrade-*.log' | sort | tail -n 1)
+          test -n "$log"
+          test "$(sudo stat -c '%U %a' "$log")" = 'root 600'
+          sudo grep -q '^FORMWRIGHT_BACKUP_OK ' "$log"
+          sudo grep -q '"LogLevel"' "$log"
           bash "$W" verify-kept "$URL"
           bash "$W" backups "$URL" > after.json
           jq -e --arg s "$start" '[.[] | select((.trigger|tostring|ascii_downcase)=="manual" and .requestedUserId == null
@@ -157,8 +166,12 @@ jobs:
           sudo chmod 0500 /var/lib/formwright/backup
           rc=0; sudo FORMWRIGHT_PACKAGE="$P3" bash installer/linux/install.sh > en.txt 2>&1 || rc=$?
           cat en.txt; test "$rc" = 20; grep -q 'Pre-upgrade backup failed' en.txt
+          grep -q '/var/log/formwright/upgrade-.*\.log' en.txt; grep -q 'Last 20 lines of the log' en.txt
+          log=$(grep -o '/var/log/formwright/upgrade-[^ ]*\.log' en.txt | head -n 1)
+          sudo grep -q '^FORMWRIGHT_BACKUP_FAILED ' "$log"
           rc=0; sudo FORMWRIGHT_PACKAGE="$P3" bash installer/linux/install.sh --lang zh-TW > zh.txt 2>&1 || rc=$?
           cat zh.txt; test "$rc" = 20; grep -q '升級前備份失敗' zh.txt
+          grep -q '/var/log/formwright/upgrade-.*\.log' zh.txt
           test "$(systemctl is-active formwright)" = active
           curl -fsS "$URL/api/version" > v.json; jq -e --arg v "$V2" '.version == $v' v.json
           sudo chown formwright:formwright /var/lib/formwright/backup
@@ -217,6 +230,7 @@ jobs:
           sudo bash installer/linux/install.sh purge --yes
           test ! -e /var/lib/formwright
           test ! -e /etc/formwright
+          test ! -e /var/log/formwright
           if id formwright; then echo "使用者應已刪除"; exit 1; fi
 
       - name: upgrade-while-pending（Review Focus 3）
@@ -279,6 +293,7 @@ jobs:
             journal.txt
             config-masked.json
             out*.txt
+            up.txt
             en.txt
             zh.txt
             sym.txt
