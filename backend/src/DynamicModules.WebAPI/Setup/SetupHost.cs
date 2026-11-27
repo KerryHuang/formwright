@@ -36,9 +36,10 @@ public static class SetupHost
         // 和一般模式同一段：有 wwwroot 時給靜態檔與 SPA fallback
         if (Directory.Exists(Path.Combine(app.Environment.ContentRootPath, "wwwroot")))
         {
+            var spaFiles = SpaStaticFiles.Options();
             app.UseDefaultFiles();
-            app.UseStaticFiles();
-            app.MapFallbackToFile("index.html");
+            app.UseStaticFiles(spaFiles);
+            app.MapFallbackToFile("index.html", spaFiles);
         }
 
         app.Run();

@@ -316,11 +316,12 @@ app.MapFormwrightMcp();
 // 部署時前端建置結果放在 wwwroot（Dockerfile），由同一個站台提供；本機開發沒有 wwwroot，前端走 quasar dev。
 if (Directory.Exists(Path.Combine(app.Environment.ContentRootPath, "wwwroot")))
 {
+    var spaFiles = DynamicModules.WebAPI.SpaStaticFiles.Options();
     app.UseDefaultFiles();
-    app.UseStaticFiles();
+    app.UseStaticFiles(spaFiles);
     // 不存在的 API 照樣回 404，其餘路徑交給前端的 history 路由
     app.Map("/api/{**rest}", () => Results.NotFound());
-    app.MapFallbackToFile("index.html");
+    app.MapFallbackToFile("index.html", spaFiles);
 }
 
 app.Run();
