@@ -7,7 +7,7 @@
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <script data-theme-bootstrap>
-      // Vue 啟動前先套用快取主題，避免換色閃爍。只讀快取鍵（不讀 Demo 鍵）；任何錯誤都退回 signature + 依系統。
+      // Vue 啟動前先套用快取主題，避免換色閃爍。只讀快取鍵（不讀 Demo 鍵）；任何錯誤都退回出廠預設（字面值要和 shared/theme/factory-theme.json 一致，有測試守著）。
       (function () {
         var mode = 'system';
         var style = 'signature';

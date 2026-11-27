@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import factory from 'shared/theme/factory-theme.json';
 
 const DIR = resolve(process.cwd(), 'src/css/themes');
 const STYLES = ['workbench', 'airy', 'enterprise', 'industrial', 'glass', 'bento', 'command', 'signature'] as const;
@@ -114,10 +115,11 @@ describe('主題 token', () => {
     for (const s of STYLES) for (const m of ['light', 'dark'] as const) expect(keys(s, m)).toEqual(first);
   });
 
-  it(':root 提供出廠預設風格（signature）淺色的同一組值，內嵌 script 沒跑時也有樣式', () => {
+  it(':root 提供出廠預設風格淺色的同一組值，內嵌 script 沒跑時也有樣式', () => {
     const root = shared.get(':root') ?? {};
-    const expected = { ...palette('signature', 'light'), ...files.signature.get("[data-style='signature']") };
-    expect(root).toEqual(expected);
+    const style = STYLES.find((s) => s === factory.style);
+    expect(style, `出廠預設風格 ${factory.style} 沒有對應的樣式檔`).toBeDefined();
+    expect(root).toEqual(palette(style!, 'light'));
   });
 
   it('密度：每種風格的間距都比 Quasar 預設（md 16px）緊，現場工業的欄位高度維持觸控尺寸', () => {

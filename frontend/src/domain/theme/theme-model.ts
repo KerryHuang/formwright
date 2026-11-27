@@ -1,3 +1,5 @@
+import factory from 'shared/theme/factory-theme.json';
+
 export const THEME_MODES = ['light', 'dark', 'system'] as const;
 export const THEME_STYLES = ['workbench', 'airy', 'enterprise', 'industrial', 'glass', 'bento', 'command', 'signature'] as const;
 export type ThemeMode = (typeof THEME_MODES)[number];
@@ -13,7 +15,15 @@ export interface MeTheme extends ThemeChoice {
   defaultMode: ThemeMode; defaultStyle: ThemeStyle; canSave: boolean;
 }
 
-export const FACTORY_THEME: ThemeDefaults = { mode: 'system', style: 'signature' };
+/** 出廠預設的唯一來源是 shared/theme/factory-theme.json（後端內嵌同一份）；值不在允許清單就拋錯。 */
+export const FACTORY_THEME: ThemeDefaults = readFactoryTheme(factory);
+
+function readFactoryTheme(raw: { mode: string; style: string }): ThemeDefaults {
+  const mode = parseMode(raw.mode);
+  const style = parseStyle(raw.style);
+  if (!mode || !style) throw new Error(`factory-theme.json 的值不在允許清單：${JSON.stringify(raw)}`);
+  return { mode, style };
+}
 
 /** q-drawer 的 width 只收數字，所以放這裡。 */
 export const SIDEBAR_WIDTH: Record<ThemeStyle, number> = { workbench: 172, airy: 188, enterprise: 208, industrial: 186, glass: 196, bento: 200, command: 156, signature: 196 };

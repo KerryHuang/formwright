@@ -1,5 +1,5 @@
 /* 語意 token。--t-* 掛在屬性選擇器上、不限定 html，任何元素加上 data-style／data-mode 都能呈現該風格（外觀設定的小樣本靠這點）。 */
-/* :root 是出廠預設風格（signature）淺色的同一組值：內嵌 script 萬一沒跑，畫面也不會失去樣式。 */
+/* :root 是出廠預設風格（shared/theme/factory-theme.json）淺色的同一組值：內嵌 script 萬一沒跑，畫面也不會失去樣式。themes.vitest.spec.ts 守著一致。 */
 :root {
   --t-bg: #f4f6fa;
   --t-panel: #ffffff;
