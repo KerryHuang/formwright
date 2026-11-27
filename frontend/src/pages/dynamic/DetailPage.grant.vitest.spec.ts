@@ -12,6 +12,7 @@ import zhTW from 'shared/i18n/zh-TW/ui.json';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 import { useIdentityStore } from 'src/stores/use-identity-store';
 import DetailPage from './DetailPage.vue';
+import { textWithoutHistory } from 'src/test-utils/page-text';
 
 vi.mock('src/services/api/dynamic-api', () => ({
   dynamicApi: {
@@ -103,7 +104,7 @@ describe('DetailPage temporary read', () => {
     expect(api.getRecordConversions).not.toHaveBeenCalled();
     expect(api.getRecordEffects).not.toHaveBeenCalled();
     expect(w.text()).not.toContain(zhTW.dynamic.edit);
-    expect(w.text()).not.toContain(zhTW.dynamic.delete);
+    expect(textWithoutHistory(w)).not.toContain(zhTW.dynamic.delete);
     w.unmount(); // the dialog is teleported to body: do not leak it into the next test
   });
 

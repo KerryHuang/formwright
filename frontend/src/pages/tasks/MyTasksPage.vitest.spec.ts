@@ -254,6 +254,18 @@ describe('MyTasksPage', () => {
     w.unmount();
   });
 
+  it('空清單：給原因、說明與「新增任務」，按下開同一個新增對話框', async () => {
+    const { w } = await mountPage('/tasks', { empty: true });
+    const empty = w.get('[data-testid="empty-state"]');
+    expect(empty.text()).toContain('目前沒有任務。');
+    expect(empty.text()).toContain('指派給你、你建立或提到你的任務會列在這裡。');
+    expect(w.findComponent({ name: 'TaskFormDialog' }).props('modelValue')).toBe(false);
+    await w.get('[data-testid="empty-task-add"]').trigger('click');
+    await flushPromises();
+    expect(w.findComponent({ name: 'TaskFormDialog' }).props('modelValue')).toBe(true);
+    w.unmount();
+  });
+
   it('the page and the menu are called Tasks, not My tasks', async () => {
     const { w } = await mountPage('/tasks');
     expect(w.find('.text-h6').text()).toBe('任務');

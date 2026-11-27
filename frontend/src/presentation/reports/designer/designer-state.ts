@@ -144,19 +144,28 @@ function measureComplete(m: ReportMeasure): boolean {
   return !m.condition || !CONDITION_KINDS.includes(m.kind) || filterComplete(m.condition);
 }
 
-export function canAdvance(s: DesignerState, step: DesignerStep): boolean {
+/** 「下一步」停用的原因；`lastStep` 是預覽步驟（沒有下一步，畫面不顯示）。 */
+export type AdvanceBlocker = 'noModule' | 'filterIncomplete' | 'dateNoField' | 'noContent' | 'groupNoMeasure' | 'measureIncomplete' | 'lastStep';
+
+/** 這一步第一個未滿足的條件；可以往下一步回 null。 */
+export function advanceBlocker(s: DesignerState, step: DesignerStep): AdvanceBlocker | null {
   switch (step) {
-    case 0: return s.dataset !== 'module' || !!s.mainModuleKey;
-    case 1: return true;
+    case 0: return s.dataset !== 'module' || !!s.mainModuleKey ? null : 'noModule';
+    case 1: return null;
     case 2:
-      return s.filters.every(filterComplete)
-        && (!s.dateRange || (!!s.primaryDateField && (!needsN(s.dateRange) || (s.dateRange.n ?? 0) >= 1)));
+      if (!s.filters.every(filterComplete)) return 'filterIncomplete';
+      if (!s.dateRange) return null;
+      if (!s.primaryDateField) return 'dateNoField';
+      return needsN(s.dateRange) && (s.dateRange.n ?? 0) < 1 ? 'filterIncomplete' : null;
     case 3:
-      return s.columns.length + s.measures.length > 0 && (s.groups.length === 0 || s.measures.length > 0)
-        && s.measures.every(measureComplete);
-    default: return false;
+      if (s.columns.length + s.measures.length === 0) return 'noContent';
+      if (s.groups.length > 0 && s.measures.length === 0) return 'groupNoMeasure';
+      return s.measures.every(measureComplete) ? null : 'measureIncomplete';
+    default: return 'lastStep';
   }
 }
+
+export const canAdvance = (s: DesignerState, step: DesignerStep): boolean => advanceBlocker(s, step) === null;
 
 export interface Unavailable {
   columns: number[]; groups: number[]; measures: number[]; filters: number[]; sort: number[]; primaryDate: boolean; child: boolean; any: boolean;

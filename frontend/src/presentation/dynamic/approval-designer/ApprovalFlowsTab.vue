@@ -157,7 +157,12 @@ const actionsOf = (list: ApprovalFlow[], f: ApprovalFlow, i: number) => [
 <template>
   <div v-if="unsupported" class="text-muted">{{ t('docflow.workflow.unsupported') }}</div>
   <div v-else-if="workflow.isError.value || flows.isError.value" class="text-negative">{{ t('dynamic.loadFailed') }}</div>
-  <div v-else-if="workflow.isPending.value || flows.isPending.value" class="text-muted">{{ t('designer.loading') }}</div>
+  <div
+    v-else-if="workflow.isPending.value || flows.isPending.value" class="column q-gutter-y-sm"
+    role="status" aria-busy="true" :aria-label="t('designer.loading')" data-testid="loading-skeleton"
+  >
+    <q-skeleton v-for="n in 3" :key="n" type="rect" height="96px" />
+  </div>
   <div v-else-if="workflow.data.value === null" class="text-muted" data-testid="flows-no-workflow">{{ t('approval.designer.list.noWorkflow') }}</div>
   <div v-else class="column q-gutter-y-md" data-testid="flows-tab">
     <div class="row items-center no-wrap">

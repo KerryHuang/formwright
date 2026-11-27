@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ModuleCatalog, ReportDefinition } from 'src/domain/dynamic/report-types';
 import {
-  addMeasure, canAdvance, canSave, emptyState, fromDefinition, hasContent, LAST_RANGE_KINDS, operatorsOf, removeColumn, removeGroup, removeMeasure, setChild, setMainModule, setPrimaryDate, setSource, toDefinition, unavailableRefs,
+  addMeasure, advanceBlocker, canAdvance, canSave, emptyState, fromDefinition, hasContent, LAST_RANGE_KINDS, operatorsOf, removeColumn, removeGroup, removeMeasure, setChild, setMainModule, setPrimaryDate, setSource, toDefinition, unavailableRefs,
 } from './designer-state';
 
 const F = (id: number, label: string, o: Partial<ModuleCatalog['fields'][number]> = {}) => ({
@@ -243,3 +243,54 @@ describe('designer-state', () => {
     });
   });
 });
+
+describe('advanceBlocker', () => {
+  const base = () => fromDefinition(DEF, { 'zh-TW': 'x' });
+  const count = { id: 'm1', kind: 'countMain', field: null, condition: null };
+
+  it('source step: a module report needs its main module, system sources do not', () => {
+    expect(advanceBlocker(emptyState(), 0)).toBe('noModule');
+    expect(advanceBlocker({ ...emptyState(), dataset: 'tasks' }, 0)).toBeNull();
+    expect(advanceBlocker(base(), 0)).toBeNull();
+  });
+
+  it('fields step never blocks', () => {
+    expect(advanceBlocker(emptyState(), 1)).toBeNull();
+  });
+
+  it('filters step: unfinished condition, date range without a date field, last-N without N', () => {
+    const s = base();
+    s.dateRange = null;
+    s.filters = [{ field: MAIN(2), op: 'gt' }];
+    expect(advanceBlocker(s, 2)).toBe('filterIncomplete');
+    s.filters = [];
+    s.dateRange = { kind: 'thisMonth', n: null };
+    s.primaryDateField = null;
+    expect(advanceBlocker(s, 2)).toBe('dateNoField');
+    s.primaryDateField = MAIN(3);
+    expect(advanceBlocker(s, 2)).toBeNull();
+    s.dateRange = { kind: 'lastDays', n: null };
+    expect(advanceBlocker(s, 2)).toBe('filterIncomplete');
+  });
+
+  it('groups step: nothing chosen, grouped without measure, unfinished measure', () => {
+    const s = { ...emptyState(), mainModuleKey: 'orders' };
+    expect(advanceBlocker(s, 3)).toBe('noContent');
+    s.columns = [MAIN(1)];
+    expect(advanceBlocker(s, 3)).toBeNull();
+    s.groups = [{ field: MAIN(1) }];
+    expect(advanceBlocker(s, 3)).toBe('groupNoMeasure');
+    s.measures = [{ ...count, kind: 'sum' }];
+    expect(advanceBlocker(s, 3)).toBe('measureIncomplete');
+    s.measures = [count];
+    expect(advanceBlocker(s, 3)).toBeNull();
+  });
+
+  it('canAdvance follows it on every step; there is nothing after the preview', () => {
+    for (const s of [emptyState(), base()]) {
+      for (const step of [0, 1, 2, 3, 4] as const) expect(canAdvance(s, step)).toBe(advanceBlocker(s, step) === null);
+    }
+    expect(canAdvance(base(), 4)).toBe(false);
+  });
+});
+

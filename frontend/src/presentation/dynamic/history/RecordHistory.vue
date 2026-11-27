@@ -3,6 +3,7 @@ import { date } from 'quasar';
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRecordHistory } from 'src/application/dynamic/queries/records-queries';
+import EmptyState from 'src/components/framework/EmptyState.vue';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import type { RecordHistoryEntry } from 'src/domain/dynamic/types';
 
@@ -40,6 +41,12 @@ function fieldText(x: RecordHistoryEntry) {
     <q-card-section class="text-subtitle1">{{ t('dynamic.history.title') }}</q-card-section>
     <q-table flat dense hide-pagination :rows="rows" :columns="columns" row-key="id" :rows-per-page-options="[0]"
       :no-data-label="t('dynamic.history.empty')">
+      <template #no-data>
+        <!-- 讀到結果才說沒有紀錄；載入中與讀取失敗各自說明 -->
+        <EmptyState v-if="query.isSuccess.value" :message="t('dynamic.history.empty')" :hint="t('dynamic.history.emptyHint')" />
+        <div v-else-if="query.isError.value" class="full-width text-negative">{{ t('dynamic.loadFailed') }}</div>
+        <div v-else class="full-width text-muted">{{ t('designer.loading') }}</div>
+      </template>
       <template #body="{ row }">
         <q-tr :props="{ row }" data-testid="history-row">
           <q-td>{{ timeText(row) }}</q-td>

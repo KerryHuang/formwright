@@ -10,6 +10,7 @@ import type { DynamicRecord, ModuleSchema, RecordConversion, SchemaField, Schema
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 import DetailPage from './DetailPage.vue';
+import { textWithoutHistory } from 'src/test-utils/page-text';
 
 vi.mock('src/services/api/dynamic-api', () => ({
   dynamicApi: {
@@ -74,10 +75,10 @@ describe('DetailPage document flow', () => {
 
   it('a read-only state hides delete, and edit when the status cannot advance', async () => {
     const stuck = await mountPage(schema({ workflow }), record('opt_13'));
-    expect(stuck.text()).not.toContain(zhTW.dynamic.delete);
+    expect(textWithoutHistory(stuck)).not.toContain(zhTW.dynamic.delete);
     expect(stuck.text()).not.toContain(zhTW.dynamic.edit);
     const movable = await mountPage(schema({ workflow }), record('opt_12'));
-    expect(movable.text()).not.toContain(zhTW.dynamic.delete);
+    expect(textWithoutHistory(movable)).not.toContain(zhTW.dynamic.delete);
     expect(movable.text()).toContain(zhTW.dynamic.edit);
   });
 

@@ -21,6 +21,7 @@ import FilterPanel from 'src/presentation/dynamic/list/FilterPanel.vue';
 import ImportDialog from 'src/presentation/dynamic/list/ImportDialog.vue';
 import SortEditor from 'src/presentation/dynamic/list/SortEditor.vue';
 import ViewMenu from 'src/presentation/dynamic/list/ViewMenu.vue';
+import EmptyState from 'src/components/framework/EmptyState.vue';
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
 import { isForbidden, type ApiError } from 'src/services/api/http';
 
@@ -55,6 +56,8 @@ const currentView = computed(() => views.value.find((v) => v.id === currentViewI
 const state = computed<RecordsState>(() => ({
   page: page.value, size, filter: pruneCondition(filter.value), sort: sort.value, q: q.value.trim() || undefined, approval: approval.value,
 }));
+/** 空清單的原因分兩種：有篩選、關鍵字或簽核切換時是「沒有符合」，否則是還沒有資料。 */
+const filtered = computed(() => !!(state.value.filter || state.value.q || state.value.approval));
 const exportQuery = computed(() => ({
   filter: serializeFilter(filter.value), sort: sort.value, q: q.value.trim() || undefined, approval: approval.value,
 }));
@@ -306,6 +309,18 @@ const openRecord = (row: DynamicRecord) => router.push(`/dynamic/${moduleKey.val
       >
         <template v-if="schema.workflow" #[`body-cell-${schema.workflow.statusFieldKey}`]="cell">
           <q-td :props="cell"><span class="status-dot" :class="stateDot(cell.row)" aria-hidden="true" />{{ cell.value }}</q-td>
+        </template>
+        <template #no-data="{ message }">
+          <!-- 查詢還沒回來時照舊顯示表格的載入文字，不先說沒有資料 -->
+          <div v-if="!pageData || recordsQuery.isFetching.value" class="full-width">{{ message }}</div>
+          <EmptyState
+            v-else :message="filtered ? t('dynamic.list.emptyFiltered') : t('dynamic.list.emptyAll', { module: resolveI18n(schema.name, locale) })"
+            :hint="filtered ? t('dynamic.list.emptyFilteredHint') : undefined"
+          >
+            <template v-if="!filtered && schema.permissions.add" #action>
+              <q-btn color="primary" no-caps icon="add" data-testid="empty-new-btn" :label="t('dynamic.new')" :to="`/dynamic/${moduleKey}/new`" />
+            </template>
+          </EmptyState>
         </template>
         <template #item="{ row, cols }">
           <div class="col-12 q-py-xs">

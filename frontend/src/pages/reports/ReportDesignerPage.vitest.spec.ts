@@ -93,6 +93,44 @@ describe('ReportDesignerPage', () => {
     expect(q('fields-child')!.textContent).toContain('出貨．數量');
   });
 
+  const reason = () => q('designer-next-reason')?.textContent?.trim() ?? null;
+
+  it('says why next is disabled, and the reason goes away once the step is complete', async () => {
+    await mountAt('/reports/new');
+    expect(reason()).toBe('先選一個要看的模組。');
+    await pick('main-module', 'module:orders');
+    expect(reason()).toBeNull();
+    for (let i = 0; i < 3; i++) await click('designer-next');
+    expect((q('designer-next') as HTMLButtonElement).disabled).toBe(true);
+    expect(reason()).toBe('至少選一個欄位或量值。');
+    await pick('measure-field', 'main:2:');
+    await click('measure-add');
+    expect(reason()).toBeNull();
+    expect((q('designer-next') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('no reason while the catalog is still loading', async () => {
+    await mountAt('/reports/new');
+    api.getReportCatalog.mockReturnValue(new Promise(() => {}));
+    await pick('main-module', 'module:orders');
+    expect((q('designer-next') as HTMLButtonElement).disabled).toBe(true);
+    expect(reason()).toBeNull();
+  });
+
+  it('step bar marks done steps with a check, the current one with aria-current, later ones muted', async () => {
+    await mountAt('/reports/new');
+    await pick('main-module', 'module:orders');
+    await click('designer-next');
+    await click('designer-next');
+    const steps = [0, 1, 2, 3, 4].map((i) => q(`step-label-${i}`)!);
+    expect(steps.map((s) => s.getAttribute('aria-current'))).toEqual([null, null, 'step', null, null]);
+    const dots = steps.map((s) => s.querySelector('.designer-step__dot')!.textContent!.trim());
+    expect(dots).toEqual(['check', 'check', '3', '4', '5']);
+    expect(steps[2]!.classList.contains('designer-step--current')).toBe(true);
+    expect(steps[2]!.textContent).toContain('設條件');
+    expect([3, 4].every((i) => steps[i]!.classList.contains('text-muted'))).toBe(true);
+  });
+
   it('the dedupe note comes only from the backend preview, the designer has no rule of its own', async () => {
     await mountAt('/reports/new');
     api.previewReport.mockResolvedValue({ ...RESULT, dedupedNote: true });
@@ -167,6 +205,7 @@ describe('ReportDesignerPage', () => {
     await click('designer-next');
     await click('designer-next');
     expect((q('designer-next') as HTMLButtonElement).disabled).toBe(true);
+    expect(q('designer-next-reason')).toBeNull();
     await click('designer-prev');
     await click('designer-prev');
     await click('column-remove-1');

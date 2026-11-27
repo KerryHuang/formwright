@@ -11,6 +11,7 @@ import type { DynamicRecord, ModuleSchema, SchemaField } from 'src/domain/dynami
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 import DetailPage from './DetailPage.vue';
+import { textWithoutHistory } from 'src/test-utils/page-text';
 
 vi.mock('src/services/api/dynamic-api', () => ({
   dynamicApi: {
@@ -116,7 +117,7 @@ describe('DetailPage approval', () => {
   it('hides edit and delete while pending and shows read-only banner', async () => {
     const w = await mountPage(record(summary({ status: 'pending', stageSeq: 1, stageName: { 'zh-TW': '主管' } })));
     expect(w.text()).not.toContain(zhTW.dynamic.edit);
-    expect(w.text()).not.toContain(zhTW.dynamic.delete);
+    expect(textWithoutHistory(w)).not.toContain(zhTW.dynamic.delete);
     expect(w.find('[data-testid="approval-pending-readonly"]').text()).toContain('簽核中，記錄唯讀');
   });
 

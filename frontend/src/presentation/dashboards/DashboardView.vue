@@ -124,7 +124,12 @@ const linkVisible = (id: number | null | undefined) => id != null && props.linka
 <template>
   <div data-testid="dashboard-view">
     <div v-if="dash.isError.value" class="text-negative" data-testid="dashboard-error">{{ t('dashboards.notFound') }}</div>
-    <div v-else-if="dash.isPending.value" class="q-pa-md"><q-spinner /></div>
+    <div v-else-if="dash.isPending.value" role="status" aria-busy="true" :aria-label="t('designer.loading')" data-testid="loading-skeleton">
+      <q-skeleton type="rect" height="32px" width="40%" class="q-mb-sm" />
+      <div class="row q-col-gutter-sm">
+        <div v-for="n in 4" :key="n" class="col-12 col-sm-6"><q-skeleton type="rect" height="160px" /></div>
+      </div>
+    </div>
     <template v-else-if="detail">
       <div class="row items-center q-gutter-sm q-mb-sm">
         <div class="text-h6" data-testid="dashboard-name">{{ displayName }}</div>

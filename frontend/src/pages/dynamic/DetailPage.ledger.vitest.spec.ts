@@ -11,6 +11,7 @@ import type { DynamicRecord, ModuleSchema, SchemaField, SchemaWorkflow } from 's
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 import DetailPage from './DetailPage.vue';
+import { textWithoutHistory } from 'src/test-utils/page-text';
 
 vi.mock('src/services/api/dynamic-api', () => ({
   dynamicApi: {
@@ -182,7 +183,7 @@ describe('DetailPage linked results', () => {
 
   it('a posted record cannot be deleted or edited, and says so', async () => {
     const { w } = await mountPage(schema(), record({ frozenByEffects: true }));
-    expect(w.text()).not.toContain(zhTW.dynamic.delete);
+    expect(textWithoutHistory(w)).not.toContain(zhTW.dynamic.delete);
     expect(w.text()).not.toContain(zhTW.dynamic.edit);
     expect(w.find('[data-testid="frozen-notice"]').text()).toContain(zhTW.ledger.frozen);
   });
@@ -190,7 +191,7 @@ describe('DetailPage linked results', () => {
   it('a posted record can still be edited while the status can move (the cancel flow)', async () => {
     const { w } = await mountPage(schema({ workflow }), record({ frozenByEffects: true }));
     expect(w.text()).toContain(zhTW.dynamic.edit);
-    expect(w.text()).not.toContain(zhTW.dynamic.delete);
+    expect(textWithoutHistory(w)).not.toContain(zhTW.dynamic.delete);
     const stuck = await mountPage(schema({ workflow }), record({ frozenByEffects: true, values: { f_1: 'x', f_5: 'opt_13' } }));
     expect(stuck.w.text()).not.toContain(zhTW.dynamic.edit);
   });

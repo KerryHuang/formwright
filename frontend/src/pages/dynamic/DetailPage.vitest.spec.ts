@@ -10,6 +10,7 @@ import type { DynamicRecord, ModuleSchema, SchemaDetail, SchemaField, SchemaPerm
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 import DetailPage from './DetailPage.vue';
+import { textWithoutHistory } from 'src/test-utils/page-text';
 
 vi.mock('src/services/api/dynamic-api', () => ({
   dynamicApi: { getModuleSchema: vi.fn(), getRecord: vi.fn(), deleteRecord: vi.fn(), related: vi.fn(), recordHistory: vi.fn(), getRecordTasks: vi.fn() },
@@ -66,7 +67,7 @@ describe('DetailPage', () => {
     expect(noEdit.text()).toContain(zhTW.dynamic.delete);
     const noDelete = await mountPage(schema({ permissions: { ...all, delete: false } }));
     expect(noDelete.text()).toContain(zhTW.dynamic.edit);
-    expect(noDelete.text()).not.toContain(zhTW.dynamic.delete);
+    expect(textWithoutHistory(noDelete)).not.toContain(zhTW.dynamic.delete);
   });
 
   it('hides the task panel and skips loading tasks when the module has tasks off; absent means on', async () => {

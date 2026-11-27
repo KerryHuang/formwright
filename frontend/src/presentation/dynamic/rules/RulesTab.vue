@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import EmptyState from 'src/components/framework/EmptyState.vue';
 import RowActionMenu from 'src/components/framework/RowActionMenu.vue';
 import { useQuasar } from 'quasar';
 import { computed, ref, watch } from 'vue';
@@ -26,6 +27,8 @@ const save = useSaveRulesMutation(key);
 const policies = useEffectivePolicies(key);
 // 規則數上限（政策 design.maxRulesPerModule）；生效值還沒回來時新增鈕停用
 const maxRules = computed(() => policies.data.value?.values['design.maxRulesPerModule'] as number | undefined);
+const atLimit = computed(() => maxRules.value !== undefined && (draft.value?.length ?? 0) >= maxRules.value);
+const addDisabled = computed(() => readonly.value || maxRules.value === undefined || atLimit.value);
 
 const fields = computed(() => toSchemaFields(props.module));
 const blocks = computed(() => props.module.blocks.map((b) => ({ id: b.id, label: b.label })));
@@ -109,15 +112,21 @@ function submit() {
     <div class="row items-center q-mb-sm">
       <q-space />
       <q-btn
-        color="primary" icon="add" dense :label="t('designer.rules.add')" :disable="readonly || maxRules === undefined || draft!.length >= maxRules"
+        color="primary" icon="add" dense :label="t('designer.rules.add')" :disable="addDisabled"
         data-testid="add-rule" @click="open(null)"
       >
-        <q-tooltip v-if="maxRules !== undefined && draft!.length >= maxRules">{{ t('designer.rules.limit', { max: maxRules }) }}</q-tooltip>
+        <q-tooltip v-if="atLimit">{{ t('designer.rules.limit', { max: maxRules }) }}</q-tooltip>
       </q-btn>
     </div>
 
-    <q-list bordered separator>
-      <q-item v-if="!draft!.length"><q-item-section class="text-muted">{{ t('designer.rules.empty') }}</q-item-section></q-item>
+    <q-card v-if="!draft!.length" flat bordered>
+      <EmptyState :message="t('designer.rules.empty')" :hint="t('designer.rules.emptyHint')">
+        <template v-if="!readonly && !atLimit" #action>
+          <q-btn color="primary" no-caps icon="add" :label="t('designer.rules.add')" :disable="addDisabled" data-testid="empty-add-rule" @click="open(null)" />
+        </template>
+      </EmptyState>
+    </q-card>
+    <q-list v-else bordered separator>
       <q-item
         v-for="(r, i) in draft" :key="i" :clickable="!readonly" :class="{ 'text-muted': !r.active, 'rule-row--error': !!rowError(i) }"
         :data-testid="`rule-row-${i}`" @click="!readonly && open(i)"

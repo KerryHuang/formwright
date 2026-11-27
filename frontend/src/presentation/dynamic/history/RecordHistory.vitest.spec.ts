@@ -95,7 +95,22 @@ describe('RecordHistory', () => {
   it('shows empty state', async () => {
     api.recordHistory.mockResolvedValue(paged([]));
     const { w } = await mountHistory();
-    expect(w.text()).toContain('尚無歷程');
+    const empty = w.get('[data-testid="empty-state"]');
+    expect(empty.text()).toContain('還沒有變更紀錄。');
+    expect(empty.text()).toContain('這筆資料之後的新增、修改、刪除都會記在這裡。');
+    expect(empty.find('button').exists()).toBe(false);
+    expect(w.text()).not.toContain('warning');
+  });
+
+  it('does not claim there is no history while loading or after a failed load', async () => {
+    api.recordHistory.mockReturnValue(new Promise(() => {}));
+    const loading = await mountHistory();
+    expect(loading.w.find('[data-testid="empty-state"]').exists()).toBe(false);
+    expect(loading.w.text()).toContain(zhTW.designer.loading);
+    api.recordHistory.mockRejectedValue({ status: 500 });
+    const failed = await mountHistory();
+    expect(failed.w.find('[data-testid="empty-state"]').exists()).toBe(false);
+    expect(failed.w.text()).toContain(zhTW.dynamic.loadFailed);
   });
 
   it('pages with q-pagination when total exceeds the page size', async () => {

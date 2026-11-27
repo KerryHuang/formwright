@@ -62,7 +62,7 @@ async function mountAt(url: string, opts: { flow?: ApprovalFlow | 404; edit?: bo
   if (opts.moduleError) api.getModule.mockRejectedValue({ status: opts.moduleError }); else api.getModule.mockResolvedValue(mod);
   api.getWorkflow.mockResolvedValue(wf as never);
   if (opts.flow === 404 || opts.flowError) api.getApprovalFlow.mockRejectedValue({ status: opts.flowError ?? 404 });
-  else api.getApprovalFlow.mockResolvedValue((opts.flow ?? flow()) as never);
+  else api.getApprovalFlow.mockReturnValue(Promise.resolve(opts.flow ?? flow()) as never);
   api.getApprovalFlows.mockResolvedValue([]);
   if (opts.meError) api.getMe.mockRejectedValue({ status: 500 });
   else api.getMe.mockResolvedValue({ designer: { read: true, add: true, edit: opts.edit ?? true, delete: true } } as never);
@@ -106,6 +106,19 @@ describe('FlowDesignerPage', () => {
     window.innerWidth = 1366;
     window.dispatchEvent(new Event('resize'));
     await new Promise((r) => setTimeout(r, 100));
+  });
+
+  it('shows a title bar and canvas skeleton while loading, gone once the flow is drawn', async () => {
+    const loading = await mountAt(url(), { flow: new Promise(() => {}) as never });
+    const sk = loading.get('[data-testid="loading-skeleton"]');
+    expect(sk.attributes('aria-busy')).toBe('true');
+    expect(sk.attributes('aria-label')).toBe(zhTW.designer.loading);
+    expect(sk.findAll('.q-skeleton')).toHaveLength(2);
+    loading.unmount();
+    const done = await mountAt(url());
+    expect(done.find('[data-testid="loading-skeleton"]').exists()).toBe(false);
+    expect(done.find('[data-testid="canvas"]').exists()).toBe(true);
+    done.unmount();
   });
 
   it('loads the draft when there is one, else the published graph', async () => {

@@ -21,6 +21,7 @@ import SubtaskProgress from 'src/presentation/dynamic/tasks/SubtaskProgress.vue'
 import TaskDialog from 'src/presentation/dynamic/tasks/TaskDialog.vue';
 import TaskFormDialog from 'src/presentation/dynamic/tasks/TaskFormDialog.vue';
 import { useIdentityStore } from 'src/stores/use-identity-store';
+import EmptyState from 'src/components/framework/EmptyState.vue';
 
 const BASE_TABS: TaskListTab[] = ['assigned', 'created', 'mentioned'];
 const ALL_TABS: TaskListTab[] = [...BASE_TABS, 'subordinates'];
@@ -226,7 +227,13 @@ const boardFailed = computed(() => !!boardQuery.error.value && !boardQuery.data.
         />
       </div>
       <div v-if="query.error.value && !query.data.value" class="text-negative" data-testid="tasks-load-failed">{{ t('tasks.loadFailed') }}</div>
-      <div v-else-if="!items.length && !query.isFetching.value" class="text-muted q-py-md" data-testid="tasks-empty">{{ t('tasks.empty') }}</div>
+      <div v-else-if="!items.length && !query.isFetching.value" data-testid="tasks-empty">
+        <EmptyState :message="t('tasks.empty')" :hint="t('tasks.emptyHint')">
+          <template #action>
+            <q-btn color="primary" no-caps icon="add" :label="t('tasks.add')" data-testid="empty-task-add" @click="adding = true" />
+          </template>
+        </EmptyState>
+      </div>
       <q-list v-else separator bordered class="rounded-borders">
         <q-item
           v-for="task in items" :key="task.id" clickable :data-testid="`my-task-${task.id}`"

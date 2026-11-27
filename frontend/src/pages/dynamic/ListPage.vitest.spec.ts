@@ -74,6 +74,62 @@ describe('ListPage', () => {
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   });
 
+  /** 沒有任何資料的清單。 */
+  async function mountEmpty(views: ListView[] = []) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const w = await mountPage(views, qc);
+    api.getPagedRecords.mockResolvedValue({ items: [], totalCount: 0, currentPage: 1, pagesSize: 20 });
+    await qc.invalidateQueries();
+    await flushPromises();
+    return w;
+  }
+  const emptyText = (w: Awaited<ReturnType<typeof mountPage>>) => w.get('[data-testid="empty-state"]').text();
+
+  it('empty without filter or keyword: names the module and offers the same add action', async () => {
+    const w = await mountEmpty();
+    expect(emptyText(w)).toContain('還沒有任何模組。');
+    expect(w.find('[data-testid="empty-state-hint"]').exists()).toBe(false);
+    expect(w.get('.q-table__bottom--nodata').text()).not.toContain('warning');
+    await w.get('[data-testid="empty-new-btn"]').trigger('click');
+    await flushPromises();
+    expect(router.currentRoute.value.path).toBe('/dynamic/m/new');
+  });
+
+  it('empty without add permission: no button', async () => {
+    schemaPatch = { permissions: { ...schema.permissions, add: false } };
+    const w = await mountEmpty();
+    expect(emptyText(w)).toContain('還沒有任何模組。');
+    expect(w.find('[data-testid="empty-new-btn"]').exists()).toBe(false);
+  });
+
+  it.each([
+    ['filter', async (w: Awaited<ReturnType<typeof mountPage>>) => { w.findComponent(FilterPanel).vm.$emit('update:modelValue', { all: [{ field: 2, op: 'eq', value: 'x' }] }); }],
+    ['keyword', async (w: Awaited<ReturnType<typeof mountPage>>) => { w.findAllComponents(quasar.QInput).find((c) => c.attributes('data-testid') === 'keyword' || c.element.closest('[data-testid="keyword"]') || c.element.querySelector('[data-testid="keyword"]'))!.vm.$emit('update:modelValue', 'zzzz'); }],
+  ])('empty because of a %s: says nothing matches, no add button', async (_name, apply) => {
+    const w = await mountEmpty();
+    await apply(w);
+    await flushPromises();
+    expect(emptyText(w)).toContain('沒有符合條件的資料。');
+    expect(emptyText(w)).toContain('試著放寬篩選條件或清除關鍵字。');
+    expect(w.find('[data-testid="empty-new-btn"]').exists()).toBe(false);
+  });
+
+  it('empty because of the approval switch counts as filtered', async () => {
+    schemaPatch = { approvalEnabled: true };
+    const w = await mountEmpty();
+    w.findAllComponents(quasar.QBtnToggle).at(0)!.vm.$emit('update:modelValue', 'pending');
+    await flushPromises();
+    expect(emptyText(w)).toContain('沒有符合條件的資料。');
+  });
+
+  it('does not show the empty state while records are still loading', async () => {
+    const w = await mountPage();
+    api.getPagedRecords.mockReturnValue(new Promise(() => {}));
+    w.findComponent(FilterPanel).vm.$emit('update:modelValue', { all: [{ field: 2, op: 'eq', value: 'x' }] });
+    await flushPromises();
+    expect(w.find('[data-testid="empty-state"]').exists()).toBe(false);
+  });
+
   it('rows are visibly clickable and open the record detail', async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const w = await mountPage([], qc);

@@ -229,7 +229,13 @@ onBeforeUnmount(() => { window.removeEventListener('beforeunload', onBeforeUnloa
       {{ t('approval.designer.graph.loadFailed') }}
     </div>
     <div v-else-if="workflow.data.value === null" class="q-pa-md text-muted" data-testid="de-no-workflow">{{ t('approval.designer.list.noWorkflow') }}</div>
-    <div v-else-if="!designer.loaded.value || !moduleQuery.data.value || !workflow.data.value" class="q-pa-md text-muted">{{ t('designer.loading') }}</div>
+    <div
+      v-else-if="!designer.loaded.value || !moduleQuery.data.value || !workflow.data.value" class="col column no-wrap q-pa-sm" style="gap: 8px"
+      role="status" aria-busy="true" :aria-label="t('designer.loading')" data-testid="loading-skeleton"
+    >
+      <q-skeleton type="rect" height="40px" />
+      <q-skeleton type="rect" class="col" height="auto" />
+    </div>
     <template v-else>
       <div class="row items-center no-wrap q-pa-xs de-header">
         <q-btn flat dense round icon="arrow_back" :aria-label="t('approval.designer.graph.back')" data-testid="de-back" @click="back" />

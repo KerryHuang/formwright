@@ -7,6 +7,7 @@ import { createI18n } from 'vue-i18n';
 import type { DesignerField, Me, ModuleDetail, Rule } from 'src/domain/dynamic/types';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import { dynamicApi } from 'src/services/api/dynamic-api';
+import RuleEditorDialog from './RuleEditorDialog.vue';
 import RulesTab from './RulesTab.vue';
 import { FACTORY_ME_THEME } from 'src/domain/theme/theme-fixtures';
 
@@ -31,8 +32,8 @@ const me = (edit: boolean): Me => ({
   userId: 'a', displayName: 'A', isSystemAdmin: false, mustChangePassword: false, groups: [], designer: { read: true, add: true, edit, delete: false }, permissionAdmin: false, theme: FACTORY_ME_THEME,
 });
 
-function mountTab(canEdit = true, maxRules: number | 'pending' = 100) {
-  api.getRules.mockResolvedValue(JSON.parse(JSON.stringify(rules)));
+function mountTab(canEdit = true, maxRules: number | 'pending' = 100, list: Rule[] = rules) {
+  api.getRules.mockResolvedValue(JSON.parse(JSON.stringify(list)));
   api.getMe.mockResolvedValue(me(canEdit));
   if (maxRules === 'pending') api.getEffectivePolicies.mockReturnValue(new Promise(() => {}));
   else api.getEffectivePolicies.mockResolvedValue({ locales: [], moduleKey: 'a', values: { 'design.maxRulesPerModule': maxRules } });
@@ -151,5 +152,37 @@ describe('RulesTab', () => {
     await flushPromises();
     expect(id(w, 'rule-row-0').exists()).toBe(true);
     expect(id(w, 'add-rule').attributes('disabled')).toBeDefined();
+  });
+
+  it('empty: says why with an example and an add button that opens the same dialog', async () => {
+    const w = mountTab(true, 100, []);
+    await flushPromises();
+    const empty = id(w, 'empty-state');
+    expect(empty.text()).toContain('還沒有規則。規則可以依條件顯示或隱藏欄位，或改成必填、唯讀。');
+    expect(empty.text()).toContain('例如：付款方式選「月結」時，「結帳日」改成必填。');
+    expect(w.findComponent(RuleEditorDialog).props('modelValue')).toBe(false);
+    await id(w, 'empty-add-rule').trigger('click');
+    await flushPromises();
+    expect(w.findComponent(RuleEditorDialog).props('modelValue')).toBe(true);
+  });
+
+  it('empty and read-only, or already at the limit: reason only, no button', async () => {
+    for (const w of [mountTab(false, 100, []), mountTab(true, 0, [])]) {
+      await flushPromises();
+      expect(id(w, 'empty-state').exists()).toBe(true);
+      expect(id(w, 'empty-add-rule').exists()).toBe(false);
+    }
+  });
+
+  it('empty while the limit is still loading: the button is disabled like the top one', async () => {
+    const w = mountTab(true, 'pending', []);
+    await flushPromises();
+    expect(id(w, 'empty-add-rule').attributes('disabled')).toBeDefined();
+  });
+
+  it('with rules there is no empty state', async () => {
+    const w = mountTab();
+    await flushPromises();
+    expect(id(w, 'empty-state').exists()).toBe(false);
   });
 });

@@ -6,7 +6,7 @@ import { useReport, useReportCatalogModules, useReportDatasets, usePreviewReport
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
 import { compactI18n } from 'src/domain/dynamic/i18n-text';
 import { isForbidden, type ApiError } from 'src/services/api/http';
-import { canAdvance, canSave, emptyState, fromDefinition, toDefinition, unavailableRefs, type DesignerStep } from 'src/presentation/reports/designer/designer-state';
+import { advanceBlocker, canAdvance, canSave, emptyState, fromDefinition, toDefinition, unavailableRefs, type DesignerStep } from 'src/presentation/reports/designer/designer-state';
 import StepFields from 'src/presentation/reports/designer/StepFields.vue';
 import StepFilters from 'src/presentation/reports/designer/StepFilters.vue';
 import StepGroups from 'src/presentation/reports/designer/StepGroups.vue';
@@ -56,6 +56,8 @@ const unavailable = computed(() => (catalog.value ? unavailableRefs(state, catal
 const STEPS = ['source', 'fields', 'filters', 'groups', 'preview'] as const;
 const blocked = computed(() => step.value >= 3 && unavailable.value.any);
 const nextEnabled = computed(() => canAdvance(state, step.value) && !!catalog.value && !blocked.value);
+// 目錄載入中不給原因；有不可用欄位時畫面上方已有提示，不重複
+const nextReason = computed(() => (catalogQuery.isFetching.value || blocked.value ? null : advanceBlocker(state, step.value)));
 const messages = (e: unknown) => {
   const err = e as ApiError;
   const list = Object.values(err.errors ?? {}).flat();
@@ -95,11 +97,18 @@ function doSave() {
 
       <div v-if="hiddenBlocked" class="text-negative" data-testid="designer-hidden-blocked">{{ t('reports.designer.hiddenBlocked') }}</div>
       <template v-else>
-        <div class="row q-gutter-x-md q-mb-md">
-          <span
-            v-for="(k, i) in STEPS" :key="k" :class="i === step ? 'text-weight-bold text-primary' : 'text-muted'" :data-testid="`step-label-${i}`"
-          >{{ i + 1 }}. {{ t(`reports.designer.steps.${k}`) }}</span>
-        </div>
+        <ol class="designer-steps q-mb-md">
+          <li
+            v-for="(k, i) in STEPS" :key="k" class="designer-step" :class="{ 'designer-step--current text-weight-bold': i === step, 'text-muted': i > step }"
+            :aria-current="i === step ? 'step' : undefined" :data-testid="`step-label-${i}`"
+          >
+            <span class="designer-step__dot" :class="{ 'text-primary': i < step }" aria-hidden="true">
+              <q-icon v-if="i < step" name="check" />
+              <template v-else>{{ i + 1 }}</template>
+            </span>
+            <span class="designer-step__name">{{ t(`reports.designer.steps.${k}`) }}</span>
+          </li>
+        </ol>
         <div v-if="unavailable.any" class="text-negative q-mb-md" data-testid="designer-unavailable">{{ t('reports.designer.unavailableBanner') }}</div>
         <div v-if="catalogQuery.isError.value" class="text-negative q-mb-md" data-testid="catalog-error">{{ t('reports.designer.catalogFailed') }}</div>
 
@@ -121,7 +130,22 @@ function doSave() {
             @click="go((step + 1) as DesignerStep)"
           />
         </div>
+        <div v-if="step < 4 && nextReason" class="text-caption text-muted q-mt-xs" role="status" data-testid="designer-next-reason">
+          {{ t(`reports.designer.nextReason.${nextReason}`) }}
+        </div>
       </template>
     </template>
   </q-page>
 </template>
+
+<style scoped>
+.designer-steps { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 0; padding: 0; list-style: none; }
+.designer-step { display: flex; align-items: center; gap: 6px; }
+.designer-step__dot { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 26px; height: 26px; border: 1px solid currentColor; border-radius: 50%; }
+.designer-step--current .designer-step__dot { border-color: var(--q-primary); background: var(--q-primary); color: var(--t-on-primary); }
+/* 手機只顯示編號與目前步驟名稱；其他名稱視覺上隱藏，讀屏仍讀得到 */
+@media (max-width: 599px) {
+  .designer-steps { gap: 8px; }
+  .designer-step:not(.designer-step--current) .designer-step__name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+</style>

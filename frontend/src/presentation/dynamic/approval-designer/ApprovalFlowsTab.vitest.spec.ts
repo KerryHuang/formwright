@@ -83,6 +83,26 @@ const notified = (text: string) => expect(notify.mock.calls.map((c) => (c[0] as 
 const body = (id: string) => document.body.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
 
 describe('ApprovalFlowsTab', () => {
+  it('shows three card skeletons while loading, gone once the flows arrive', async () => {
+    api.getApprovalFlows.mockReturnValue(new Promise(() => {}));
+    api.getWorkflow.mockResolvedValue(wf as never);
+    api.getMe.mockResolvedValue({ designer: { read: true, add: true, edit: true, delete: true } } as never);
+    const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
+    const loading = mount(ApprovalFlowsTab, {
+      props: { module: mod() },
+      global: { plugins: [[quasar.Quasar, { components: quasar }], createPinia(), i18n, createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i/>' } }] }),
+        [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]] },
+    });
+    await flushPromises();
+    const sk = loading.get('[data-testid="loading-skeleton"]');
+    expect(sk.attributes('aria-busy')).toBe('true');
+    expect(sk.attributes('aria-label')).toBe(zhTW.designer.loading);
+    expect(sk.findAll('.q-skeleton')).toHaveLength(3);
+    loading.unmount();
+    const done = await mountTab([flow('a', 12, 1)]);
+    expect(done.find('[data-testid="loading-skeleton"]').exists()).toBe(false);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     document.body.innerHTML = '';
