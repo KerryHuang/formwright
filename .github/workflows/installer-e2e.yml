@@ -467,6 +467,9 @@ jobs:
           icacls 'C:\ProgramData\Formwright' | Write-Host
           Assert-AclState
           Assert-ParentSddl   # fresh：父目錄是一次建立的最終 DACL，回讀的 SDDL 與預期一致
+          # 失敗注入案例用算出來的服務 SID 預先放父目錄（New-LockedData）：必須和服務實際的 SID 一致
+          $realSid = (New-Object Security.Principal.NTAccount('NT SERVICE\Formwright')).Translate([Security.Principal.SecurityIdentifier]).Value
+          Assert ((Get-ServiceSid) -ceq $realSid) "算出的服務 SID $(Get-ServiceSid) 與實際 $realSid 不同"
           Assert (Test-Path "$Data\setup-code") 'setup-code 不在'
 
       - name: backup-red（AC-05）
@@ -497,13 +500,10 @@ jobs:
       - name: upgrade（AC-06、M02、M05、M06）
         run: |
           . ./scripts/installer/e2e/windows-lib.ps1
-          # M02 回歸：升級前人為留下既有的讀取授權（不擋，升級後必須被清掉）
-          Icacls $Data /grant 'BUILTIN\Users:(OI)(CI)R'
-          Icacls 'C:\ProgramData\Formwright\formwright.json' /grant 'BUILTIN\Users:R'
           # 備份差集的起點要在被拒絕的那次升級之前取（拒絕之後服務是停用的，API 不通）；被拒絕那次自己的備份由 $start 排除
           $before = @((Wiz backups $Base) | ConvertFrom-Json)
           $beforeIds = @($before | ForEach-Object { [long]$_.id })
-          # 寫入前預檢：資料目錄由一般使用者擁有 → 安裝程式必須拒絕（結束碼 20、log 有 untrusted owner、服務停用）；改回後再升級必須成功
+          # M02：升級只驗證、不重設。資料目錄由一般使用者擁有 → 安裝程式必須拒絕（結束碼 20、log 有 untrusted owner、服務停用）；改回後再升級必須成功
           Icacls $Data /setowner 'BUILTIN\Users'
           $rc = Install-Fw $env:V2 'upgrade-untrusted-owner'
           Assert ($rc -eq 20) "資料目錄擁有者是 Users 時結束碼應為 20、實得 $rc"
@@ -511,6 +511,27 @@ jobs:
           $s = Get-Service Formwright
           Assert ($s.StartType -eq 'Disabled' -and $s.Status -eq 'Stopped') "預檢拒絕後服務應為 Disabled／Stopped、實得 $($s.StartType)／$($s.Status)"
           Icacls $Data /setowner '*S-1-5-32-544'
+          Assert-AclState -AllowServiceOwner   # 改回擁有者後樹要回到預期集合，下一段的拒絕才確定是讀取授權造成的
+          # M02：系統管理員自己加的讀取授權（沒有寫入權）也算偏差，升級必須拒絕：結束碼 20、log 有規則與路徑、服務停用、授權原封不動（沒有任何寫入）
+          $cfg = 'C:\ProgramData\Formwright\formwright.json'
+          Icacls $Data /grant 'BUILTIN\Users:(OI)(CI)R'
+          Icacls $cfg /grant 'BUILTIN\Users:R'
+          $dataSddl = (Get-Acl -LiteralPath $Data).Sddl
+          $cfgSddl = (Get-Acl -LiteralPath $cfg).Sddl
+          $rc = Install-Fw $env:V2 'upgrade-read-grant'
+          Assert ($rc -eq 20) "既有的 Users 讀取授權時結束碼應為 20、實得 $rc"
+          $log = Log-Text 'setup-upgrade-read-grant.log'
+          Assert ($log -match 'unexpected ACE for S-1-5-32-545') 'log 缺「unexpected ACE for S-1-5-32-545」（規則）'
+          Assert ($log -match [regex]::Escape('C:\ProgramData\Formwright')) 'log 缺資料目錄路徑'
+          $s = Get-Service Formwright
+          Assert ($s.StartType -eq 'Disabled' -and $s.Status -eq 'Stopped') "讀取授權被拒絕後服務應為 Disabled／Stopped、實得 $($s.StartType)／$($s.Status)"
+          Assert ((Get-Acl -LiteralPath $Data).Sddl -ceq $dataSddl) '被拒絕的升級改動了資料目錄的 ACL'
+          Assert ((Get-Acl -LiteralPath $cfg).Sddl -ceq $cfgSddl) '被拒絕的升級改動了設定檔的 ACL'
+          Assert (@((Get-Acl -LiteralPath $Data).Access | Where-Object { $_.IdentityReference.Value -like '*\Users' -and -not $_.IsInherited }).Count -ge 1) '資料目錄上的 Users 讀取授權不見了'
+          # 管理員手動移除授權（/reset 回到純繼承）後再升級必須成功
+          Icacls $Data /reset /T /C /L
+          Icacls $cfg /reset /C /L
+          Assert-AclState -AllowServiceOwner
           # M06 回歸：先手動放一條舊版留下的寬規則（只有 port、不限來源與程式），不帶參數升級後必須被收斂成一條受限的規則
           New-NetFirewallRule -DisplayName Formwright -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8080 | Out-Null
           $start = Now-Utc
@@ -742,6 +763,7 @@ jobs:
               Assert ($null -ne $s -and $s.StartType -eq 'Disabled' -and $s.Status -eq 'Stopped') '預檢拒絕後服務應為 Disabled／Stopped'
               Assert ((Get-Acl -LiteralPath $ext).Sddl -ceq $extBefore -and (Get-Acl -LiteralPath "$ext\sentinel.txt").Sddl -ceq $extFileBefore) '外部目錄或檔案的 ACL 變了'
               Icacls "$Data\sub" /remove 'BUILTIN\Users'
+              Icacls "$Data\sub" /reset /C /L   # icacls 改 DACL 後要 /reset 才回到純繼承（升級只驗證不重設，不會替它收拾）
               Quiesce-Fw
               Assert ((Install-Fw $env:V1 'inject-userwrite-fixed') -eq 0) '清掉 Users 寫入後安裝應成功'
               Wait-Code "$Base/api/version" 200

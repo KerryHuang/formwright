@@ -1,4 +1,5 @@
-# Formwright installer: rebuild the permissions of the data parent directory (run by the installer as administrator, every install).
+# Formwright installer: set up the permissions of the data parent directory on a FRESH install, and only VERIFY them on an upgrade
+# (run by the installer as administrator, every install).
 # Windows PowerShell 5.1 compatible; ASCII only (5.1 reads BOM-less files as ANSI).
 # Order:
 #  (A) The direct parent of $Parent (ProgramData) is checked: not a reparse point, owner SYSTEM/Administrators/TrustedInstaller, and no
@@ -9,25 +10,30 @@
 #      owner Administrators, SYSTEM and Administrators Full Control, service account Modify), so there is no window with an inherited,
 #      writable directory. It is read back and must be exactly that, empty and just created; otherwise (somebody was faster) it is treated as
 #      an existing tree and goes through (C).
-#  (C) $Parent exists: READ-ONLY PRE-CHECK of the whole tree; anything untrusted = refuse (exit 2), nothing has been written yet (no Set-Acl
-#      either: it would propagate inheritable ACEs into existing children). Only a passing tree goes on to lock the parent (one Set-Acl).
-#  (D) Walk the tree top-down ourselves (icacls never recurses: /T walks into junctions even with /L, CI proved it). Only items that
-#      DEVIATE (explicit ACE, protected, owner not Administrators/SYSTEM) are reset; conforming items are not touched. Right before a file
-#      is touched: hard link count must be 1 and it must not be a reparse point; directories are checked for reparse before and after.
-#  (E) Verify each item against the authoritative expected set (owner Administrators or SYSTEM, non-null DACL, exactly 3 inherited ACEs:
-#      SYSTEM and Administrators Full Control, service account Modify; inheritance flags right for files and directories).
-# Pre-check rules (every item, the parent included):
+#  (C) $Parent exists (upgrade, reinstall, or somebody else created it first): VERIFY ONLY. This script never writes an ACL or an owner on an
+#      existing item: no Set-Acl, no icacls, no setowner. It checks, read-only: the trust rules below for the whole tree, then that the parent is
+#      exactly the locked state and that every item below it is exactly the expected set. Any deviation (including a read grant an
+#      administrator added by hand) = refuse (exit 2) with the path and the rule in the message, and NOTHING HAS BEEN WRITTEN. The administrator
+#      fixes the item by hand and runs the installer again. The only write is creating a missing Data or Backup directory, which just inherits
+#      from the verified parent (no ACL is written).
+#  (D) Final check of the whole tree against the expected set (fresh and existing alike): owner Administrators or SYSTEM (an existing tree
+#      also allows the service account: files the service created itself, such as keys, the database and backups, belong to it), non-null
+#      DACL, inheriting (not protected), exactly 3 inherited ACEs: SYSTEM and Administrators Full Control, service account Modify;
+#      inheritance flags right for files and directories. Violations of the expected set are reported as:
+#      "unexpected owner", "protected (non-inheriting) permissions", "unexpected ACE for <sid>", "explicit ACE for <sid>",
+#      "<n> ACEs, expected 3", plus "parent ..." for the parent itself.
+# Trust rules (checked first, every item, the parent included):
 #   - not a reparse point; owner is SYSTEM, Administrators, TrustedInstaller or the service account; DACL exists (not null);
 #   - no Allow ACE with a write-class right (WriteData/AddFile, AppendData/AddSubdirectory, WriteEA, WriteAttributes, Delete, DeleteChild,
 #     WriteDAC, WriteOwner, GenericWrite, GenericAll) for any SID except SYSTEM, Administrators, the service account, and CREATOR OWNER
-#     (only when InheritOnly). Read-class grants to anyone are allowed (the reset below removes them);
+#     (only when InheritOnly). Read-class grants to anyone pass this rule but are refused by the expected set in (D);
 #   - files: hard link count must be 1 (CreateFileW + GetFileInformationByHandle; failing to open or query = refuse).
-# Accepted residual risk (decided by the owner): an ACL change does not revoke handles opened earlier. If an administrator once granted
-# write access to the data directory to another account, and that account still holds a write handle opened before the grant was
-# removed and keeps it across the install, it could still plant a link or hard link after the checks. The installer cannot fully exclude
-# this. It is narrowed by: stopped service, refusing every untrusted item, resetting only deviating items, re-checking link count and
-# reparse state right before touching a file. Do not grant write access to the data directory to other accounts.
-# Any failure exits non-zero (message goes to -LogFile).
+# Residual risk: an ACL change does not revoke handles opened earlier, so an account that was once granted write access and still holds an
+# old handle could plant a link or hard link at any time. Because an existing tree is never written (no ACL, no owner), such a link cannot
+# make THIS script change the permissions of a file outside the tree. On a fresh install the parent was just created with the final
+# protected DACL and nobody else was ever granted anything, so there are no such handles. This script does not protect what the other
+# installer steps and the service later do inside the directory. Do not grant write access to the data directory to other accounts.
+# Any failure exits non-zero (message goes to -LogFile); exit 2 = the existing tree is not as expected (nothing was written).
 param(
   [Parameter(Mandatory = $true)][string]$Parent,
   [Parameter(Mandatory = $true)][string]$Data,
@@ -40,7 +46,6 @@ $ErrorActionPreference = 'Stop'
 # Started from PowerShell 7 (pwsh), this Windows PowerShell 5.1 inherits pwsh's PSModulePath and cannot load its own
 # built-in modules (Set-Acl, NetSecurity). Use only the machine-wide module path plus the 5.1 system modules.
 $env:PSModulePath = (@([Environment]::GetEnvironmentVariable('PSModulePath', 'Machine'), (Join-Path $PSHOME 'Modules')) | Where-Object { $_ }) -join ';'
-$icacls = Join-Path $env:SystemRoot 'System32\icacls.exe'
 $FullMask = 0x1F01FF           # FILE_ALL_ACCESS
 $ModifyRequired = 0x301BF      # Delete + ReadControl + read/write/execute basics (FileSystemRights.Modify without Synchronize)
 $ForbiddenForService = 0xC0000 # WRITE_DAC | WRITE_OWNER
@@ -165,56 +170,52 @@ function Get-ParentProblem {
   return ''
 }
 
-# true when the item needs no reset: owner Administrators or SYSTEM, not protected, no explicit ACE
-function Test-Conforms([string]$Path) {
-  $a = Get-Acl -LiteralPath $Path
-  $owner = $a.GetOwner([Security.Principal.SecurityIdentifier]).Value
-  if ($owner -ne $sidAdmins.Value -and $owner -ne $sidSystem.Value) { return $false }
-  if ($a.AreAccessRulesProtected) { return $false }
-  foreach ($r in $a.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) { if (-not $r.IsInherited) { return $false } }
-  return $true
-}
-
 function Test-Reparse([string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { return $false }
   $attr = (Get-Item -LiteralPath $Path -Force).Attributes
   return (($attr -band [IO.FileAttributes]::ReparsePoint) -ne 0)
 }
 
-function Reset-Tree([string]$Dir) {
-  # $Dir itself is already in its final state (or is the locked parent). Only deviating items are touched.
+# An existing tree is refused (exit 2); a tree we just created that is wrong is an internal error (exit 1)
+$script:existing = $false
+function Fail([string]$Message) { if ($script:existing) { Reject $Message } else { throw $Message } }
+
+# Every item below $Dir against the expected set (see (D) in the header). Read-only; by hand, links are never entered.
+$script:itemCount = 0
+function Test-Expected([string]$Dir, [string[]]$OwnersOk) {
+  $dirFlags = [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
+  $fileFlags = [Security.AccessControl.InheritanceFlags]::None
   foreach ($item in Get-ChildItem -LiteralPath $Dir -Force) {
     $path = $item.FullName
-    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "reparse point refused: $path" }
-    if (-not (Test-Conforms $path)) {
-      # look again right before touching it: still not a link; a file must still have exactly one name
-      $cur = Get-Item -LiteralPath $path -Force
-      if (($cur.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "reparse point refused: $path" }
-      if (-not $cur.PSIsContainer) {
-        $n = 0
-        try { $n = [FwLinks]::Count($path) } catch { Reject "cannot check hard links ($($_.Exception.Message)): $path" }
-        if ($n -ne 1) { Reject "hard link ($n names): $path" }
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Fail "reparse point: $path" }
+    $script:itemCount++
+    $a = Get-Acl -LiteralPath $path
+    $owner = $a.GetOwner([Security.Principal.SecurityIdentifier]).Value
+    if ($OwnersOk -notcontains $owner) { Fail "unexpected owner ${owner}: $path" }
+    if ($a.AreAccessRulesProtected) { Fail "protected (non-inheriting) permissions: $path" }
+    if ([string]::IsNullOrEmpty($a.GetSecurityDescriptorSddlForm('Access'))) { Fail "no DACL: $path" }
+    $rs = @($a.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
+    $want = if ($item.PSIsContainer) { $dirFlags } else { $fileFlags }
+    $seen = @()
+    foreach ($r in $rs) {
+      $sid = $r.IdentityReference.Value
+      $mask = [int]$r.FileSystemRights
+      if ($sid -ne $sidSystem.Value -and $sid -ne $sidAdmins.Value -and $sid -ne $sidService.Value) { Fail "unexpected ACE for ${sid}: $path" }
+      if (-not $r.IsInherited) { Fail "explicit ACE for ${sid}: $path" }
+      if ($r.AccessControlType -ne 'Allow') { Fail "ACE for $sid is not Allow: $path" }
+      if ($r.InheritanceFlags -ne $want -or $r.PropagationFlags -ne 'None') { Fail "ACE for $sid has wrong inheritance flags: $path" }
+      if ($sid -eq $sidService.Value) {
+        if (($mask -band $ModifyRequired) -ne $ModifyRequired) { Fail "service account lacks Modify: $path" }
+        if (($mask -band $ForbiddenForService) -ne 0) { Fail "service account has WriteDACL/WriteOwner: $path" }
+      } elseif (($mask -band $FullMask) -ne $FullMask) {
+        Fail "$sid is not Full Control: $path"
       }
-      Run-Icacls @($path, '/setowner', '*S-1-5-32-544', '/C', '/L')
-      Run-Icacls @($path, '/reset', '/C', '/L')
-      if (Test-Reparse $path) { throw "reparse point refused: $path" }
+      $seen += $sid
     }
-    if ((Get-Item -LiteralPath $path -Force).PSIsContainer) { Reset-Tree $path }
+    if ($rs.Count -ne 3) { Fail "$($rs.Count) ACEs, expected 3: $path" }
+    if (@($seen | Sort-Object -Unique).Count -ne 3) { Fail "ACE principals are not SYSTEM, Administrators and the service account: $path" }
+    if ($item.PSIsContainer) { Test-Expected $path $OwnersOk }
   }
-}
-
-# Walk by hand: Get-ChildItem -Recurse would follow junctions. Returns every item below $Dir (links are never entered).
-function Get-Tree([string]$Dir) {
-  foreach ($item in Get-ChildItem -LiteralPath $Dir -Force) {
-    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "reparse point refused: $($item.FullName)" }
-    $item
-    if ($item.PSIsContainer) { Get-Tree $item.FullName }
-  }
-}
-
-function Run-Icacls([string[]]$IcaclsArgs) {
-  & $icacls @IcaclsArgs | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "icacls $($IcaclsArgs -join ' ') failed ($LASTEXITCODE)" }
 }
 
 try {
@@ -243,7 +244,7 @@ try {
   $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sidAdmins, 'FullControl', $flags, $none, $allow)))
   $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sidService, 'Modify', $flags, $none, $allow)))
 
-  # 2. (B) fresh: create the parent with its final DACL in one call. (C) otherwise: read-only pre-check, then lock with one Set-Acl.
+  # 2. (B) fresh: create the parent with its final DACL in one call. (C) otherwise: verify only, nothing existing is written.
   $createdByUs = $false
   if (-not (Test-Path -LiteralPath $Parent)) {
     [void][IO.Directory]::CreateDirectory($Parent, $acl)   # .NET Framework overload (Windows PowerShell 5.1); no inherited, writable window
@@ -253,64 +254,31 @@ try {
     # exactly our state, empty, and just created; otherwise someone was faster and it is handled as an existing tree
     if ((Get-ParentProblem) -eq '' -and $kids.Count -eq 0 -and $age -lt 120 -and $age -gt -5) { $createdByUs = $true }
   }
-  if (-not $createdByUs) {
+  $script:existing = -not $createdByUs
+  if ($script:existing) {
     if (-not (Test-Path -LiteralPath $Parent -PathType Container)) { throw "not a directory: $Parent" }
     $ownersOk = @($sidSystem.Value, $sidAdmins.Value, $sidTrustedInstaller, $sidService.Value)
     $writeOk = @($sidSystem.Value, $sidAdmins.Value, $sidService.Value)
     Test-Trusted (Get-Item -LiteralPath $Parent -Force) $ownersOk $writeOk $sidService.Value
     Test-Tree $Parent $ownersOk $writeOk $sidService.Value
-    if (Test-Reparse $Parent) { throw "reparse point refused: $Parent" }
-    Set-Acl -LiteralPath $Parent -AclObject $acl
+    $problem = Get-ParentProblem
+    if ($problem -ne '') { Reject "parent: ${problem}: $Parent" }
   }
 
-  # 3. Create what is missing, then reset the tree top-down (see the header).
+  # 3. Create what is missing (a new directory only inherits from the parent; no ACL is written), then check the whole tree (see (D)).
   foreach ($d in @($Data, $Backup)) {
     if (Test-Path -LiteralPath $d) {
-      if (-not (Test-Path -LiteralPath $d -PathType Container)) { throw "not a directory: $d" }
+      if (-not (Test-Path -LiteralPath $d -PathType Container)) { Fail "not a directory: $d" }
     } else {
       New-Item -ItemType Directory -Path $d | Out-Null
     }
   }
-  Reset-Tree $Parent
-
-  # 4. Read everything back.
   $problem = Get-ParentProblem
-  if ($problem -ne '') { throw $problem }
-  # Whole tree: nothing may be a link; every item must match the expected set exactly (an empty set does not pass).
+  if ($problem -ne '') { Fail "parent: ${problem}: $Parent" }
   $ownersOk = @($sidAdmins.Value, $sidSystem.Value)
-  $dirFlags = [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
-  $fileFlags = [Security.AccessControl.InheritanceFlags]::None
-  $count = 0
-  foreach ($item in (Get-Tree $Parent)) {
-    $count++
-    $path = $item.FullName
-    $a = Get-Acl -LiteralPath $path
-    if ($ownersOk -notcontains $a.GetOwner([Security.Principal.SecurityIdentifier]).Value) { throw "unexpected owner: $path" }
-    if ($a.AreAccessRulesProtected) { throw "protected (non-inheriting) permissions remain: $path" }
-    if ([string]::IsNullOrEmpty($a.GetSecurityDescriptorSddlForm('Access'))) { throw "no DACL: $path" }
-    $rs = @($a.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
-    if ($rs.Count -ne 3) { throw "$($rs.Count) ACEs, expected 3: $path" }
-    $want = if ($item.PSIsContainer) { $dirFlags } else { $fileFlags }
-    $seen = @()
-    foreach ($r in $rs) {
-      $sid = $r.IdentityReference.Value
-      $mask = [int]$r.FileSystemRights
-      if (-not $r.IsInherited) { throw "explicit ACE for ${sid}: $path" }
-      if ($r.AccessControlType -ne 'Allow') { throw "ACE for $sid is not Allow: $path" }
-      if ($r.InheritanceFlags -ne $want -or $r.PropagationFlags -ne 'None') { throw "ACE for $sid has wrong inheritance flags: $path" }
-      if ($sid -eq $sidSystem.Value -or $sid -eq $sidAdmins.Value) {
-        if (($mask -band $FullMask) -ne $FullMask) { throw "$sid is not Full Control: $path" }
-      } elseif ($sid -eq $sidService.Value) {
-        if (($mask -band $ModifyRequired) -ne $ModifyRequired) { throw "service account lacks Modify: $path" }
-        if (($mask -band $ForbiddenForService) -ne 0) { throw "service account has WriteDACL/WriteOwner: $path" }
-      } else {
-        throw "unexpected ACE for ${sid}: $path"
-      }
-      $seen += $sid
-    }
-    if (@($seen | Sort-Object -Unique).Count -ne 3) { throw "ACE principals are not SYSTEM, Administrators and the service account: $path" }
-  }
-  if ($count -lt 2) { throw "expected at least the data and backup directories below the parent, found $count items" }
+  if ($script:existing) { $ownersOk += $sidService.Value }
+  Test-Expected $Parent $ownersOk
+  if ($script:itemCount -lt 2) { throw "expected at least the data and backup directories below the parent, found $($script:itemCount) items" }
   exit 0
 } catch {
   $msg = "set-acl failed: $($_.Exception.Message)"

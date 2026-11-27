@@ -104,11 +104,18 @@ function Assert-FwGone {
   Assert ($null -eq (Get-NetFirewallRule -DisplayName Formwright -ErrorAction SilentlyContinue)) '防火牆規則還在'
 }
 
-# 預檢類失敗注入的起點：資料父目錄先鎖成只有 SYSTEM／Administrators（否則 ProgramData 繼承來的 Users 權限會讓預檢先停在父目錄），再建 data
+# 服務虛擬帳號的 SID（服務還不存在時也算得出來）：服務名稱轉大寫、UTF-16LE 做 SHA1，五個 32 位元小端整數接在 S-1-5-80 後面
+function Get-ServiceSid([string]$Name = 'Formwright') {
+  $h = [Security.Cryptography.SHA1]::Create().ComputeHash([Text.Encoding]::Unicode.GetBytes($Name.ToUpperInvariant()))
+  'S-1-5-80-' + ((0..4 | ForEach-Object { [BitConverter]::ToUInt32($h, 4 * $_) }) -join '-')
+}
+
+# 預檢類失敗注入的起點：資料父目錄先放成安裝程式要的最終狀態（擁有者 Administrators、受保護、SYSTEM／Administrators 完全控制與服務帳號 Modify，皆 OICI），再建 data。
+# 升級只驗證不重設，父目錄形狀不對會先卡在「parent ...」，測不到各案例要測的規則（ProgramData 繼承來的 Users 權限也一樣）；服務帳號用算出來的 SID（服務在這時還不存在）。
 function New-LockedData {
   $parent = 'C:\ProgramData\Formwright'
   New-Item -ItemType Directory -Force -Path $parent | Out-Null
-  Icacls $parent /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F'
+  Icacls $parent /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' "*$(Get-ServiceSid):(OI)(CI)M"
   Icacls $parent /setowner '*S-1-5-32-544'
   New-Item -ItemType Directory -Force -Path $Data | Out-Null
 }
