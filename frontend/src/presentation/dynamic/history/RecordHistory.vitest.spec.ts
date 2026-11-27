@@ -19,15 +19,16 @@ const paged = (items: RecordHistoryEntry[], totalCount = items.length) => ({ ite
 
 async function mountHistory() {
   const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW, 'en-US': zhTW } });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const w = mount(RecordHistory, {
     props: { recordId: 7 },
     global: {
       plugins: [[quasar.Quasar, { components: quasar, directives: quasar }], i18n,
-        [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]],
+        [VueQueryPlugin, { queryClient: client }]],
     },
   });
   await flushPromises();
-  return { w, i18n };
+  return { w, i18n, client };
 }
 
 describe('RecordHistory', () => {
@@ -126,6 +127,21 @@ describe('RecordHistory', () => {
     answer(paged([]));
     await flushPromises();
     expect(w.find('[data-testid="empty-state"]').exists()).toBe(true);
+  });
+
+  it('a background refetch of the same empty history keeps the empty state (no loading flash)', async () => {
+    api.recordHistory.mockResolvedValue(paged([]));
+    const { w, client } = await mountHistory();
+    expect(w.find('[data-testid="empty-state"]').exists()).toBe(true);
+    let answer!: (v: ReturnType<typeof paged>) => void;
+    api.recordHistory.mockReturnValue(new Promise((r) => { answer = r; }));
+    void client.invalidateQueries();
+    await flushPromises();
+    expect(api.recordHistory).toHaveBeenCalledTimes(2);
+    expect(w.find('[data-testid="empty-state"]').exists()).toBe(true);
+    expect(w.text()).not.toContain(zhTW.designer.loading);
+    answer(paged([]));
+    await flushPromises();
   });
 
   it('pages with q-pagination when total exceeds the page size', async () => {

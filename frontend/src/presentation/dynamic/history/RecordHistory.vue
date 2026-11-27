@@ -42,9 +42,9 @@ function fieldText(x: RecordHistoryEntry) {
     <q-table flat dense hide-pagination :rows="rows" :columns="columns" row-key="id" :rows-per-page-options="[0]"
       :no-data-label="t('dynamic.history.empty')">
       <template #no-data>
-        <!-- 目前條件的查詢成功回來才說沒有紀錄（暫時沿用的前次結果也算載入中）；讀取失敗另外說明 -->
+        <!-- 目前條件的查詢成功回來才說沒有紀錄（暫時沿用的前次結果也算載入中；同一條件背景重抓不算，避免閃「載入中」）；讀取失敗另外說明 -->
         <div v-if="query.isError.value" class="full-width text-negative">{{ t('dynamic.loadFailed') }}</div>
-        <div v-else-if="!query.isSuccess.value || query.isPlaceholderData.value || query.isFetching.value" class="full-width text-muted">{{ t('designer.loading') }}</div>
+        <div v-else-if="!query.isSuccess.value || query.isPlaceholderData.value" class="full-width text-muted">{{ t('designer.loading') }}</div>
         <EmptyState v-else :message="t('dynamic.history.empty')" :hint="t('dynamic.history.emptyHint')" />
       </template>
       <template #body="{ row }">
