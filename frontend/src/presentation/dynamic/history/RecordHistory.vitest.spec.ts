@@ -113,6 +113,21 @@ describe('RecordHistory', () => {
     expect(failed.w.text()).toContain(zhTW.dynamic.loadFailed);
   });
 
+  it('switching locale on an empty history shows loading, not the empty state, until the new answer arrives', async () => {
+    api.recordHistory.mockResolvedValue(paged([]));
+    const { w, i18n } = await mountHistory();
+    expect(w.find('[data-testid="empty-state"]').exists()).toBe(true);
+    let answer!: (v: ReturnType<typeof paged>) => void;
+    api.recordHistory.mockReturnValue(new Promise((r) => { answer = r; }));
+    i18n.global.locale.value = 'en-US';
+    await flushPromises();
+    expect(w.find('[data-testid="empty-state"]').exists()).toBe(false);
+    expect(w.text()).toContain(zhTW.designer.loading);
+    answer(paged([]));
+    await flushPromises();
+    expect(w.find('[data-testid="empty-state"]').exists()).toBe(true);
+  });
+
   it('pages with q-pagination when total exceeds the page size', async () => {
     api.recordHistory.mockResolvedValue(paged([entry({})], 45));
     const { w } = await mountHistory();

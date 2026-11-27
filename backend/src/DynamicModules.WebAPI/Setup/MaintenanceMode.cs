@@ -117,6 +117,7 @@ public static class MaintenanceMode
         }
         if (!ContentTypes.TryGetContentType(file.Name, out var contentType)) contentType = "application/octet-stream";
         ctx.Response.ContentType = contentType;
+        SpaStaticFiles.ApplyCacheHeader(ctx.Response, file.Name);
         await ctx.Response.SendFileAsync(file);
     }
 }

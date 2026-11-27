@@ -263,6 +263,21 @@ public sealed class MaintenanceModeTests : IDisposable
         finally { UnlockBackup(); }
     }
 
+    /// <summary>維護模式自己送檔（不經靜態檔中介層），index.html 一樣不能被快取：修好重啟或升級後要拿到新頁面。</summary>
+    [Theory]
+    [InlineData("/")]
+    [InlineData("/index.html")]
+    [InlineData("/some/spa/route")]
+    public async Task Maintenance_IndexHtml_IsNoCache_AssetsUntouched(string path)
+    {
+        File.WriteAllText(MarkerFile, "0.0.1-old");
+        using var root = new SpaCacheHeaderTests.SpaRoot();
+        using var app = NewApp(configureBackup: false);
+        using var client = root.ClientOf(app);
+        (await client.GetAsync("/api/maintenance")).StatusCode.Should().Be(HttpStatusCode.OK, "確實在維護模式");
+        await SpaCacheHeaderTests.AssertCacheHeadersAsync(client, path);
+    }
+
     [Fact]
     public async Task NormalMode_MaintenanceEndpoint_Is404()
     {

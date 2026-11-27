@@ -12,8 +12,8 @@ namespace DynamicModules.WebAPITests;
 /// </summary>
 public class SpaCacheHeaderTests
 {
-    /// <summary>暫存的內容根目錄：一份假的前端建置結果，加上正式的 appsettings.json。</summary>
-    private sealed class SpaRoot : IDisposable
+    /// <summary>暫存的內容根目錄，裡面是一份假的前端建置結果。</summary>
+    internal sealed class SpaRoot : IDisposable
     {
         public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"fw-spa-{Guid.NewGuid():N}");
 
@@ -33,7 +33,7 @@ public class SpaCacheHeaderTests
         }
     }
 
-    private static async Task AssertCacheHeadersAsync(HttpClient client, string path)
+    internal static async Task AssertCacheHeadersAsync(HttpClient client, string path)
     {
         var res = await client.GetAsync(path);
         res.StatusCode.Should().Be(HttpStatusCode.OK);

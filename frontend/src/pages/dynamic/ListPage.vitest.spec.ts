@@ -130,6 +130,18 @@ describe('ListPage', () => {
     expect(w.find('[data-testid="empty-state"]').exists()).toBe(false);
   });
 
+  it('empty result, then a new condition that answers 400: does not claim nothing matches', async () => {
+    const w = await mountEmpty();
+    expect(w.find('[data-testid="empty-state"]').exists()).toBe(true);
+    api.getPagedRecords.mockRejectedValue({ status: 400, errors: { filter: ['篩選條件不正確'] } });
+    w.findComponent(FilterPanel).vm.$emit('update:modelValue', { all: [{ field: 2, op: 'eq', value: 'x' }] });
+    await flushPromises();
+    expect(lastCall().filter).toContain('"x"');
+    expect(w.find('[data-testid="empty-state"]').exists()).toBe(false);
+    expect(w.get('.q-table__bottom--nodata').text()).toContain(zhTW.dynamic.noData);
+    expect(document.body.textContent).toContain('篩選條件不正確');
+  });
+
   it('rows are visibly clickable and open the record detail', async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const w = await mountPage([], qc);

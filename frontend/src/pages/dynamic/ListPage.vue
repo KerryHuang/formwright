@@ -311,16 +311,17 @@ const openRecord = (row: DynamicRecord) => router.push(`/dynamic/${moduleKey.val
           <q-td :props="cell"><span class="status-dot" :class="stateDot(cell.row)" aria-hidden="true" />{{ cell.value }}</q-td>
         </template>
         <template #no-data="{ message }">
-          <!-- 查詢還沒回來時照舊顯示表格的載入文字，不先說沒有資料 -->
-          <div v-if="!pageData || recordsQuery.isFetching.value" class="full-width">{{ message }}</div>
+          <!-- 只有目前條件的查詢成功回來才說沒有資料；載入中、失敗（含 400）、暫時沿用前次結果時照舊顯示表格的文字 -->
           <EmptyState
-            v-else :message="filtered ? t('dynamic.list.emptyFiltered') : t('dynamic.list.emptyAll', { module: resolveI18n(schema.name, locale) })"
+            v-if="recordsQuery.isSuccess.value && !recordsQuery.isPlaceholderData.value && !recordsQuery.isFetching.value"
+            :message="filtered ? t('dynamic.list.emptyFiltered') : t('dynamic.list.emptyAll', { module: resolveI18n(schema.name, locale) })"
             :hint="filtered ? t('dynamic.list.emptyFilteredHint') : undefined"
           >
             <template v-if="!filtered && schema.permissions.add" #action>
               <q-btn color="primary" no-caps icon="add" data-testid="empty-new-btn" :label="t('dynamic.new')" :to="`/dynamic/${moduleKey}/new`" />
             </template>
           </EmptyState>
+          <div v-else class="full-width">{{ message }}</div>
         </template>
         <template #item="{ row, cols }">
           <div class="col-12 q-py-xs">
