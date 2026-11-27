@@ -117,6 +117,8 @@
 
 出廠預設的風格寫在兩處：後端 `ThemeOptions.FactoryStyle` 和前端 `FACTORY_THEME`，`tokens.css` 的 `:root` 後備值等於第三份。這違反鐵則 2「同一個預設值不准在前後端各寫一份」。前端需要在 API 回應前就有值可以畫，所以不能單純刪掉前端那份。本段只同步修改這幾處，另開 backlog 票討論改成單一來源。
 
+2026-11-27（#130）已處理：出廠預設（模式與風格）的來源是 `shared/theme/factory-theme.json`，後端內嵌、前端 import。`frontend/index.html` 的內嵌 script 與 `tokens.css` 的 `:root` 後備值保留字面值，由 `factory-theme.vitest.spec.ts` 與 `themes.vitest.spec.ts` 守住一致。
+
 ## ERP 對照
 
 不涉及業務資料、主檔或單據，只改外觀。

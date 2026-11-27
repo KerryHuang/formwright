@@ -50,7 +50,7 @@ cd frontend && bunx vitest run && bunx vue-tsc --noEmit    # 前端：單元測�
 
 效能基準另外跑，預設不含：`dotnet test backend --filter Category=Benchmark`。
 
-規則的判斷語意以 `shared/rule-cases.json` 為準，前後端的測試都跑這份案例，兩邊結果必須一致。列表篩選的運算子表在 `shared/filter-operators.json`，也是前後端共用。
+規則的判斷語意以 `shared/rule-cases.json` 為準，前後端的測試都跑這份案例，兩邊結果必須一致。列表篩選的運算子表在 `shared/filter-operators.json`，也是前後端共用。出廠外觀預設在 `shared/theme/factory-theme.json`；改它時要一起改 `frontend/index.html` 與 `frontend/src/css/themes/tokens.css` 的字面值（前端測試會擋）。
 
 ## 目錄
 
