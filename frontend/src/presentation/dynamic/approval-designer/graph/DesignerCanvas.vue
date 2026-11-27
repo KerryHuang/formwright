@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import '@vue-flow/core/dist/style.css';
 import { ConnectionMode, VueFlow, useVueFlow, type Connection, type Edge, type Node } from '@vue-flow/core';
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, watch, type Ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { NODE_H, NODE_W } from 'src/domain/dynamic/approval-graph-layout';
 import { initialMinZoom } from './initial-fit';
@@ -73,6 +73,15 @@ function hover(id: string, on: boolean) {
   else leaveTimer = setTimeout(() => { if (hovered.value === id) hovered.value = null; }, 400);
 }
 onBeforeUnmount(() => clearTimeout(leaveTimer));
+// 插入會沿用原線的代號、換掉終點，「＋」從指標底下移走或選單項目一點就改圖，離開與關閉事件不一定會來：
+// 停著或開著選單的那條線兩端變了或線不見了，就一起收掉（#109）。
+function dropWhenLineGone(shown: Ref<string | null>) {
+  const ends = () => { const e = props.edges.find((x) => x.id === shown.value); return e ? JSON.stringify([e.source, e.target]) : ''; };
+  // 只看同一條線前後的差別；指標換到別條線不算
+  watch(() => [shown.value, ends()] as const, ([id, now], [wasId, was]) => { if (id === wasId && now !== was) shown.value = null; });
+}
+dropWhenLineGone(hovered);
+dropWhenLineGone(menuEdge);
 const showPlus = (id: string, selected: boolean | undefined) => editable.value && (!!selected || hovered.value === id || menuEdge.value === id);
 const validConnection = (c: Connection) => !!props.canConnect && props.canConnect(c.source, c.target);
 const zoomIn = () => { void flow.zoomIn({ duration: 150 }); };
@@ -94,7 +103,7 @@ const editable = computed(() => props.draggable);
       <template #node-designer="p"><DesignerNode :data="p.data" :valid-connection="validConnection" @open="emit('node-open', p.id)" /></template>
       <template #edge-designer="p">
         <DesignerEdge
-          v-bind="p" :plus="showPlus(p.id, p.data?.selected)" :insert-kinds="insertKinds" @insert="(k: AddKind) => emit('edge-insert', p.id, k)"
+          v-bind="p" :plus="showPlus(p.id, p.data?.selected)" :zoom="flow.viewport.value.zoom" :insert-kinds="insertKinds" @insert="(k: AddKind) => emit('edge-insert', p.id, k)"
           @hover="(on: boolean) => hover(p.id, on)" @menu="(open: boolean) => (menuEdge = open ? p.id : menuEdge === p.id ? null : menuEdge)"
         />
       </template>

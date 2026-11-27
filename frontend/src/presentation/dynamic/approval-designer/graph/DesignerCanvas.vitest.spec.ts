@@ -121,4 +121,44 @@ describe('DesignerCanvas', () => {
     expect(slot(mountCanvas(true, undefined, { edges }))('ab', false)).toBe(false);
     expect(slot(mountCanvas(false, undefined, { edges }))('ab', true)).toBe(false);
   });
+
+  // #109：插入後同一條線的代號還在，但兩端換了；掛在代號上的「滑鼠停在上面／選單開著」要跟著收掉。
+  it('the plus goes away when the line it was shown on is gone: re-targeted by an insert, or removed (#109)', async () => {
+    const edge = (target: string, bendX = 1) => ({ id: 'ab', source: 'a', target, type: 'designer', data: { bendX } as DesignerEdgeData });
+    for (const next of [[edge('new')], []]) {
+      for (const how of ['hover', 'menu'] as const) {
+        const w = mountCanvas(true, undefined, { edges: [edge('b')] });
+        const st = (w.vm as unknown as { $: { setupState: { hover(id: string, on: boolean): void; menuEdge: string | null; showPlus(id: string, sel?: boolean): boolean } } }).$.setupState;
+        if (how === 'hover') st.hover('ab', true);
+        else st.menuEdge = 'ab';
+        await w.setProps({ edges: [edge('b', 2)] }); // 同一條線只是重畫：保留
+        expect(st.showPlus('ab', false)).toBe(true);
+        await w.setProps({ edges: next });
+        expect(st.showPlus('ab', false)).toBe(false);
+        w.unmount();
+      }
+    }
+  });
+
+  it('moving the pointer straight to another line keeps the plus on that line (#109)', async () => {
+    const edges = [{ id: 'ab', source: 'a', target: 'b', data: { bendX: 1 } }, { id: 'bc', source: 'b', target: 'c', data: { bendX: 1 } }];
+    const w = mountCanvas(true, undefined, { edges });
+    const st = (w.vm as unknown as { $: { setupState: { hover(id: string, on: boolean): void; showPlus(id: string, sel?: boolean): boolean } } }).$.setupState;
+    st.hover('ab', true);
+    await w.vm.$nextTick();
+    st.hover('bc', true);
+    await w.vm.$nextTick();
+    expect(st.showPlus('bc', false)).toBe(true);
+  });
+
+  it('the plus is told the current zoom, so its touch area keeps a screen size (#109)', () => {
+    const Flow = defineComponent({ name: 'VueFlow', setup: (_, { slots }) => () => h('div', slots['edge-designer']?.({ id: 'ab', data: { selected: true } })) });
+    const EdgeStub = defineComponent({ name: 'DesignerEdge', props: ['zoom'], setup: () => () => h('div') });
+    const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
+    const w = mount(DesignerCanvas, {
+      props: { canvasId: 'designer-po', nodes, edges: [] as Edge<DesignerEdgeData>[], draggable: true },
+      global: { plugins: [[quasar.Quasar, { components: quasar }], i18n], stubs: { VueFlow: Flow, DesignerEdge: EdgeStub } },
+    });
+    expect(w.findComponent({ name: 'DesignerEdge' }).props('zoom')).toBe(1);
+  });
 });

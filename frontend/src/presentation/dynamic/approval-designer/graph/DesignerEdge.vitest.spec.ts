@@ -60,4 +60,19 @@ describe('DesignerEdge', () => {
     expect(edge.emitted('insert')).toEqual([['condition']]);
     w.unmount();
   });
+
+  // #109：畫布縮小時「＋」跟著縮小（820 寬約 10px），透明點擊區在螢幕上固定 44px，看得到的按鈕大小不變。
+  it.each([0.25, 0.5, 1, 1.5])('the touch area is 44 screen px at zoom %s, and tapping it opens the menu once', async (zoom) => {
+    const w = draw({ data: { bendX: 300, fullLabel: '' }, plus: true, zoom, insertKinds: [{ kind: 'approval', disabled: false }] });
+    const hit = w.get('[data-testid="de-edge-plus-hit"]');
+    const style = (hit.element as HTMLElement).style;
+    expect(parseFloat(style.width) * zoom).toBeCloseTo(44, 3);
+    expect(parseFloat(style.height) * zoom).toBeCloseTo(44, 3);
+    expect(hit.element.closest('[data-testid="de-edge-plus"]')).not.toBeNull();
+    // 一次觸控的事件順序（瀏覽器在 touchend 之後才補發 mousedown、mouseup、click）
+    for (const type of ['touchstart', 'touchend', 'mousedown', 'mouseup', 'click']) await hit.trigger(type);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(document.querySelectorAll('[data-testid="de-insert-approval"]')).toHaveLength(1);
+    w.unmount();
+  });
 });
