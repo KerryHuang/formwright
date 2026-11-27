@@ -264,49 +264,86 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 
 用[產品內備份](#產品內備份)的一份 `sets/<名稱>/` 把資料庫與附件放回安裝版的資料目錄。通用原則同[從備份還原（SQLite）](#從備份還原sqlite)；這裡只列各平台的路徑與指令。先確認備份的 `manifest.json` 的 `appVersion` 不比已安裝的版本新（新備份不能用舊版開）。升級前備份在歷程裡顯示為「立即」、沒有操作者，`snapshotUtc` 在升級那一刻之前、`appVersion` 是升級前的版本。
 
-**Windows**（已在真機演練，Windows 11、Formwright 0.1.0-rc.1）：
+下面三個平台都是同一個順序：停服務 → 另存現有資料 → 比對備份的 SHA-256 → 覆蓋 → 補附件 → 啟動。**任何一步失敗就停在那裡、不要啟動服務**，原本的資料還在（或在另存的副本裡）。
+
+**Windows**（已在真機演練，Windows 11、Formwright 0.1.0-rc.1；第 3 步的明確比對寫法是演練之後改的，沒有再單獨演練）：
 
 1. 以系統管理員開 PowerShell，執行 `Stop-Service Formwright`，確認 `(Get-Service Formwright).Status` 是 `Stopped`。
 2. 先把現有資料另存，還原有問題時可以放回去：把 `C:\ProgramData\Formwright\data\formwright.db*`（含 `-wal`、`-shm`）複製到別處（不要放進 `C:\ProgramData\Formwright`）。
-3. 在 `C:\ProgramData\Formwright\backup\sets\` 選一份，看 `manifest.json` 的 `appVersion` 不比已安裝版本新；`(Get-FileHash <那份>\database.sqlite -Algorithm SHA256).Hash` 要等於 `manifest.json` 的 `database.sha256`（不分大小寫）。
-4. `Copy-Item <那份>\database.sqlite C:\ProgramData\Formwright\data\formwright.db -Force`，再刪掉 `formwright.db-wal`、`formwright.db-shm`。這樣是**覆蓋既有檔**，保留原檔的權限；不要用會保留來源權限的工具（`robocopy /SEC`、`xcopy /O`），否則資料目錄的權限會和預期不同，下次升級被拒絕。
+3. 在 `C:\ProgramData\Formwright\backup\sets\` 選一份，看 `manifest.json` 的 `appVersion` 不比已安裝版本新，再比對雜湊，不符就停（`<名稱>` 換成那份的目錄名）：
+
+   ```powershell
+   $set = 'C:\ProgramData\Formwright\backup\sets\<名稱>'
+   $want = (Get-Content -Raw "$set\manifest.json" | ConvertFrom-Json).database.sha256
+   $got = (Get-FileHash "$set\database.sqlite" -Algorithm SHA256).Hash
+   if ($want -notmatch '^[0-9a-fA-F]{64}$' -or $got -ne $want) { throw "SHA-256 不符或 manifest 讀不到，不要還原這一份" }
+   ```
+
+4. `Copy-Item "$set\database.sqlite" C:\ProgramData\Formwright\data\formwright.db -Force`，再刪掉 `formwright.db-wal`、`formwright.db-shm`。這樣是**覆蓋既有檔**，保留原檔的權限；不要用會保留來源權限的工具（`robocopy /SEC`、`xcopy /O`），否則資料目錄的權限會和預期不同，下次升級被拒絕。
 5. 附件：把 `C:\ProgramData\Formwright\backup\attachments\` 的內容複製到 `C:\ProgramData\Formwright\data\attachments\`（多出來的檔案可用「清孤兒附件」清掉）。
 6. `Start-Service Formwright`，用瀏覽器或 `Invoke-RestMethod http://127.0.0.1:<埠>/api/version` 確認有回應（埠見 `C:\ProgramData\Formwright\formwright.json` 的 `Server:Port`，預設 8080）。
 7. **不要用檔案總管進 `C:\ProgramData\Formwright` 按「繼續」**：Windows 會替你的帳號加一條明確授權。管理員帳號的授權不擋升級（見上面「資料目錄權限」），但其他帳號的授權會。
-8. **安裝程式升級失敗、想退回舊版**：安裝程式沒有降版檢查（`formwright.iss` 用同一個 AppId、不比對版本、程式檔以 `ignoreversion` 覆蓋），執行舊版安裝檔會當成一次升級做完（停服務、用目前已裝的新版程式做一次備份、換成舊版程式檔、檢查資料目錄權限、啟動）。退回舊版的做法：先執行舊版安裝檔，再照上面 1–6 步用**升級前那份備份**還原資料（舊版程式不能開新版 migration 過的資料庫，所以資料要換回升級前的）。⚠️ 這條降版路徑只讀了安裝程式與腳本，**沒有在真機演練**：舊版程式遇到新版已升過的資料庫時，安裝程式最後那步等服務就緒可能逾時（結束碼 20、服務被停用）；這時照 1–6 步還原資料後，先 `sc.exe config Formwright start= auto` 再 `Start-Service Formwright`。
 
-**Ubuntu**（⚠️ 依 `installer/linux/install.sh` 推論，**未在真機演練**）：服務名 `formwright`，資料 `/var/lib/formwright/data`，備份 `/var/lib/formwright/backup`，資料庫檔 `formwright.db`；資料目錄與備份目錄擁有者是 `formwright:formwright`、0700。升級流程只對 `/var/lib/formwright`、`/etc/formwright`、`data`、`backup` 這幾個目錄重設擁有者與權限，**不檢查也不重設其下檔案**，所以還原後檔案的擁有者要自己維持為 `formwright`，否則服務寫不進去。
+**Ubuntu**（⚠️ 依 `installer/linux/install.sh` 推論，**未在真機演練**）：服務名 `formwright`，資料 `/var/lib/formwright/data`，備份 `/var/lib/formwright/backup`，資料庫檔 `formwright.db`；資料目錄與備份目錄擁有者是 `formwright:formwright`、0700，一般登入帳號進不去，所以檔案的列舉與複製都放在同一個 root shell 裡做。升級流程只對 `/var/lib/formwright`、`/etc/formwright`、`data`、`backup` 這幾個目錄重設擁有者與權限，**不檢查也不重設其下檔案**，所以還原後檔案的擁有者要維持 `formwright`，否則服務寫不進去。把 `<名稱>` 換成要還原的那份：
 
 ```bash
-sudo systemctl stop formwright && systemctl is-active formwright   # 要印 inactive
-mkdir -p ~/formwright-pre-restore && sudo cp -p /var/lib/formwright/data/formwright.db* ~/formwright-pre-restore/
-SET=/var/lib/formwright/backup/sets/<名稱>
-sudo sh -c "cd $SET && sha256sum database.sqlite"   # 對照 manifest.json 的 database.sha256
-sudo install -o formwright -g formwright -m 600 $SET/database.sqlite /var/lib/formwright/data/formwright.db
-sudo rm -f /var/lib/formwright/data/formwright.db-wal /var/lib/formwright/data/formwright.db-shm
-sudo mkdir -p /var/lib/formwright/data/attachments
-sudo cp -r /var/lib/formwright/backup/attachments/. /var/lib/formwright/data/attachments/
-sudo chown -R formwright:formwright /var/lib/formwright/data/attachments
-sudo systemctl start formwright && curl -fsS http://127.0.0.1:<埠>/api/version
+sudo systemctl stop formwright
+sudo sh -c 'set -e
+  # 服務必須確實停了：停止時 is-active 回非 0 是正常的，所以只比對輸出
+  test "$(systemctl is-active formwright || true)" = inactive
+  SET=/var/lib/formwright/backup/sets/<名稱>
+  DATA=/var/lib/formwright/data
+  # 另存現有資料（絕對路徑，只有 root 讀得到）；任何一步失敗就停，後面不會覆蓋
+  SAVE=/root/formwright-pre-restore-$(date +%Y%m%d%H%M%S)
+  mkdir -p "$SAVE" && chmod 700 "$SAVE"
+  for f in "$DATA"/formwright.db*; do if [ -e "$f" ]; then cp -p "$f" "$SAVE"/; fi; done
+  test -s "$SAVE/formwright.db"
+  # 比對 manifest 的 database.sha256，不符就停
+  want=$(sed -n "s/.*\"sha256\" *: *\"\([0-9a-fA-F]\{64\}\)\".*/\1/p" "$SET/manifest.json" | head -n 1 | tr A-F a-f)
+  test -n "$want"
+  got=$(sha256sum "$SET/database.sqlite" | cut -d" " -f1)
+  test "$got" = "$want"
+  install -o formwright -g formwright -m 600 "$SET/database.sqlite" "$DATA/formwright.db"
+  rm -f "$DATA/formwright.db-wal" "$DATA/formwright.db-shm"
+  mkdir -p "$DATA/attachments"
+  cp -r /var/lib/formwright/backup/attachments/. "$DATA/attachments/"
+  chown -R formwright:formwright "$DATA/attachments"
+  echo "還原完成；原資料另存在 $SAVE"
+'
 ```
 
-安裝腳本沒有降版檢查（`install.sh` 不比對版本，用舊版 tag 的 `install.sh` 會走升級流程換成舊版程式），退回舊版同樣要搭配升級前的備份還原資料；同樣未演練。
+上面那段印出「還原完成」才執行 `sudo systemctl start formwright`，再 `curl -fsS http://127.0.0.1:<埠>/api/version` 確認（埠見 `/etc/formwright/formwright.json`）。沒印就不要啟動，把錯誤訊息和 `$SAVE` 目錄的內容留著排查。
 
-**Docker compose**（⚠️ 依 `deploy/docker-compose.yml` 推論，**未在真機演練**）：資料 volume `formwright-data` 掛在 `/app/data`，備份 volume `formwright-backup` 掛在 `/backup`（備份在 `/backup/sets/<名稱>/`）；實際 volume 名稱前面有 compose 專案名（預設 `formwright_formwright-data`，用 `docker volume ls` 確認）。映像沒有指定非 root 使用者，容器內檔案是 root 擁有，下面用暫時容器以 root 複製。不確定的地方：容器是否以非 root 執行要以你用的映像為準（`docker compose run --rm --entrypoint id formwright`），不是 root 就要在複製後把 `/app/data` 內檔案 `chown` 成那個使用者。
+**Docker compose**（⚠️ 依 `deploy/docker-compose.yml` 推論，**未在真機演練**）：資料 volume `formwright-data` 掛在 `/app/data`，備份 volume `formwright-backup` 掛在 `/backup`（備份在 `/backup/sets/<名稱>/`）；實際 volume 名稱前面有 compose 專案名（預設 `formwright_formwright-data`，用 `docker volume ls` 確認）。映像沒有指定非 root 使用者，容器內檔案是 root 擁有，下面用暫時容器以 root 複製。不確定的地方：容器是否以非 root 執行要以你用的映像為準（`docker compose run --rm --entrypoint id formwright`），不是 root 就要在複製後把 `/app/data` 內檔案 `chown` 成那個使用者。暫時容器在覆蓋前會讀 `manifest.json` 比對 `database.sha256`，不符或讀不到就以非 0 結束，`&&` 後面的 `docker compose start` 就不會執行，服務維持停止：
 
 ```bash
 docker compose stop formwright
 mkdir -p pre-restore
 docker run --rm -v formwright_formwright-data:/data -v formwright_formwright-backup:/backup:ro -v "$PWD/pre-restore:/save" alpine sh -c '
-  cp -p /data/formwright.db* /save/ &&
-  SET=/backup/sets/<名稱> && cd $SET && sha256sum database.sqlite &&   # 對照 manifest.json 的 database.sha256
-  cp $SET/database.sqlite /data/formwright.db &&
-  rm -f /data/formwright.db-wal /data/formwright.db-shm &&
-  mkdir -p /data/attachments && cp -r /backup/attachments/. /data/attachments/'
-docker compose start formwright
+  set -e
+  SET=/backup/sets/<名稱>
+  want=$(sed -n "s/.*\"sha256\" *: *\"\([0-9a-fA-F]\{64\}\)\".*/\1/p" "$SET/manifest.json" | head -n 1 | tr A-F a-f)
+  [ -n "$want" ] || { echo "manifest 讀不到 database.sha256" >&2; exit 1; }
+  got=$(sha256sum "$SET/database.sqlite" | cut -d" " -f1)
+  [ "$got" = "$want" ] || { echo "SHA-256 不符，不還原" >&2; exit 1; }
+  for f in /data/formwright.db*; do [ -e "$f" ] || continue; cp -p "$f" /save/; done
+  [ -s /save/formwright.db ]
+  cp "$SET/database.sqlite" /data/formwright.db
+  rm -f /data/formwright.db-wal /data/formwright.db-shm
+  mkdir -p /data/attachments
+  cp -r /backup/attachments/. /data/attachments/
+' && docker compose start formwright
 ```
 
-換回舊版映像的做法見[升級](#升級)；舊版映像開不了新版升過的資料庫時，一樣先用這段還原升級前的備份。
+指令失敗時服務保持停止，現有資料沒有被動到（比對與另存都在覆蓋之前）；修好原因後再重跑同一段。
+
+**退回舊版程式**：兩種安裝程式都**不擋降版**——Windows 的 `formwright.iss` 用同一個 AppId、不比對版本、程式檔以 `ignoreversion` 覆蓋，`install.sh` 也不比對版本，所以執行舊版安裝檔會當成一次升級做完（Windows：停服務、用目前已裝的程式做一次備份、換成舊版程式、檢查資料目錄權限、啟動）。但**舊程式開到新版升過的資料庫不保證相容**：沒有統一的降版拒絕機制，可能啟動失敗（Windows 的安裝程式最後等服務就緒逾時、結束碼 20、服務被停用），也可能啟動成功、之後寫入新版的資料結構，或在特定功能出錯。所以不要把「啟動失敗」當成保護，也不要讓舊程式先碰到新版資料庫。建議順序：
+
+1. 先停服務、讓使用者暫時不要連（維護時段）。
+2. 用上面的步驟，以**升級前那份備份**還原資料（服務保持停止）。
+3. 再執行舊版安裝檔（Ubuntu 用舊版 tag 的 `install.sh`；Docker 換回舊版映像再 `start`）。Windows 與 Ubuntu 的安裝程式會先停服務、用目前已裝的新版程式對已還原的舊資料做一次備份（`--backup-now`；這一步新版程式會不會順便把資料往前升沒有查證），再換程式。
+
+⚠️ 這個順序與降版相容性都只讀了程式碼，**沒有在真機演練**，已知限制。
 
 ### 移除
 
