@@ -1055,6 +1055,60 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
         Query(_app, db => db.Set<Record>().Single(x => x.Id == id).RowVersion).Should().Be(rv);
     }
 
+    // ───────── 摘要位置不能用參數鍵偽造（第二次複審 N5）─────────
+
+    /// <summary>
+    /// create_record 的參數：表頭與一列明細都有真的 Text 欄位（短值，讓描述性白名單存在），另在參數根放一個長得像描述性位置的鍵，值是 300 字。
+    /// <paramref name="forged"/>：values＝冒充表頭 values 底下的 Text 欄位，details＝冒充明細列（含字面上的 <c>*</c>）。
+    /// </summary>
+    private async Task<(Dictionary<string, object?> Args, string Header, string ForgedKey)> ForgedPathArgs(string forged)
+    {
+        var (_, _, _, _, _, _, header, detail, _) = await PaddedRefRig();
+        var (headerTitle, detailTitle) = (await TitleKey(_admin, header), await TitleKey(_admin, detail));
+        var forgedKey = forged == "values" ? $"values/{headerTitle}" : $"details/{detail}/*/values/{detailTitle}";
+        var args = new Dictionary<string, object?>
+        {
+            ["moduleKey"] = header,
+            ["values"] = new Dictionary<string, object> { [headerTitle] = "短說明" },
+            ["details"] = new Dictionary<string, object[]> { [detail] = [new { values = new Dictionary<string, object> { [detailTitle] = "短" } }] },
+            [forgedKey] = new string('偽', 300),
+            ["idempotencyKey"] = NewIdem(),
+        };
+        return (args, header, forgedKey);
+    }
+
+    /// <summary>N5：參數根的鍵冒充描述性位置（<c>values/&lt;Text&gt;</c>、<c>details/&lt;明細&gt;/*/values/&lt;Text&gt;</c>）帶長值：不截短、不發對話框，回 invalid，不建碼、不寫。</summary>
+    [Theory]
+    [InlineData("values")]
+    [InlineData("details")]
+    public async Task Elicitation_ForgedDescriptivePathKey_NoDialog_Rejected(string forged)
+    {
+        SetPolicy(_app, PolicyCatalog.McpHighRiskTools, "update_record,create_record,delete_record,approve,reject");
+        var (args, header, _) = await ForgedPathArgs(forged);
+        var (client, asked) = await ElicitingClient(() => Answer("accept", true));
+        await using var _c = client;
+
+        var r = (await CallRaw(client, "create_record", args)).StructuredContent!.Value;
+
+        Code(r).Should().Be(McpErrorCodes.Invalid, r.GetRawText());
+        asked.Should().BeEmpty();
+        Query(_app, db => db.Set<McpConfirmation>().Count()).Should().Be(0);
+        var headerId = Query(_app, db => db.Set<Module>().Single(m => m.Key == header).Id);
+        Query(_app, db => db.Set<Record>().Count(x => x.ModuleId == headerId)).Should().Be(0);
+    }
+
+    /// <summary>N5 對照組：確認碼路徑不套對話框限制，預演照完整內容給（偽造鍵的長值原樣在 data.preview 裡）。</summary>
+    [Fact]
+    public async Task Preview_ForgedDescriptivePathKey_CodePath_FullSummary()
+    {
+        SetPolicy(_app, PolicyCatalog.McpHighRiskTools, "update_record,create_record,delete_record,approve,reject");
+        var (args, _, forgedKey) = await ForgedPathArgs("details");
+
+        var p = Ok(await Call("create_record", args)).GetProperty("data").GetProperty("preview");
+
+        p.GetProperty("arguments").GetProperty(forgedKey).GetString().Should().Be(new string('偽', 300));
+    }
+
     /// <summary>變更多到對話框放不下：不發對話框、不建確認碼，回錯誤請 AI 縮小單次操作；記錄不動。</summary>
     [Fact]
     public async Task Elicitation_TooManyChanges_NoDialog_Rejected()

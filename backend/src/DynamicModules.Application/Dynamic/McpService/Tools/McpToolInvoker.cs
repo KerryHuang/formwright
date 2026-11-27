@@ -378,7 +378,7 @@ public sealed class McpToolInvoker(
     /// </summary>
     private static (string? Dialog, MessageRef? Unshowable) ElicitationPreview(McpPreview preview, Func<int, string> truncated)
     {
-        if (!TryShorten(JsonSerializer.SerializeToNode(preview.Summary, McpResultFormatter.Json), "", preview.Descriptive ?? NoDescriptive, truncated, out var node))
+        if (!TryShorten(JsonSerializer.SerializeToNode(preview.Summary, McpResultFormatter.Json), McpSummaryPath.Root, preview.Descriptive ?? NoDescriptive, truncated, out var node))
             return (null, McpMessages.ElicitationValueTooLong(ElicitationLongTextMax));
         var text = node is null ? "null" : node.ToJsonString(ElicitationJson);
         return text.Length > ElicitationPreviewMax ? (null, McpMessages.ElicitationTooLarge(ElicitationPreviewMax)) : (text, null);
@@ -386,7 +386,7 @@ public sealed class McpToolInvoker(
 
     private static readonly IReadOnlySet<string> NoDescriptive = new HashSet<string>();
 
-    // 一律產生新節點：直接把子節點塞回原容器會丟「已經有父節點」。path 是從摘要根開始的鍵，以 / 串接，陣列元素寫 *
+    // 一律產生新節點：直接把子節點塞回原容器會丟「已經有父節點」。path 是 McpSummaryPath（和白名單同一套表示，第二次複審 N5）
     private static bool TryShorten(JsonNode? node, string path, IReadOnlySet<string> descriptive, Func<int, string> truncated, out JsonNode? result)
     {
         result = null;
@@ -396,7 +396,7 @@ public sealed class McpToolInvoker(
                 var obj = new JsonObject();
                 foreach (var (key, value) in o)
                 {
-                    if (!TryShorten(value, path.Length == 0 ? key : path + "/" + key, descriptive, truncated, out var child)) return false;
+                    if (!TryShorten(value, McpSummaryPath.Key(path, key), descriptive, truncated, out var child)) return false;
                     obj[key] = child;
                 }
                 result = obj;
@@ -405,7 +405,7 @@ public sealed class McpToolInvoker(
                 var arr = new JsonArray();
                 foreach (var item in a)
                 {
-                    if (!TryShorten(item, path + "/*", descriptive, truncated, out var child)) return false;
+                    if (!TryShorten(item, McpSummaryPath.Item(path), descriptive, truncated, out var child)) return false;
                     arr.Add(child);
                 }
                 result = arr;

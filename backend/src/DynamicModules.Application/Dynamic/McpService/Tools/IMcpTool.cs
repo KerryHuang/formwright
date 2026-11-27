@@ -39,13 +39,30 @@ public interface IMcpTool
 /// <see cref="Notice"/>：給使用者看的補充說明（例如簽核「尚有未列出的自動效果」，審查 C1），執行器依語系放進 <c>data.notice</c> 與對話框。
 /// </summary>
 /// <param name="Descriptive">
-/// 摘要裡屬描述性文字、對話框可以截短的字串位置（從摘要根開始的鍵以 <c>/</c> 串接，陣列元素寫 <c>*</c>，例如 <c>arguments/values/f_note</c>）。
+/// 摘要裡屬描述性文字、對話框可以截短的字串位置，一律用 <see cref="McpSummaryPath"/> 產生。
 /// 其他位置的字串（參照、選項、目標鍵等有執行意義、或分辨不了型別的）超過對話框單一值上限就不發對話框（複審 N3）。
 /// </param>
 public sealed record McpPreview(object? Summary, string TargetVersion, string? TargetKind = null, string? TargetId = null,
     McpToolOutcome? Failure = null, MessageRef? Notice = null, IReadOnlySet<string>? Descriptive = null)
 {
     public static McpPreview Failed(McpToolOutcome failure) => new(null, "", Failure: failure);
+}
+
+/// <summary>
+/// 預演摘要裡一個值的位置（第二次複審 N5）：每個物件鍵寫成「<c>.</c>＋JSON 字串」（引號與跳脫自帶界線），陣列元素寫 <c>[]</c>，從摘要根依序串接，
+/// 例如 <c>."arguments"."values"."f_note"</c>。參數鍵不論含 <c>/</c>、<c>.</c>、<c>*</c>、<c>[]</c> 或引號，都編不成另一條路徑。
+/// 描述性白名單（<see cref="McpPreview.Descriptive"/>）與執行器走訪摘要都只能用這裡的方法產生，兩邊才會一致。
+/// </summary>
+public static class McpSummaryPath
+{
+    public const string Root = "";
+
+    public static string Key(string parent, string key) => parent + "." + JsonSerializer.Serialize(key);
+
+    public static string Item(string parent) => parent + "[]";
+
+    /// <summary>從摘要根依序走過 <paramref name="keys"/> 這些物件鍵。</summary>
+    public static string Of(params string[] keys) => keys.Aggregate(Root, Key);
 }
 
 /// <summary>一次工具呼叫的輸入：參數（沒帶是空物件）、當次讀到的政策快照、請求語系。</summary>

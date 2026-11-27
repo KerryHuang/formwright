@@ -54,7 +54,7 @@ public abstract class WriteTool(ISender sender, string name, string schema, stri
 
     /// <summary>描述性文字的頂層參數（任務標題、說明、留言、簽核意見）。</summary>
     protected static Task<IReadOnlySet<string>?> TextArguments(params string[] names) =>
-        Task.FromResult<IReadOnlySet<string>?>(names.Select(n => "arguments/" + n).ToHashSet(StringComparer.Ordinal));
+        Task.FromResult<IReadOnlySet<string>?>(names.Select(n => McpSummaryPath.Of("arguments", n)).ToHashSet(StringComparer.Ordinal));
 
     /// <summary>
     /// 記錄寫入的 <c>values</c> 與明細列 <c>details.&lt;明細&gt;[].values</c>：依 describe_module 同一份 schema 判斷欄位型別——文字欄位是描述性的；
@@ -67,12 +67,13 @@ public abstract class WriteTool(ISender sender, string name, string schema, stri
         var r = await Sender.Send(new GetModuleSchemaRequest(moduleKey), ct);
         if (!r.IsSuccess || r.Data is not ModuleSchemaResponse schema) return null;
         var descriptive = new HashSet<string>(StringComparer.Ordinal);
-        Present(arguments["values"] as System.Text.Json.Nodes.JsonObject, schema.Blocks.SelectMany(b => b.Fields), "arguments/values", descriptive);
+        Present(arguments["values"] as System.Text.Json.Nodes.JsonObject, schema.Blocks.SelectMany(b => b.Fields), McpSummaryPath.Of("arguments", "values"), descriptive);
         if (arguments["details"] is System.Text.Json.Nodes.JsonObject details)
             foreach (var d in schema.Details ?? [])
                 if (details[d.ModuleKey] is System.Text.Json.Nodes.JsonArray rows)
                     foreach (var row in rows)
-                        Present(row?["values"] as System.Text.Json.Nodes.JsonObject, d.Fields, $"arguments/details/{d.ModuleKey}/*/values", descriptive);
+                        Present(row?["values"] as System.Text.Json.Nodes.JsonObject, d.Fields,
+                            McpSummaryPath.Key(McpSummaryPath.Item(McpSummaryPath.Of("arguments", "details", d.ModuleKey)), "values"), descriptive);
         return descriptive;
     }
 
@@ -84,7 +85,7 @@ public abstract class WriteTool(ISender sender, string name, string schema, stri
         foreach (var f in fields)
         {
             if (!values.TryGetPropertyValue(f.Key, out var v) || v is null) continue;
-            if (DescriptiveTypes.Contains(f.Type)) descriptive.Add(path + "/" + f.Key);
+            if (DescriptiveTypes.Contains(f.Type)) descriptive.Add(McpSummaryPath.Key(path, f.Key));
             else if (f.Type == FieldType.Reference)
                 values[f.Key] = System.Text.Json.JsonSerializer.SerializeToNode(
                     Domain.FieldTypes.Handlers.ReferenceHandler.Coerce(System.Text.Json.JsonSerializer.SerializeToElement(v), f.Config.RefTarget));
