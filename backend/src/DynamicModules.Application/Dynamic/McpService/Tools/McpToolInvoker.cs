@@ -303,10 +303,12 @@ public sealed class McpToolInvoker(
                 return McpToolOutcome.Ok(null) with
                 {
                     TargetKind = preview.TargetKind, TargetId = preview.TargetId,
-                    InputRequired = new McpInputRequired(Text(McpMessages.ElicitationMessage(name, dialog!)),
+                    InputRequired = new McpInputRequired(Text(McpMessages.ElicitationMessage(name, dialog!))
+                        + (preview.Notice is { } notice ? "\n\n" + Text(notice) : ""),
                         Text(McpMessages.ElicitationConfirm), McpElicitationState.Of(c.Code)),
                 };
-            return McpToolOutcome.Ok(new { preview = preview.Summary },
+            object data = preview.Notice is { } note ? new { preview = preview.Summary, notice = Text(note) } : new { preview = preview.Summary };
+            return McpToolOutcome.Ok(data,
                     new { confirmation = new { code = c.Code, expiresAt = c.ExpiresUtc }, instruction = McpTexts.ConfirmationInstruction })
                 with { TargetKind = preview.TargetKind, TargetId = preview.TargetId };
         }

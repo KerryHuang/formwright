@@ -36,9 +36,10 @@ public interface IMcpTool
 /// <summary>
 /// 高風險工具的預演結果：<see cref="Summary"/> 給使用者看（進 <c>data.preview</c>，存一份截短的進確認列），
 /// <see cref="TargetVersion"/> 是目標現在的版本（執行時 handler 以它比對）。讀不到目標時用 <see cref="Failed"/>。
+/// <see cref="Notice"/>：給使用者看的補充說明（例如簽核「尚有未列出的自動效果」，審查 C1），執行器依語系放進 <c>data.notice</c> 與對話框。
 /// </summary>
 public sealed record McpPreview(object? Summary, string TargetVersion, string? TargetKind = null, string? TargetId = null,
-    McpToolOutcome? Failure = null)
+    McpToolOutcome? Failure = null, MessageRef? Notice = null)
 {
     public static McpPreview Failed(McpToolOutcome failure) => new(null, "", Failure: failure);
 }

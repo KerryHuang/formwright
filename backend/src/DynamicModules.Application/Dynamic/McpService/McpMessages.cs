@@ -74,6 +74,8 @@ public static class McpMessages
     public static MessageRef ElicitationTruncated(int length) => MessageRef.Of(MessageText.McpElicitationTruncated, length);
     /// <summary>確認內容截短後仍超過對話框上限 <paramref name="max"/> 字（審查 R6）：不發對話框。</summary>
     public static MessageRef ElicitationTooLarge(int max) => MessageRef.Of(MessageText.McpElicitationTooLarge, max);
+    /// <summary>簽核預演的補充說明（審查 C1）：預演只到關卡與狀態，轉移觸發的任務、事件記帳、通知沒有列出。</summary>
+    public static MessageRef ApprovalUnlistedEffects => MessageRef.Of(MessageText.McpApprovalUnlistedEffects);
     /// <summary>elicitation 對話框唯一的布林欄位標題。</summary>
     public static MessageRef ElicitationConfirm => MessageRef.Of(MessageText.McpElicitationConfirm);
     public static MessageRef Unauthorized => MessageRef.Of(MessageText.McpUnauthorized);

@@ -66,7 +66,7 @@ public abstract class ApprovalActionTool(ISender sender, string name, string sch
         {
             p.TaskId, p.InstanceId, p.RecordId, p.ModuleKey, p.StageName, p.StageMode, p.Outcome, p.NextStageName,
             p.ConditionalNext, p.TargetOptionId,
-        }, p.Fingerprint, McpWriteTargets.ApprovalTask, target);
+        }, p.Fingerprint, McpWriteTargets.ApprovalTask, target, Notice: McpMessages.ApprovalUnlistedEffects);
     }
 }
 

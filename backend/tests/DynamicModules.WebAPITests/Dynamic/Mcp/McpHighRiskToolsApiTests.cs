@@ -391,6 +391,26 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
         Query(_app, db => db.Set<ApprovalTask>().Single(t => t.Id == TaskOf(instanceId, "sales01")).Status).Should().Be(ApprovalTaskStatus.Open);
     }
 
+    /// <summary>審查 C1：簽核預演標明「尚有未列出的自動效果」，確認碼路徑在 data.notice、對話框在訊息裡；刪除沒有這段。</summary>
+    [Fact]
+    public async Task ApprovalPreview_NoticesUnlistedEffects()
+    {
+        var (_, _, instanceId, rv, sales) = await PendingApproval();
+        await using var _s = sales;
+        Dictionary<string, object?> Args() => new() { ["taskId"] = TaskOf(instanceId, "sales01"), ["rowVersion"] = rv, ["idempotencyKey"] = NewIdem() };
+
+        var preview = Ok(await Call("approve", Args(), sales));
+        var (client, asked) = await ElicitingClient(() => Answer("decline"), IssueToken(_app, "sales01", WriteScopes).Raw);
+        await using var _c = client;
+        Code((await CallRaw(client, "approve", Args())).StructuredContent!.Value).Should().Be(McpErrorCodes.ConfirmationDeclined);
+        var (id, recordVersion) = await NewRecord();
+        var deletePreview = Ok(await Call("delete_record", DeleteArgs(id, recordVersion)));
+
+        preview.GetProperty("data").GetProperty("notice").GetString().Should().Contain("未列出");
+        asked.Should().ContainSingle().Subject!.Message.Should().Contain("未列出");
+        deletePreview.GetProperty("data").TryGetProperty("notice", out _).Should().BeFalse();
+    }
+
     [Fact]
     public async Task Reject_TwoStep_ToInitiator()
     {

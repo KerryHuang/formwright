@@ -190,6 +190,7 @@ public static class MessageText
         McpConfirmationDeclined = nameof(McpConfirmationDeclined), McpElicitationRequired = nameof(McpElicitationRequired),
         McpElicitationMessage = nameof(McpElicitationMessage), McpElicitationConfirm = nameof(McpElicitationConfirm),
         McpElicitationTruncated = nameof(McpElicitationTruncated), McpElicitationTooLarge = nameof(McpElicitationTooLarge),
+        McpApprovalUnlistedEffects = nameof(McpApprovalUnlistedEffects),
         // 產品內備份（備份設計 §11、§5.5）
         BackupInProgress = nameof(BackupInProgress), BackupNotConfigured = nameof(BackupNotConfigured),
         BackupLocationPending = nameof(BackupLocationPending);
@@ -857,6 +858,10 @@ public static class MessageText
         [McpElicitationConfirm] = ("確認執行", "Confirm and run", "ยืนยันและดำเนินการ", "Xác nhận và thực hiện"),
         [McpElicitationTruncated] = ("…（已截短，全文 {0} 字）", "… (shortened; full text is {0} characters)",
             "… (ตัดให้สั้นลงแล้ว ข้อความเต็มมี {0} อักขระ)", "… (đã rút gọn; toàn văn có {0} ký tự)"),
+        [McpApprovalUnlistedEffects] = ("注意：執行後可能還有上面未列出的自動效果，例如狀態轉移觸發的任務、事件記帳與通知",
+            "Note: running this may also trigger automatic effects not listed above, such as tasks, event postings and notifications triggered by the status change",
+            "หมายเหตุ: เมื่อดำเนินการแล้วอาจมีผลอัตโนมัติอื่นที่ไม่ได้แสดงไว้ข้างบน เช่น งาน การบันทึกเหตุการณ์ และการแจ้งเตือนที่เกิดจากการเปลี่ยนสถานะ",
+            "Lưu ý: sau khi thực hiện có thể còn các tác động tự động chưa liệt kê ở trên, như công việc, ghi nhận sự kiện và thông báo do chuyển trạng thái kích hoạt"),
         [McpElicitationTooLarge] = ("要確認的內容太多，對話框最多顯示 {0} 字；請把這次操作拆小再試",
             "There is too much to confirm; the dialog can show at most {0} characters. Split this action into smaller ones and try again",
             "มีเนื้อหาที่ต้องยืนยันมากเกินไป กล่องโต้ตอบแสดงได้สูงสุด {0} อักขระ โปรดแบ่งการดำเนินการนี้ให้เล็กลงแล้วลองใหม่",
