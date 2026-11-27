@@ -182,7 +182,8 @@ describe('AiTokensPage', () => {
     await click('ai-close-anyway');
     await gone('ai-secret');
     expect(document.body.textContent).not.toContain('fwp_SECRETSECRET');
-    expect(JSON.stringify(queryClient.getMutationCache().getAll().map((m) => m.state.data))).not.toContain('fwp_');
+    // reset() 只解除訂閱，含明文的 mutation 由 gcTime 0 的 setTimeout 移出快取；畫面是同步消失的，所以這裡要等快取清掉
+    await vi.waitFor(() => expect(JSON.stringify(queryClient.getMutationCache().getAll().map((m) => m.state.data))).not.toContain('fwp_'));
   });
 
   const esc = async () => {
