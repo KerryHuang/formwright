@@ -1,7 +1,8 @@
+import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import * as quasar from 'quasar';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createI18n } from 'vue-i18n';
 import type { SchemaDetail, SchemaField, SchemaRule } from 'src/domain/dynamic/types';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
@@ -27,7 +28,7 @@ function mountGrid(props: { detail?: SchemaDetail; modelValue?: DetailRowState[]
       detail: detail(), modelValue: [], readonly: false, errors: new Map(), ...props,
       'onUpdate:modelValue': (v: DetailRowState[]) => w.setProps({ modelValue: v }),
     },
-    global: { plugins: [[quasar.Quasar, { components: quasar }], createPinia(), i18n] },
+    global: { plugins: [[quasar.Quasar, { components: quasar }], createPinia(), i18n, [VueQueryPlugin, { queryClient: new QueryClient() }]] },
   });
   return w;
 }
@@ -131,3 +132,90 @@ describe('DetailGrid', () => {
     expect(w.findAll('th').map((th) => th.text())).not.toContain('數量 *');
   });
 });
+
+describe('DetailGrid on a phone', () => {
+  const resize = async (width: number) => {
+    window.innerWidth = width;
+    window.dispatchEvent(new Event('resize'));
+    await new Promise((r) => setTimeout(r, 150));
+    await flushPromises();
+  };
+  beforeEach(() => {
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  });
+  afterEach(() => resize(1366));
+  const summaries = (w: ReturnType<typeof mountGrid>) => w.findAll('[data-testid="row-card-summary"]').map((s) => s.text());
+  const open = (w: ReturnType<typeof mountGrid>) => w.findAll('[data-testid="row-card-body"]').map((b) => (b.element as HTMLElement).style.display !== 'none');
+
+  it('renders cards instead of the table; wide screens keep the table', async () => {
+    const w = mountGrid({ modelValue: [existing(1, { f_1: '螺絲', f_2: 3 })] });
+    await resize(390);
+    expect(w.find('table').exists()).toBe(false);
+    expect(w.findAll('[data-testid="row-card"]')).toHaveLength(1);
+    await resize(820);
+    expect(w.find('table').exists()).toBe(true);
+    expect(w.find('[data-testid="row-card"]').exists()).toBe(false);
+  });
+
+  it('summary shows the first two fields that are not hidden on that row', async () => {
+    const vis: SchemaRule = { kind: 'visibility', targets: ['field:2'], condition: { field: 1, op: 'eq', value: 'show' }, options: [] };
+    const fields = [field(1, 'text', '品名'), field(2, 'decimal', '數量'), field(3, 'text', '備註')];
+    const w = mountGrid({
+      detail: detail([vis], fields),
+      modelValue: [existing(1, { f_1: 'hide', f_2: 5, f_3: '急件' }), existing(2, { f_1: 'show', f_2: 6, f_3: '一般' })],
+    });
+    await resize(390);
+    expect(summaries(w)).toEqual(['hide · 急件', 'show · 6']);
+    // 隱藏欄位在卡片裡連欄名都不顯示
+    const first = w.findAll('[data-testid="row-card-body"]')[0]!;
+    expect(first.text()).not.toContain('數量');
+  });
+
+  it('summary uses the reference title: stored, then newly picked', async () => {
+    const product: SchemaField = { ...field(1, 'reference', '產品'), reference: { kind: 'module', key: 'product', name: { 'zh-TW': '產品' }, lightUrl: '' } };
+    const stored: DetailRowState = { ...existing(1, { f_1: 7, f_2: 3 }), references: { f_1: { state: 'ok', key: '7', title: '大螺絲' } as never } };
+    const w = mountGrid({ detail: detail([], [product, field(2, 'decimal', '數量')]), modelValue: [stored] });
+    await resize(390);
+    expect(summaries(w)).toEqual(['大螺絲 · 3']);
+    const picker = w.findComponent({ name: 'PopupSelect' });
+    picker.vm.$emit('picked', { key: '9', title: '小螺帽' });
+    picker.vm.$emit('update:modelValue', 9);
+    await flushPromises();
+    expect(summaries(w)).toEqual(['小螺帽 · 3']);
+  });
+
+  it('AC-04: a new row is expanded with labelled fields; collapsed it shows what was typed', async () => {
+    const required = { ...field(1, 'text', '品名'), config: { ...field(1, 'text', '').config, required: true } };
+    const w = mountGrid({ detail: detail([], [required, field(2, 'decimal', '數量')]) });
+    await resize(390);
+    await w.find('[data-testid="add-row"]').trigger('click');
+    await flushPromises();
+    expect(open(w)).toEqual([true]);
+    expect(w.find('[data-testid="row-card-body"]').text()).toContain('品名 *');
+    await w.find('[data-testid="row-card-body"] input').setValue('螺帽');
+    await w.find('[data-testid="row-card-toggle"]').trigger('click');
+    expect(open(w)).toEqual([false]);
+    expect(summaries(w)).toEqual(['螺帽']);
+    expect(w.find('[data-testid="row-card-toggle"]').text()).toContain('#1');
+  });
+
+  it('AC-05: a row that gets errors expands and shows them', async () => {
+    const w = mountGrid({ modelValue: [existing(1, { f_1: 'a' }), existing(2, { f_1: 'b' })] });
+    await resize(390);
+    expect(open(w)).toEqual([false, false]);
+    await w.setProps({ errors: new Map([['u2', { f_2: '必填' }]]) });
+    await flushPromises();
+    expect(open(w)).toEqual([false, true]);
+    expect(w.findAll('[data-testid="row-card"]')[1]!.text()).toContain('必填');
+  });
+
+  it('AC-06: a readonly grid is fully expanded without add or delete', async () => {
+    const w = mountGrid({ readonly: true, modelValue: [existing(1, { f_1: '螺絲' })] });
+    await resize(390);
+    expect(open(w)).toEqual([true]);
+    expect(w.find('[data-testid="row-card-toggle"]').exists()).toBe(false);
+    expect(w.find('[data-testid="add-row"]').exists()).toBe(false);
+    expect(w.find('[data-testid="delete-row"]').exists()).toBe(false);
+  });
+});
+

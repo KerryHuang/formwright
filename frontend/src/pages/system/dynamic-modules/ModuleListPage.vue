@@ -38,6 +38,7 @@ const columns = computed<QTableColumn<ModuleSummary>[]>(() => [
 
 /** 點整列進設計器：hover、手指與第一欄連結色 */
 const rowClass = () => 'row-clickable';
+const openModule = (m: ModuleSummary) => router.push(`/system/dynamic-modules/${m.key}`);
 
 const headerName = (key: string) => {
   const h = modules.data.value?.find((m) => m.key === key);
@@ -129,7 +130,8 @@ async function submit() {
     </div>
     <q-table
       v-if="!forbidden" flat bordered row-key="id" :rows="modules.data.value ?? []" :columns="columns" :loading="modules.isFetching.value"
-      :rows-per-page-options="[0]" hide-pagination :no-data-label="t('designer.noModules')" :table-row-class-fn="rowClass" @row-click="(_e, row) => router.push(`/system/dynamic-modules/${row.key}`)"
+      :rows-per-page-options="[0]" hide-pagination :no-data-label="t('designer.noModules')" :table-row-class-fn="rowClass" :grid="$q.screen.lt.sm"
+      @row-click="(_e, row) => openModule(row)"
     >
       <template #body-cell-name="{ row, value }">
         <q-td>
@@ -141,18 +143,41 @@ async function submit() {
       </template>
       <template #body-cell-actions="{ row }">
         <q-td class="text-right" @click.stop>
-          <RowActionMenu
-            v-if="$q.screen.lt.sm" :testid="`module-more-${row.key}`"
-            :actions="[
-              { label: t('designer.activate'), disable: row.status === 'Active', run: () => toggle(row, true) },
-              { label: t('designer.deactivate'), disable: row.status !== 'Active', negative: true, run: () => toggle(row, false) },
-            ]"
-          />
-          <template v-else>
-            <q-btn flat dense color="primary" :label="t('designer.activate')" :disable="row.status === 'Active'" @click="toggle(row, true)" />
-            <q-btn flat dense color="negative" :label="t('designer.deactivate')" :disable="row.status !== 'Active'" @click="toggle(row, false)" />
-          </template>
+          <q-btn flat dense color="primary" :label="t('designer.activate')" :disable="row.status === 'Active'" @click="toggle(row, true)" />
+          <q-btn flat dense color="negative" :label="t('designer.deactivate')" :disable="row.status !== 'Active'" @click="toggle(row, false)" />
         </q-td>
+      </template>
+      <template #item="{ row, cols }">
+        <div class="col-12 q-py-xs">
+          <q-card
+            flat bordered class="cursor-pointer card-clickable" tabindex="0" :data-testid="`module-card-${row.key}`"
+            @click="openModule(row)" @keydown.enter.self.prevent="openModule(row)" @keydown.space.self.prevent="openModule(row)"
+          >
+            <q-card-section class="q-py-sm" style="overflow-wrap: anywhere">
+              <span class="text-subtitle2">{{ resolveI18n(row.name, locale) }}</span>
+              <q-badge v-if="row.detailOf" outline color="primary" class="q-ml-sm" :data-testid="`detail-of-${row.key}`">
+                {{ t('designer.detailOf', { header: headerName(row.detailOf) }) }}
+              </q-badge>
+            </q-card-section>
+            <q-list dense>
+              <q-item v-for="c in cols.filter((x: { name: string; value: unknown }) => x.name !== 'name' && x.name !== 'actions' && x.value !== '')" :key="c.name">
+                <q-item-section>
+                  <q-item-label caption>{{ c.label }}</q-item-label>
+                  <q-item-label style="overflow-wrap: anywhere">{{ c.value }}</q-item-label>
+                </q-item-section>
+              </q-item>
+            </q-list>
+            <q-card-actions align="right" @click.stop>
+              <RowActionMenu
+                :testid="`module-more-${row.key}`"
+                :actions="[
+                  { label: t('designer.activate'), disable: row.status === 'Active', run: () => toggle(row, true) },
+                  { label: t('designer.deactivate'), disable: row.status !== 'Active', negative: true, run: () => toggle(row, false) },
+                ]"
+              />
+            </q-card-actions>
+          </q-card>
+        </div>
       </template>
     </q-table>
 

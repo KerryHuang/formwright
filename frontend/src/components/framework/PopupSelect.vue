@@ -24,7 +24,11 @@ const props = defineProps<{
   readonly?: boolean;
   required?: boolean;
 }>();
-const emit = defineEmits<{ 'update:modelValue': [value: Key | Key[] | null] }>();
+const emit = defineEmits<{
+  'update:modelValue': [value: Key | Key[] | null];
+  /** 單選時挑到的項目，呼叫端要顯示標題（例如明細卡片摘要）時用。 */
+  picked: [item: LightItem];
+}>();
 const { t } = useI18n();
 
 const open = ref(false);
@@ -75,6 +79,7 @@ function show() {
 function choose(item: LightItem) {
   titles.value.set(item.key, item.title);
   if (!props.multiple) {
+    emit('picked', item);
     emit('update:modelValue', toValue(item.key));
     open.value = false;
     return;

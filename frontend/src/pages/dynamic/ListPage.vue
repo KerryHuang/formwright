@@ -165,6 +165,20 @@ const columns = computed<QTableColumn<DynamicRecord>[]>(() => {
   ];
 });
 
+/** 手機卡片：標題列放記錄標題與流程狀態，其餘欄以欄名／值排在下面（空值不顯示）。 */
+type CardColumn = { name: string; label: string; value: unknown; classes?: unknown };
+const cardColumns = (cols: CardColumn[]) => {
+  const s = schema.value;
+  const inHeader = new Set(['title', s?.titleFieldKey, s?.workflow?.statusFieldKey]);
+  return cols.filter((c) => !inHeader.has(c.name) && c.value !== '');
+};
+/** 狀態欄不在目前顯示的欄裡也要出現在卡片上，所以直接從記錄值格式化。 */
+function statusText(row: DynamicRecord): string {
+  const key = schema.value?.workflow?.statusFieldKey;
+  const f = key ? allFields.value.find((x) => x.key === key) : undefined;
+  return f ? fieldTypeRegistry[f.type].format(row.values[f.key], f, locale.value) : '';
+}
+
 /** q-table shows a sort arrow only when exactly one column is sorted. */
 const tableSort = computed(() => {
   const only = sort.value.length === 1 ? sort.value[0]! : undefined;
@@ -232,6 +246,7 @@ function removeCurrent() {
 
 /** 點整列進明細：給 q-table 的列 class（hover、手指、手機箭頭） */
 const rowClass = () => 'row-clickable row-chevron';
+const openRecord = (row: DynamicRecord) => router.push(`/dynamic/${moduleKey.value}/${row.id}`);
 </script>
 
 <template>
@@ -282,29 +297,41 @@ const rowClass = () => 'row-clickable row-chevron';
         <ColumnChooser :schema="schema" :model-value="effectiveColumns" @update:model-value="(v) => (columnIds = v)" />
       </q-expansion-item>
       <q-table
-        flat bordered class="list-table" row-key="id" :rows="pageData?.items ?? []" :columns="columns"
+        flat bordered row-key="id" :rows="pageData?.items ?? []" :columns="columns" :grid="$q.screen.lt.sm"
         :loading="recordsQuery.isFetching.value" :pagination="pagination" :rows-per-page-options="[20]"
         :no-data-label="t('dynamic.noData')" :table-row-class-fn="rowClass"
         @request="(p) => onPagination(p.pagination)"
         @update:pagination="onPagination"
-        @row-click="(_e, row) => router.push(`/dynamic/${moduleKey}/${row.id}`)"
+        @row-click="(_e, row) => openRecord(row)"
       >
         <template v-if="schema.workflow" #[`body-cell-${schema.workflow.statusFieldKey}`]="cell">
           <q-td :props="cell"><span class="status-dot" :class="stateDot(cell.row)" aria-hidden="true" />{{ cell.value }}</q-td>
+        </template>
+        <template #item="{ row, cols }">
+          <div class="col-12 q-py-xs">
+            <q-card
+              flat bordered class="cursor-pointer card-clickable" tabindex="0" :data-testid="`record-card-${row.id}`"
+              @click="openRecord(row)" @keydown.enter.self.prevent="openRecord(row)" @keydown.space.self.prevent="openRecord(row)"
+            >
+              <q-card-section class="row items-start no-wrap q-gutter-x-sm q-py-sm" data-testid="record-card-header">
+                <div class="col text-subtitle2" style="overflow-wrap: anywhere">{{ row.title }}</div>
+                <div v-if="statusText(row)" class="col-auto" data-testid="record-card-status">
+                  <span class="status-dot" :class="stateDot(row)" aria-hidden="true" />{{ statusText(row) }}
+                </div>
+              </q-card-section>
+              <q-list dense data-testid="record-card-fields">
+                <q-item v-for="c in cardColumns(cols)" :key="c.name">
+                  <q-item-section>
+                    <q-item-label caption>{{ c.label }}</q-item-label>
+                    <q-item-label :class="{ 'cell-code': c.classes === 'cell-code' }" style="overflow-wrap: anywhere">{{ c.value }}</q-item-label>
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-card>
+          </div>
         </template>
       </q-table>
       <ImportDialog v-if="canImport" v-model="importing" :schema="schema" />
     </template>
   </q-page>
 </template>
-
-<style scoped>
-/* 窄螢幕讓儲存格與欄名換行，組合標題較長時表格不必橫向捲動（q-table 預設 nowrap） */
-@media (max-width: 599px) {
-  .list-table :deep(th),
-  .list-table :deep(td) {
-    white-space: normal;
-    word-break: break-word;
-  }
-}
-</style>

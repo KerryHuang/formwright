@@ -2,7 +2,7 @@ import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import * as quasar from 'quasar';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { h } from 'vue';
 import { createI18n } from 'vue-i18n';
 import { createMemoryHistory, createRouter } from 'vue-router';
@@ -416,3 +416,88 @@ describe('ListPage', () => {
     });
   });
 });
+
+describe('ListPage on a phone', () => {
+  const resize = async (width: number) => {
+    window.innerWidth = width;
+    window.dispatchEvent(new Event('resize'));
+    await new Promise((r) => setTimeout(r, 150));
+    await flushPromises();
+  };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    schemaPatch = {};
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  });
+  afterEach(() => resize(1366));
+
+  async function mountWithRows(width: number, items: unknown[]) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const w = await mountPage([], qc);
+    api.getPagedRecords.mockResolvedValue({ items: items as never, totalCount: 100, currentPage: 1, pagesSize: 20 });
+    await qc.invalidateQueries();
+    await resize(width);
+    return w;
+  }
+  const flow = {
+    statusFieldKey: 'f_4', initialState: 'draft', states: [{ value: 'draft', readOnly: false }, { value: 'done', readOnly: true }],
+  };
+  const withStatus = () => {
+    schemaPatch = {
+      workflow: flow as never,
+      blocks: [{ ...schema.blocks[0]!, fields: [...schema.blocks[0]!.fields,
+        { ...field(4, '狀態', { showInList: false }), type: 'enum', options: [{ value: 'draft', label: { 'zh-TW': '草稿' }, sequence: 1, active: true }] as never }] }],
+    };
+  };
+
+  it('renders cards with title, status, labelled values and modified time; empty values are left out', async () => {
+    withStatus();
+    const w = await mountWithRows(390, [{ ...row, values: { f_2: '甲值', f_3: '', f_4: 'done' } }]);
+    expect(w.find('table').exists()).toBe(false);
+    const card = w.get('[data-testid="record-card-1"]');
+    const header = card.get('[data-testid="record-card-header"]');
+    expect(header.text()).toContain('列一');
+    expect(header.get('[data-testid="record-card-status"]').text()).toBeTruthy();
+    expect(header.find('.status-dot.status-dot--done').exists()).toBe(true);
+    const body = card.get('[data-testid="record-card-fields"]');
+    expect(body.text()).toContain('甲');
+    expect(body.text()).toContain('甲值');
+    expect(body.text()).toContain(zhTW.dynamic.modifiedTime);
+    expect(body.text()).not.toContain('乙');
+    expect(body.text()).not.toContain('標題');
+    expect(body.text()).not.toContain('狀態');
+  });
+
+  it('shows the status value in the header even when the status column is not listed', async () => {
+    withStatus();
+    const w = await mountWithRows(390, [{ ...row, values: { f_4: 'draft' } }]);
+    expect(w.get('[data-testid="record-card-status"]').text()).toBe('草稿');
+  });
+
+  it('tapping a card, or Enter / Space on it, opens the record detail', async () => {
+    for (const act of [{ type: 'click' }, { type: 'keydown', key: 'Enter' }, { type: 'keydown', key: ' ' }]) {
+      const w = await mountWithRows(390, [row]);
+      const card = w.get('[data-testid="record-card-1"]');
+      expect(card.attributes('tabindex')).toBe('0');
+      expect(card.classes()).toContain('card-clickable');
+      await card.trigger(act.type, { key: act.key });
+      await flushPromises();
+      expect(router.currentRoute.value.fullPath).toBe('/dynamic/m/1');
+    }
+  });
+
+  it('paging still asks the server for the next page', async () => {
+    const w = await mountWithRows(390, [row]);
+    w.findComponent(quasar.QTable).vm.$emit('update:pagination', { page: 2, rowsPerPage: 20 });
+    await flushPromises();
+    expect(lastCall().currentPage).toBe(2);
+    expect(w.find('.q-table__bottom').exists()).toBe(true);
+  });
+
+  it('wide screens keep the table', async () => {
+    const w = await mountWithRows(820, [row]);
+    expect(w.find('table').exists()).toBe(true);
+    expect(w.find('[data-testid="record-card-1"]').exists()).toBe(false);
+  });
+});
+

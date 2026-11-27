@@ -1,7 +1,7 @@
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { flushPromises, mount } from '@vue/test-utils';
 import * as quasar from 'quasar';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia } from 'pinia';
 import { h } from 'vue';
 import { createI18n } from 'vue-i18n';
@@ -245,3 +245,60 @@ describe('ModuleListPage row click', () => {
     w.unmount();
   });
 });
+
+describe('ModuleListPage on a phone', () => {
+  const base = { programCode: 'P', status: 'Active', version: 1 };
+  const modules = [
+    { ...base, id: 1, key: 'order', name: { 'zh-TW': '訂單' } },
+    { ...base, id: 2, key: 'order-line', name: { 'zh-TW': '訂單明細' }, detailOf: 'order' },
+  ];
+  const resize = async (width: number) => {
+    window.innerWidth = width;
+    window.dispatchEvent(new Event('resize'));
+    await new Promise((r) => setTimeout(r, 150));
+    await flushPromises();
+  };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    document.body.innerHTML = '';
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  });
+  afterEach(() => resize(1366));
+
+  it('renders cards with the detail badge and labelled values; wide screens keep the table', async () => {
+    const w = await mountPage(modules);
+    await resize(390);
+    expect(document.body.querySelector('table')).toBeNull();
+    const card = q('module-card-order-line')!;
+    expect(card.textContent).toContain('訂單明細');
+    expect(q('detail-of-order-line')!.textContent).toBe('明細：訂單');
+    expect(card.textContent).toContain(zhTW.designer.key);
+    expect(card.textContent).toContain('order-line');
+    expect(card.textContent).toContain(zhTW.designer.moduleStatus.Active);
+    await resize(820);
+    expect(document.body.querySelector('table')).not.toBeNull();
+    expect(q('module-card-order')).toBeNull();
+    w.unmount();
+  });
+
+  it('the card opens the designer by click or keyboard; the row menu does not and offers activate / deactivate', async () => {
+    api.deactivateModule.mockResolvedValue({} as never);
+    const w = await mountPage(modules);
+    await resize(390);
+    expect(q('module-card-order')!.getAttribute('tabindex')).toBe('0');
+    (q('module-more-order') as HTMLElement).click();
+    await flushPromises();
+    expect(router.currentRoute.value.path).toBe('/');
+    expect(document.body.querySelector('.q-menu')!.textContent).toContain(zhTW.designer.activate);
+    const off = [...document.body.querySelectorAll('.q-menu .q-item')].find((i) => i.textContent!.includes(zhTW.designer.deactivate)) as HTMLElement;
+    off.click();
+    await flushPromises();
+    expect(api.deactivateModule).toHaveBeenCalledWith('order');
+    expect(router.currentRoute.value.path).toBe('/');
+    q('module-card-order')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await flushPromises();
+    expect(router.currentRoute.value.path).toBe('/system/dynamic-modules/order');
+    w.unmount();
+  });
+});
+

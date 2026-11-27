@@ -63,7 +63,7 @@ function confirmDelete() {
       <div v-if="conversions.isError.value" class="text-negative">{{ t('dynamic.loadFailed') }}</div>
       <q-table
         v-else flat bordered row-key="key" :rows="conversions.data.value ?? []" :columns="columns" :loading="conversions.isFetching.value"
-        :rows-per-page-options="[0]" hide-pagination :no-data-label="t('docflow.conversion.empty')"
+        :rows-per-page-options="[0]" hide-pagination :no-data-label="t('docflow.conversion.empty')" :grid="$q.screen.lt.sm"
       >
         <template #body="{ row, cols }">
           <q-tr
@@ -73,17 +73,38 @@ function confirmDelete() {
             <template v-for="c in cols" :key="c.name">
               <q-td v-if="c.name === 'actions'" :align="c.align" @click.stop>
                 <q-btn
-                  v-if="$q.screen.lt.sm" flat round dense color="negative" icon="delete" :aria-label="t('dynamic.delete')"
-                  :disable="!canEdit" :data-testid="`conversion-delete-${row.key}`" @click="deleting = row"
-                />
-                <q-btn
-                  v-else flat dense color="negative" :label="t('dynamic.delete')" :disable="!canEdit"
+                  flat dense color="negative" :label="t('dynamic.delete')" :disable="!canEdit"
                   :data-testid="`conversion-delete-${row.key}`" @click="deleting = row"
                 />
               </q-td>
               <q-td v-else :align="c.align">{{ c.value }}</q-td>
             </template>
           </q-tr>
+        </template>
+        <template #item="{ row, cols }">
+          <div class="col-12 q-py-xs">
+            <q-card
+              flat bordered :class="{ 'cursor-pointer card-clickable': canEdit }" :tabindex="canEdit ? 0 : undefined"
+              :data-testid="`conversion-card-${row.key}`"
+              @click="canEdit && open(row)" @keydown.enter.self.prevent="canEdit && open(row)" @keydown.space.self.prevent="canEdit && open(row)"
+            >
+              <q-card-section class="text-subtitle2 q-py-sm" style="overflow-wrap: anywhere">{{ resolveI18n(row.name, locale) }}</q-card-section>
+              <q-list dense>
+                <q-item v-for="c in cols.filter((x: { name: string }) => x.name !== 'name' && x.name !== 'actions')" :key="c.name">
+                  <q-item-section>
+                    <q-item-label caption>{{ c.label }}</q-item-label>
+                    <q-item-label style="overflow-wrap: anywhere">{{ c.value }}</q-item-label>
+                  </q-item-section>
+                </q-item>
+              </q-list>
+              <q-card-actions align="right" @click.stop>
+                <q-btn
+                  flat dense color="negative" :label="t('dynamic.delete')" :disable="!canEdit"
+                  :data-testid="`conversion-delete-${row.key}`" @click="deleting = row"
+                />
+              </q-card-actions>
+            </q-card>
+          </div>
         </template>
       </q-table>
 

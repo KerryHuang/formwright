@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import * as quasar from 'quasar';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createI18n } from 'vue-i18n';
@@ -68,5 +68,30 @@ describe('DetailTables', () => {
     const w = await mountTables([detail('訂單明細')], {});
     expect(w.findAll('tbody tr')).toHaveLength(1);
     expect(w.text()).toContain(zhTW.dynamic.noData);
+  });
+
+  it('AC-06: phone width shows every row as an expanded card with labels and values', async () => {
+    const resize = async (width: number) => {
+      window.innerWidth = width;
+      window.dispatchEvent(new Event('resize'));
+      await new Promise((r) => setTimeout(r, 150));
+      await flushPromises();
+    };
+    const w = await mountTables([detail('訂單明細')], {
+      line: [row(1, { f_1: '螺絲', f_2: 3 }, { f_3: { state: 'ok', key: '7', title: '大螺絲' } } as never), row(2, { f_1: '螺帽' })],
+    });
+    await resize(390);
+    try {
+      expect(w.find('table').exists()).toBe(false);
+      const cards = w.findAll('[data-testid="row-card"]');
+      expect(cards).toHaveLength(2);
+      for (const text of ['品名', '螺絲', '數量', '3', '大螺絲']) expect(cards[0]!.text()).toContain(text);
+      expect(cards[0]!.find('a').attributes('href')).toBe('/dynamic/product/7');
+      expect(w.find('[data-testid="row-card-toggle"]').exists()).toBe(false);
+      expect(w.find('[data-testid="add-row"]').exists()).toBe(false);
+      expect(w.find('[data-testid="delete-row"]').exists()).toBe(false);
+    } finally {
+      await resize(1366);
+    }
   });
 });

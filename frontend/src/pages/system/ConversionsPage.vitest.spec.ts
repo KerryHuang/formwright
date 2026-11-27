@@ -138,4 +138,60 @@ describe('ConversionsPage', () => {
     expect(api.deleteConversion).toHaveBeenCalledWith('q2o');
     w.unmount();
   });
+
+  describe('on a phone', () => {
+    const resize = async (width: number) => {
+      window.innerWidth = width;
+      window.dispatchEvent(new Event('resize'));
+      await new Promise((r) => setTimeout(r, 150));
+      await flushPromises();
+    };
+    afterEach(() => resize(1366));
+    const mountPhone = async () => {
+      const w = mountPage();
+      await flushPromises();
+      await resize(390);
+      return w;
+    };
+
+    it('renders cards instead of the table; wide screens keep the table', async () => {
+      const w = await mountPhone();
+      expect(w.find('table').exists()).toBe(false);
+      const card = w.get('[data-testid="conversion-card-q2o"]');
+      for (const text of ['報價轉訂單', zhTW.docflow.conversion.key, 'q2o', '報價單 → 訂單', zhTW.docflow.conversion.on]) expect(card.text()).toContain(text);
+      expect(card.get('[data-testid="conversion-delete-q2o"]').text()).toBe(zhTW.dynamic.delete);
+      await resize(820);
+      expect(w.find('table').exists()).toBe(true);
+      expect(w.find('[data-testid="conversion-card-q2o"]').exists()).toBe(false);
+      w.unmount();
+    });
+
+    it('tapping or Enter on the card opens the editor; delete does not', async () => {
+      const w = await mountPhone();
+      await w.get('[data-testid="conversion-delete-q2o"]').trigger('click');
+      await flushPromises();
+      expect(document.body.querySelector('[data-testid="conversion-key"]')).toBeNull();
+      expect(document.body.querySelector('[data-testid="conversion-delete-confirm"]')).not.toBeNull();
+      const card = w.get('[data-testid="conversion-card-q2o"]');
+      expect(card.attributes('tabindex')).toBe('0');
+      await card.trigger('keydown', { key: 'Enter' });
+      await flushPromises();
+      expect(document.body.querySelector('[data-testid="conversion-key"]')).not.toBeNull();
+      w.unmount();
+    });
+
+    it('without edit permission the card is not clickable and delete is disabled', async () => {
+      api.getMe.mockResolvedValue({ designer: { read: true, add: false, edit: false, delete: false } } as never);
+      const w = await mountPhone();
+      const card = w.get('[data-testid="conversion-card-q2o"]');
+      expect(card.classes()).not.toContain('card-clickable');
+      expect(card.attributes('tabindex')).toBeUndefined();
+      expect(card.get('[data-testid="conversion-delete-q2o"]').attributes('aria-disabled')).toBe('true');
+      await card.trigger('click');
+      await flushPromises();
+      expect(document.body.querySelector('[data-testid="conversion-key"]')).toBeNull();
+      w.unmount();
+    });
+  });
 });
+

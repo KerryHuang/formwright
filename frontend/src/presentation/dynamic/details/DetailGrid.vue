@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import InlineEditableDataTable from 'src/components/framework/InlineEditableDataTable.vue';
 import { fillPatch, fillReferenceInfos, lockedFillKeys } from 'src/domain/dynamic/fill';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
-import type { DynamicRecord, SchemaDetail, SchemaField } from 'src/domain/dynamic/types';
+import type { DynamicRecord, LightItem, SchemaDetail, SchemaField } from 'src/domain/dynamic/types';
 import { fieldTypeRegistry } from 'src/presentation/dynamic/field-type-registry';
+import { referenceView } from 'src/presentation/dynamic/reference-display';
 import { isWritable } from 'src/presentation/dynamic/rule-state';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 import { newRowState, rowRuleState, type DetailRowState } from './detail-rows';
@@ -32,6 +33,12 @@ const rowLocked = (r: DetailRowState) => props.readonly || stateOf(r).readOnlyAl
 const lockedKeys = computed(() => lockedFillKeys(fields.value));
 const hiddenCell = (f: SchemaField, r: DetailRowState) => stateOf(r).hidden.has(f.id);
 
+/** Field key -> value -> title of references picked in this grid (the row's stored info only covers saved and filled values). */
+const pickedTitles = ref<Record<string, Record<string, string>>>({});
+function onPicked(key: string, item: LightItem) {
+  pickedTitles.value = { ...pickedTitles.value, [key]: { ...pickedTitles.value[key], [item.key]: item.title } };
+}
+
 // Same binding as DynamicField, per row: the header row carries the labels.
 function cellProps(f: SchemaField, r: DetailRowState) {
   const state = stateOf(r);
@@ -44,7 +51,7 @@ function cellProps(f: SchemaField, r: DetailRowState) {
     // Per row (rules can require it); the column header marks only config.required.
     required: !props.readonly && state.required.has(f.id) && isWritable(f, state),
     readonly: props.readonly || !isWritable(f, state) || lockedKeys.value.has(f.key),
-    ...(f.type === 'reference' && { reference: r.references?.[f.key] }),
+    ...(f.type === 'reference' && { reference: r.references?.[f.key], knownTitles: pickedTitles.value[f.key] }),
     ...(options && allowed && { options: options.filter((o) => allowed.has(o.value)) }),
     error: props.errors.get(r.uid)?.[f.key],
   };
@@ -62,6 +69,20 @@ function rowLines(r: DetailRowState): string[] {
     return f && hiddenCell(f, r) ? [`${labelOf(key)}：${msg}`] : [];
   });
 }
+/** Collapsed card on a phone: the values of the first two fields this row shows. */
+function summaryOf(r: DetailRowState) {
+  return fields.value.filter((f) => !hiddenCell(f, r)).slice(0, 2).map((f) => summaryText(f, r)).filter(Boolean).join(' · ');
+}
+function summaryText(f: SchemaField, r: DetailRowState) {
+  const value = r.values[f.key];
+  if (f.type !== 'reference' || value === null || value === undefined) return fieldTypeRegistry[f.type].format(value, f, locale.value);
+  // The stored info may describe the value the user has since replaced.
+  if (r.references?.[f.key]?.key === String(value)) return referenceView(r as unknown as DynamicRecord, f, t)!.text;
+  return pickedTitles.value[f.key]?.[String(value)] ?? String(value);
+}
+const hasError = (r: DetailRowState) => Object.keys(props.errors.get(r.uid) ?? {}).length > 0;
+const cellHidden = (r: DetailRowState, key: string) => fields.value.some((f) => f.key === key && hiddenCell(f, r));
+
 // Errors on rows the user deleted (e.g. a locked row) have no row to sit on.
 const deletedLines = computed(() => props.modelValue.filter((r) => r.deleted).flatMap((r) =>
   Object.entries(props.errors.get(r.uid) ?? {}).map(([key, msg]) => (key === '_record' ? msg : `${labelOf(key)}：${msg}`))));
@@ -99,12 +120,17 @@ const removeRow = (r: DetailRowState) => emit('update:modelValue', r.id === unde
     <div v-if="deletedLines.length" class="text-negative q-mb-sm" data-testid="detail-error">
       <div v-for="line in deletedLines" :key="line">{{ line }}</div>
     </div>
-    <InlineEditableDataTable :columns="columns" :rows="visibleRows" :row-key="(r) => r.uid" :readonly="readonly" @add="addRow">
+    <InlineEditableDataTable
+      :columns="columns" :rows="visibleRows" :row-key="(r) => r.uid" :readonly="readonly"
+      :has-error="hasError" :is-cell-hidden="cellHidden" @add="addRow"
+    >
+      <template #summary="{ row }">{{ summaryOf(row) }}</template>
       <template v-for="f in fields" :key="f.key" #[`cell-${f.key}`]="{ row }">
         <div v-if="hiddenCell(f, row)" data-testid="cell-hidden" />
         <component
           :is="fieldTypeRegistry[f.type].component" v-else v-bind="cellProps(f, row)" :model-value="row.values[f.key]"
           @update:model-value="(v: unknown) => setCell(row, f.key, v)"
+          v-on="f.type === 'reference' ? { picked: (item: LightItem) => onPicked(f.key, item) } : {}"
         />
       </template>
       <template #row-actions="{ row }">
