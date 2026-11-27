@@ -75,3 +75,9 @@ describe('resolveI18n 最後一層固定照支援語系順序', () => {
     expect(resolveI18n({ th: '泰', vi: '越' }, 'zh-TW')).toBe('泰');
   });
 });
+
+describe('resolveI18n tolerance', () => {
+  it('returns a plain string as is (old data or an old cached page), instead of an empty string', () => {
+    expect(resolveI18n('舊名稱', 'en-US')).toBe('舊名稱');
+  });
+});

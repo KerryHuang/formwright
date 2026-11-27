@@ -5,7 +5,9 @@ import type { I18nText, Locale } from './types';
  * 與後端同一條退回鏈（localeChain）：要求的語系 → 上層語系 → 系統預設語系 → 繁中 → 全部已安裝語系；空字串視為沒有。
  * 沒安裝的語系鍵不挑（U6：存起來但不顯示）。
  */
-export function resolveI18n(text: I18nText | undefined, locale: string): string {
+export function resolveI18n(text: I18nText | string | undefined, locale: string): string {
+  // 舊資料或舊快取可能給純字串：照原文顯示，不要變成空白
+  if (typeof text === 'string') return text;
   for (const l of [locale, ...localeChain(locale)]) {
     const v = text?.[l];
     if (v) return v;

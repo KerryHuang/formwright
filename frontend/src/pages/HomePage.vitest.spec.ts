@@ -21,7 +21,7 @@ const mod = (key: string, section?: string, icon?: string) =>
 vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
 afterEach(() => localStorage.clear());
 
-async function run(opts: { me?: ReturnType<typeof me>; menu?: unknown[]; recent?: string[]; gate?: Promise<void>; menuStatus?: number; summary?: unknown; summaryStatus?: number } = {}) {
+async function run(opts: { me?: ReturnType<typeof me>; menu?: unknown[]; recent?: string[]; gate?: Promise<void>; menuStatus?: number; summary?: unknown; summaryStatus?: number; dashboards?: { id: number; name: unknown }[] } = {}) {
   setActivePinia(createPinia());
   useIdentityStore().setSession('u');
   if (opts.recent) localStorage.setItem('formwright:recent-modules:u', JSON.stringify(opts.recent));
@@ -30,6 +30,13 @@ async function run(opts: { me?: ReturnType<typeof me>; menu?: unknown[]; recent?
     if (config.url === '/tasks/summary') {
       if (opts.summaryStatus) return Promise.reject({ config, response: { status: opts.summaryStatus, data: {}, headers: {}, config } });
       return { data: opts.summary ?? { dueToday: 0, overdue: 0 }, status: 200, statusText: 'OK', headers: {}, config };
+    }
+    if (opts.dashboards && config.url === '/dashboards') {
+      return { data: { assigned: opts.dashboards.map((d) => ({ ...d, version: 1, adjusted: false, hasUpdate: false })), mine: [], sharedReports: [] }, status: 200, statusText: 'OK', headers: {}, config };
+    }
+    const dash = opts.dashboards?.find((d) => config.url === `/dashboards/${d.id}`);
+    if (dash) {
+      return { data: { ...dash, kind: 'assigned', version: 1, adjusted: false, hasUpdate: false, layout: { cards: [] }, reportNames: {} }, status: 200, statusText: 'OK', headers: {}, config };
     }
     if (opts.gate) await opts.gate;
     if (opts.menuStatus) return Promise.reject({ status: opts.menuStatus });
@@ -150,4 +157,25 @@ describe('HomePage', () => {
     const { w } = await run({ menuStatus: 500 });
     expect(w.text()).toContain(zhTW.dynamic.forbidden);
   });
+
+  it.each([
+    ['multilingual object names', (zh: string) => ({ 'zh-TW': zh, 'en-US': `${zh}-en` })],
+    ['plain string names (old data or an old cache)', (zh: string) => zh],
+  ])('dashboard dropdown and title show resolved text for %s, never raw JSON', async (_label, name) => {
+    const { w } = await run({ dashboards: [{ id: 1, name: name('業務儀表板') }, { id: 2, name: name('品質儀表板') }] });
+    const select = w.findComponent(quasar.QSelect);
+    expect(select.text()).toContain('業務儀表板');
+    expect((select.props('options') as { name: string }[]).map((o) => o.name)).toEqual(['業務儀表板', '品質儀表板']);
+    expect(w.get('[data-testid="dashboard-name"]').text()).toBe('業務儀表板');
+    // jsdom 沒有 scrollTo；Quasar 開下拉後會捲到目前選項
+    Element.prototype.scrollTo = () => {};
+    (select.vm as unknown as { showPopup(): void }).showPopup();
+    await flushPromises();
+    await new Promise((r) => setTimeout(r, 50));
+    const shown = `${w.text()} ${document.body.textContent}`;
+    expect(shown).toContain('品質儀表板');
+    expect(shown).not.toContain('{');
+    expect(shown).not.toContain('[object Object]');
+  });
+
 });
