@@ -169,6 +169,8 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 
 ### 從備份還原（SQLite）
 
+安裝版（Windows、Ubuntu、Docker compose）的指令與路徑見[安裝版的還原](#安裝版的還原)。
+
 1. 停站台。
 2. 在 `<Backup__Root>/sets/` 選一份，確認它不比要啟動的版本新：舊備份可以用新版啟動（migration 會往前升），新備份不能用舊版開。
    - 比對 `manifest.json` 的 `appVersion`。
@@ -219,7 +221,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 - **Ubuntu 的選項**：`--port <n>`（只在全新安裝生效）、`--skip-backup`、`--lang <zh-TW|en>`；動作 `remove`、`purge`（`curl … \| sudo bash -s -- remove`）。Windows 靜默安裝參數：`/PORT=<n>`、`/SKIPBACKUP`、`/FIREWALLSCOPE=<範圍>`；解除安裝帶 `/DELETEDATA`。
 - **Windows 防火牆**：安裝程式建一條輸入規則「Formwright」，只放行 Formwright 程式、該連接埠，來源預設只有同網段（`localsubnet`），所有網路設定檔都適用。其他網段的電腦要連，安裝時帶 `/FIREWALLSCOPE=<netsh remoteip 值>`（例 `192.0.2.0/24,198.51.100.0/24`）；之後升級或重裝不帶參數會沿用上次的範圍。每次安裝都會刪掉舊的同名規則再重建。
 - **Windows 安裝失敗時**：權限、初始化、防火牆或服務 60 秒內沒有正常回應任一步失敗，安裝程式以結束碼 20 結束，Formwright 服務會停止並設成「停用」，避免一直自動重啟；排除問題後重新執行安裝程式即可（會改回自動並啟動）。若訊息說服務沒能停用，請手動執行 `sc config Formwright start= disabled` 與 `sc stop Formwright`。
-- **資料目錄權限（Windows）**：全新安裝時安裝程式建立資料目錄（`C:\ProgramData\Formwright`）並設定權限，只留 SYSTEM、Administrators 與服務帳號。升級（目錄已存在）只檢查、不重設：安裝程式不改寫任何既有檔案與目錄的權限或擁有者。整棵樹先唯讀檢查，有連結（junction、符號連結）、擁有者不是 SYSTEM／Administrators／TrustedInstaller／Formwright 服務帳號、SYSTEM／Administrators／Formwright 服務帳號以外有人有寫入類權限，或檔案有多個硬連結，再比對是否恰為預期的權限：父目錄是受保護（不繼承）、擁有者 Administrators、三條明確 ACE（SYSTEM、Administrators 完全控制，服務帳號剛好是「修改」，多一個權限位元也不行）；其下每個子項由父目錄繼承同樣三條 ACE，沒有任何其他授權。有偏差——包括自己加的讀取授權——就拒絕安裝，以結束碼 20 結束（服務維持停用，原因、路徑與違反的規則寫在安裝 log）。拒絕時既有項目的權限與擁有者沒有被改寫，但升級前備份、程式檔替換與補建缺少的 `data`、`backup` 子目錄（只繼承父目錄的權限）可能已經完成。請依 log 寫的路徑手動移除該授權或修好（例如移除授權後對該項目執行 `icacls <路徑> /reset`），再重新執行安裝程式（會重新啟用服務）。資料目錄的上一層 `C:\ProgramData` 若有非系統帳號能刪除或改名它，全新安裝與升級都會拒絕。請勿另外把資料目錄的寫入權授給其他帳號：既有項目不會被改權限，但安裝程式無法排除該帳號持有舊檔案控制代碼、在目錄內植入連結，此後安裝與服務在目錄內做的事不在這項檢查的保護範圍。
+- **資料目錄權限（Windows）**：全新安裝時安裝程式建立資料目錄（`C:\ProgramData\Formwright`）並設定權限，只留 SYSTEM、Administrators 與服務帳號。升級（目錄已存在）只檢查、不重設：安裝程式不改寫任何既有檔案與目錄的權限或擁有者。整棵樹先唯讀檢查，有連結（junction、符號連結）、擁有者不是 SYSTEM／Administrators／TrustedInstaller／Formwright 服務帳號、SYSTEM／Administrators／Formwright 服務帳號以外有人有寫入類權限，或檔案有多個硬連結，再比對是否恰為預期的權限：父目錄是受保護（不繼承）、擁有者 Administrators、三條明確 ACE（SYSTEM、Administrators 完全控制，服務帳號剛好是「修改」，多一個權限位元也不行）；其下每個子項由父目錄繼承同樣三條 ACE，沒有任何其他授權。**本機系統管理員帳號的授權不擋升級**（使用者裁決 2026-11-27）：目前是本機 Administrators 群組直接成員的使用者帳號，名下額外的 Allow 授權（任意權限、明確或繼承）視為可信，例如用檔案總管開資料夾、按「繼續」時 Windows 自動替該帳號加的完全控制；這類授權不會被改寫，安裝 log 會各留一行說明（SID 與第一個路徑）。群組的巢狀成員不展開，Deny 授權、非管理員帳號（含 Users 與一般本機使用者）的授權（含唯讀）、擁有者規則都照舊；列不出本機 Administrators 的成員時一律拒絕。其他有偏差——包括自己替非管理員帳號加的讀取授權——就拒絕安裝，以結束碼 20 結束（服務維持停用，原因、路徑與違反的規則寫在安裝 log）。拒絕時既有項目的權限與擁有者沒有被改寫，但升級前備份、程式檔替換與補建缺少的 `data`、`backup` 子目錄（只繼承父目錄的權限）可能已經完成。請依 log 寫的路徑手動移除該授權或修好（例如移除授權後對該項目執行 `icacls <路徑> /reset`），再重新執行安裝程式（會重新啟用服務）。資料目錄的上一層 `C:\ProgramData` 若有非系統帳號能刪除或改名它，全新安裝與升級都會拒絕。請勿另外把資料目錄的寫入權授給其他帳號：既有項目不會被改權限，但安裝程式無法排除該帳號持有舊檔案控制代碼、在目錄內植入連結，此後安裝與服務在目錄內做的事不在這項檢查的保護範圍。
 
 ### 預設位置
 
@@ -257,6 +259,54 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
   換映像後第一次啟動會自動先備份、再升級資料庫；備份做完前站台連不上，用 `docker compose logs -f formwright` 看進度。備份失敗，或備份位置沒設，站台只顯示「系統維護中」頁、資料庫不動。處理方式有兩條：換回舊版映像再 `up -d`，或修好備份 volume（可寫、空間夠）後重啟容器。
 
 映像位址 `ghcr.io/kerryhuang/formwright`，標籤是版號與 `latest`（`latest` 在該版 Release 建好後才指到新版）。第一次發版後，套件預設是私有，要在 GitHub 套件設定頁改成 Public 才能免登入拉取。
+
+### 安裝版的還原
+
+用[產品內備份](#產品內備份)的一份 `sets/<名稱>/` 把資料庫與附件放回安裝版的資料目錄。通用原則同[從備份還原（SQLite）](#從備份還原sqlite)；這裡只列各平台的路徑與指令。先確認備份的 `manifest.json` 的 `appVersion` 不比已安裝的版本新（新備份不能用舊版開）。升級前備份在歷程裡顯示為「立即」、沒有操作者，`snapshotUtc` 在升級那一刻之前、`appVersion` 是升級前的版本。
+
+**Windows**（已在真機演練，Windows 11、Formwright 0.1.0-rc.1）：
+
+1. 以系統管理員開 PowerShell，執行 `Stop-Service Formwright`，確認 `(Get-Service Formwright).Status` 是 `Stopped`。
+2. 先把現有資料另存，還原有問題時可以放回去：把 `C:\ProgramData\Formwright\data\formwright.db*`（含 `-wal`、`-shm`）複製到別處（不要放進 `C:\ProgramData\Formwright`）。
+3. 在 `C:\ProgramData\Formwright\backup\sets\` 選一份，看 `manifest.json` 的 `appVersion` 不比已安裝版本新；`(Get-FileHash <那份>\database.sqlite -Algorithm SHA256).Hash` 要等於 `manifest.json` 的 `database.sha256`（不分大小寫）。
+4. `Copy-Item <那份>\database.sqlite C:\ProgramData\Formwright\data\formwright.db -Force`，再刪掉 `formwright.db-wal`、`formwright.db-shm`。這樣是**覆蓋既有檔**，保留原檔的權限；不要用會保留來源權限的工具（`robocopy /SEC`、`xcopy /O`），否則資料目錄的權限會和預期不同，下次升級被拒絕。
+5. 附件：把 `C:\ProgramData\Formwright\backup\attachments\` 的內容複製到 `C:\ProgramData\Formwright\data\attachments\`（多出來的檔案可用「清孤兒附件」清掉）。
+6. `Start-Service Formwright`，用瀏覽器或 `Invoke-RestMethod http://127.0.0.1:<埠>/api/version` 確認有回應（埠見 `C:\ProgramData\Formwright\formwright.json` 的 `Server:Port`，預設 8080）。
+7. **不要用檔案總管進 `C:\ProgramData\Formwright` 按「繼續」**：Windows 會替你的帳號加一條明確授權。管理員帳號的授權不擋升級（見上面「資料目錄權限」），但其他帳號的授權會。
+8. **安裝程式升級失敗、想退回舊版**：安裝程式沒有降版檢查（`formwright.iss` 用同一個 AppId、不比對版本、程式檔以 `ignoreversion` 覆蓋），執行舊版安裝檔會當成一次升級做完（停服務、用目前已裝的新版程式做一次備份、換成舊版程式檔、檢查資料目錄權限、啟動）。退回舊版的做法：先執行舊版安裝檔，再照上面 1–6 步用**升級前那份備份**還原資料（舊版程式不能開新版 migration 過的資料庫，所以資料要換回升級前的）。⚠️ 這條降版路徑只讀了安裝程式與腳本，**沒有在真機演練**：舊版程式遇到新版已升過的資料庫時，安裝程式最後那步等服務就緒可能逾時（結束碼 20、服務被停用）；這時照 1–6 步還原資料後，先 `sc.exe config Formwright start= auto` 再 `Start-Service Formwright`。
+
+**Ubuntu**（⚠️ 依 `installer/linux/install.sh` 推論，**未在真機演練**）：服務名 `formwright`，資料 `/var/lib/formwright/data`，備份 `/var/lib/formwright/backup`，資料庫檔 `formwright.db`；資料目錄與備份目錄擁有者是 `formwright:formwright`、0700。升級流程只對 `/var/lib/formwright`、`/etc/formwright`、`data`、`backup` 這幾個目錄重設擁有者與權限，**不檢查也不重設其下檔案**，所以還原後檔案的擁有者要自己維持為 `formwright`，否則服務寫不進去。
+
+```bash
+sudo systemctl stop formwright && systemctl is-active formwright   # 要印 inactive
+mkdir -p ~/formwright-pre-restore && sudo cp -p /var/lib/formwright/data/formwright.db* ~/formwright-pre-restore/
+SET=/var/lib/formwright/backup/sets/<名稱>
+sudo sh -c "cd $SET && sha256sum database.sqlite"   # 對照 manifest.json 的 database.sha256
+sudo install -o formwright -g formwright -m 600 $SET/database.sqlite /var/lib/formwright/data/formwright.db
+sudo rm -f /var/lib/formwright/data/formwright.db-wal /var/lib/formwright/data/formwright.db-shm
+sudo mkdir -p /var/lib/formwright/data/attachments
+sudo cp -r /var/lib/formwright/backup/attachments/. /var/lib/formwright/data/attachments/
+sudo chown -R formwright:formwright /var/lib/formwright/data/attachments
+sudo systemctl start formwright && curl -fsS http://127.0.0.1:<埠>/api/version
+```
+
+安裝腳本沒有降版檢查（`install.sh` 不比對版本，用舊版 tag 的 `install.sh` 會走升級流程換成舊版程式），退回舊版同樣要搭配升級前的備份還原資料；同樣未演練。
+
+**Docker compose**（⚠️ 依 `deploy/docker-compose.yml` 推論，**未在真機演練**）：資料 volume `formwright-data` 掛在 `/app/data`，備份 volume `formwright-backup` 掛在 `/backup`（備份在 `/backup/sets/<名稱>/`）；實際 volume 名稱前面有 compose 專案名（預設 `formwright_formwright-data`，用 `docker volume ls` 確認）。映像沒有指定非 root 使用者，容器內檔案是 root 擁有，下面用暫時容器以 root 複製。不確定的地方：容器是否以非 root 執行要以你用的映像為準（`docker compose run --rm --entrypoint id formwright`），不是 root 就要在複製後把 `/app/data` 內檔案 `chown` 成那個使用者。
+
+```bash
+docker compose stop formwright
+mkdir -p pre-restore
+docker run --rm -v formwright_formwright-data:/data -v formwright_formwright-backup:/backup:ro -v "$PWD/pre-restore:/save" alpine sh -c '
+  cp -p /data/formwright.db* /save/ &&
+  SET=/backup/sets/<名稱> && cd $SET && sha256sum database.sqlite &&   # 對照 manifest.json 的 database.sha256
+  cp $SET/database.sqlite /data/formwright.db &&
+  rm -f /data/formwright.db-wal /data/formwright.db-shm &&
+  mkdir -p /data/attachments && cp -r /backup/attachments/. /data/attachments/'
+docker compose start formwright
+```
+
+換回舊版映像的做法見[升級](#升級)；舊版映像開不了新版升過的資料庫時，一樣先用這段還原升級前的備份。
 
 ### 移除
 

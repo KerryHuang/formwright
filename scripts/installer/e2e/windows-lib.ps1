@@ -24,6 +24,22 @@ function Now-Utc { [DateTimeOffset]::FromUnixTimeSeconds([DateTimeOffset]::UtcNo
 #  父目錄：擁有者 Administrators、受保護（不繼承）、恰好三個 Allow ACE（SYSTEM、Administrators 剛好完全控制；服務帳號剛好 Modify），皆 OI CI、非繼承；
 #  父目錄之下每個項目：不是 reparse point、DACL 非空、擁有者是 Administrators 或 SYSTEM（-AllowServiceOwner 時也接受服務帳號：精靈完成後服務自己建的檔案）、
 #  不是受保護、恰好三個「繼承」ACE（同一組三個主體與遮罩；目錄旗標 OI CI、檔案旗標無），沒有任何明確 ACE。至少要有 data 與 backup 兩個子項（空集合不得通過）。
+# 本機 Administrators 群組（S-1-5-32-544）的在地化名稱；net.exe 要用名稱
+function Get-AdminsGroupName {
+  $n = (New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')).Translate([Security.Principal.NTAccount]).Value
+  $n.Substring($n.IndexOf('\') + 1)
+}
+# net.exe 的非 0 結束碼不會讓 step 失敗；一律經這裡
+function Net-Checked([string[]]$NetArgs) { & "$env:SystemRoot\System32\net.exe" @NetArgs | Out-Null; if ($LASTEXITCODE -ne 0) { throw "FAIL: net $($NetArgs[0..1] -join ' ')（結束碼 $LASTEXITCODE）" } }
+# 建一個本機使用者並加入本機 Administrators，回傳它的 SID（密碼隨機、只在這台臨時 runner 上用）
+function New-TempAdmin([string]$Name) {
+  Net-Checked @('user', $Name, ('Fw!' + [guid]::NewGuid().ToString('N')), '/add')
+  Net-Checked @('localgroup', (Get-AdminsGroupName), $Name, '/add')
+  (New-Object Security.Principal.NTAccount($Name)).Translate([Security.Principal.SecurityIdentifier]).Value
+}
+function Remove-TempAdminFromGroup([string]$Name) { Net-Checked @('localgroup', (Get-AdminsGroupName), $Name, '/delete') }
+function Remove-TempUser([string]$Name) { Net-Checked @('user', $Name, '/delete') }
+
 function Assert-AclRule($r, [string]$Where, [string]$Svc, $WantFlags, [bool]$Inherited) {
   $id = $r.IdentityReference.Value; $mask = [int]$r.FileSystemRights
   Assert ("$($r.AccessControlType)" -eq 'Allow') "$Where：$id 的 ACE 不是 Allow"
@@ -35,14 +51,20 @@ function Assert-AclRule($r, [string]$Where, [string]$Svc, $WantFlags, [bool]$Inh
     Assert ($mask -eq 0x1301BF) ("$Where：服務帳號應剛好是 Modify、實得 0x{0:X}" -f $mask)
   } else { throw "FAIL: $Where 有不該有的 ACE：$id" }
 }
-function Assert-AclState([string]$Parent = 'C:\ProgramData\Formwright', [switch]$AllowServiceOwner) {
+# -AllowAdminSid：本機管理員成員的帳號（SID）；它們「額外的」Allow ACE（任意遮罩、明確或繼承、旗標不限）不計入「恰好三條」，
+# 但父目錄上必須真的有（證明案例的前置成立）；其他 SID 與 Deny 照舊不得出現
+function Assert-AclState([string]$Parent = 'C:\ProgramData\Formwright', [switch]$AllowServiceOwner, [string[]]$AllowAdminSid = @()) {
   $sid = [Security.Principal.SecurityIdentifier]
   $svc = (New-Object Security.Principal.NTAccount('NT SERVICE\Formwright')).Translate($sid).Value
   $admins = 'S-1-5-32-544'; $system = 'S-1-5-18'
   $acl = Get-Acl -LiteralPath $Parent
   Assert ($acl.GetOwner($sid).Value -eq $admins) "$Parent 的擁有者不是 Administrators"
   Assert ($acl.AreAccessRulesProtected) "$Parent 還在繼承權限"
-  $rules = @($acl.GetAccessRules($true, $true, $sid))
+  $all = @($acl.GetAccessRules($true, $true, $sid))
+  $extra = @($all | Where-Object { $AllowAdminSid -contains $_.IdentityReference.Value })
+  foreach ($r in $extra) { Assert ("$($r.AccessControlType)" -eq 'Allow') "$Parent：管理員成員 $($r.IdentityReference.Value) 的 ACE 不是 Allow" }
+  if ($AllowAdminSid.Count -gt 0) { Assert ($extra.Count -ge 1) "$Parent 上沒有預期的管理員成員 ACE" }
+  $rules = @($all | Where-Object { $AllowAdminSid -notcontains $_.IdentityReference.Value })
   Assert ($rules.Count -eq 3) "$Parent 應有 3 個 ACE、實得 $($rules.Count)"
   $dirFlags = [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
   $fileFlags = [Security.AccessControl.InheritanceFlags]::None
@@ -58,7 +80,9 @@ function Assert-AclState([string]$Parent = 'C:\ProgramData\Formwright', [switch]
     Assert ($owners -contains $a.GetOwner($sid).Value) "$p 的擁有者是 $($a.Owner)"
     Assert (-not $a.AreAccessRulesProtected) "$p 的權限不繼承"
     Assert (-not [string]::IsNullOrEmpty($a.GetSecurityDescriptorSddlForm('Access'))) "$p 沒有 DACL"
-    $rs = @($a.GetAccessRules($true, $true, $sid))
+    $allRs = @($a.GetAccessRules($true, $true, $sid))
+    foreach ($r in @($allRs | Where-Object { $AllowAdminSid -contains $_.IdentityReference.Value })) { Assert ("$($r.AccessControlType)" -eq 'Allow') "${p}：管理員成員 $($r.IdentityReference.Value) 的 ACE 不是 Allow" }
+    $rs = @($allRs | Where-Object { $AllowAdminSid -notcontains $_.IdentityReference.Value })
     Assert ($rs.Count -eq 3) "$p 應有 3 個 ACE、實得 $($rs.Count)；SDDL：$($a.Sddl)；父目錄 SDDL：$((Get-Acl -LiteralPath (Split-Path -Parent $p)).Sddl)"
     $wf = if ($item.PSIsContainer) { $dirFlags } else { $fileFlags }
     foreach ($r in $rs) { Assert-AclRule $r $p $svc $wf $true }
