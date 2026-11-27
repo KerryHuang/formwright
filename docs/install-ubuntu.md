@@ -26,16 +26,28 @@ Windows 電腦請看 [Windows 安裝教學](install-windows.md)。
 
 ## 2. 貼上安裝指令
 
+**先確認有沒有 `curl`**（下載用的工具）。貼這一行：
+
+```bash
+command -v curl
+```
+
+如果印出一個路徑（例如 `/usr/bin/curl`），就有，直接往下。如果什麼都沒印，先安裝它（會問 sudo 密碼）：
+
+```bash
+sudo apt update && sudo apt install -y curl
+```
+
 **預發版（目前）**：
 
 ```bash
-curl -fsSL https://github.com/KerryHuang/formwright/releases/download/v0.1.0-rc.2/install.sh | sudo bash
+curl -fsSL https://github.com/KerryHuang/formwright/releases/download/v0.1.0-rc.2/install.sh | sudo bash -s -- --lang zh-TW
 ```
 
 **正式版發出後**，改用這一行（永遠抓最新版）：
 
 ```bash
-curl -fsSL https://github.com/KerryHuang/formwright/releases/latest/download/install.sh | sudo bash
+curl -fsSL https://github.com/KerryHuang/formwright/releases/latest/download/install.sh | sudo bash -s -- --lang zh-TW
 ```
 
 貼上、按 **Enter** 之後：
@@ -43,7 +55,7 @@ curl -fsSL https://github.com/KerryHuang/formwright/releases/latest/download/ins
 1. 系統可能問你的密碼（`[sudo] password for ...`）。輸入時畫面不會顯示任何字，這是正常的，輸入完按 **Enter**。
 2. 腳本開始下載並安裝，過程不用操作，通常不到一分鐘。
 
-腳本的訊息語言跟著系統：系統語言是繁體中文（`zh_TW`、`zh_HK`、`zh_MO`）才顯示繁體中文，其他一律英文。想固定用繁體中文，把指令尾端改成 `| sudo bash -s -- --lang zh-TW`。
+上面的指令尾端的 `--lang zh-TW` 是讓腳本固定用繁體中文說話（不加的話，只有系統語言是 `zh_TW`、`zh_HK`、`zh_MO` 才顯示繁體中文，其他一律英文，下面的輸出就對不上了）。
 
 ## 3. 看懂輸出、抄下設定碼
 
@@ -89,15 +101,15 @@ FORMWRIGHT_SETUP_CODE=K7QM-3HZP-W2XA
 
 ![設定精靈第 3 步：資料庫](images/install-guide/wizard-3-database.png)
 
-**第 4 步：管理員密碼。** 輸入兩次要用的密碼（至少 8 個字元）。這是管理員帳號 `admin` 的密碼，請記好。
+**第 4 步：管理員密碼。** 輸入兩次要用的密碼（至少 8 個字元），按**下一步**。這是管理員帳號 `admin` 的密碼，請記好。
 
 ![設定精靈第 4 步：管理員密碼](images/install-guide/wizard-4-admin.png)
 
-**第 5 步：公司名稱。** 輸入公司名稱（例如「範例商行」），會顯示在畫面與系統寄出的信件上，不能空白。
+**第 5 步：公司名稱。** 輸入公司名稱（例如「範例商行」），會顯示在畫面與系統寄出的信件上，不能空白。按**下一步**。
 
 ![設定精靈第 5 步：公司名稱](images/install-guide/wizard-5-company.png)
 
-**第 6 步：備份位置。** 預設是 `/var/lib/formwright/backup`，跟資料在同一台機器的同一顆硬碟。建議改到**另一顆磁碟**，或**已經掛載好的網路硬碟（NAS）**，否則硬碟壞掉時備份會一起不見。填完整的路徑（例如 `/mnt/backup/formwright`），而且要讓服務帳號 `formwright` 能寫入。備份位置不能跟資料、金鑰、程式所在的資料夾重疊。
+**第 6 步：備份位置。** 預設是 `/var/lib/formwright/backup`，跟資料在同一台機器的同一顆硬碟。建議改到**另一顆磁碟**，或**已經掛載好的網路硬碟（NAS）**，否則硬碟壞掉時備份會一起不見。填完整的路徑（例如 `/mnt/backup/formwright`），而且要讓服務帳號 `formwright` 能寫入。備份位置不能跟資料、金鑰、程式所在的資料夾重疊。填好按**下一步**；如果出現紅字（例如「這個位置無法寫入」），先照紅字處理（路徑要存在、服務帳號 `formwright` 要有寫入權限）再按一次**下一步**。暫時沒有另一顆磁碟或網路硬碟時，可以先保留預設路徑直接按**下一步**，但請盡快安排。
 
 ![設定精靈第 6 步：備份位置](images/install-guide/wizard-6-backup.png)
 
@@ -142,9 +154,10 @@ Formwright 只給公司內網使用。要從外面連進來，請另找 VPN，�
   ```
 
   看到綠色的 `active (running)` 就是正常；按 **q** 離開。
-- **自動備份**：預設每天凌晨 2 點備份一次，保留最近 7 份，放在你在精靈第 6 步設定的位置，每一份在其下 `sets/` 資料夾裡的一個資料夾（預設是 `/var/lib/formwright/backup/sets/`）。精靈完成後不久就會有第一份。備份資料夾只有 root 與服務帳號看得到，用 `sudo ls /var/lib/formwright/backup/sets/` 查看。細節見[部署指南的產品內備份](deploy.md#產品內備份)。
+- **自動備份**：預設每天凌晨 2 點備份一次，自動備份保留最近 7 份（在系統裡按「立即備份」做的備份預設保留 7 天），放在你在精靈第 6 步設定的位置，每一份在其下 `sets/` 資料夾裡的一個資料夾（預設是 `/var/lib/formwright/backup/sets/`）。精靈完成後不久就會有第一份。備份資料夾只有 root 與服務帳號看得到，用 `sudo ls /var/lib/formwright/backup/sets/` 查看。細節見[部署指南的產品內備份](deploy.md#產品內備份)。
 - **看 log**：`sudo journalctl -u formwright`（按 **q** 離開；加 `-e` 直接跳到最後）。
 - 請偶爾（例如每月）看一下備份位置，確認有新的備份在長。
+- **搬備份要整個備份根目錄一起帶**：資料庫與清單在 `sets/` 裡，附件實體放在同一個備份根目錄下的 `attachments/`，被所有備份共用。只帶 `sets/` 裡的某一份，還原時會缺附件。
 
 ## 常見問題
 
@@ -166,7 +179,7 @@ sudo cat /var/lib/formwright/data/setup-code
 
 **怎麼升級到新版**
 
-重新貼一次安裝指令（預發版用有版號的網址，正式版用 `latest` 的網址）。腳本偵測到已安裝，會先停止服務、用舊版做一次備份，備份成功才換成新版，你的資料與設定都不動。
+重新貼一次第 2 節的安裝指令（預發版用有版號的網址，正式版用 `latest` 的網址，尾端一樣帶 `--lang zh-TW`）。腳本偵測到已安裝，會先停止服務、用舊版做一次備份，備份成功才換成新版，你的資料與設定都不動。
 
 **升級時畫面跑出一大段英文，是壞掉了嗎？** 不是。升級過程中會印出好幾段很長的英文 JSON（資料庫更新的訊息與警告），這是已知現象。你只要看**最後一行**：
 
@@ -185,18 +198,22 @@ FORMWRIGHT_BACKUP_OK <一串碼>
 - **`remove`（保留資料）**：只移除程式與服務，資料、設定與備份都保留，之後可以重新安裝接回。
 
   ```bash
-  curl -fsSL https://github.com/KerryHuang/formwright/releases/download/v0.1.0-rc.2/install.sh | sudo bash -s -- remove
+  curl -fsSL https://github.com/KerryHuang/formwright/releases/download/v0.1.0-rc.2/install.sh | sudo bash -s -- remove --lang zh-TW
   ```
 
 - **`purge`（全部刪除，無法復原）**：連資料、設定、備份與服務帳號一起刪。會問你要不要確認，要輸入 `yes`（只輸入 `y` 不算）。
 
   ```bash
-  curl -fsSL https://github.com/KerryHuang/formwright/releases/download/v0.1.0-rc.2/install.sh | sudo bash -s -- purge
+  curl -fsSL https://github.com/KerryHuang/formwright/releases/download/v0.1.0-rc.2/install.sh | sudo bash -s -- purge --lang zh-TW
   ```
 
   最後會印出 `已移除程式、服務、資料與設定。`。如果是在沒有終端機的環境（例如被別的腳本呼叫）執行，要在 `purge` 後面加 `--yes`。備份位置設在預設資料夾之外時，不會被刪，腳本會把路徑列出來。
 
 除非確定不再需要任何資料，否則請選 `remove`。正式版發出後，上面兩行的網址換成 `releases/latest/download/install.sh` 那種。
+
+**`curl: command not found`（找不到 curl）**
+
+表示這台主機沒有裝 `curl`。執行 `sudo apt update && sudo apt install -y curl` 之後，再貼一次安裝指令。
 
 **怎麼改連接埠**
 

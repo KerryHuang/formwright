@@ -266,7 +266,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 
 用[產品內備份](#產品內備份)的一份 `sets/<名稱>/` 把資料庫與附件放回安裝版的資料目錄。通用原則同[從備份還原（SQLite）](#從備份還原sqlite)；這裡只列各平台的路徑與指令。先確認備份的 `manifest.json` 的 `appVersion` 不比已安裝的版本新（新備份不能用舊版開）。升級前備份在歷程裡顯示為「立即」、沒有操作者，`snapshotUtc` 在升級那一刻之前、`appVersion` 是升級前的版本。
 
-下面三個平台的順序大致相同：停服務 → 另存現有資料 → 比對備份的 SHA-256 → 補附件（Ubuntu、Docker 放在覆蓋之前；Windows 在覆蓋之後）→ 覆蓋資料庫 → 啟動。**任何一步失敗就停在那裡、不要啟動服務**，原本的資料還在（或在另存的副本裡）。
+下面三個平台的順序大致相同：停服務 → 另存現有資料 → 比對備份的 SHA-256 → 讀備份 manifest 的附件數、補附件（Ubuntu、Docker 放在覆蓋之前；Windows 在覆蓋之後）→ 覆蓋資料庫 → 啟動。**比對、另存、附件階段失敗時資料庫還沒被覆蓋**，停在那裡、不要啟動服務；**覆蓋資料庫開始之後才失敗**（複製、刪 WAL／SHM、啟動），要假設資料庫已經不是原樣：維持停站，不要啟動，從另存的副本取回（各平台的取回方式見下面每段結尾）。
 
 **Windows**（已在真機演練，Windows 11、Formwright 0.1.0-rc.1；第 3 步的明確比對寫法是演練之後改的，沒有再單獨演練）：
 
@@ -282,11 +282,11 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
    ```
 
 4. `Copy-Item "$set\database.sqlite" C:\ProgramData\Formwright\data\formwright.db -Force`，再刪掉 `formwright.db-wal`、`formwright.db-shm`。這樣是**覆蓋既有檔**，保留原檔的權限；不要用會保留來源權限的工具（`robocopy /SEC`、`xcopy /O`），否則資料目錄的權限會和預期不同，下次升級被拒絕。
-5. 附件：把 `C:\ProgramData\Formwright\backup\attachments\` 的內容複製到 `C:\ProgramData\Formwright\data\attachments\`（多出來的檔案可用「清孤兒附件」清掉）。沒有 `backup\attachments` 資料夾表示這個站台還沒備份過任何附件，沒有附件要補，略過這一步。
+5. 附件：先看所選備份的 `manifest.json` 裡 `attachments.count`（附件數）：是 0 就沒有附件要補，略過這一步；大於 0 就把 `C:\ProgramData\Formwright\backup\attachments\` 的內容複製到 `C:\ProgramData\Formwright\data\attachments\`（多出來的檔案可用「清孤兒附件」清掉）。大於 0 卻找不到 `backup\attachments` 資料夾，表示搬備份時漏帶了共用附件池，請先把同一備份根目錄的 `attachments\` 找回來；**不要用資料夾有沒有來判斷有沒有附件**。manifest 讀不到 `attachments.count` 時同樣先停下來。這一步在覆蓋資料庫之後，所以附件補不齊、決定放棄還原時，請用步驟 2 另存的副本把資料庫放回去。
 6. `Start-Service Formwright`，用瀏覽器或 `Invoke-RestMethod http://127.0.0.1:<埠>/api/version` 確認有回應（埠見 `C:\ProgramData\Formwright\formwright.json` 的 `Server:Port`，預設 8080）。
 7. **不要用檔案總管進 `C:\ProgramData\Formwright` 按「繼續」**：Windows 會替你的帳號加一條明確授權。管理員帳號的授權不擋升級（見上面「資料目錄權限」），但其他帳號的授權會。
 
-**Ubuntu**（2026-11-27 在 WSL2 Ubuntu 24.04 以 root 照下面這段演練過：附件池不存在時略過附件、還原後資料與備份一致、服務正常啟動。以一般 sudo 帳號、備份裡有附件的情況未在真機演練，只在容器內驗過腳本邏輯）：服務名 `formwright`，資料 `/var/lib/formwright/data`，備份 `/var/lib/formwright/backup`，資料庫檔 `formwright.db`；資料目錄與備份目錄擁有者是 `formwright:formwright`、0700，一般登入帳號進不去，所以檔案的列舉與複製都放在同一個 root shell 裡做。升級流程只對 `/var/lib/formwright`、`/etc/formwright`、`data`、`backup` 這幾個目錄重設擁有者與權限，**不檢查也不重設其下檔案**，所以還原後檔案的擁有者要維持 `formwright`，否則服務寫不進去。把 `<名稱>` 換成要還原的那份：
+**Ubuntu**（2026-11-27 在 WSL2 Ubuntu 24.04 以 root 演練過較早的版本；附件判斷在演練之後改為依 manifest 的附件數，主控會再複驗。一般 sudo 帳號與備份裡有附件的真機情況未演練。改版後的腳本另在 Ubuntu 24.04 容器內用假的 `systemctl` 驗過四種情境，不含真服務）：服務名 `formwright`，資料 `/var/lib/formwright/data`，備份 `/var/lib/formwright/backup`，資料庫檔 `formwright.db`；資料目錄與備份目錄擁有者是 `formwright:formwright`、0700，一般登入帳號進不去，所以檔案的列舉與複製都放在同一個 root shell 裡做。升級流程只對 `/var/lib/formwright`、`/etc/formwright`、`data`、`backup` 這幾個目錄重設擁有者與權限，**不檢查也不重設其下檔案**，所以還原後檔案的擁有者要維持 `formwright`，否則服務寫不進去。把 `<名稱>` 換成要還原的那份：
 
 ```bash
 sudo systemctl stop formwright
@@ -294,10 +294,12 @@ sudo sh -c 'set -e
   # 服務必須確實停了：停止時 is-active 回非 0 是正常的，所以只比對輸出
   test "$(systemctl is-active formwright || true)" = inactive
   SET=/var/lib/formwright/backup/sets/<名稱>
+  BACKUP=/var/lib/formwright/backup
   DATA=/var/lib/formwright/data
   # 另存現有資料（絕對路徑，只有 root 讀得到）；任何一步失敗就停，後面不會覆蓋
   SAVE=/root/formwright-pre-restore-$(date +%Y%m%d%H%M%S)
   mkdir -p "$SAVE" && chmod 700 "$SAVE"
+  echo "原資料另存在 $SAVE"
   for f in "$DATA"/formwright.db*; do if [ -e "$f" ]; then cp -p "$f" "$SAVE"/; fi; done
   test -s "$SAVE/formwright.db"
   # 比對 manifest 的 database.sha256，不符就停
@@ -305,23 +307,32 @@ sudo sh -c 'set -e
   test -n "$want"
   got=$(sha256sum "$SET/database.sqlite" | cut -d" " -f1)
   test "$got" = "$want"
-  # 附件池只有備份過至少一個附件後才存在；沒有就略過。放在覆蓋資料庫之前：附件複製失敗時資料庫還沒動
-  if [ -d /var/lib/formwright/backup/attachments ]; then
+  # 附件數以 manifest 的 attachments.count 為準，不看附件池資料夾在不在；讀不到就停，不當成 0
+  count=$(sed -n "/\"attachments\" *:/,/}/p" "$SET/manifest.json" | sed -n "s/.*\"count\" *: *\([0-9][0-9]*\).*/\1/p" | head -n 1)
+  if [ -z "$count" ]; then echo "manifest 讀不到附件數（attachments.count），中止；資料庫沒有被動到" >&2; exit 1; fi
+  if [ "$count" -eq 0 ]; then
+    echo "這份備份沒有附件，略過"
+  elif [ -d "$BACKUP/attachments" ]; then
     mkdir -p "$DATA/attachments"
-    cp -r /var/lib/formwright/backup/attachments/. "$DATA/attachments/"
+    cp -r "$BACKUP/attachments/." "$DATA/attachments/"
     chown -R formwright:formwright "$DATA/attachments"
   else
-    echo "沒有附件備份，略過"
+    echo "這份備份有 $count 個附件，但找不到 $BACKUP/attachments/；請把同一備份根目錄的 attachments/ 一起找回再重跑，中止，資料庫沒有被動到" >&2
+    exit 1
   fi
+  # 從這裡開始資料庫會被覆蓋
   install -o formwright -g formwright -m 600 "$SET/database.sqlite" "$DATA/formwright.db"
   rm -f "$DATA/formwright.db-wal" "$DATA/formwright.db-shm"
   echo "還原完成；原資料另存在 $SAVE"
 '
 ```
 
-上面那段印出「還原完成」才執行 `sudo systemctl start formwright`，再 `curl -fsS http://127.0.0.1:<埠>/api/version` 確認（埠見 `/etc/formwright/formwright.json`）。沒印就不要啟動，把錯誤訊息和 `$SAVE` 目錄的內容留著排查。
+上面那段印出「還原完成」才執行 `sudo systemctl start formwright`，再 `curl -fsS http://127.0.0.1:<埠>/api/version` 確認（埠見 `/etc/formwright/formwright.json`）。沒印就不要啟動。排查：
 
-**Docker compose**（⚠️ 依 `deploy/docker-compose.yml` 推論，**未在真機演練**；附件步驟「存在才複製」並移到覆蓋之前，也是 Ubuntu 演練發現問題後照改的）：資料 volume `formwright-data` 掛在 `/app/data`，備份 volume `formwright-backup` 掛在 `/backup`（備份在 `/backup/sets/<名稱>/`）；實際 volume 名稱前面有 compose 專案名（預設 `formwright_formwright-data`，用 `docker volume ls` 確認）。映像沒有指定非 root 使用者，容器內檔案是 root 擁有，下面用暫時容器以 root 複製。不確定的地方：容器是否以非 root 執行要以你用的映像為準（`docker compose run --rm --entrypoint id formwright`），不是 root 就要在複製後把 `/app/data` 內檔案 `chown` 成那個使用者。暫時容器在覆蓋前會讀 `manifest.json` 比對 `database.sha256`，不符或讀不到就以非 0 結束，`&&` 後面的 `docker compose start` 就不會執行，服務維持停止：
+- 在「從這裡開始資料庫會被覆蓋」之前停下來（訊息寫「資料庫沒有被動到」，或 SHA、另存失敗）：資料庫沒動，修好原因（例如把漏掉的 `attachments/` 找回）後重跑同一段。
+- 覆蓋之後才失敗（`install` 或 `rm` 出錯、磁碟滿），或「還原完成」之後服務啟動失敗：**不要假設原資料庫沒變**，維持停站。另存副本在 `/root/formwright-pre-restore-<時間>/`，用 `sudo ls /root/` 找最新的那個目錄（腳本開頭也印過完整路徑）。取回原資料：`sudo sh -c 'cp -p /root/formwright-pre-restore-<時間>/formwright.db* /var/lib/formwright/data/ && chown formwright:formwright /var/lib/formwright/data/formwright.db*'`（原本若有 `-wal`、`-shm` 檔，副本裡也會一起在；取回前先刪掉資料目錄裡還原版留下的同名 `-wal`、`-shm`）。服務啟動失敗先用 `sudo journalctl -u formwright -e` 看原因。
+
+**Docker compose**（⚠️ 依 `deploy/docker-compose.yml` 推論，**未在真機演練**；附件判斷依 manifest 的附件數、放在覆蓋之前，是 Ubuntu 演練發現問題後照改的，判斷邏輯另在 Ubuntu 24.04 容器內以 `sh` 驗過四種情境，沒有跑真的 compose）：資料 volume `formwright-data` 掛在 `/app/data`，備份 volume `formwright-backup` 掛在 `/backup`（備份在 `/backup/sets/<名稱>/`）；實際 volume 名稱前面有 compose 專案名（預設 `formwright_formwright-data`，用 `docker volume ls` 確認）。映像沒有指定非 root 使用者，容器內檔案是 root 擁有，下面用暫時容器以 root 複製。不確定的地方：容器是否以非 root 執行要以你用的映像為準（`docker compose run --rm --entrypoint id formwright`），不是 root 就要在複製後把 `/app/data` 內檔案 `chown` 成那個使用者。暫時容器在覆蓋前會讀 `manifest.json` 比對 `database.sha256`，不符或讀不到就以非 0 結束，`&&` 後面的 `docker compose start` 就不會執行，服務維持停止：
 
 ```bash
 docker compose stop formwright
@@ -335,19 +346,25 @@ docker run --rm -v formwright_formwright-data:/data -v formwright_formwright-bac
   [ "$got" = "$want" ] || { echo "SHA-256 不符，不還原" >&2; exit 1; }
   for f in /data/formwright.db*; do [ -e "$f" ] || continue; cp -p "$f" /save/; done
   [ -s /save/formwright.db ]
-  # 附件池只有備份過至少一個附件後才存在；沒有就略過。放在覆蓋資料庫之前
-  if [ -d /backup/attachments ]; then
+  # 附件數以 manifest 的 attachments.count 為準，不看附件池資料夾在不在；讀不到就停，不當成 0
+  count=$(sed -n "/\"attachments\" *:/,/}/p" "$SET/manifest.json" | sed -n "s/.*\"count\" *: *\([0-9][0-9]*\).*/\1/p" | head -n 1)
+  [ -n "$count" ] || { echo "manifest 讀不到附件數（attachments.count），中止；資料庫沒有被動到" >&2; exit 1; }
+  if [ "$count" -eq 0 ]; then
+    echo "這份備份沒有附件，略過"
+  elif [ -d /backup/attachments ]; then
     mkdir -p /data/attachments
     cp -r /backup/attachments/. /data/attachments/
   else
-    echo "沒有附件備份，略過"
+    echo "這份備份有 $count 個附件，但找不到 /backup/attachments/；請把同一備份根目錄的 attachments/ 一起找回再重跑，中止，資料庫沒有被動到" >&2
+    exit 1
   fi
+  # 從這裡開始資料庫會被覆蓋
   cp "$SET/database.sqlite" /data/formwright.db
   rm -f /data/formwright.db-wal /data/formwright.db-shm
 ' && docker compose start formwright
 ```
 
-指令失敗時服務保持停止；比對、另存與附件複製都在覆蓋資料庫之前，所以資料庫在失敗時沒有被動到（附件只會多出檔案，之後可用「清孤兒附件」清掉）。修好原因後再重跑同一段。
+指令失敗時服務保持停止、不要啟動。**比對、另存與附件階段失敗時（訊息寫「資料庫沒有被動到」，或 SHA 不符），資料庫還沒被覆蓋**（附件只會多出檔案，之後可用「清孤兒附件」清掉），修好原因後重跑同一段。**覆蓋之後才失敗**（`cp`、`rm` 出錯、磁碟滿，或 `docker compose start` 之後服務起不來）：不要假設原資料庫沒變，維持停站；原資料在目前資料夾的 `pre-restore/` 裡，取回：`docker run --rm -v formwright_formwright-data:/data -v "$PWD/pre-restore:/save:ro" alpine sh -c 'rm -f /data/formwright.db-wal /data/formwright.db-shm && cp -p /save/formwright.db* /data/'`。服務啟動失敗用 `docker compose logs formwright` 看原因。
 
 **退回舊版程式**：兩種安裝程式都**不擋降版**——Windows 的 `formwright.iss` 用同一個 AppId、不比對版本、程式檔以 `ignoreversion` 覆蓋，`install.sh` 也不比對版本，所以執行舊版安裝檔會當成一次升級做完（Windows：停服務、用目前已裝的程式做一次備份、換成舊版程式、檢查資料目錄權限、啟動）。但**舊程式開到新版升過的資料庫不保證相容**：沒有統一的降版拒絕機制，可能啟動失敗（Windows 的安裝程式最後等服務就緒逾時、結束碼 20、服務被停用），也可能啟動成功、之後寫入新版的資料結構，或在特定功能出錯。所以不要把「啟動失敗」當成保護，也不要讓舊程式先碰到新版資料庫。建議順序：
 
