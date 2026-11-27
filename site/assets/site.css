@@ -121,6 +121,8 @@ body{margin:0;background:var(--surface)}
   .fw-js .fw-nav-link{padding:0 4px}
   .fw-js .fw-nav-panel .fw-theme{align-self:flex-start;margin-top:8px}
 }
+/* 360px 級手機：縮小間距，讓品牌與「選單」鈕維持同一列 */
+@media (max-width:400px){.fw-header{padding:12px 14px}.fw-nav{gap:8px}.fw-brand{gap:6px}.fw-brand svg{width:32px;height:32px}.fw-menu-btn{padding:0 14px}}
 /* ===== 主題：主按鈕與硬陰影的深色處理在檔頭變數（--cta-*、--shadow） ===== */
 /* ===== 中文排版 ===== */
 h1,h2,h3{text-wrap:balance;text-spacing-trim:normal;font-feature-settings:"halt"}
