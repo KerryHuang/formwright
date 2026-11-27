@@ -63,7 +63,7 @@ public class IntegrationReconciler(
         if (row.Enabled && TemplatePartner(decl, appList) is { } template)
         {
             if (row.Installed) await SuspendAsync(row, items, decl, retry, ct);
-            return await SetStatusAsync(row, IntegrationStatus.Waiting, TemplatePartnerReason(template, requestLocale.SystemDefault), previous, decl, ct);
+            return await SetStatusAsync(row, IntegrationStatus.Waiting, TemplatePartnerReason(messages, template, requestLocale.SystemDefault), previous, decl, ct);
         }
         var partners = await PartnersAsync(decl, appList, ct);
         var target = IntegrationState.Derive(row.Enabled, row.Installed, owner.Status == AppStatus.Open, partners.Present, decl.OnPartnerClosed == "block");
@@ -122,7 +122,7 @@ public class IntegrationReconciler(
         decl.With.FirstOrDefault(w => appList.Any(a => a.Key == w.Id && a.Kind == AppKind.Template))?.Id;
 
     /// <summary>「夥伴是範本」的原因字串（沿用 row.Reason 的「代碼: 說明」格式）；存進資料用系統預設語系，回應時依請求語系重組。</summary>
-    internal string TemplatePartnerReason(string partner, LocaleContext locale) =>
+    internal static string TemplatePartnerReason(IMessageCatalog messages, string partner, LocaleContext locale) =>
         $"waiting: {messages.Get(locale, MessageText.IntegrationPartnerIsTemplate, partner)}";
 
     /// <summary>夥伴都在：應用程式 Open，且用到的模組都是 Active。Missing 列出不在的。</summary>
