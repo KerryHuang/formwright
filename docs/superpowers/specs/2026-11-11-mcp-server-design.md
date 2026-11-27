@@ -361,13 +361,14 @@ SDK 查證（2026-11-26，讀本機 `ModelContextProtocol.Core` 2.4.0 的 XML �
 4. **兩條路不能混用**：標記為「elicitation 發出」的確認碼，用 `confirmationCode` 參數送來一律回 `confirmation_invalid`。這樣 AI 即使看得到 `requestState`，也沒辦法跳過對話框。
 5. **稽核**：確認紀錄多一欄確認方式（確認碼／elicitation），讓事後查得出哪些高風險動作真的有人按過。
 
-⚠️ 未驗證，mcp2b 開工時實測：
+⚠️ 未驗證（mcp2b 實作時的實測結果見 §7.4「實機驗證」）：
 
-- Claude Code 是否真的支援 MRTR 版的 elicitation。官方文件有寫，但還沒在 repo 實機跑過。
-- Codex 支不支援。
+- Claude Code 是否真的支援 MRTR 版的 elicitation：mcp2b 沒有在 Claude Code 實機跑過（背景 worker 沒有互動式 session 可以按對話框），仍未驗證。
+- Codex 支不支援：未驗證。
 - client 會不會把 `requestState` 顯示給 LLM。不影響安全（第 4 點已擋），只影響要不要另外加密。
+- 已驗證的只有 SDK 本身：`ModelContextProtocol.Core` 2.4.0 的 C# client 掛上 `ElicitationHandler` 後，會自動處理 InputRequired、呼叫 handler、帶 `requestState` 與回答重送（WebAPI 測試 `McpHighRiskToolsApiTests` 的 elicitation 案例）。
 
-待決（mcp2b 計畫時分流）：client 不支援 elicitation 時，要不要讓管理員改成「拒絕高風險工具」，不退回確認碼。這是使用者感覺得到的取捨，依鐵則 2 應該做成政策，出廠值待定。
+client 不支援 elicitation 時的處理（原待決）：做成政策 `mcp.highRiskWithoutElicitation`，選項「退回確認碼」（出廠）與「拒絕高風險工具」；選拒絕時回 `isError`，代碼 `elicitation_required`（mcp2b 主控裁決，待使用者確認出廠值，2026-11-27）。
 
 ### 6.4 高風險清單可調（使用者裁決；地板依 C7 使用者裁決，2026-11-12）
 
@@ -434,7 +435,7 @@ SDK 查證（2026-11-26，讀本機 `ModelContextProtocol.Core` 2.4.0 的 XML �
 - 每個寫入工具的 `idempotencyKey` 必填，接到 `IOperationContext.ClientKey`，由 `IdempotencyBehavior` 接手。原本只有記錄寫入，mcp2a 把任務與留言也納入（新 marker `IIdempotentRequest`）；附件留言（畫面專用，MCP 不收附件）放行，不做請求層冪等。MCP 通道的請求雜湊加通道後綴，畫面送出的 key 被 AI 以相同內容重送時回 `idempotency_key_reused`，不會回放畫面通道的結果。
 - 寫入迴圈偵測：同一權杖在時間窗內反覆修改同一筆記錄，見 §7.3 與 §20 C3。
 
-**mcp2b 高風險**（`business.write`）
+**mcp2b 高風險**（`business.write`，已實作；回填見 §7.4）
 
 - delete_record（預演＝刪除前檢查的串聯結果）。
 - approve、reject（預演＝下一關、會觸發的轉移與效果）。
@@ -527,7 +528,59 @@ SDK 查證（2026-11-26，讀本機 `ModelContextProtocol.Core` 2.4.0 的 XML �
 - 被遮的必填欄位在 AI 建立時不檢查（D2）。
 - 記錄歷程不標「經 AI」（D7，票 #81），要到稽核頁用來源管道「MCP」查。
 - 留言不收附件；不做 `mark_notifications_read`（D6，票 #82）。
-- mcp2b 的伏筆：`McpWriteAuditBehavior` 遇到 `IMcpConfirmedRequest` 會丟例外。C7 允許管理員把刪除移出高風險清單、改成一般寫入，到時要決定是讓確認請求在「不要求確認」時改走寫入稽核，還是另做一個不帶確認的請求。
+- mcp2b 的伏筆：`McpWriteAuditBehavior` 遇到 `IMcpConfirmedRequest` 會丟例外。C7 允許管理員把刪除移出高風險清單、改成一般寫入，到時要決定是讓確認請求在「不要求確認」時改走寫入稽核，還是另做一個不帶確認的請求。→ mcp2b 的解法：刪除與簽核不實作 `IMcpConfirmedRequest`，確認碼改在寫入稽核裡驗，見 §7.4。
+
+### 7.4 mcp2b 實作回填
+
+**決策狀態**
+
+- `mcp.highRiskWithoutElicitation` 做成政策、出廠「退回確認碼」：主控裁決，待使用者確認（2026-11-27）。
+- 以下行為類決定由實作者代做，待使用者確認（2026-11-27）：
+  - 管理員可以把一般寫入工具加進高風險清單（§6.4 只說「只有寫入類工具能加進清單」，沒排除一般寫入）；加進來後預演只是 AI 送出的參數本身。
+  - 政策值壞掉（直接寫進資料庫的不合法值）或讀取失敗時，清單退回出廠值、再聯集地板，不讓整個 AI 連線停擺；「不支援 elicitation」退回出廠值。和 mcp1a 九項政策「壞值即停用」不同，理由是這兩項只影響確認方式，出廠清單比管理員移出後的清單嚴。
+  - 刪除的目標版本＝記錄版本＋串聯結果指紋（連帶刪除的 id、被清空的「記錄:欄位」排序後雜湊）；簽核的目標版本＝實例版本＋任務狀態。
+  - 對話框按 accept 但「確認執行」沒勾（false），當成拒絕；client 只帶 `requestState`、沒帶回答，也當成拒絕（碼作廢）。
+  - 對話框的訊息依呼叫語系，預演內容用縮排 JSON、最多 3,000 字。
+  - 工具 annotations 依目錄的出廠級別：刪除、簽核標 `destructiveHint` true、`idempotentHint` 不給；管理員移出清單後 annotations 不變（刪除仍然是破壞性動作）。
+
+**與原設計不同之處**
+
+- §6.3 第 3 點「通過後在同一個交易標成已使用並執行」：刪除與簽核是 `IIdempotentRequest`（記錄寫入與簽核動作），走 mcp2a 的寫入路徑，不實作 `IMcpConfirmedRequest`。確認碼改在 `McpWriteAuditBehavior` 裡驗：工具上膛時帶確認碼和「重新算目前目標版本」的委派，behavior 在交易內依序驗碼（`McpConfirmationValidator`，與 `McpConfirmationBehavior` 共用）、重跑預演比對目標版本、條件式標記已用，再執行請求。這樣同一個請求被移出清單時直接走一般寫入稽核，解掉 §7.3 的伏筆。`IMcpConfirmedRequest` 保留給非冪等的確認請求（mcp3、mcpO2 的工具）。
+- §6.3.1 第 2 點「確認碼標記為 elicitation 發出」：確認紀錄加欄 `Method`（`code`／`elicitation`，出廠 `code`）與 `DeclinedUtc`；migration `McpConfirmationMethod`（SQLite 與 PostgreSQL 各一支）。
+- §6.3.1 第 4 點擋兩個方向：elicitation 的碼用 `confirmationCode` 送、確認碼路徑的碼包成 `requestState` 送，都回 `confirmation_invalid`，碼不作廢（不能拿來作廢別人的碼）。
+- §6.3.1 第 5 點的「確認方式」也寫進稽核摘要（`confirm`：`code`／`elicitation`），稽核頁不必 join 確認表就看得到。
+- 稽核的風險級別改由呼叫端依政策傳（`AuditEntry.Risk`，沒傳照 `AuditActions` 登記）：出廠高風險的三個動作登記 HighRisk；移出清單後執行器與寫入稽核傳 Write；確認成功、逾時清理的稽核傳 HighRisk。
+- 刪除前檢查從 `DeleteRecordHandler` 抽成 `DeleteRecordChecks`，預演（`PreviewDeleteRecordRequest`）與實際刪除跑同一份，保證預演看到的阻擋與實際一致。
+- 簽核預演（`PreviewApprovalActionRequest`）照同意與退回 handler 的前置檢查，只讀取，不取處理權。
+- 政策登記新增型別 `CodeSet`（多選代碼）：選項是子集合、依選項順序、可為空，`Required` 是寫死的地板，少一個就不合法；政策 API 回 `required`，前端政策頁把地板項目顯示成勾選且停用。選項是 MCP 工具的協定名稱，前端照原文顯示、不翻譯。
+- 正式目錄目前沒有地板工具（改權限、套用套件、刪除模組或欄位、維運處置都還沒做成工具）；機制由 `McpToolDescriptor.HighRiskFloor` 驅動，用測試登記驗過「移不出」。
+
+**工具行為**
+
+- `delete_record`：`recordId`、`rowVersion`、`idempotencyKey` 必填；預演回 `recordId`、`moduleKey`、`cascadeDelete`（連帶刪除的記錄）、`clearReferences`（會被清空參照的記錄與欄位）。
+- `approve`：`taskId`、`rowVersion`（實例版本）、`idempotencyKey` 必填，`comment` 選填；不收可編輯欄位（只在畫面）。預演回關卡、結局（`waitOthers`／`nextStage`／`complete`／`route`）、下一關名稱、下一關是否有條件、核准後的目標狀態。
+- `reject`：另外必填 `comment`，`to` 是 `initiator`（出廠）或 `previous`；意見長度與必填由 handler 依政策判斷。預演回結局 `toInitiator`／`toPrevious` 與重簽的關卡。
+- 寫入類工具都多一個選填的 `confirmationCode` 參數；這次是一般寫入時忽略它。
+
+**實機驗證（2026-11-27，本機後端＋全新 Demo 資料，直接送 JSON-RPC 到 `/mcp`）**
+
+- 刪除：預演回串聯結果、記錄不動；帶碼送出後軟刪；同碼重送 `confirmation_invalid`；預演後記錄版本被改，確認時 `confirmation_invalid`、不刪。稽核依序是 preview、confirmed、mismatch，級別都是 highRisk。
+- 同意（流程圖實例）：預演回 `route`；帶碼送出後實例核准。
+- 退回走 elicitation（client 宣告 `elicitation.form`）：回 `resultType: input_required`、`requestState` 是 `fwe1.` 開頭，結果裡沒有碼；回答 decline → `confirmation_declined`、碼作廢、稽核 declined；同一個 `requestState` 再按同意 → `confirmation_invalid`；重新預演後把碼改用 `confirmationCode` 送 → `confirmation_invalid`；同一個 `requestState` 按同意 → 退回成功、稽核 confirmed、摘要 `confirm: elicitation`。
+- 政策：`mcp.highRiskWithoutElicitation` 設 `reject` 後，不宣告 elicitation 的呼叫回 `elicitation_required`，宣告的照常拿到對話框；`mcp.highRiskTools` 設成 `["query_records"]` 回 400；只留簽核後 `delete_record` 直接刪除、稽核級別 write。
+- 實機發現並修正：對話框訊息裡的非 ASCII 字被 JSON 跳脫成 `\uXXXX`，改用不跳脫的編碼器（測試 `Elicitation_Approve_MessageReadable`）。
+- 政策頁 390、820、1366、1920 四種寬度沒有橫向捲動，高風險工具清單顯示 10 個勾選框、出廠勾刪除與簽核。
+- Claude Code、Codex 的 elicitation：未驗證（見 §6.3.1 ⚠️）。
+
+**已知限制（mcp2b）**
+
+- 簽核預演不列轉移觸發的事件效果（任務規則、事件記帳、通知），只到「轉到哪個狀態」。
+- 流程圖（graph）實例的同意只回 `route`，不預測走哪條分支；graph 實例的同意不比對請求帶的 `rowVersion`（照 handler）。
+- 確認執行成功後，用同一個確認碼與冪等鍵重送會回 `confirmation_invalid`，不回放第一次的結果：驗碼在 `IdempotencyBehavior` 之前，碼已用過。模型要用讀取工具確認是否已執行。
+- 預演內容的 AI 欄位遮罩只涵蓋工具本身的輸出（刪除與簽核預演只給 id、模組代碼、關卡名稱與狀態選項 id，不含記錄值）。
+- 高風險清單裡的一般寫入工具（管理員加進來的）預演只是參數本身，沒有影響分析。
+- 預演與對話框裡的關卡名稱是四語物件（和工具輸出相同），沒有依呼叫語系挑一種；對話框因此會列出四種語言。
+- 確認碼不符時（含目標版本改變），稽核那一列沒有確認 id：寫入稽核在驗碼失敗時不透露是哪一筆確認。
 
 ## 8. 稽核與用量
 
@@ -987,6 +1040,7 @@ mcp1a 的版本以 [mcp1a 計畫](../plans/2026-11-11-mcp-server-mcp1a.md)「實
 | `mcp.maxRows` | 單次回傳筆數 | 50 | S | 1–200 | mcp1a |
 | `mcp.confirmTtlSeconds` | 確認碼有效時間 | 300 | S | 60–1800 | mcp1a |
 | `mcp.highRiskTools` | 高風險工具清單（多選代碼） | 刪除記錄、簽核同意、簽核退回，加上地板項目 | S | 只能選寫入類工具；地板項目移不出（依 C7 使用者裁決（2026-11-12）） | mcp2b |
+| `mcp.highRiskWithoutElicitation` | client 不支援 elicitation 時：退回確認碼（`code`）或拒絕高風險工具（`reject`） | `code` | S | 兩個選項 | mcp2b（主控裁決，待使用者確認） |
 
 沿用其他文件的政策，不另設：
 
@@ -1101,6 +1155,23 @@ mcp1a 的版本以 [mcp1a 計畫](../plans/2026-11-11-mcp-server-mcp1a.md)「實
 | 工具參數的長度上限沿用既有 request 常數（任務標題、留言內文） | `McpTexts`（插值） | 技術限制（單一來源） |
 | 寫入工具 annotations：`destructiveHint` false、`idempotentHint` true | `McpSdkAdapter` | 技術限制 |
 | MCP 通道上檢查訊息的 `{value}`、`{limit}` 取自看不到的欄位時換成「…」（#87）；占位字沿用 `McpAuditSummary.Elided` | `CheckEvaluator` | 安全 |
+
+**mcp2b 新增與落點（2026-11-27；業務政策只有 `mcp.highRiskTools`、`mcp.highRiskWithoutElicitation` 兩項，出廠值與選項只在 `PolicyCatalog`）**
+
+| 項目 | 常數位置 | 性質 |
+|---|---|---|
+| 3 個高風險工具（`delete_record`、`approve`、`reject`）、範圍 `business.write`、出廠級別高風險 | `McpToolCatalog` | 平台功能清單 |
+| 高風險清單的選項只有寫入類工具；地板由工具宣告（`HighRiskFloor`）決定，目前是空的 | `McpToolCatalog.HighRiskOptions`、`HighRiskFloor` | 安全（C7） |
+| 實際級別：唯讀一律唯讀、地板一律高風險、其餘看清單 | `McpToolCatalog.EffectiveRisk` | 安全 |
+| 高風險政策壞值或讀取失敗時用出廠清單並聯集地板 | `McpPolicies.ReadHighRiskAsync` | 安全（fail closed） |
+| 確認碼的發出方式與送回方式要相同，否則 `confirmation_invalid` | `McpConfirmationValidator` | 安全（§6.3.1 第 4 點） |
+| 只有 MRTR 而且 client 宣告 form elicitation 才走對話框 | `McpSdkAdapter` | 技術限制（不支援時丟例外會變 internal error） |
+| 對話框只收一個布林「確認執行」 | `McpSdkAdapter` | 安全（規範不准 form 收敏感資訊） |
+| `requestState` 格式 `fwe1.<確認碼>` | `McpElicitationState` | 技術限制 |
+| 對話框的預演內容最多 3,000 字 | `McpToolInvoker.ElicitationPreviewMax` | 技術限制 |
+| 寫入確認：在交易內依序驗碼、重算目標版本、條件式標記已用，任一失敗不執行 | `McpWriteAuditBehavior` | 安全、資料完整性 |
+| 使用者拒絕的碼作廢，清理時不再記「逾時未確認」 | `DeclineMcpConfirmationRequest`、`PurgeMcpBatches` | 資料完整性 |
+| 高風險工具 annotations：`destructiveHint` true、`idempotentHint` 不給 | `McpSdkAdapter` | 技術限制 |
 
 ## 16. 主控判斷（待使用者確認；U11 已於 2026-11-12 確認）
 
