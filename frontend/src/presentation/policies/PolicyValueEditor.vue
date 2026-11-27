@@ -24,6 +24,14 @@ function onNumber(v: string | number | null) {
 const offsetOptions = computed(() => (props.meta.options ?? []).map((o) => ({ value: o, label: `UTC${o}` })));
 const choiceOptions = computed(() => (props.meta.options ?? []).map((o) => ({ value: o, label: choiceLabel(props.meta, o, t) })));
 
+// 多選代碼：選項是協定代碼，照原文顯示；地板項目（required）一定勾選、不能取消，值裡缺了也補上（伺服器不收少了地板的值）
+const required = computed(() => props.meta.required ?? []);
+const codeSetOptions = computed(() => (props.meta.options ?? []).map((o) => ({ value: o, label: o, disable: required.value.includes(o) })));
+const codeSetValue = computed(() => (props.meta.options ?? []).filter((o) => required.value.includes(o) || (props.modelValue as string[]).includes(o)));
+function onCodeSet(v: string[]) {
+  emit('update:modelValue', (props.meta.options ?? []).filter((o) => required.value.includes(o) || v.includes(o)));
+}
+
 // 收件人：選項＝呼叫端給的清單，加上已選但清單裡找不到的項目（已停用或不存在），標「找不到或已停用」；
 // 名稱還沒載入完（recipientsReady 為 false）時清單是空的，已選項目顯示原始代碼，不誤報
 const recipientFilter = ref('');
@@ -84,6 +92,12 @@ const hint = computed(() => props.meta.kind === 'integer' && (props.meta.unit ==
     <q-option-group
       :model-value="modelValue as string[]" :options="choiceOptions" type="checkbox" :disable="disable"
       @update:model-value="(v: string[]) => emit('update:modelValue', (meta.options ?? []).filter((o) => v.includes(o)))"
+    />
+  </div>
+  <div v-else-if="meta.kind === 'codeSet'" role="group" :aria-label="label">
+    <div class="text-caption text-muted">{{ label }}</div>
+    <q-option-group
+      :model-value="codeSetValue" :options="codeSetOptions" type="checkbox" :disable="disable" @update:model-value="onCodeSet"
     />
   </div>
   <div v-else-if="meta.kind === 'recipients'" class="column no-wrap q-gutter-y-xs">

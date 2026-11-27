@@ -1,7 +1,7 @@
 import { installedLocales, nativeName, type LocaleInfo } from 'src/i18n/locale-settings';
 import { joinList } from 'src/i18n/translate';
 
-export type PolicyKind = 'integer' | 'boolean' | 'choice' | 'roleSet' | 'codeList' | 'recipients' | 'utcOffset';
+export type PolicyKind = 'integer' | 'boolean' | 'choice' | 'roleSet' | 'codeList' | 'recipients' | 'utcOffset' | 'codeSet';
 export type PolicyValue = number | boolean | string | string[];
 
 export interface PolicyMeta {
@@ -16,6 +16,8 @@ export interface PolicyMeta {
   dynamicRecipients?: string[];
   /** 收件人政策只收群組（`group:<id>`，例：auth.twoFactorGroups）。 */
   groupsOnly?: boolean;
+  /** 多選代碼（codeSet）寫死的地板項目：一定勾選、不能取消（例：mcp.highRiskTools，MCP 設計 §6.4）。 */
+  required?: string[];
 }
 
 /** 動態收件人項目的四語標籤鍵（`policies.recipients.dynamic.<項目>`）。 */
@@ -82,6 +84,8 @@ export function policyValueText(meta: PolicyMeta, v: PolicyValue, t: Translate, 
       return list.length ? joinList(list.map((o) => choiceLabel(meta, o, t))) : t('policies.none');
     }
     case 'codeList': return joinList(v as string[]);
+    // 多選代碼的選項是協定代碼（MCP 工具名稱），照原文顯示、不翻譯
+    case 'codeSet': return (v as string[]).length ? joinList(v as string[]) : t('policies.none');
     // 名稱還沒載入（names 為 undefined）時顯示原始項目，不誤報找不到；空清單（例：強制雙因素的群組）顯示「（無）」
     case 'recipients': return (v as string[]).length === 0 ? t('policies.none')
       : joinList((v as string[]).map((i) => (meta.dynamicRecipients?.includes(i) ? t(dynamicRecipientKey(i))

@@ -82,6 +82,31 @@ describe('PolicyValueEditor', () => {
     expect(lastEmit()).toEqual(['assignee', 'creator']);
   });
 
+  it('CodeSet：選項顯示代碼原文，依選項順序送出；地板項目勾選且不能取消（MCP 設計 §6.4）', async () => {
+    make({ code: 'mcp.highRiskTools', category: 'mcp', kind: 'codeSet', options: ['create_record', 'delete_record', 'approve'], required: ['approve'] },
+      ['delete_record', 'approve']);
+    expect(document.body.textContent).toContain('delete_record');
+    const boxes = [...document.body.querySelectorAll('[role="checkbox"]')] as HTMLElement[];
+    expect(boxes).toHaveLength(3);
+    expect(boxes.map((b) => b.getAttribute('aria-checked'))).toEqual(['false', 'true', 'true']);
+    expect(boxes[2].getAttribute('aria-disabled')).toBe('true');
+    boxes[0].click();
+    await flushPromises();
+    expect(lastEmit()).toEqual(['create_record', 'delete_record', 'approve']);
+    boxes[2].click();
+    await flushPromises();
+    expect(w!.emitted('update:modelValue')).toHaveLength(1);
+  });
+
+  it('CodeSet：值裡缺了地板項目時補上（伺服器不會收）', async () => {
+    make({ code: 'x', category: 'mcp', kind: 'codeSet', options: ['a', 'b'], required: ['b'] }, []);
+    const boxes = [...document.body.querySelectorAll('[role="checkbox"]')] as HTMLElement[];
+    expect(boxes[1].getAttribute('aria-checked')).toBe('true');
+    boxes[0].click();
+    await flushPromises();
+    expect(lastEmit()).toEqual(['a', 'b']);
+  });
+
   it('CodeList：輸入 pdf 按 Enter 送出 [pdf]', async () => {
     make({ code: 'a', category: 'attachment', kind: 'codeList', min: 1, max: 40 }, []);
     const input = document.body.querySelector('input') as HTMLInputElement;

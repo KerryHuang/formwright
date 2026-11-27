@@ -46,6 +46,10 @@ describe('policy-types', () => {
     expect(policyValueText({ code: 'x', category: 'task', kind: 'integer' }, 20, t)).toBe('20');
     expect(policyValueText({ code: 'ops.backupHour', category: 'ops', kind: 'integer', unit: 'hourOfDay' }, 2, t)).toBe('2 (02:00 開始)');
     expect(policyValueText({ code: 'x', category: 'task', kind: 'codeList' }, ['pdf', 'png'], t)).toBe('pdf、png');
+    // 多選代碼（mcp.highRiskTools）：工具名稱是協定代碼，照原文顯示；空清單顯示（無）
+    expect(policyValueText({ code: 'x', category: 'mcp', kind: 'codeSet', options: ['delete_record', 'approve'] }, ['delete_record', 'approve'], t))
+      .toBe('delete_record、approve');
+    expect(policyValueText({ code: 'x', category: 'mcp', kind: 'codeSet', options: [] }, [], t)).toBe('（無）');
   });
 
   it('groupByCategory 保持順序', () => {
