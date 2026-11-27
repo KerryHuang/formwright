@@ -8,10 +8,12 @@ namespace DynamicModules.Application.Dynamic.PolicyService;
 /// 系統政策一列。Value 沒設時為 null（序列化時省略）；Min／Max 只在 Integer、CodeList，Options 只在 Choice、RoleSet、UtcOffset；
 /// DynamicRecipients 只在允許動態收件人的政策（<c>ops.configIssueRecipients</c> 的 <c>ruleEditor</c>，維運設計 §17.2.5）；
 /// GroupsOnly 只在只收群組的收件人政策（<c>auth.twoFactorGroups</c>，帳號安全設計 T26），政策頁的選項只列群組。
+/// Required 只在多選代碼（CodeSet）：寫死的地板項目，政策頁顯示成勾選且不能取消（MCP 設計 §6.4）。
 /// </summary>
 public sealed record SystemPolicyResponse(
     string Code, string Category, PolicyKind Kind, PolicyScope Scope, string? Unit, int? Min, int? Max, IReadOnlyList<string>? Options,
-    JsonElement Factory, JsonElement? Value, JsonElement Effective, IReadOnlyList<string>? DynamicRecipients = null, bool? GroupsOnly = null);
+    JsonElement Factory, JsonElement? Value, JsonElement Effective, IReadOnlyList<string>? DynamicRecipients = null, bool? GroupsOnly = null,
+    IReadOnlyList<string>? Required = null);
 
 /// <summary>模組政策一列。SystemValue 是全系統生效值（全系統值或出廠值）；Override 沒設時為 null。</summary>
 public sealed record ModulePolicyResponse(
@@ -59,13 +61,13 @@ public static class PolicyJson
 
     public static bool HasRange(PolicyDefinition def) => def.Kind is PolicyKind.Integer or PolicyKind.CodeList or PolicyKind.Recipients;
 
-    public static bool HasOptions(PolicyDefinition def) => def.Kind is PolicyKind.Choice or PolicyKind.RoleSet or PolicyKind.UtcOffset;
+    public static bool HasOptions(PolicyDefinition def) => def.Kind is PolicyKind.Choice or PolicyKind.RoleSet or PolicyKind.UtcOffset or PolicyKind.CodeSet;
 
     public static SystemPolicyResponse System(PolicyDefinition def, PolicyResolution r, IReadOnlyList<string>? options) => new(
         def.Code, def.Category, def.Kind, def.Scope, def.Unit,
         HasRange(def) ? def.Min : null, HasRange(def) ? def.Max : null, HasOptions(def) ? options : null,
         ToJson(def, r.Factory), r.System is null ? null : ToJson(def, r.System), ToJson(def, r.System ?? r.Factory), def.DynamicRecipients,
-        def.GroupsOnly ? true : null);
+        def.GroupsOnly ? true : null, def.Kind == PolicyKind.CodeSet ? def.Required ?? [] : null);
 
     public static ModulePolicyResponse Module(PolicyDefinition def, PolicyResolution r, IReadOnlyList<string>? options) => new(
         def.Code, def.Category, def.Kind, def.Unit,

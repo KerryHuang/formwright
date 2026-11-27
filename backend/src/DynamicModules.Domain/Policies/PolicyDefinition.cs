@@ -10,7 +10,7 @@ public enum PolicyScope { System, Module }
 public enum PolicyModuleTarget { Main, Detail, Any }
 
 /// <summary>政策值的型別；值一律以標準字串存放，由型別解析。</summary>
-public enum PolicyKind { Integer, Boolean, Choice, RoleSet, CodeList, Recipients, UtcOffset }
+public enum PolicyKind { Integer, Boolean, Choice, RoleSet, CodeList, Recipients, UtcOffset, CodeSet }
 
 /// <summary>
 /// 一個業務政策的登記項。<see cref="Min"/>／<see cref="Max"/> 是寫死的技術上下限（Integer 是數值，CodeList 是項目數）。
@@ -22,6 +22,8 @@ public enum PolicyKind { Integer, Boolean, Choice, RoleSet, CodeList, Recipients
 /// 沒列的政策收到這些項目一律不合法。
 /// <see cref="Target"/> 是模組覆寫適用的模組種類：模組政策清單只列適用的項目，不適用的不能覆寫。
 /// <see cref="GroupsOnly"/> 的 Recipients 只收 <c>group:&lt;id&gt;</c>（帳號安全設計 T26：強制雙因素的群組），其他項目一律不合法。
+/// CodeSet（多選代碼，MCP 設計 §6.4）：從 <see cref="Options"/> 挑任意幾個、依選項順序、逗號分隔、可為空；<see cref="Required"/> 是寫死的地板，
+/// 一定要全部包含（少一個就不合法）。和 RoleSet 的差別只在地板，前端把地板項目顯示成勾選且不能取消。
 /// </summary>
 public sealed partial record PolicyDefinition(
     string Code,
@@ -36,7 +38,8 @@ public sealed partial record PolicyDefinition(
     IReadOnlyList<string>? Forbidden = null,
     IReadOnlyList<string>? DynamicRecipients = null,
     PolicyModuleTarget Target = PolicyModuleTarget.Main,
-    bool GroupsOnly = false)
+    bool GroupsOnly = false,
+    IReadOnlyList<string>? Required = null)
 {
     /// <summary>收件人政策的動態項目：該規則的最後修改者（沒有就建立者；停用的略過）。</summary>
     public const string RuleEditor = "ruleEditor";
@@ -68,6 +71,14 @@ public sealed partial record PolicyDefinition(
                 var list = allowed ?? [];
                 var items = Split(raw);
                 if (items.Any(i => !list.Contains(i, StringComparer.Ordinal))) return null;
+                return string.Join(",", list.Where(o => items.Contains(o, StringComparer.Ordinal)));
+            }
+            case PolicyKind.CodeSet:
+            {
+                var list = allowed ?? [];
+                var items = Split(raw);
+                if (items.Any(i => !list.Contains(i, StringComparer.Ordinal))) return null;
+                if ((Required ?? []).Any(r => !items.Contains(r, StringComparer.Ordinal))) return null;
                 return string.Join(",", list.Where(o => items.Contains(o, StringComparer.Ordinal)));
             }
             case PolicyKind.CodeList:

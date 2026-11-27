@@ -33,6 +33,9 @@ public static class PolicyMessages
         PolicyKind.Choice => $"必須是以下其中一個：{string.Join("、", options ?? [])}",
         PolicyKind.RoleSet when PolicyCatalog.IsLocaleOptions(d) => LocaleNotInstalled(options ?? []),
         PolicyKind.RoleSet => $"只能從以下角色挑選：{string.Join("、", options ?? [])}",
+        PolicyKind.CodeSet when d.Required is { Count: > 0 } floor =>
+            $"只能從以下項目挑選：{string.Join("、", options ?? [])}；這些項目一定要保留：{string.Join("、", floor)}",
+        PolicyKind.CodeSet => $"只能從以下項目挑選：{string.Join("、", options ?? [])}",
         PolicyKind.CodeList => $"要有 {d.Min} 到 {d.Max} 個，每個只能是 1 到 {PolicyDefinition.CodeItemMaxLength} 個小寫英文或數字",
         PolicyKind.Recipients => $"要有 {d.Min} 到 {d.Max} 項，每項是 admins、group:群組編號或 user:帳號",
         PolicyKind.UtcOffset => "必須是 UTC 偏移，例如 +08:00",

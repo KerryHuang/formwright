@@ -7,11 +7,12 @@ namespace DynamicModules.DomainTests.Mcp;
 public class McpToolCatalogTests
 {
     [Fact]
-    public void Production_NineteenTools_IncludingWhoami() =>
+    public void Production_TwentyTwoTools_IncludingWhoami() =>
         McpToolCatalog.Production.Select(t => t.Name).Should().BeEquivalentTo(
             "whoami", "list_modules", "describe_module", "query_records", "get_record", "get_record_history",
             "list_reports", "run_report", "list_my_tasks", "get_task", "list_approval_tasks", "get_record_approval",
-            "create_record", "update_record", "create_task", "update_task", "add_task_comment", "submit_approval", "withdraw_approval");
+            "create_record", "update_record", "create_task", "update_task", "add_task_comment", "submit_approval", "withdraw_approval",
+            "delete_record", "approve", "reject");
 
     [Fact]
     public void Names_UniqueSnakeCase()
@@ -36,9 +37,11 @@ public class McpToolCatalogTests
         McpToolCatalog.Find("whoami")!.Scope.Should().BeNull();
         var read = McpToolCatalog.Production.Where(t => t.Risk == McpRisk.Read).ToList();
         var write = McpToolCatalog.Production.Where(t => t.Risk != McpRisk.Read).ToList();
-        (read.Count, write.Count).Should().Be((12, 7));
+        (read.Count, write.Count).Should().Be((12, 10));
         read.Where(t => t.Name != "whoami").Should().OnlyContain(t => t.Scope == McpScopes.BusinessRead);
-        write.Should().OnlyContain(t => t.Scope == McpScopes.BusinessWrite && t.Risk == McpRisk.Write);
+        write.Should().OnlyContain(t => t.Scope == McpScopes.BusinessWrite);
+        // mcp2b：刪除與簽核出廠高風險，其餘一般寫入
+        write.Where(t => t.Risk == McpRisk.HighRisk).Select(t => t.Name).Should().BeEquivalentTo("delete_record", "approve", "reject");
         McpToolCatalog.Production.Should().OnlyContain(t => !t.HighRiskFloor);
         McpToolCatalog.Production.Where(t => t.LoopTargetArg != null).Select(t => (t.Name, t.LoopTargetArg))
             .Should().BeEquivalentTo([("update_record", "recordId"), ("submit_approval", "recordId")]);

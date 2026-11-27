@@ -473,6 +473,22 @@ public static class PolicyCatalog
     public static readonly PolicyDefinition McpConfirmTtlSeconds =
         new("mcp.confirmTtlSeconds", "mcp", PolicyKind.Integer, PolicyScope.System, "300", 60, 1800, Unit: "seconds");
 
+    /// <summary>
+    /// mcp2b：高風險工具清單（MCP 設計 §6.4、§14；多選代碼）。只能選寫入類工具；地板（C7 使用者裁決）移不出。
+    /// 移出清單的工具改成一般寫入：直接執行、照記寫入稽核。
+    /// </summary>
+    public static readonly PolicyDefinition McpHighRiskTools =
+        new("mcp.highRiskTools", "mcp", PolicyKind.CodeSet, PolicyScope.System, Mcp.McpToolCatalog.HighRiskFactory,
+            Options: Mcp.McpToolCatalog.HighRiskOptions, Required: Mcp.McpToolCatalog.HighRiskFloor);
+
+    /// <summary>client 不支援 elicitation 時，高風險工具改用確認碼（出廠）或一律拒絕（MCP 設計 §6.3.1；mcp2b 主控裁決，待使用者確認）。</summary>
+    public static readonly PolicyDefinition McpHighRiskWithoutElicitation =
+        new("mcp.highRiskWithoutElicitation", "mcp", PolicyKind.Choice, PolicyScope.System, McpWithoutElicitationCode,
+            Options: [McpWithoutElicitationCode, McpWithoutElicitationReject]);
+
+    /// <summary><see cref="McpHighRiskWithoutElicitation"/> 的選項：退回確認碼、拒絕高風險工具。</summary>
+    public const string McpWithoutElicitationCode = "code", McpWithoutElicitationReject = "reject";
+
     // au1a：帳號安全（帳號安全設計 §9）。全部只限全系統；分類 auth 的其餘項目由 au1b、au1c 加。
 
     /// <summary>Email 驗證連結的時效（小時）；只影響之後寄出的連結。</summary>
@@ -568,7 +584,7 @@ public static class PolicyCatalog
          MaintenanceIdempotencyRetentionDays, MaintenanceOrphanSweepGraceMinutes, CheckScanMaxViolations, CheckScanMaxGroups,
          CheckMaxGroupsPerWrite, CheckMaxBackfillRecords,
          McpEnabled, McpAllowedGroups, McpTokenMaxLifetimeDays, McpTokenDefaultLifetimeDays, McpTokenMaxPerUser,
-         McpCallsPerMinute, McpCallsPerDay, McpMaxRows, McpConfirmTtlSeconds,
+         McpCallsPerMinute, McpCallsPerDay, McpMaxRows, McpConfirmTtlSeconds, McpHighRiskTools, McpHighRiskWithoutElicitation,
          AuthEmailVerifyLinkHours, MailOutboxRetentionDays,
          AuthPasswordResetEnabled, AuthPasswordResetLinkMinutes, AuthPasswordResetMaxPerHour, AuthPasswordMinLength,
          AuthTwoFactorMode, AuthTwoFactorGroups, AuthTwoFactorRequireAdmins, AuthTwoFactorGraceDays, AuthTwoFactorRememberDays];

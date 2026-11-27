@@ -184,7 +184,7 @@ public class PolicyCatalogFixtureTests
             (def.Kind, def.Factory, def.Min, def.Max, def.Scope, def.Category).Should().Be((kind, factory, min, max, PolicyScope.System, "mcp"), def.Code);
             PolicyCatalog.All.Should().Contain(def);
         }
-        PolicyCatalog.All.Count(d => d.Category == "mcp").Should().Be(9);
+        PolicyCatalog.All.Count(d => d.Category == "mcp").Should().Be(11);
         PolicyCatalog.McpConfirmTtlSeconds.Unit.Should().Be("seconds");
         PolicyCatalog.McpTokenMaxLifetimeDays.Unit.Should().Be("days");
         PolicyCatalog.McpCallsPerDay.Unit.Should().Be("count");
