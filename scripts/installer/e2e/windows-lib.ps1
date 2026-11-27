@@ -29,10 +29,10 @@ function Assert-AclRule($r, [string]$Where, [string]$Svc, $WantFlags, [bool]$Inh
   Assert ("$($r.AccessControlType)" -eq 'Allow') "$Where：$id 的 ACE 不是 Allow"
   Assert ($r.IsInherited -eq $Inherited) "$Where：$id 的 ACE 繼承狀態不對（IsInherited=$($r.IsInherited)）"
   Assert ($r.InheritanceFlags -eq $WantFlags -and "$($r.PropagationFlags)" -eq 'None') "$Where：$id 的 ACE 繼承旗標不對（$($r.InheritanceFlags)/$($r.PropagationFlags)）"
-  # 遮罩要精確：完全控制 0x1F01FF（回報時可能少 Synchronize 位元 → 0xF01FF），Modify 0x1301BF（或 0x301BF），多一個位元（例如 DeleteChild）都不行
-  if ($id -eq 'S-1-5-18' -or $id -eq 'S-1-5-32-544') { Assert (@(0x1F01FF, 0xF01FF) -contains $mask) ("$Where：$id 應剛好是完全控制、實得 0x{0:X}" -f $mask) }
+  # 遮罩要精確、沒有容許差異：完全控制 0x1F01FF、Modify 0x1301BF，多或少一個位元（例如 DeleteChild、Synchronize）都不行
+  if ($id -eq 'S-1-5-18' -or $id -eq 'S-1-5-32-544') { Assert ($mask -eq 0x1F01FF) ("$Where：$id 應剛好是完全控制、實得 0x{0:X}" -f $mask) }
   elseif ($id -eq $Svc) {
-    Assert (@(0x1301BF, 0x301BF) -contains $mask) ("$Where：服務帳號應剛好是 Modify、實得 0x{0:X}" -f $mask)
+    Assert ($mask -eq 0x1301BF) ("$Where：服務帳號應剛好是 Modify、實得 0x{0:X}" -f $mask)
   } else { throw "FAIL: $Where 有不該有的 ACE：$id" }
 }
 function Assert-AclState([string]$Parent = 'C:\ProgramData\Formwright', [switch]$AllowServiceOwner) {

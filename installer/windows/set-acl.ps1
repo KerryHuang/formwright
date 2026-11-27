@@ -19,8 +19,8 @@
 #      and the installer's earlier steps (pre-upgrade backup, replacing the program files) may already be done.
 #  (D) Final check of the whole tree against the expected set (fresh and existing alike): owner Administrators or SYSTEM (an existing tree
 #      also allows the service account: files the service created itself, such as keys, the database and backups, belong to it), non-null
-#      DACL, inheriting (not protected), exactly 3 inherited ACEs: SYSTEM and Administrators Full Control (0x1F01FF, or 0xF01FF without the
-#      Synchronize bit), service account EXACTLY Modify (0x1301BF, or 0x301BF without Synchronize; any other bit, e.g. DeleteChild, is refused);
+#      DACL, inheriting (not protected), exactly 3 inherited ACEs: SYSTEM and Administrators exactly Full Control (0x1F01FF), service account
+#      exactly Modify (0x1301BF); any other mask, missing or extra bit alike (e.g. DeleteChild, Synchronize), is refused;
 #      inheritance flags right for files and directories. The parent has the same three principals and masks as explicit ACEs. Violations of the expected set are reported as:
 #      "unexpected owner", "protected (non-inheriting) permissions", "unexpected ACE for <sid>", "explicit ACE for <sid>",
 #      "<n> ACEs, expected 3", "... is not Full Control", "service account mask ... is not exactly Modify", plus "parent ..." for the parent itself.
@@ -50,9 +50,9 @@ $ErrorActionPreference = 'Stop'
 # Started from PowerShell 7 (pwsh), this Windows PowerShell 5.1 inherits pwsh's PSModulePath and cannot load its own
 # built-in modules (Set-Acl, NetSecurity). Use only the machine-wide module path plus the 5.1 system modules.
 $env:PSModulePath = (@([Environment]::GetEnvironmentVariable('PSModulePath', 'Machine'), (Join-Path $PSHOME 'Modules')) | Where-Object { $_ }) -join ';'
-# Exact masks (the Synchronize bit may differ in how it is reported; nothing else may): Full Control = FILE_ALL_ACCESS, Modify = FileSystemRights.Modify
-$FullOk = @(0x1F01FF, 0xF01FF)
-$ModifyOk = @(0x1301BF, 0x301BF)
+# Exact masks, no tolerance: Full Control = FILE_ALL_ACCESS, Modify = FileSystemRights.Modify (with Synchronize, as created below)
+$FullOk = @(0x1F01FF)
+$ModifyOk = @(0x1301BF)
 
 $WriteMask = 0x2 -bor 0x4 -bor 0x10 -bor 0x40 -bor 0x100 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x40000000 -bor 0x10000000
 $sidTrustedInstaller = 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'
@@ -128,9 +128,11 @@ function Test-Tree([string]$Dir, [string[]]$OwnersOk, [string[]]$WriteOk, [strin
 
 # Direct parent of $Parent: see (A) in the header
 function Test-Upper([string]$Dir) {
-  $item = Get-Item -LiteralPath $Dir -Force
+  try {
+    $item = Get-Item -LiteralPath $Dir -Force -ErrorAction Stop
+    $a = Get-Acl -LiteralPath $Dir
+  } catch { Reject "cannot inspect ancestor ($($_.Exception.Message)): $Dir" }
   if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Reject "reparse point (ancestor): $Dir" }
-  $a = Get-Acl -LiteralPath $Dir
   $okSids = @($sidSystem.Value, $sidAdmins.Value, $sidTrustedInstaller)
   $owner = $a.GetOwner([Security.Principal.SecurityIdentifier]).Value
   if ($okSids -notcontains $owner) { Reject "untrusted owner ${owner} (untrusted ancestor): $Dir" }
@@ -187,10 +189,22 @@ function Get-ParentProblem {
   return ''
 }
 
-function Test-Reparse([string]$Path) {
-  if (-not (Test-Path -LiteralPath $Path)) { return $false }
-  $attr = (Get-Item -LiteralPath $Path -Force).Attributes
-  return (($attr -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+# An existing path that cannot be inspected is untrusted (refusal, exit 2, with the path); -Internal: a directory this script just created
+# (a failure there is an internal error, exit 1)
+function Test-Reparse([string]$Path, [switch]$Internal) {
+  try {
+    if (-not (Test-Path -LiteralPath $Path)) { return $false }
+    $attr = (Get-Item -LiteralPath $Path -Force -ErrorAction Stop).Attributes
+    return (($attr -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+  } catch {
+    if ($Internal) { throw }
+    Reject "cannot inspect ($($_.Exception.Message)): $Path"
+  }
+}
+
+# Get-Item of a path of an existing tree (see Fail: refusal once the tree is judged existing)
+function Get-ItemChecked([string]$Path) {
+  try { return (Get-Item -LiteralPath $Path -Force -ErrorAction Stop) } catch { Fail "cannot inspect ($($_.Exception.Message)): $Path" }
 }
 
 # An existing tree is refused (exit 2); a tree we just created that is wrong is an internal error (exit 1)
@@ -261,9 +275,9 @@ try {
   $createdByUs = $false
   if (-not (Test-Path -LiteralPath $Parent)) {
     [void][IO.Directory]::CreateDirectory($Parent, $acl)   # .NET Framework overload (Windows PowerShell 5.1); no inherited, writable window
-    if (Test-Reparse $Parent) { Reject "reparse point: $Parent" }
+    if (Test-Reparse $Parent -Internal) { Reject "reparse point: $Parent" }
     $age = ([DateTime]::UtcNow - (Get-Item -LiteralPath $Parent -Force).CreationTimeUtc).TotalSeconds
-    $script:existing = $true   # whatever we find now is judged like an existing tree (refusal, exit 2)
+    # reads here (before fresh/existing is decided) that fail are internal errors (exit 1)
     $kids = @(Get-Children $Parent)
     # exactly our state, empty, and just created; otherwise someone was faster and it is handled as an existing tree
     if ((Get-ParentProblem) -eq '' -and $kids.Count -eq 0 -and $age -lt 120 -and $age -gt -5) { $createdByUs = $true }
@@ -273,7 +287,7 @@ try {
     if (-not (Test-Path -LiteralPath $Parent -PathType Container)) { Reject "not a directory: $Parent" }
     $ownersOk = @($sidSystem.Value, $sidAdmins.Value, $sidTrustedInstaller, $sidService.Value)
     $writeOk = @($sidSystem.Value, $sidAdmins.Value, $sidService.Value)
-    Test-Trusted (Get-Item -LiteralPath $Parent -Force) $ownersOk $writeOk $sidService.Value
+    Test-Trusted (Get-ItemChecked $Parent) $ownersOk $writeOk $sidService.Value
     Test-Tree $Parent $ownersOk $writeOk $sidService.Value
     $problem = Get-ParentProblem
     if ($problem -ne '') { Reject "parent: ${problem}: $Parent" }

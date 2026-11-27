@@ -823,6 +823,35 @@ jobs:
               Assert ((Get-Acl -LiteralPath 'C:\ProgramData\Formwright').Sddl -ceq $maskBefore) '被拒絕的升級改動了父目錄的 ACL'
             } finally { Quiesce-Fw }
           } finally { Cleanup 'inject-extramask' }
+          # 7) Data 目錄本身是 junction（指向樹外目錄）：必須拒絕（結束碼 20、set-acl 以拒絕分類回報），樹外哨兵檔的內容與 ACL 不變；案例結束先只刪連結，再由 Cleanup 刪資料目錄
+          $t2 = Join-Path $env:RUNNER_TEMP 'junction-target-data'
+          New-Item -ItemType Directory -Force -Path $t2 | Out-Null
+          Set-Content -Path "$t2\sentinel.txt" -Value 'sentinel'
+          $t2AclBefore = (Get-Acl -LiteralPath $t2).Sddl
+          $t2FileBefore = (Get-Acl -LiteralPath "$t2\sentinel.txt").Sddl
+          New-LockedData
+          try {
+            [IO.Directory]::Delete($Data)   # New-LockedData 建的是空的真目錄；換成 junction
+            New-Item -ItemType Junction -Path $Data -Target $t2 | Out-Null
+            try {
+              $rc = Install-Fw $env:V1 'inject-datajunction'
+              Assert ($rc -eq 20) "Data 是 junction 時結束碼應為 20、實得 $rc"
+              $djlog = Log-Text 'setup-inject-datajunction.log'
+              Assert ($djlog -match 'set-acl failed: reparse point') 'log 缺 set-acl 的「set-acl failed: reparse point」'
+              Assert ($djlog -match 'Setup did not complete: the data directory contains permissions or links') 'Data junction 應走 AclUntrusted 訊息（set-acl 結束碼 2）'
+              Assert ($djlog -notmatch 'Setup did not complete: set permissions') 'Data junction 不該被分類成一般的 set permissions 失敗（結束碼 1）'
+              $s = Get-Service Formwright -ErrorAction SilentlyContinue
+              Assert ($null -ne $s -and $s.StartType -eq 'Disabled' -and $s.Status -eq 'Stopped') 'Data junction 失敗後服務應為 Disabled／Stopped'
+              Assert ((Get-Content "$t2\sentinel.txt") -eq 'sentinel') '樹外哨兵檔內容變了'
+              Assert ((Get-Acl -LiteralPath $t2).Sddl -ceq $t2AclBefore) '樹外目錄的 ACL 變了'
+              Assert ((Get-Acl -LiteralPath "$t2\sentinel.txt").Sddl -ceq $t2FileBefore) '樹外哨兵檔的 ACL 變了'
+            } finally {
+              Quiesce-Fw
+              if (Test-Path -LiteralPath $Data) { [IO.Directory]::Delete($Data) }   # 只刪連結，不動目標
+            }
+          } finally {
+            try { Cleanup 'inject-datajunction' } finally { Remove-Item -LiteralPath $t2 -Recurse -Force -ErrorAction SilentlyContinue }
+          }
           # 斷言失敗都會 throw；清場中的原生命令（sc、icacls、net 對已不存在的對象）可能留下非 0 的 LASTEXITCODE，GitHub 的 pwsh 包裝會拿它當步驟結果
           $global:LASTEXITCODE = 0
 
