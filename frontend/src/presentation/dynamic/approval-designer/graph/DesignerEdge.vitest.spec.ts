@@ -61,6 +61,13 @@ describe('DesignerEdge', () => {
     w.unmount();
   });
 
+  it('while a connection is being drawn the touch area is gone, so it cannot cover the target handle (#109)', () => {
+    const w = draw({ data: { bendX: 300, fullLabel: '' }, plus: true, zoom: 0.5, connecting: true });
+    expect(w.find('[data-testid="de-edge-plus"]').exists()).toBe(true);
+    expect(w.find('[data-testid="de-edge-plus-hit"]').exists()).toBe(false);
+    w.unmount();
+  });
+
   // #109：畫布縮小時「＋」跟著縮小（820 寬約 10px），透明點擊區在螢幕上固定 44px，看得到的按鈕大小不變。
   it.each([0.25, 0.5, 1, 1.5])('the touch area is 44 screen px at zoom %s, and tapping it opens the menu once', async (zoom) => {
     const w = draw({ data: { bendX: 300, fullLabel: '' }, plus: true, zoom, insertKinds: [{ kind: 'approval', disabled: false }] });

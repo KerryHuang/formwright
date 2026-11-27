@@ -9,8 +9,9 @@ import { kindIcon, type AddKind, type DesignerEdgeData } from './designer-graph'
 // 線上「＋」（fg3e，§10.3）：滑鼠移到線上或選取線（觸控）時出現，放在轉折欄到終點那一段的中點（兄弟線共用起點那段，終點那段每條線各自一段）；
 // 點了選型別插入。顯示與否由畫布決定（`plus`），選單開著時回報 `menu`，畫布才不會在滑鼠離開線時把它收掉。
 // 「＋」跟著畫布縮放（820 寬縮到全圖時約 10px），所以按鈕裡放一塊透明點擊區，依 `zoom` 反算成螢幕上固定 44px，看得到的大小不變（#109）。
+// 低倍率時這塊會蓋到終點的入線把手，所以拉線中（`connecting`：拖曳或已點出發點）不放。
 const TOUCH_PX = 44;
-const props = defineProps<EdgeProps<DesignerEdgeData> & { plus?: boolean; zoom?: number; insertKinds?: { kind: AddKind; disabled: boolean; limit?: boolean }[] }>();
+const props = defineProps<EdgeProps<DesignerEdgeData> & { plus?: boolean; zoom?: number; connecting?: boolean; insertKinds?: { kind: AddKind; disabled: boolean; limit?: boolean }[] }>();
 const emit = defineEmits<{ insert: [kind: AddKind]; menu: [open: boolean]; hover: [on: boolean] }>();
 const { t } = useI18n();
 const geometry = computed(() => getSmoothStepPath({
@@ -37,7 +38,7 @@ const plusAt = computed(() => {
       @mouseenter="emit('hover', true)" @mouseleave="emit('hover', false)"
     >
       <q-btn round unelevated size="xs" color="primary" icon="add" :aria-label="t('approval.designer.graph.insert')" :title="t('approval.designer.graph.insert')" data-testid="de-edge-plus">
-        <span class="de-plus-hit" :style="hitStyle" aria-hidden="true" data-testid="de-edge-plus-hit" />
+        <span v-if="!connecting" class="de-plus-hit" :style="hitStyle" aria-hidden="true" data-testid="de-edge-plus-hit" />
         <q-menu @show="emit('menu', true)" @hide="emit('menu', false)">
           <q-list dense style="min-width: 140px">
             <q-item
