@@ -6,7 +6,7 @@
 
 **這是什麼**：安裝腳本會把 Formwright 裝成一個 systemd 服務，開機自動啟動，不需要另外安裝資料庫或網頁伺服器。裝好後在瀏覽器完成設定精靈就能用。
 
-Windows 電腦請看 [Windows 安裝教學](install-windows.md)。
+Windows 電腦請看 [Windows 安裝教學](install-windows.md)；用 Docker 安裝請看 [Docker 安裝教學](install-docker.md)。
 
 ## 先準備好這些
 

@@ -17,7 +17,7 @@ cd frontend && bun install && cd ..   # 第一次才需要
 
 ### 安裝版的設定精靈
 
-新手請先看 [Windows 安裝教學](install-windows.md) 或 [Ubuntu 安裝教學](install-ubuntu.md)（含每一步截圖）。
+新手請先看 [Windows 安裝教學](install-windows.md)、[Ubuntu 安裝教學](install-ubuntu.md) 或 [Docker 安裝教學](install-docker.md)（含每一步截圖）。
 
 用安裝程式（Windows 安裝檔、Ubuntu 一行指令、Docker compose）裝好的站台，第一次開啟時是「設定模式」：瀏覽器會自動轉到 `/setup`，在登入頁之前先走一輪設定精靈。
 

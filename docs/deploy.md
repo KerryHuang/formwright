@@ -207,7 +207,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 
 ### 三條安裝路
 
-第一次安裝、不熟電腦請看 [Windows 安裝教學](install-windows.md)或 [Ubuntu 安裝教學](install-ubuntu.md)（含截圖）。
+第一次安裝、不熟電腦請看 [Windows 安裝教學](install-windows.md)、[Ubuntu 安裝教學](install-ubuntu.md)或 [Docker 安裝教學](install-docker.md)（含截圖）。
 
 | | 指令或操作 |
 |---|---|
@@ -217,7 +217,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 
 - **預發版**（tag 有後綴，例 `v0.1.0-rc.1`）：Release 標成 prerelease，`releases/latest` 不會指向它；Ubuntu 改用 `curl -fsSL https://github.com/KerryHuang/formwright/releases/download/<tag>/install.sh | sudo bash`，Windows 與 Docker 到該版的 Release 頁下載。映像只推版號 tag，不更新 `latest`。
 - **SmartScreen**：Windows 安裝檔沒有簽章，執行時會出現「Windows 已保護您的電腦」。按「其他資訊」→「仍要執行」。
-- **設定碼**：精靈第一步要輸入的 12 碼英數字（例 `K7QM-3HZP-W2XA`），只能用一次。Windows 在安裝程式最後一頁；Ubuntu 在安裝指令的輸出（`FORMWRIGHT_SETUP_CODE=` 那一行）；Docker 在容器 log。**沒抄到或忘了**：設定碼存在資料目錄的 `setup-code` 檔，重啟不會重生，精靈完成才刪除，所以精靈完成前都能讀回來：Windows 用「以系統管理員身分執行」的記事本開 `C:\ProgramData\Formwright\data\setup-code`；Ubuntu 執行 `sudo cat /var/lib/formwright/data/setup-code`（資料目錄只有 root 與 `formwright` 帳號讀得到）；Docker 執行 `docker compose logs formwright` 找「設定精靈的設定碼」那行（檔案在 data volume 的 `/app/data/setup-code`）。安裝程式只在全新安裝時顯示設定碼，升級與重新安裝不會再顯示。
+- **設定碼**：精靈第一步要輸入的 12 碼英數字（例 `K7QM-3HZP-W2XA`），只能用一次。Windows 在安裝程式最後一頁；Ubuntu 在安裝指令的輸出（`FORMWRIGHT_SETUP_CODE=` 那一行）；Docker 在容器 log。**沒抄到或忘了**：設定碼存在資料目錄的 `setup-code` 檔，重啟不會重生，精靈完成才刪除，所以精靈完成前都能讀回來：Windows 用「以系統管理員身分執行」的記事本開 `C:\ProgramData\Formwright\data\setup-code`；Ubuntu 執行 `sudo cat /var/lib/formwright/data/setup-code`（資料目錄只有 root 與 `formwright` 帳號讀得到）；Docker 執行 `docker compose logs formwright` 找 `FORMWRIGHT_SETUP_CODE=` 那一行（檔案在 data volume 的 `/app/data/setup-code`）。安裝程式只在全新安裝時顯示設定碼，升級與重新安裝不會再顯示。
 - **雙因素**：依系統預設，管理員第一次登入後會先被要求設定雙因素驗證，要準備好驗證器 App。
 - **語言**：安裝程式與腳本提供繁體中文與英文。Windows 只有繁中介面的 Windows（含香港、澳門）用繁中，其他一律英文；Ubuntu 只有系統語言是 `zh_TW`、`zh_HK`、`zh_MO` 才用繁中，其他一律英文。`sudo` 會丟掉呼叫端的環境變數，所以要指定語言請寫成 `curl … \| sudo bash -s -- --lang zh-TW`（或 `--lang en`）。
 - **Ubuntu 的選項**：`--port <n>`（只在全新安裝生效）、`--skip-backup`、`--lang <zh-TW|en>`；動作 `remove`、`purge`（`curl … \| sudo bash -s -- remove`）。Windows 靜默安裝參數：`/PORT=<n>`、`/SKIPBACKUP`、`/FIREWALLSCOPE=<範圍>`；解除安裝帶 `/DELETEDATA`。
@@ -332,45 +332,95 @@ sudo sh -c 'set -e
 - 在「從這裡開始資料庫會被覆蓋」之前停下來（訊息寫「資料庫沒有被動到」，或 SHA、另存失敗）：資料庫沒動，修好原因（例如把漏掉的 `attachments/` 找回）後重跑同一段。
 - 覆蓋之後才失敗（`install` 或 `rm` 出錯、磁碟滿），或「還原完成」之後服務啟動失敗：**不要假設原資料庫沒變**，維持停站。另存副本在 `/root/formwright-pre-restore-<時間>/`，用 `sudo ls /root/` 找最新的那個目錄（腳本開頭也印過完整路徑）。取回原資料：`sudo sh -c 'cp -p /root/formwright-pre-restore-<時間>/formwright.db* /var/lib/formwright/data/ && chown formwright:formwright /var/lib/formwright/data/formwright.db*'`（原本若有 `-wal`、`-shm` 檔，副本裡也會一起在；取回前先刪掉資料目錄裡還原版留下的同名 `-wal`、`-shm`）。服務啟動失敗先用 `sudo journalctl -u formwright -e` 看原因。
 
-**Docker compose**（⚠️ 依 `deploy/docker-compose.yml` 推論，**未在真機演練**；附件判斷依 manifest 的附件數、放在覆蓋之前，是 Ubuntu 演練發現問題後照改的，判斷邏輯另在 Ubuntu 24.04 容器內以 `sh` 驗過四種情境，沒有跑真的 compose）：資料 volume `formwright-data` 掛在 `/app/data`，備份 volume `formwright-backup` 掛在 `/backup`（備份在 `/backup/sets/<名稱>/`）；實際 volume 名稱前面有 compose 專案名（預設 `formwright_formwright-data`，用 `docker volume ls` 確認）。映像沒有指定非 root 使用者，容器內檔案是 root 擁有，下面用暫時容器以 root 複製。不確定的地方：容器是否以非 root 執行要以你用的映像為準（`docker compose run --rm --entrypoint id formwright`），不是 root 就要在複製後把 `/app/data` 內檔案 `chown` 成那個使用者。暫時容器在覆蓋前會讀 `manifest.json` 比對 `database.sha256`，不符或讀不到就以非 0 結束，`&&` 後面的 `docker compose start` 就不會執行，服務維持停止：
+**Docker compose**（2026-11-27 在 Windows 11＋Docker Desktop 照停服務、跑還原腳本、啟動這個順序實跑成功，備份沒有附件。**有附件、Linux 主機未真機演練。** 當時是直接執行 LF 換行的腳本；下面容忍 Windows 換行的執行指令、取回原資料的指令是之後加的，只在 macOS 的 Docker 上（linux/amd64 模擬）驗過，沒有在 PowerShell 跑過）：下面的指令都在**放 `docker-compose.yml` 的資料夾**執行，Windows 用 PowerShell（不要用命令提示字元）。資料 volume 掛在容器的 `/app/data`，備份 volume 掛在 `/backup`（備份在 `/backup/sets/<名稱>/`）；容器內以 root 執行，不必另外改檔案擁有者。指令用 `docker compose run` 開一個暫時容器，volume 與映像沿用 compose 檔，不必另拉映像、也不必查 volume 名稱。不用 `docker run … sh -c '…'` 把整段腳本寫在指令列：Windows PowerShell 5.1 會吃掉引號內的雙引號，腳本會以 `Syntax error: Unterminated quoted string` 失敗，所以腳本存成檔案再執行。有用 `FORMWRIGHT_IMAGE` 指定映像的話，執行這些指令時要帶同樣的設定。Linux 帳號沒有 Docker 權限時，每個 `docker` 指令前面加 `sudo`。
 
-```bash
-docker compose stop formwright
-mkdir -p pre-restore
-docker run --rm -v formwright_formwright-data:/data -v formwright_formwright-backup:/backup:ro -v "$PWD/pre-restore:/save" alpine sh -c '
-  set -e
-  SET=/backup/sets/<名稱>
-  want=$(sed -n "s/.*\"sha256\" *: *\"\([0-9a-fA-F]\{64\}\)\".*/\1/p" "$SET/manifest.json" | head -n 1 | tr A-F a-f)
-  [ -n "$want" ] || { echo "manifest 讀不到 database.sha256" >&2; exit 1; }
-  got=$(sha256sum "$SET/database.sqlite" | cut -d" " -f1)
-  [ "$got" = "$want" ] || { echo "SHA-256 不符，不還原" >&2; exit 1; }
-  for f in /data/formwright.db*; do [ -e "$f" ] || continue; cp -p "$f" /save/; done
-  [ -s /save/formwright.db ]
-  # 附件數以 manifest 的 attachments.count 為準，不看附件池資料夾在不在；讀不到就停，不當成 0
-  count=$(sed -n "/\"attachments\" *:/,/}/p" "$SET/manifest.json" | sed -n "s/.*\"count\" *: *\([0-9][0-9]*\).*/\1/p" | head -n 1)
-  [ -n "$count" ] || { echo "manifest 讀不到附件數（attachments.count），中止；資料庫沒有被動到" >&2; exit 1; }
-  if [ "$count" -eq 0 ]; then
-    echo "這份備份沒有附件，略過"
-  elif [ -d /backup/attachments ]; then
-    mkdir -p /data/attachments
-    cp -r /backup/attachments/. /data/attachments/
-  else
-    echo "這份備份有 $count 個附件，但找不到 /backup/attachments/；請把同一備份根目錄的 attachments/ 一起找回再重跑，中止，資料庫沒有被動到" >&2
-    exit 1
-  fi
-  # 從這裡開始資料庫會被覆蓋
-  cp "$SET/database.sqlite" /data/formwright.db
-  rm -f /data/formwright.db-wal /data/formwright.db-shm
-' && docker compose start formwright
+1. 列出備份、看要還原那份的 `manifest.json`（`appVersion` 不比已安裝版本新）。輸出前面的 `Container … Creating`、`Created` 是暫時容器的訊息：
+
+   ```bash
+   docker compose run --rm --no-deps --entrypoint ls formwright /backup/sets
+   docker compose run --rm --no-deps --entrypoint cat formwright /backup/sets/<名稱>/manifest.json
+   ```
+
+2. 把下面整段存成同一個資料夾裡的 `restore.sh`（UTF-8 編碼；Windows 記事本存檔類型選「所有檔案」，免得變成 `restore.sh.txt`），並把 `<名稱>` 換成要還原的那份：
+
+   ```sh
+   # Formwright Docker compose 還原腳本（在暫時容器裡執行）
+   set -e
+   SET=/backup/sets/<名稱>
+   want=$(sed -n "s/.*\"sha256\" *: *\"\([0-9a-fA-F]\{64\}\)\".*/\1/p" "$SET/manifest.json" | head -n 1 | tr A-F a-f)
+   [ -n "$want" ] || { echo "manifest 讀不到 database.sha256，中止；資料庫沒有被動到" >&2; exit 1; }
+   got=$(sha256sum "$SET/database.sqlite" | cut -d" " -f1)
+   [ "$got" = "$want" ] || { echo "SHA-256 不符，不還原；資料庫沒有被動到" >&2; exit 1; }
+   # 另存現有資料到 pre-restore 資料夾；失敗就停，後面不會覆蓋
+   for f in /app/data/formwright.db*; do [ -e "$f" ] || continue; cp -p "$f" /save/; done
+   [ -s /save/formwright.db ] || { echo "現有資料另存失敗，中止；資料庫沒有被動到" >&2; exit 1; }
+   # 附件數以 manifest 的 attachments.count 為準，不看附件池資料夾在不在；讀不到就停，不當成 0
+   count=$(sed -n "/\"attachments\" *:/,/}/p" "$SET/manifest.json" | sed -n "s/.*\"count\" *: *\([0-9][0-9]*\).*/\1/p" | head -n 1)
+   [ -n "$count" ] || { echo "manifest 讀不到附件數（attachments.count），中止；資料庫沒有被動到" >&2; exit 1; }
+   if [ "$count" -eq 0 ]; then
+     echo "這份備份沒有附件，略過"
+   elif [ -d /backup/attachments ]; then
+     mkdir -p /app/data/attachments
+     cp -r /backup/attachments/. /app/data/attachments/
+   else
+     echo "這份備份有 $count 個附件，但找不到 /backup/attachments/；請把同一備份根目錄的 attachments/ 一起找回再重跑，中止，資料庫沒有被動到" >&2
+     exit 1
+   fi
+   # 從這裡開始資料庫會被覆蓋
+   cp "$SET/database.sqlite" /app/data/formwright.db
+   rm -f /app/data/formwright.db-wal /app/data/formwright.db-shm
+   echo "還原完成；原資料另存在 pre-restore 資料夾"
+   ```
+
+3. 停服務：
+
+   ```bash
+   docker compose stop formwright
+   ```
+
+4. 建立另存原資料用的 `pre-restore` 資料夾，再執行腳本。資料夾已經存在（以前還原過）時，先把舊的改名，不要混用。Windows PowerShell：
+
+   ```powershell
+   mkdir pre-restore
+   docker compose run --rm --no-deps -v "${PWD}:/work:ro" -v "${PWD}\pre-restore:/save" --entrypoint sh formwright -c "tr -d '\r' < /work/restore.sh > /tmp/restore.sh && sh /tmp/restore.sh"
+   ```
+
+   Linux、macOS：
+
+   ```bash
+   mkdir pre-restore
+   docker compose run --rm --no-deps -v "${PWD}:/work:ro" -v "${PWD}/pre-restore:/save" --entrypoint sh formwright -c "tr -d '\r' < /work/restore.sh > /tmp/restore.sh && sh /tmp/restore.sh"
+   ```
+
+   指令裡的 `tr -d '\r'` 會先去掉 Windows 的換行字元：CRLF 換行的腳本直接交給 `sh` 執行會失敗（`set: Illegal option -`，資料庫不會被動到）。存成帶 BOM 的 UTF-8 時，輸出會多一行 `#: not found`，不影響結果。
+
+5. **最後一行印出「還原完成」**才啟動服務，沒印就不要啟動：
+
+   ```bash
+   docker compose start formwright
+   ```
+
+   再用瀏覽器開站台、登入確認資料（`http://localhost:8080/api/version` 可看版本；改過連接埠就換成你的）。
+
+指令失敗時服務保持停止、不要啟動。**比對、另存與附件階段失敗時（訊息寫「資料庫沒有被動到」），資料庫還沒被覆蓋**（附件只會多出檔案，之後可用「清孤兒附件」清掉），修好原因後重跑第 4 步的 `docker compose run`。**覆蓋之後才失敗**（`cp`、`rm` 出錯、磁碟滿，或啟動之後服務起不來）：不要假設原資料庫沒變，維持停站，**也不要重跑腳本**（會用覆蓋後的資料蓋掉另存的副本）。原資料在 `pre-restore/` 裡，用下面的指令取回（服務起得來但資料不對時，先 `docker compose stop formwright`），再 `docker compose start formwright`。Windows PowerShell：
+
+```powershell
+docker compose run --rm --no-deps -v "${PWD}\pre-restore:/save:ro" --entrypoint sh formwright -c "test -s /save/formwright.db && rm -f /app/data/formwright.db-wal /app/data/formwright.db-shm && cp -p /save/formwright.db* /app/data/ && echo OK"
 ```
 
-指令失敗時服務保持停止、不要啟動。**比對、另存與附件階段失敗時（訊息寫「資料庫沒有被動到」，或 SHA 不符），資料庫還沒被覆蓋**（附件只會多出檔案，之後可用「清孤兒附件」清掉），修好原因後重跑同一段。**覆蓋之後才失敗**（`cp`、`rm` 出錯、磁碟滿，或 `docker compose start` 之後服務起不來）：不要假設原資料庫沒變，維持停站；原資料在目前資料夾的 `pre-restore/` 裡，取回：`docker run --rm -v formwright_formwright-data:/data -v "$PWD/pre-restore:/save:ro" alpine sh -c 'rm -f /data/formwright.db-wal /data/formwright.db-shm && cp -p /save/formwright.db* /data/'`。服務啟動失敗用 `docker compose logs formwright` 看原因。
+Linux、macOS：
+
+```bash
+docker compose run --rm --no-deps -v "${PWD}/pre-restore:/save:ro" --entrypoint sh formwright -c "test -s /save/formwright.db && rm -f /app/data/formwright.db-wal /app/data/formwright.db-shm && cp -p /save/formwright.db* /app/data/ && echo OK"
+```
+
+最後一行印出 `OK` 才算取回。服務啟動失敗用 `docker compose logs formwright` 看原因。
 
 **退回舊版程式**：兩種安裝程式都**不擋降版**——Windows 的 `formwright.iss` 用同一個 AppId、不比對版本、程式檔以 `ignoreversion` 覆蓋，`install.sh` 也不比對版本，所以執行舊版安裝檔會當成一次升級做完（Windows：停服務、用目前已裝的程式做一次備份、換成舊版程式、檢查資料目錄權限、啟動）。但**舊程式開到新版升過的資料庫不保證相容**：沒有統一的降版拒絕機制，可能啟動失敗（Windows 的安裝程式最後等服務就緒逾時、結束碼 20、服務被停用），也可能啟動成功、之後寫入新版的資料結構，或在特定功能出錯。所以不要把「啟動失敗」當成保護，也不要讓舊程式先碰到新版資料庫。建議順序：
 
 1. 先停服務、讓使用者暫時不要連（維護時段）。
 2. 用上面的步驟，以**升級前那份備份**還原資料（服務保持停止）。
-3. 再執行舊版安裝檔（Ubuntu 用舊版 tag 的 `install.sh`；Docker 換回舊版映像再 `start`）。Windows 與 Ubuntu 的安裝程式會先停服務、用目前已裝的新版程式對已還原的舊資料做一次備份（`--backup-now`；這一步新版程式會不會順便把資料往前升沒有查證），再換程式。
+3. 再執行舊版安裝檔（Ubuntu 用舊版 tag 的 `install.sh`；Docker 換回舊版映像再 `docker compose up -d`，只 `start` 不會換映像）。Windows 與 Ubuntu 的安裝程式會先停服務、用目前已裝的新版程式對已還原的舊資料做一次備份（`--backup-now`；這一步新版程式會不會順便把資料往前升沒有查證），再換程式。
 
 ⚠️ 這個順序與降版相容性都只讀了程式碼，**沒有在真機演練**，已知限制。
 

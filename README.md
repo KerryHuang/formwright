@@ -66,7 +66,7 @@ Formwright 讓你在畫面上自己定義模組與欄位，系統自動長出列
 
 - **Windows**：到 [Releases](https://github.com/KerryHuang/formwright/releases) 下載 `Formwright-Setup-<版號>.exe` 執行；第一次安裝、不熟電腦請看 [Windows 安裝教學](docs/install-windows.md)。
 - **Ubuntu 22.04／24.04**：`curl -fsSL https://github.com/KerryHuang/formwright/releases/latest/download/install.sh | sudo bash`；新手版步驟見 [Ubuntu 安裝教學](docs/install-ubuntu.md)。
-- **Docker compose**：下載 Releases 的 `docker-compose.yml`，執行 `docker compose up -d`。
+- **Docker compose**：下載 Releases 的 `docker-compose.yml`，執行 `docker compose up -d`；新手版步驟見 [Docker 安裝教學](docs/install-docker.md)。
 
 裝好後開網址，照畫面輸入設定碼即可。想在本機試跑容器見[部署指南](docs/deploy.md#本機試跑容器)。
 
