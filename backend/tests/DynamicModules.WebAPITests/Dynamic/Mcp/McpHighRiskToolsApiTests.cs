@@ -335,6 +335,62 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
         AuditOf("mcp.approve").Last().ConfirmationOutcome.Should().Be(AuditConfirmationOutcome.Mismatch);
     }
 
+    /// <summary>
+    /// 審查 R4：待簽單據有一般參照來源的彙總，預演後另一筆來源記錄新增，單據金額重算（記錄版本變、簽核實例版本不變）：
+    /// 確認碼與對話框同意都回 confirmation_invalid，任務仍 Open、實例仍 Pending。
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Approve_DocumentRecalculatedAfterPreview_ConfirmationInvalid(bool elicitation)
+    {
+        var doc = await CreateModule(_admin);
+        var line = await CreateModule(_admin);
+        var lineRef = await AddField(_admin, line, "reference", new { refTarget = new { kind = "module", key = doc } });
+        var qty = await AddField(_admin, line, "decimal", new { scale = 0 });
+        await AddField(_admin, doc, "rollup", new { rollup = new { sourceFieldId = lineRef.Id, function = "sum", aggregateFieldId = qty.Id } });
+        var rig = await ArrangeAsync(_app, _admin, module: doc);
+        await Activate(_admin, doc);
+        await Activate(_admin, line);
+        _app.GrantBusinessGroups(doc);
+        var lineTitle = await TitleKey(_admin, line);
+        var (id, rv) = await McpApprovalKit.NewRecord(_admin, rig);
+        (await RestSubmit(_admin, rig, id, rv)).StatusCode.Should().Be(HttpStatusCode.Created);
+        var current = await Current(_admin, id);
+        var (instanceId, instanceVersion) = (current.GetProperty("id").GetInt64(), current.GetProperty("rowVersion").GetString()!);
+        EnsureUser(_app, "sales01", u => (u.IsDemoAccount, u.MustChangePassword) = (false, false));
+        var token = IssueToken(_app, "sales01", WriteScopes).Raw;
+        var docVersion = Query(_app, db => db.Set<Record>().Single(x => x.Id == id).RowVersion);
+        void Recalculate()
+        {
+            var res = _admin.PostAsJsonAsync($"{Base}/modules/{line}/records",
+                new { values = new Dictionary<string, object> { [lineRef.Key] = id, [qty.Key] = 5, [lineTitle] = "來源明細" } }).GetAwaiter().GetResult();
+            res.StatusCode.Should().Be(HttpStatusCode.Created, res.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+            Query(_app, db => db.Set<Record>().Single(x => x.Id == id).RowVersion).Should().NotBe(docVersion, "前提：單據被重算");
+            Query(_app, db => db.Set<ApprovalInstance>().Single(i => i.Id == instanceId).RowVersion).Should().Be(instanceVersion, "前提：實例版本沒變");
+        }
+        var args = new Dictionary<string, object?> { ["taskId"] = TaskOf(instanceId, "sales01"), ["rowVersion"] = instanceVersion, ["idempotencyKey"] = NewIdem() };
+
+        JsonElement res;
+        if (elicitation)
+        {
+            var (client, _) = await ElicitingClient(() => { Recalculate(); return Answer("accept", true); }, token);
+            await using var _c = client;
+            res = (await CallRaw(client, "approve", args)).StructuredContent!.Value;
+        }
+        else
+        {
+            await using var sales = await ConnectAsync(_app, token);
+            var code = ConfirmCode(await Call("approve", args, sales));
+            Recalculate();
+            res = await Call("approve", WithCode(args, code), sales);
+        }
+
+        Code(res).Should().Be(McpErrorCodes.ConfirmationInvalid, res.GetRawText());
+        InstanceStatus(instanceId).Should().Be(ApprovalInstanceStatus.Pending);
+        Query(_app, db => db.Set<ApprovalTask>().Single(t => t.Id == TaskOf(instanceId, "sales01")).Status).Should().Be(ApprovalTaskStatus.Open);
+    }
+
     [Fact]
     public async Task Reject_TwoStep_ToInitiator()
     {

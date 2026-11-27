@@ -40,13 +40,13 @@ public static class ApprovalActionOutcomes
 
 /// <summary>
 /// 預演結果。只給關卡名稱與狀態選項 id，不給記錄值與標題快照。<see cref="ConditionalNext"/>：下一個定義關卡有條件，實際可能跳過。
-/// <see cref="Fingerprint"/> 是目標版本（實例版本＋任務狀態），實例有任何動作就不同。
+/// <see cref="Fingerprint"/> 是目標版本（實例版本、任務狀態、單據記錄版本、流程版本的雜湊），實例有任何動作或單據被改就不同。
 /// </summary>
 public sealed record ApprovalActionPreview(
     long TaskId, long InstanceId, long RecordId, string ModuleKey, string InstanceRowVersion, I18nText? StageName, string StageMode,
     string Outcome, I18nText? NextStageName, bool ConditionalNext, long? TargetOptionId, string Fingerprint);
 
-public sealed class PreviewApprovalActionHandler(IApprovalInstanceRepository repo, IModuleRepository modules, ICurrentUser user)
+public sealed class PreviewApprovalActionHandler(IApprovalInstanceRepository repo, IModuleRepository modules, IRecordRepository records, ICurrentUser user)
     : IRequestHandler<PreviewApprovalActionRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(PreviewApprovalActionRequest request, CancellationToken ct)
@@ -79,6 +79,8 @@ public sealed class PreviewApprovalActionHandler(IApprovalInstanceRepository rep
         if (me.Status != ApprovalTaskStatus.Open) return ApprovalActionSupport.TaskNotOpen(inst, def, me, runs);
         if (ApprovalActionSupport.AlreadyApprovedInStage(tasks, me, user.UserId)) return ServiceResult.Conflict(ApprovalMessages.StageHandled);
         if (runs.SingleOrDefault(r => r.Id == me.StageRunId) is not { } run) return ServiceResult.Conflict(ApprovalMessages.StageHandled);
+        // 單據內容會影響判路與退回的轉移（審查 R4）：讀不到單據就拒絕，不用空值替代
+        if (await records.GetAsync(inst.RecordId, ct) is not { DeleteFlag: false } record) return ServiceResult.NotFound(ApprovalMessages.TaskNotFound);
 
         string outcome;
         I18nText? next = null;
@@ -104,7 +106,17 @@ public sealed class PreviewApprovalActionHandler(IApprovalInstanceRepository rep
             (outcome, target) = (ApprovalActionOutcomes.Complete, inst.ToOptionId);
 
         return ServiceResult.Success(new ApprovalActionPreview(task.Id, inst.Id, inst.RecordId, module.Key, inst.RowVersion, run.NameSnapshot, run.Mode,
-            outcome, next, conditional, target, $"{inst.RowVersion}|{me.Status}"));
+            outcome, next, conditional, target, Fingerprint(inst, me, record)));
+    }
+
+    /// <summary>
+    /// 目標版本（審查 R4）：實例版本、任務狀態、單據記錄版本（彙總或公式重算只換記錄版本、不換實例版本）與流程版本的雜湊，
+    /// 任一變了就要重新預演。雜湊後長度固定，放得進確認列。
+    /// </summary>
+    private static string Fingerprint(ApprovalInstance inst, ApprovalTask me, Record record)
+    {
+        var raw = string.Join("|", inst.RowVersion, me.Status, record.RowVersion, inst.FlowVersionId);
+        return "appr:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(raw)))[..40];
     }
 
     /// <summary>同意後這一關會不會完成：或簽一定完成；會簽要其他每個席位都已有人同意（照 <see cref="ApprovalApprover"/>）。</summary>
