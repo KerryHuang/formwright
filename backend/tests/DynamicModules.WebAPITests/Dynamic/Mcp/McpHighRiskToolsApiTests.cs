@@ -243,7 +243,8 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
 
     /// <summary>
     /// 業務群組對目標與表頭有完整權限；明細模組有一個指向目標的參照欄位（<paramref name="onDelete"/>），明細列屬於一筆表頭記錄。
-    /// <paramref name="state"/>：active＝都啟用、closedDetail＝明細已關閉（可讀）、inactiveDetail＝明細停用、inactiveHeader＝表頭停用。
+    /// <paramref name="state"/>：active＝都啟用、closedDetail＝明細已關閉（可讀）、closedHeader＝表頭已關閉（可讀）、inactiveDetail＝明細停用、
+    /// inactiveHeader＝表頭停用、missingHeader＝明細關係指向的表頭模組找不到（把表頭的模組鍵改掉）。
     /// </summary>
     private async Task<(long Id, string RowVersion, string Detail, string RefKey)> DetailSourceRig(string onDelete, string state)
     {
@@ -276,6 +277,7 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
             "closedDetail" => (detail, ModuleStatus.Closed),
             "inactiveDetail" => (detail, ModuleStatus.Inactive),
             "inactiveHeader" => (header, ModuleStatus.Inactive),
+            "closedHeader" => (header, ModuleStatus.Closed),
             _ => ((string?)null, ModuleStatus.Active),
         };
         if (statusOf is not null)
@@ -284,15 +286,23 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
                 db.Set<Module>().Single(m => m.Key == statusOf).Status = status;
                 return db.SaveChanges();
             });
+        if (state == "missingHeader")
+            Query(_app, db =>
+            {
+                db.Set<Module>().Single(m => m.Key == header).Key = header + "-gone";
+                return db.SaveChanges();
+            });
         return (id, rec.GetProperty("rowVersion").GetString()!, detail, refKey);
     }
 
-    /// <summary>N1：明細或表頭停用（不可讀）時，清空與連帶刪除都整次拒絕，不帶明細模組、欄位與筆數，不發碼、不跳對話框。</summary>
+    /// <summary>N1：明細或表頭停用（不可讀）、或表頭模組找不到時，清空與連帶刪除都整次拒絕，不帶明細模組、欄位與筆數，不發碼、不跳對話框。</summary>
     [Theory]
     [InlineData("setNull", "inactiveDetail")]
     [InlineData("cascade", "inactiveDetail")]
     [InlineData("setNull", "inactiveHeader")]
     [InlineData("cascade", "inactiveHeader")]
+    [InlineData("setNull", "missingHeader")]
+    [InlineData("cascade", "missingHeader")]
     public async Task DeletePreview_UnreadableDetailSource_Refused(string onDelete, string state)
     {
         var (id, rv, detail, refKey) = await DetailSourceRig(onDelete, state);
@@ -307,12 +317,14 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
         Query(_app, db => db.Set<McpConfirmation>().Count()).Should().Be(0);
     }
 
-    /// <summary>N1 對照組：啟用中或已關閉（可讀）的明細照常列出。</summary>
+    /// <summary>N1 對照組：明細與表頭啟用中或已關閉（可讀）時照常列出。</summary>
     [Theory]
     [InlineData("setNull", "active")]
     [InlineData("cascade", "active")]
     [InlineData("setNull", "closedDetail")]
     [InlineData("cascade", "closedDetail")]
+    [InlineData("setNull", "closedHeader")]
+    [InlineData("cascade", "closedHeader")]
     public async Task DeletePreview_ReadableDetailSource_Listed(string onDelete, string state)
     {
         var (id, rv, detail, refKey) = await DetailSourceRig(onDelete, state);
@@ -548,6 +560,66 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
         RestrictedMessage(r).Should().Contain("請改在畫面上刪除");
         asked.Should().BeEmpty();
         Exists(id).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// 第二次複審建議：初次預演時來源看得到、對話框照常跳出；使用者回答前，管理員停用來源模組、收回業務群組對來源的讀取權、
+    /// 或把參照欄位設成不提供給 AI，接著使用者同意：確認時重跑的預演整次拒絕，回 confirmation_invalid、不刪，訊息不帶來源模組與欄位。
+    /// </summary>
+    [Theory]
+    [InlineData("inactive")]
+    [InlineData("noRead")]
+    [InlineData("aiExcluded")]
+    public async Task Delete_SourceRestrictedBeforeAccept_ConfirmationInvalid(string change)
+    {
+        var (id, rv, source, refKey) = await HiddenSourceRig("setNull", "none");
+        EnsureUser(_app, "sales01", u => (u.IsDemoAccount, u.MustChangePassword) = (false, false));
+        var (client, asked) = await ElicitingClient(() =>
+        {
+            RestrictSourceAsync(source, refKey, change).GetAwaiter().GetResult();
+            return Answer("accept", true);
+        }, IssueToken(_app, "sales01", WriteScopes).Raw);
+        await using var _c = client;
+
+        var r = (await CallRaw(client, "delete_record", DeleteArgs(id, rv))).StructuredContent!.Value;
+
+        asked.Should().ContainSingle("初次預演看得到，對話框照常跳出");
+        Code(r).Should().Be(McpErrorCodes.ConfirmationInvalid, r.GetRawText());
+        r.GetRawText().Should().NotContain(source).And.NotContain(refKey);
+        Exists(id).Should().BeTrue();
+    }
+
+    private async Task RestrictSourceAsync(string source, string refKey, string change)
+    {
+        switch (change)
+        {
+            case "inactive":
+                Query(_app, db =>
+                {
+                    db.Set<Module>().Single(m => m.Key == source).Status = ModuleStatus.Inactive;
+                    return db.SaveChanges();
+                });
+                break;
+            case "noRead":
+                var res = await _admin.PutAsJsonAsync($"{Base}/modules/{source}/permissions", new
+                {
+                    groups = Array.Empty<object>(), users = Array.Empty<object>(), fields = Array.Empty<object>(), options = Array.Empty<object>(),
+                });
+                res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
+                break;
+            default:
+                var m = await JsonOf(await _admin.GetAsync($"{Base}/modules/{source}"));
+                var (blockId, f) = m.GetProperty("blocks").EnumerateArray()
+                    .SelectMany(b => b.GetProperty("fields").EnumerateArray().Select(x => (b.GetProperty("id").GetInt64(), x)))
+                    .Single(p => p.x.GetProperty("key").GetString() == refKey);
+                var put = await _admin.PutAsJsonAsync($"{Base}/fields/{f.GetProperty("id").GetInt64()}", new Dictionary<string, object>
+                {
+                    ["type"] = "reference", ["label"] = new Dictionary<string, string> { ["zh-TW"] = "欄位" },
+                    ["config"] = f.GetProperty("config"), ["blockId"] = blockId, ["excludeFromAi"] = true,
+                });
+                put.StatusCode.Should().Be(HttpStatusCode.OK, await put.Content.ReadAsStringAsync());
+                break;
+        }
     }
 
     /// <summary>管理員把 delete_record 移出清單：改成一般寫入，直接執行、寫入稽核級別是 Write、沒有確認列。</summary>
@@ -1171,13 +1243,16 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
         if (recordId is { } id) Query(_app, db => db.Set<Record>().Single(x => x.Id == id).RowVersion).Should().Be(rv);
     }
 
-    /// <summary>變更多到對話框放不下：不發對話框、不建確認碼，回錯誤請 AI 縮小單次操作；記錄不動。</summary>
+    /// <summary>
+    /// 變更多到對話框放不下：每個值都不到單一值上限（200 字、不截短），合起來超過整份 3000 字——不發對話框、不建確認碼，
+    /// 回「要確認的內容太多」請 AI 縮小單次操作（不是單一值太長的那句）；記錄不動。
+    /// </summary>
     [Fact]
     public async Task Elicitation_TooManyChanges_NoDialog_Rejected()
     {
         SetPolicy(_app, PolicyCatalog.McpHighRiskTools, "update_record,delete_record,approve,reject");
         var (_, title, id, rv) = await LongTextRig();
-        var values = Enumerable.Range(0, 40).ToDictionary(i => $"f_extra{i}", i => (object)new string('多', 300));
+        var values = Enumerable.Range(0, 25).ToDictionary(i => $"f_extra{i}", i => (object)new string('多', 150));
         values[title] = "重要變更";
         var (client, asked) = await ElicitingClient(() => Answer("accept", true));
         await using var _ = client;
@@ -1186,6 +1261,7 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
             .StructuredContent!.Value;
 
         Code(r).Should().Be(McpErrorCodes.Invalid, r.GetRawText());
+        RestrictedMessage(r).Should().Contain("對話框最多顯示 3000 字").And.NotContain("不是說明文字");
         asked.Should().BeEmpty();
         Query(_app, db => db.Set<McpConfirmation>().Count()).Should().Be(0);
         Query(_app, db => db.Set<Record>().Single(x => x.Id == id).RowVersion).Should().Be(rv);
