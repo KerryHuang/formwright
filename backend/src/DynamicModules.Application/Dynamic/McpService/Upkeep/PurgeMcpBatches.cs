@@ -10,7 +10,7 @@ namespace DynamicModules.Application.Dynamic.McpService.Upkeep;
 
 /// <summary>
 /// 一批確認碼清理（mcp1a 計畫判斷 22）：結束（使用、作廢、過期）早於 cutoff 的列。沒用過的（作廢或逾時）刪之前先寫一列
-/// <see cref="AuditConfirmationOutcome.Expired"/> 稽核，管道 MCP、權杖是碼的權杖、行為者是碼的擁有者；同一交易刪列。回傳刪除數。
+/// <see cref="AuditConfirmationOutcome.Expired"/> 稽核；使用者在 elicitation 拒絕的（mcp2b）當下已寫「使用者拒絕」，不再寫，管道 MCP、權杖是碼的權杖、行為者是碼的擁有者；同一交易刪列。回傳刪除數。
 /// </summary>
 public sealed record PurgeMcpConfirmationsBatchRequest(JobLeaseFence Fence, DateTime CutoffUtc, int BatchSize)
     : IRequest<ServiceResult>, ITransactionalRequest;
@@ -24,12 +24,14 @@ public sealed class PurgeMcpConfirmationsBatchHandler(
         var fence = request.Fence;
         if (!await jobs.HoldsLeaseAsync(fence.JobKey, fence.Owner, fence.NowUtc, ct)) return ServiceResult.Conflict(null, JobLeaseFence.LostCode);
         var rows = await confirmations.ListPurgeBatchTrackedAsync(request.CutoffUtc, request.BatchSize, ct);
-        foreach (var row in rows.Where(r => r.UsedUtc is null))
+        foreach (var row in rows.Where(r => r.UsedUtc is null && r.DeclinedUtc is null))
             using (AuditOrigin.Begin(AuditChannel.Mcp, row.TokenId))
                 // 正式目錄沒有這個工具（例如測試工具）時記成 mcp.unknownTool，免得稽核寫不進去擋住清理
                 audit.Add(new AuditEntry(McpToolCatalog.Find(row.ToolName)?.AuditCode ?? McpToolCatalog.UnknownToolAuditCode,
                     AuditResult.Invalid, TargetLabel: row.ToolName, ReasonCode: "expired", ArgumentsHash: row.ArgumentsHash,
-                    ConfirmationId: row.Id, ConfirmationOutcome: AuditConfirmationOutcome.Expired, ActorOverride: new ActorOverride(row.UserId)));
+                    ConfirmationId: row.Id, ConfirmationOutcome: AuditConfirmationOutcome.Expired, ActorOverride: new ActorOverride(row.UserId),
+                    // 只有高風險呼叫會發確認碼；工具之後被移出清單也照發碼當時記（mcp2b）
+                    Risk: AuditRiskLevel.HighRisk));
         confirmations.RemoveRange(rows);
         if (rows.Count > 0) await uow.CommitAsync(ct);
         return ServiceResult.Success(rows.Count);

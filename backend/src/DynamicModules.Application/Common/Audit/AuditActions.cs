@@ -172,6 +172,10 @@ public static class AuditActions
         new("mcp.addTaskComment", Mcp, W),
         new("mcp.submitApproval", Mcp, W),
         new("mcp.withdrawApproval", Mcp, W),
+        // mcp2b：出廠高風險；移出政策 mcp.highRiskTools 後由呼叫端傳一般寫入（AuditEntry.Risk）
+        new("mcp.deleteRecord", Mcp, H),
+        new("mcp.approve", Mcp, H),
+        new("mcp.reject", Mcp, H),
         new("mcp.unknownTool", Mcp, R),
         // 語系與語系包（語系包設計 §11；i4d1 計畫判斷 17）：一般寫入，高風險只留權限類
         new("locale.install", Locale, W),

@@ -8,13 +8,16 @@ namespace DynamicModules.Application.Common.Audit;
 /// </summary>
 /// <param name="Summary">由 <see cref="AuditSummary"/> 組成的摘要 JSON；不自動序列化請求物件。</param>
 /// <param name="ActorOverride">只在環境沒有身分時可給；登入的行為者不走這裡，見 <see cref="SignInAudit"/>。</param>
+/// <param name="Risk">
+/// 風險級別；null 用 <see cref="AuditActions"/> 登記的級別。MCP 工具的實際級別依政策 <c>mcp.highRiskTools</c> 變動（mcp2b，設計 §6.4），由呼叫端傳。
+/// </param>
 public sealed record AuditEntry(
     string Action, AuditResult Result,
     string? TargetKind = null, string? TargetId = null, string? TargetLabel = null,
     string? ReasonCode = null, string? Summary = null,
     string? ArgumentsHash = null, int? ResultCount = null,
     long? ConfirmationId = null, AuditConfirmationOutcome? ConfirmationOutcome = null,
-    ActorOverride? ActorOverride = null)
+    ActorOverride? ActorOverride = null, AuditRiskLevel? Risk = null)
 {
     /// <summary>登入稽核的行為者（只由 <see cref="SignInAudit"/> 設定）；有值時不從環境取行為者。</summary>
     internal SignInActor? SignIn { get; init; }

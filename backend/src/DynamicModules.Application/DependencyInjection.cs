@@ -278,8 +278,14 @@ public static class DependencyInjection
         services.AddScoped<Dynamic.McpService.Tools.IMcpTool, Dynamic.McpService.Tools.Write.AddTaskCommentTool>();
         services.AddScoped<Dynamic.McpService.Tools.IMcpTool, Dynamic.McpService.Tools.Write.SubmitApprovalTool>();
         services.AddScoped<Dynamic.McpService.Tools.IMcpTool, Dynamic.McpService.Tools.Write.WithdrawApprovalTool>();
+        // 出廠高風險、可移出清單的寫入工具（mcp2b）
+        services.AddScoped<Dynamic.McpService.Tools.IMcpTool, Dynamic.McpService.Tools.Write.DeleteRecordTool>();
+        services.AddScoped<Dynamic.McpService.Tools.IMcpTool, Dynamic.McpService.Tools.Write.ApproveTool>();
+        services.AddScoped<Dynamic.McpService.Tools.IMcpTool, Dynamic.McpService.Tools.Write.RejectTool>();
         services.AddScoped<Dynamic.McpService.Tools.McpToolInvoker>();
         services.AddScoped<Dynamic.McpService.Confirmations.McpConfirmationScope>();
+        services.AddScoped<Dynamic.McpService.Confirmations.McpConfirmationValidator>();
+        services.AddScoped<Dynamic.RecordService.Commands.DeleteRecord.DeleteRecordChecks>();
         services.AddScoped<Dynamic.McpService.Writes.McpWriteScope>();
         services.AddScoped<Dynamic.McpService.Writes.IMcpWriteScope>(sp => sp.GetRequiredService<Dynamic.McpService.Writes.McpWriteScope>());
         services.AddScoped<Dynamic.McpService.Confirmations.IMcpConfirmationScope>(sp =>

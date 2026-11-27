@@ -23,7 +23,17 @@ public static class McpDataOmitted
     public const string ResultTooLarge = "result_too_large", FormatFailed = "format_failed", PostCommitError = "post_commit_error";
 }
 
-public sealed record McpCallContext(string? ClientName = null, string? ClientVersion = null, string? Job = null);
+/// <param name="ElicitationAvailable">client 支援 MRTR 而且宣告了 form elicitation（mcp2b，設計 §6.3.1 第 1 點）；兩項缺一為 false。</param>
+/// <param name="RequestState">elicitation 重送時 client 原樣帶回的 requestState；第一次呼叫是 null。</param>
+/// <param name="Answer">重送時對話框的回答；沒帶回答是 null（當成取消）。</param>
+public sealed record McpCallContext(string? ClientName = null, string? ClientVersion = null, string? Job = null,
+    bool ElicitationAvailable = false, string? RequestState = null, McpElicitationAnswer? Answer = null);
+
+/// <summary>對話框的回答：<paramref name="Action"/> 是 accept／decline／cancel；<paramref name="Confirmed"/> 是唯一布林欄位的值（不是布林為 null）。</summary>
+public sealed record McpElicitationAnswer(string Action, bool? Confirmed)
+{
+    public bool Approved => Action == "accept" && Confirmed == true;
+}
 
 /// <summary>
 /// 工具執行器（mcp1a 計畫判斷 17、19）：通道 → 找工具 → 範圍 → 速率與名額保留（判斷 13）→ 執行 → 格式化與大小判斷（判斷 14）→ 稽核 → 釋放保留。
@@ -63,9 +73,10 @@ public sealed class McpToolInvoker(
 
         var args = arguments is { ValueKind: not JsonValueKind.Undefined } a ? a : EmptyObject;
         var tool = _tools.FirstOrDefault(t => string.Equals(t.Descriptor.Name, name, StringComparison.Ordinal));
-        // 高風險工具的確認碼不進參數雜湊、稽核摘要與工具參數（預演與執行的雜湊才會相同，明文也不落地）
+        // 確認碼不進參數雜湊、稽核摘要與工具參數（預演與執行的雜湊才會相同，明文也不落地）。寫入類工具都可能被設成高風險（mcp2b），
+        // 所以唯讀以外一律拆出；工具這次是一般寫入時忽略它
         string? confirmationCode = null;
-        if (tool?.Descriptor.Risk == McpRisk.HighRisk) (args, confirmationCode) = SplitConfirmation(args);
+        if (tool is not null && tool.Descriptor.Risk != McpRisk.Read) (args, confirmationCode) = SplitConfirmation(args);
         McpReservation? reservation = null;
         McpToolOutcome? outcome = null;
         McpFormattedResult result;
@@ -73,6 +84,9 @@ public sealed class McpToolInvoker(
         string? reason;
         long? confirmationId = null;
         AuditConfirmationOutcome? confirmationOutcome = null;
+        // 實際級別（mcp2b，依政策）與這次的確認方式（進稽核摘要，事後查得出哪些高風險動作有人在對話框按過）
+        AuditRiskLevel? auditRisk = null;
+        string? confirmVia = null;
         try
         {
             try
@@ -104,7 +118,7 @@ public sealed class McpToolInvoker(
                 {
                     // 稽核收尾與請求取消脫鉤：工具取消後照常回傳、或取消發生在稽核提交途中，都要恰好寫一列（名額才不會白白釋放）
                     await audit.WriteNowAsync(Entry(tool, name, args, outcome, auditResult, reason, context, started, confirmationId,
-                        confirmationOutcome), CancellationToken.None);
+                        confirmationOutcome, auditRisk, confirmVia), CancellationToken.None);
                 }
                 catch (AuditWriteException ex)
                 {
@@ -143,35 +157,77 @@ public sealed class McpToolInvoker(
             }
             reservation = decision.Reservation;
 
-            if (tool.Descriptor.Risk == McpRisk.Write)
+            // 實際級別（mcp2b，設計 §6.4）：寫入類工具看政策清單，地板一律高風險
+            var risk = tool.Descriptor.Risk;
+            McpHighRiskSettings? highRisk = null;
+            if (risk != McpRisk.Read)
             {
-                // 執行器自己的參數驗證（判斷 3）：只有冪等鍵與迴圈目標；不過就不上膛、不呼叫工具
+                highRisk = await policies.ReadHighRiskAsync(ct);
+                risk = McpToolCatalog.EffectiveRisk(tool.Descriptor, highRisk.Tools);
+                auditRisk = risk == McpRisk.HighRisk ? AuditRiskLevel.HighRisk : AuditRiskLevel.Write;
+            }
+            var writePath = risk != McpRisk.Read && tool.UsesWritePath;
+            var toolCall = new McpToolCall(args, snapshot, lc.Locale);
+
+            // 高風險的三種呼叫（§6.3、§6.3.1）：預演（沒碼也沒 requestState）、確認碼送回、elicitation 重送
+            McpConfirmationTicket? ticket = null;
+            var preview = false;
+            if (risk == McpRisk.HighRisk)
+            {
+                if (!context.ElicitationAvailable && highRisk!.RejectWithoutElicitation)
+                {
+                    outcome = McpToolOutcome.Error(McpErrorCodes.ElicitationRequired, McpMessages.ElicitationRequired);
+                    return (Format(tool.Descriptor.Name, outcome, Text), AuditResult.Denied, McpErrorCodes.ElicitationRequired);
+                }
+                McpConfirmationTicket Ticket(string code, McpConfirmationMethod method) =>
+                    new(code, tokenId, name, McpArguments.Hash(args), tool.Descriptor.AuditCode,
+                        Summary(args, null, context, started: null, strict: true, confirmVia: ViaOf(method)), method);
+                if (context.RequestState is { } state)
+                {
+                    (ticket, confirmVia) = (Ticket(McpElicitationState.CodeOf(state) ?? "", McpConfirmationMethod.Elicitation), ViaOf(McpConfirmationMethod.Elicitation));
+                    if (context.Answer is not { Approved: true }) return await DeclineAsync(tool, ticket);
+                }
+                else if (confirmationCode is not null)
+                    (ticket, confirmVia) = (Ticket(confirmationCode, McpConfirmationMethod.Code), ViaOf(McpConfirmationMethod.Code));
+                else preview = true;
+            }
+
+            if (writePath)
+            {
+                // 執行器自己的參數驗證（判斷 3）：只有冪等鍵與迴圈目標；不過就不上膛、不呼叫工具。預演也驗（確認時參數要完全相同）
                 if (WriteArgErrors(tool.Descriptor, args) is { Count: > 0 } errors)
                 {
                     outcome = McpToolOutcome.InvalidArguments(errors);
                     return (Format(tool.Descriptor.Name, outcome, Text), AuditResult.Invalid, McpErrorCodes.InvalidArguments);
                 }
-                var key = args.GetProperty(McpArgs.IdempotencyKey).GetString()!;
-                // 寫入迴圈（判斷 8）：在上膛之前；擋下時工具不執行，稽核只有執行器事後寫的那一列 Denied
-                if (tool.Descriptor.LoopTargetArg is { } loopArg && args.TryGetProperty(loopArg, out var loopTarget)
-                    && loopTarget.ValueKind == JsonValueKind.Number && await WriteLoopAsync(tokenId, loopTarget.GetInt64(), key) is { } blocked)
+                if (!preview)
                 {
-                    outcome = blocked;
-                    return (Format(tool.Descriptor.Name, outcome, Text), AuditResult.Denied, McpErrorCodes.WriteLoop);
+                    var key = args.GetProperty(McpArgs.IdempotencyKey).GetString()!;
+                    // 寫入迴圈（判斷 8）：在上膛之前；擋下時工具不執行，稽核只有執行器事後寫的那一列 Denied
+                    if (tool.Descriptor.LoopTargetArg is { } loopArg && args.TryGetProperty(loopArg, out var loopTarget)
+                        && loopTarget.ValueKind == JsonValueKind.Number && await WriteLoopAsync(tokenId, loopTarget.GetInt64(), key) is { } blocked)
+                    {
+                        outcome = blocked;
+                        return (Format(tool.Descriptor.Name, outcome, Text), AuditResult.Denied, McpErrorCodes.WriteLoop);
+                    }
+                    // IdempotencyBehavior 接手（判斷 5）；設在上膛之前，摘要的 op 與事件事實的 OperationId 都是這把 key。
+                    // 高風險的確認執行（mcp2b）：上膛時帶確認碼與「目標現在的版本」，McpWriteAuditBehavior 在交易內驗碼
+                    operation.ClientKey = key;
+                    writes.Arm(call, new McpWriteAudit(tool.Descriptor.AuditCode, name, McpArguments.Hash(args),
+                        Summary(args, null, context, started: null, op: operation.OperationId, confirmVia: confirmVia), auditRisk!.Value,
+                        ticket is null ? null : new McpWriteConfirmation(ticket, c => CurrentVersionAsync(tool, toolCall, c))));
                 }
-                // IdempotencyBehavior 接手（判斷 5）；設在上膛之前，摘要的 op 與事件事實的 OperationId 都是這把 key
-                operation.ClientKey = key;
-                writes.Arm(call, new McpWriteAudit(tool.Descriptor.AuditCode, name, McpArguments.Hash(args),
-                    Summary(args, null, context, started: null, op: operation.OperationId)));
             }
 
-            var toolCall = new McpToolCall(args, snapshot, lc.Locale);
-            outcome = Mapped(tool.Descriptor.Risk != McpRisk.HighRisk ? await tool.RunAsync(toolCall, ct)
-                : confirmationCode is null ? await PreviewAsync(tool, toolCall, tokenId)
-                : await tool.ExecuteAsync(toolCall, new McpConfirmationTicket(confirmationCode, tokenId, name, McpArguments.Hash(args),
-                    tool.Descriptor.AuditCode, Summary(args, null, context, started: null, strict: true)), ct));
-            if (tool.Descriptor.Risk == McpRisk.Write && !outcome.IsError)
+            outcome = Mapped(risk != McpRisk.HighRisk || (writePath && !preview) ? await tool.RunAsync(toolCall, ct)
+                : preview ? await PreviewAsync(tool, toolCall, tokenId)
+                : await tool.ExecuteAsync(toolCall, ticket!, ct));
+            if (writePath && !preview && !outcome.IsError)
                 outcome = outcome with { Meta = WithReplayed(outcome.Meta, operation.Replayed) };
+
+            // elicitation（§6.3.1 第 2 點）：碼放在 requestState，工具結果不送出
+            if (outcome.InputRequired is { } input)
+                return (McpResultFormatter.Success(tool.Descriptor.Name, null, null) with { InputRequired = input }, AuditResult.Success, null);
 
             // 確認或寫入已提交（判斷 18「確認提交之後」、mcp2a 判斷 3）：格式化成功而且放得下照常回，否則回非錯誤的「已執行、結果省略」
             if (Committed()) return (CommittedResult(tool.Descriptor.Name, outcome), AuditResult.Success, null);
@@ -214,19 +270,44 @@ public sealed class McpToolInvoker(
             return null;
         }
 
-        // 預演（判斷 18）：工具給摘要與目標版本 → 建確認碼（交易型請求）→ 回非錯誤結果，碼在 meta；稽核記 Preview 與確認列 id
+        // 預演（判斷 18）：工具給摘要與目標版本 → 建確認碼（交易型請求）→ 回非錯誤結果，碼在 meta；稽核記 Preview 與確認列 id。
+        // client 支援 elicitation（mcp2b，§6.3.1 第 2 點）：碼標成 elicitation 發出、放進 requestState，不回給 AI，改請 client 跳對話框
         async Task<McpToolOutcome> PreviewAsync(IMcpTool highRisk, McpToolCall toolCall, long tokenId)
         {
             var preview = await highRisk.PreviewAsync(toolCall, ct);
             if (preview.Failure is { } failed) return failed;
+            var method = context.ElicitationAvailable ? McpConfirmationMethod.Elicitation : McpConfirmationMethod.Code;
+            confirmVia = ViaOf(method);
             var summary = JsonSerializer.Serialize(preview.Summary, McpResultFormatter.Json);
-            var created = await sender.Send(new CreateMcpConfirmationRequest(name, McpArguments.Hash(args), preview.TargetVersion, summary), ct);
+            var created = await sender.Send(new CreateMcpConfirmationRequest(name, McpArguments.Hash(args), preview.TargetVersion, summary, method), ct);
             if (!created.IsSuccess) return McpToolOutcome.From(created);
             var c = (McpConfirmationCreated)created.Data!;
             (confirmationId, confirmationOutcome) = (c.Id, AuditConfirmationOutcome.Preview);
+            if (method == McpConfirmationMethod.Elicitation)
+                return McpToolOutcome.Ok(null) with
+                {
+                    TargetKind = preview.TargetKind, TargetId = preview.TargetId,
+                    InputRequired = new McpInputRequired(Text(McpMessages.ElicitationMessage(name, ElicitationPreview(preview.Summary))),
+                        Text(McpMessages.ElicitationConfirm), McpElicitationState.Of(c.Code)),
+                };
             return McpToolOutcome.Ok(new { preview = preview.Summary },
                     new { confirmation = new { code = c.Code, expiresAt = c.ExpiresUtc }, instruction = McpTexts.ConfirmationInstruction })
                 with { TargetKind = preview.TargetKind, TargetId = preview.TargetId };
+        }
+
+        // 使用者在對話框拒絕或取消（§6.3.1 第 3 點）：確認碼作廢、回 confirmation_declined、稽核記「使用者拒絕」；碼不認得照 confirmation_invalid
+        async Task<(McpFormattedResult, AuditResult, string?)> DeclineAsync(IMcpTool highRisk, McpConfirmationTicket ticket)
+        {
+            var declined = await sender.Send(new DeclineMcpConfirmationRequest(ticket), ct);
+            if (declined is { IsSuccess: true, Data: long id })
+            {
+                (confirmationId, confirmationOutcome) = (id, AuditConfirmationOutcome.Declined);
+                outcome = McpToolOutcome.Error(McpErrorCodes.ConfirmationDeclined, McpMessages.ConfirmationDeclined);
+                return (Format(highRisk.Descriptor.Name, outcome, Text), AuditResult.Denied, McpErrorCodes.ConfirmationDeclined);
+            }
+            confirmationOutcome = AuditConfirmationOutcome.Mismatch;
+            outcome = Mapped(McpToolOutcome.From(McpConfirmationResults.Invalid()));
+            return (Format(highRisk.Descriptor.Name, outcome, Text), AuditResult.Invalid, McpErrorCodes.ConfirmationInvalid);
         }
 
         McpFormattedResult CommittedResult(string tool, McpToolOutcome done)
@@ -244,7 +325,7 @@ public sealed class McpToolInvoker(
         }
 
         McpFormattedResult Executed(string tool, string omitted) =>
-            McpResultFormatter.Executed(tool, confirmations.ConfirmationId, omitted, McpTexts.ConfirmedResultOmitted);
+            McpResultFormatter.Executed(tool, confirmations.ConfirmationId ?? writes.ConfirmationId, omitted, McpTexts.ConfirmedResultOmitted);
     }
 
     /// <summary>迴圈事件另開 scope 送（照 <c>RuleFailureBehavior</c>）：執行器在交易外，事件只能在交易型請求裡寫。</summary>
@@ -263,6 +344,25 @@ public sealed class McpToolInvoker(
         }
     }
 
+    /// <summary>寫入路徑的目標現在版本（mcp2b）：在交易內重跑工具的預演；預演失敗（目標不見、被擋）回 null，當成不符。</summary>
+    private static async Task<string?> CurrentVersionAsync(IMcpTool tool, McpToolCall call, CancellationToken ct) =>
+        await tool.PreviewAsync(call, ct) is { Failure: null } p ? p.TargetVersion : null;
+
+    /// <summary>稽核摘要的確認方式（<c>confirm</c>）：<c>code</c> 或 <c>elicitation</c>。</summary>
+    private static string ViaOf(McpConfirmationMethod method) => method == McpConfirmationMethod.Elicitation ? "elicitation" : "code";
+
+    /// <summary>對話框裡的預演摘要（縮排 JSON，最多 <see cref="ElicitationPreviewMax"/> 字）。內容與工具輸出相同，已套 AI 欄位遮罩。</summary>
+    private static string ElicitationPreview(object? summary)
+    {
+        var text = JsonSerializer.Serialize(summary, ElicitationJson);
+        return text.Length > ElicitationPreviewMax ? text[..ElicitationPreviewMax] + "…" : text;
+    }
+
+    /// <summary>對話框說明的預演摘要上限（技術限制，對話框不是捲動長文的地方）。</summary>
+    private const int ElicitationPreviewMax = 3000;
+
+    private static readonly JsonSerializerOptions ElicitationJson = new(McpResultFormatter.Json) { WriteIndented = true };
+
     /// <summary>從高風險工具的參數拿掉 <c>confirmationCode</c>；不是字串的碼當成空碼（一定不符）。</summary>
     private static (JsonElement Args, string? Code) SplitConfirmation(JsonElement args)
     {
@@ -274,22 +374,24 @@ public sealed class McpToolInvoker(
     }
 
     private AuditEntry Entry(IMcpTool? tool, string name, JsonElement args, McpToolOutcome? outcome, AuditResult result, string? reason,
-        McpCallContext context, long started, long? confirmationId, AuditConfirmationOutcome? confirmationOutcome) =>
+        McpCallContext context, long started, long? confirmationId, AuditConfirmationOutcome? confirmationOutcome, AuditRiskLevel? risk,
+        string? confirmVia) =>
         new(tool?.Descriptor.AuditCode ?? McpToolCatalog.UnknownToolAuditCode, result,
             TargetKind: outcome?.TargetKind, TargetId: outcome?.TargetId, TargetLabel: name, ReasonCode: reason,
-            Summary: Summary(args, outcome?.RecordIds, context, started, strict: tool is null || tool.Descriptor.Risk != McpRisk.Read),
+            Summary: Summary(args, outcome?.RecordIds, context, started, strict: tool is null || tool.Descriptor.Risk != McpRisk.Read, confirmVia: confirmVia),
             ArgumentsHash: McpArguments.Hash(args), ResultCount: outcome is { IsError: false } ? outcome.ResultCount : null,
-            ConfirmationId: confirmationId, ConfirmationOutcome: confirmationOutcome);
+            ConfirmationId: confirmationId, ConfirmationOutcome: confirmationOutcome, Risk: risk);
 
     /// <summary>
     /// 稽核摘要（判斷 17）：參數摘要、前 20 個記錄 id、client、耗時（確認與寫入稽核在交易內寫，不帶耗時）、任務標籤、
     /// operation id（寫入稽核，mcp2a 判斷 3）。寫入、高風險、不存在的工具用 strict 摘要（mcp2a 判斷 15）。
     /// </summary>
     private string? Summary(JsonElement args, IReadOnlyList<long>? recordIds, McpCallContext context, long? started, bool strict = false,
-        string? op = null)
+        string? op = null, string? confirmVia = null)
     {
         var summary = new AuditSummary().Add("args", McpAuditSummary.Args(args, strict || op is not null));
         if (op is not null) summary.Add("op", op);
+        if (confirmVia is not null) summary.Add("confirm", confirmVia);
         if (recordIds is { Count: > 0 } ids) summary.Add("ids", ids.Take(McpLimits.AuditRecordIdsMax).ToList());
         if (context.ClientName is not null || context.ClientVersion is not null)
             summary.Add("client", new { name = McpAuditSummary.Cut(context.ClientName), version = McpAuditSummary.Cut(context.ClientVersion) });

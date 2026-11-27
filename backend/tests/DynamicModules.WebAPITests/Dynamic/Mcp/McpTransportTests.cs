@@ -83,11 +83,17 @@ public class McpTransportTests : IDisposable
         var tools = await client.ListToolsAsync();
 
         tools.Select(t => t.Name).Order(StringComparer.Ordinal).Should().Equal(McpToolCatalog.Production.Select(t => t.Name).Order(StringComparer.Ordinal));
-        tools.Should().HaveCount(19);
+        tools.Should().HaveCount(22);
         foreach (var tool in tools.Where(t => McpToolCatalog.Find(t.Name)!.Risk == McpRisk.Write))
         {
             var a = tool.ProtocolTool.Annotations!;
             (a.ReadOnlyHint, a.DestructiveHint, a.IdempotentHint, a.OpenWorldHint).Should().Be((false, false, true, false), tool.Name);
+        }
+        // mcp2b：出廠高風險（刪除、簽核）標 destructive；確認碼用過就失效，不標 idempotent
+        foreach (var tool in tools.Where(t => McpToolCatalog.Find(t.Name)!.Risk == McpRisk.HighRisk))
+        {
+            var a = tool.ProtocolTool.Annotations!;
+            (a.ReadOnlyHint, a.DestructiveHint, a.IdempotentHint).Should().Be((false, true, null), tool.Name);
         }
     }
 

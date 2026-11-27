@@ -48,7 +48,7 @@ public class McpToolArchitectureTests
     [Fact]
     public void WriteTargets_NotAuditedOrConfirmed_AllIdempotent()
     {
-        McpWriteTargets.Covered.Should().HaveCount(9);
+        McpWriteTargets.Covered.Should().HaveCount(12);
         McpWriteTargets.Covered.Where(t => typeof(IAuditedRequest).IsAssignableFrom(t) || typeof(IMcpConfirmedRequest).IsAssignableFrom(t))
             .Should().BeEmpty();
         // 上膛期間只有 IIdempotentRequest 會被 McpWriteAuditBehavior 接手，其他交易型請求放行（複審建議 2）：

@@ -13,6 +13,25 @@ namespace DynamicModules.Application.Dynamic.McpService.Tools;
 public sealed record McpFormattedResult(bool IsError, string Text, JsonElement Structured, string? ErrorCode)
 {
     public int Size => Text.Length + Structured.GetRawText().Length;
+
+    /// <summary>
+    /// 不是 null 時這次不回工具結果，改請 client 跳 elicitation 對話框（mcp2b，設計 §6.3.1）：SDK 介接丟 <c>InputRequiredException</c>，
+    /// <see cref="Text"/> 與 <see cref="Structured"/> 不送出（裡面也沒有確認碼）。
+    /// </summary>
+    public McpInputRequired? InputRequired { get; init; }
+}
+
+/// <summary>
+/// elicitation 的內容（mcp2b）：對話框說明（已依語系、預演已遮罩）、唯一布林欄位的標題，以及要 client 原樣送回的 requestState（內含確認碼，
+/// 不在工具結果裡出現）。
+/// </summary>
+public sealed record McpInputRequired(string Message, string ConfirmTitle, string RequestState)
+{
+    /// <summary>InputRequests 的鍵，也是表單唯一的布林欄位名。</summary>
+    public const string Key = "confirm";
+
+    // requestState 含確認碼明文，不進 log
+    public override string ToString() => "McpInputRequired { }";
 }
 
 /// <summary>

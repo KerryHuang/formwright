@@ -413,6 +413,7 @@ internal sealed class SpyingWriteScope(McpWriteScope inner, WriteScopeSpy spy) :
     public void Arm(long call, McpWriteAudit audit) { spy.Arms++; inner.Arm(call, audit); }
     public void Disarm() => inner.Disarm();
     public bool IsArmed => inner.IsArmed;
+    public long? ConfirmationId => inner.ConfirmationId;
     public bool IsCommitted(long call)
     {
         var committed = inner.IsCommitted(call);

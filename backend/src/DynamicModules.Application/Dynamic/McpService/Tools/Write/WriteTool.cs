@@ -16,9 +16,32 @@ public abstract class WriteTool(ISender sender, string name, string schema, stri
 {
     protected ISender Sender => sender;
     public McpToolDescriptor Descriptor { get; } = McpToolCatalog.Find(name)!;
-    public string InputSchemaJson => schema;
-    public string Description => description;
+    /// <summary>每個寫入工具都多一個選填的 <c>confirmationCode</c>（mcp2b：管理員可以把任何寫入工具設成高風險，schema 不隨政策變）。</summary>
+    public string InputSchemaJson { get; } = WithConfirmationCode(schema);
+    public string Description { get; } = description + McpTexts.HighRiskNote;
     public abstract Task<McpToolOutcome> RunAsync(McpToolCall call, CancellationToken ct);
+    public bool UsesWritePath => true;
+
+    /// <summary>
+    /// 被管理員設成高風險時的預演（mcp2b）：沒有專屬預演的寫入工具，預演就是這次要送的參數（AI 自己送的內容，不含系統資料）；
+    /// 目標版本固定空字串，版本衝突由請求本身的 rowVersion 擋。刪除與簽核覆寫成專屬預演。
+    /// </summary>
+    public virtual Task<McpPreview> PreviewAsync(McpToolCall call, CancellationToken ct) =>
+        Task.FromResult(new McpPreview(new { tool = Descriptor.Name, arguments = WithoutKey(call.Arguments) }, ""));
+
+    private static System.Text.Json.Nodes.JsonNode? WithoutKey(System.Text.Json.JsonElement args)
+    {
+        var node = System.Text.Json.Nodes.JsonNode.Parse(args.GetRawText());
+        if (node is System.Text.Json.Nodes.JsonObject o) o.Remove(McpArgs.IdempotencyKey);
+        return node;
+    }
+
+    private static string WithConfirmationCode(string schema)
+    {
+        var root = System.Text.Json.Nodes.JsonNode.Parse(schema)!.AsObject();
+        root["properties"]!.AsObject()[Confirmations.McpConfirmationArgs.Code] = System.Text.Json.Nodes.JsonNode.Parse(McpTexts.ConfirmationCodePropertyJson);
+        return root.ToJsonString();
+    }
 
     /// <summary>不能由寫入改值的欄位型別（計算欄位）。</summary>
     private static readonly HashSet<FieldType> Computed = [FieldType.Formula, FieldType.Rollup, FieldType.AutoNumber];

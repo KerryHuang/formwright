@@ -17,8 +17,8 @@ public class BuiltinServerTextTests
 {
     public static readonly string[] Locales = ["zh-TW", "en-US", "th", "vi"];
 
-    /// <summary>明列的基準檔；Task 4、7 各加一個，語系包 i4d1 Task 5 加 locale-pack.json，mcp1a 加 mcp.json，bk1a 加 backup.json，pkg1c 加 app-upgrade.json，au1a 加 account-security.json，au1b 加 password-reset.json，au1c1 加 two-factor.json，i3a 加 name-i18n.json、i3b 加 module-section.json、i4e 加 locale-design-data.json（新鍵，建立後同樣不准改）。</summary>
-    private static readonly string[] BaselineFiles = ["message-report.json", "task-report.json", "alert.json", "locale-pack.json", "locale-template.json", "mcp.json", "backup.json", "app-upgrade.json", "account-security.json", "password-reset.json", "two-factor.json", "template-package.json", "app-delete.json", "name-i18n.json", "module-section.json", "locale-design-data.json"];
+    /// <summary>明列的基準檔；Task 4、7 各加一個，語系包 i4d1 Task 5 加 locale-pack.json，mcp1a 加 mcp.json，bk1a 加 backup.json，pkg1c 加 app-upgrade.json，au1a 加 account-security.json，au1b 加 password-reset.json，au1c1 加 two-factor.json，i3a 加 name-i18n.json、i3b 加 module-section.json、i4e 加 locale-design-data.json、mcp2b 加 mcp-high-risk.json（新鍵，建立後同樣不准改）。</summary>
+    private static readonly string[] BaselineFiles = ["message-report.json", "task-report.json", "alert.json", "locale-pack.json", "locale-template.json", "mcp.json", "backup.json", "app-upgrade.json", "account-security.json", "password-reset.json", "two-factor.json", "template-package.json", "app-delete.json", "name-i18n.json", "module-section.json", "locale-design-data.json", "mcp-high-risk.json"];
 
     /// <summary>repo 根目錄（往上找到有 shared/locale-chain-cases.json 的那層）。</summary>
     public static string RepoRoot()

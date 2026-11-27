@@ -2,6 +2,7 @@ using System.Text.Json;
 using DynamicModules.Application.Dynamic.ApprovalService;
 using DynamicModules.Application.Dynamic.McpService.Tools;
 using DynamicModules.Application.Dynamic.RecordService.Commands.CreateRecord;
+using DynamicModules.Application.Dynamic.RecordService.Commands.DeleteRecord;
 using DynamicModules.Application.Dynamic.RecordService.Commands.UpdateRecord;
 using DynamicModules.Application.Dynamic.TaskService;
 
@@ -13,14 +14,14 @@ namespace DynamicModules.Application.Dynamic.McpService.Writes;
 /// </summary>
 public static class McpWriteTargets
 {
-    public const string Record = "record", Task = "task", ApprovalInstance = "approvalInstance";
+    public const string Record = "record", Task = "task", ApprovalInstance = "approvalInstance", ApprovalTask = "approvalTask";
 
     /// <summary>涵蓋的請求型別（架構測試據此檢查：不是稽核請求、不是確認請求、都是 <c>IIdempotentRequest</c>）。</summary>
     public static IReadOnlyList<Type> Covered { get; } =
     [
         typeof(CreateRecordRequest), typeof(UpdateRecordRequest), typeof(CreateTaskRequest), typeof(CreateRecordTaskRequest),
         typeof(CreateSubtaskRequest), typeof(UpdateTaskRequest), typeof(AddTaskCommentRequest), typeof(SubmitApprovalRequest),
-        typeof(WithdrawApprovalRequest),
+        typeof(WithdrawApprovalRequest), typeof(DeleteRecordRequest), typeof(ApproveTaskRequest), typeof(RejectTaskRequest),
     ];
 
     public static (string? Kind, string? Id) Of(object request, object? data) => request switch
@@ -32,6 +33,9 @@ public static class McpWriteTargets
         AddTaskCommentRequest r => (Task, r.TaskId.ToString()),
         SubmitApprovalRequest r => (Record, r.RecordId.ToString()),
         WithdrawApprovalRequest r => (ApprovalInstance, r.InstanceId.ToString()),
+        DeleteRecordRequest r => (Record, r.Id.ToString()),
+        ApproveTaskRequest r => (ApprovalTask, r.TaskId.ToString()),
+        RejectTaskRequest r => (ApprovalTask, r.TaskId.ToString()),
         _ => (null, null),
     };
 

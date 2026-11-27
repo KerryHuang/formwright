@@ -64,6 +64,14 @@ public static class McpMessages
     /// <summary>寫入迴圈被擋（mcp2a 判斷 8）：時間窗內已成功修改 <paramref name="count"/> 次。</summary>
     public static MessageRef WriteLoop(int count, int minutes) => MessageRef.Of(MessageText.McpWriteLoop, count, minutes);
     public static MessageRef InternalError => MessageRef.Of(MessageText.McpInternalError);
+    /// <summary>elicitation 對話框被使用者拒絕或取消（mcp2b，設計 §6.3.1 第 3 點）。</summary>
+    public static MessageRef ConfirmationDeclined => MessageRef.Of(MessageText.McpConfirmationDeclined);
+    /// <summary>client 不支援 elicitation、政策 <c>mcp.highRiskWithoutElicitation</c> 是「拒絕」（mcp2b）。</summary>
+    public static MessageRef ElicitationRequired => MessageRef.Of(MessageText.McpElicitationRequired);
+    /// <summary>elicitation 對話框的說明：工具名稱與預演摘要（已遮罩，同工具輸出）。</summary>
+    public static MessageRef ElicitationMessage(string tool, string preview) => MessageRef.Of(MessageText.McpElicitationMessage, tool, preview);
+    /// <summary>elicitation 對話框唯一的布林欄位標題。</summary>
+    public static MessageRef ElicitationConfirm => MessageRef.Of(MessageText.McpElicitationConfirm);
     public static MessageRef Unauthorized => MessageRef.Of(MessageText.McpUnauthorized);
     public static MessageRef TokenInQuery => MessageRef.Of(MessageText.McpTokenInQuery);
     public static MessageRef OriginDenied => MessageRef.Of(MessageText.McpOriginDenied);

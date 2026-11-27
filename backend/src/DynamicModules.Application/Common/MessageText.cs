@@ -186,6 +186,9 @@ public static class MessageText
         // AI 連線一般寫入（mcp2a 計畫判斷 13）
         McpIdempotencyKeyRequired = nameof(McpIdempotencyKeyRequired), McpWriteLoop = nameof(McpWriteLoop),
         McpTokenScopeMissingRequired = nameof(McpTokenScopeMissingRequired),
+        // AI 連線高風險工具（mcp2b，設計 §6.3.1）
+        McpConfirmationDeclined = nameof(McpConfirmationDeclined), McpElicitationRequired = nameof(McpElicitationRequired),
+        McpElicitationMessage = nameof(McpElicitationMessage), McpElicitationConfirm = nameof(McpElicitationConfirm),
         // 產品內備份（備份設計 §11、§5.5）
         BackupInProgress = nameof(BackupInProgress), BackupNotConfigured = nameof(BackupNotConfigured),
         BackupLocationPending = nameof(BackupLocationPending);
@@ -842,6 +845,15 @@ public static class MessageText
             "Token này đã sửa cùng một bản ghi {0} lần trong {1} phút nên việc ghi vào bản ghi này đã bị tạm dừng. Hãy dừng lại và nhờ người dùng xác nhận"),
         [McpTokenScopeMissingRequired] = ("勾選寫入範圍時，也要勾選同一類的讀取範圍", "When you select a write scope, also select the read scope of the same kind",
             "เมื่อเลือกขอบเขตการเขียน ต้องเลือกขอบเขตการอ่านประเภทเดียวกันด้วย", "Khi chọn phạm vi ghi, hãy chọn cả phạm vi đọc cùng loại"),
+        [McpConfirmationDeclined] = ("使用者沒有同意這個動作，已取消；不要再自動重試，請先問使用者", "The user did not approve this action, so it was cancelled. Do not retry automatically; ask the user first",
+            "ผู้ใช้ไม่ได้อนุมัติการดำเนินการนี้ จึงยกเลิกแล้ว อย่าลองใหม่อัตโนมัติ โปรดถามผู้ใช้ก่อน", "Người dùng không đồng ý thao tác này nên đã hủy; đừng tự động thử lại, hãy hỏi người dùng trước"),
+        [McpElicitationRequired] = ("這個系統要求高風險動作由使用者在 AI 用戶端的對話框確認，這個用戶端不支援，請改在畫面操作",
+            "This system requires high-risk actions to be confirmed by the user in a dialog of the AI client, and this client does not support it. Please use the web interface instead",
+            "ระบบนี้กำหนดให้ผู้ใช้ยืนยันการดำเนินการความเสี่ยงสูงในกล่องโต้ตอบของไคลเอนต์ AI แต่ไคลเอนต์นี้ไม่รองรับ โปรดทำผ่านหน้าเว็บแทน",
+            "Hệ thống này yêu cầu người dùng xác nhận thao tác rủi ro cao trong hộp thoại của ứng dụng AI, nhưng ứng dụng này không hỗ trợ; vui lòng thao tác trên giao diện web"),
+        [McpElicitationMessage] = ("AI 要執行高風險動作「{0}」，請確認以下內容：\n{1}", "The AI wants to perform the high-risk action \"{0}\". Please review:\n{1}",
+            "AI ต้องการดำเนินการความเสี่ยงสูง \"{0}\" โปรดตรวจสอบ:\n{1}", "AI muốn thực hiện thao tác rủi ro cao \"{0}\". Vui lòng kiểm tra:\n{1}"),
+        [McpElicitationConfirm] = ("確認執行", "Confirm and run", "ยืนยันและดำเนินการ", "Xác nhận và thực hiện"),
         [BackupInProgress] = ("備份進行中，請等這一份完成後再試", "A backup is in progress. Try again after it finishes",
             "กำลังสำรองข้อมูลอยู่ โปรดลองอีกครั้งหลังจากเสร็จสิ้น", "Đang sao lưu, vui lòng thử lại sau khi hoàn tất"),
         [BackupLocationPending] = ("備份位置還在準備中（伺服器啟動後一分鐘內），請稍後再試", "The backup location is still being set up (within a minute after the server starts). Try again shortly",

@@ -79,6 +79,8 @@ public sealed class AuditLog(
     {
         var (actor, kind) = ResolveActor(e);
         var channel = AuditOrigin.Channel;
+        // 動作一定要登記（覆寫風險級別的也一樣）
+        var known = AuditActions.Find(e.Action) ?? throw new InvalidOperationException($"稽核動作 {e.Action} 沒有登記在 AuditActions");
         return new AuditLogEntry
         {
             OccurredUtc = time.GetUtcNow().UtcDateTime,
@@ -87,8 +89,7 @@ public sealed class AuditLog(
             Channel = channel,
             TokenId = AuditOrigin.TokenId,
             Action = e.Action,
-            RiskLevel = AuditActions.Find(e.Action)?.Risk
-                ?? throw new InvalidOperationException($"稽核動作 {e.Action} 沒有登記在 AuditActions"),
+            RiskLevel = e.Risk ?? known.Risk,
             TargetKind = Cut(e.TargetKind, AuditLogEntry.TargetKindMax),
             TargetId = Cut(e.TargetId, AuditLogEntry.TargetIdMax),
             TargetLabel = Cut(e.TargetLabel, AuditLogEntry.TargetLabelMax),

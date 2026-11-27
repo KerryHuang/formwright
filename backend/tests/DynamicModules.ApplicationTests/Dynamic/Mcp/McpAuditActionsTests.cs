@@ -22,11 +22,14 @@ public class McpAuditActionsTests
         "mcp.withdrawApproval",
     ];
 
+    /// <summary>mcp2b：出廠高風險工具，登記級別 HighRisk（實際級別由執行器依政策 mcp.highRiskTools 覆寫）。</summary>
+    private static readonly string[] HighRiskTools = ["mcp.deleteRecord", "mcp.approve", "mcp.reject"];
+
     [Fact]
-    public void McpGroup_HasTwentyFourCodes()
+    public void McpGroup_HasTwentySevenCodes()
     {
         AuditActions.CodesOf(AuditActions.Mcp).Should().BeEquivalentTo(
-            Tools.Concat(WriteTools).Concat(["mcp.access", "mcp.token.create", "mcp.token.revoke", "mcp.token.revokeAll", "mcp.unknownTool"]));
+            Tools.Concat(WriteTools).Concat(HighRiskTools).Concat(["mcp.access", "mcp.token.create", "mcp.token.revoke", "mcp.token.revokeAll", "mcp.unknownTool"]));
     }
 
     [Fact]
@@ -36,6 +39,8 @@ public class McpAuditActionsTests
             AuditActions.Find(code)!.Risk.Should().Be(AuditRiskLevel.Read, code);
         foreach (var code in WriteTools.Concat(["mcp.access", "mcp.token.create", "mcp.token.revoke", "mcp.token.revokeAll"]))
             AuditActions.Find(code)!.Risk.Should().Be(AuditRiskLevel.Write, code);
+        foreach (var code in HighRiskTools)
+            AuditActions.Find(code)!.Risk.Should().Be(AuditRiskLevel.HighRisk, code);
     }
 
     [Fact]
@@ -51,7 +56,7 @@ public class McpAuditActionsTests
     {
         var ui = JsonDocument.Parse(File.ReadAllText(Path.Combine(BuiltinServerTextTests.RepoRoot(), "shared", "i18n", locale, "ui.json"))).RootElement;
         var mcp = ui.GetProperty("audit").GetProperty("actions").GetProperty("mcp");
-        foreach (var code in WriteTools)
+        foreach (var code in WriteTools.Concat(HighRiskTools))
             mcp.GetProperty(code["mcp.".Length..]).GetString().Should().NotBeNullOrWhiteSpace(code);
     }
 }

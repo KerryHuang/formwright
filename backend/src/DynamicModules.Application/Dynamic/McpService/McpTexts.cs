@@ -170,6 +170,57 @@ public static class McpTexts
         + CommentProperty + ","
         + IdempotencyKeyProperty + "},\"required\":[\"instanceId\",\"rowVersion\",\"idempotencyKey\"],\"additionalProperties\":false}";
 
+    /// <summary>
+    /// 每個寫入類工具描述的最後一句（mcp2b）：管理員可以把工具設成高風險，第一次呼叫只回預演；elicitation 時使用者在 client 對話框確認。
+    /// </summary>
+    public const string HighRiskNote =
+        " If the administrator has made this tool high-risk, the first call writes nothing and returns a preview: show it to the user and, only after "
+        + "they agree, call again with identical arguments plus meta.confirmation.code as confirmationCode. When your client supports elicitation, "
+        + "the user confirms in a dialog instead and you never see a code. On error code confirmation_declined, stop and ask the user.";
+
+    /// <summary>寫入類工具 schema 都加的選填參數（mcp2b）：只在工具是高風險時有作用，確認碼不進參數雜湊。</summary>
+    public const string ConfirmationCodePropertyJson =
+        "{\"type\":\"string\",\"description\":\"Only for high-risk calls: meta.confirmation.code from the preview call\"}";
+
+    public const string DeleteRecordDescription =
+        "Deletes a record (soft delete) together with the records its references cascade to, and clears references that are set to clear. "
+        + "rowVersion is the record's current rowVersion from get_record or query_records; on error code stale, read it again. "
+        + "This tool is high-risk by default: the first call returns data.preview with the records that will also be deleted (counts per module) "
+        + "and the references that will be cleared. Errors such as a blocking reference, a locked status or a booked record come back as conflict. "
+        + "Requires idempotencyKey: reuse the same key only when resending the same call.";
+
+    public const string DeleteRecordSchema =
+        "{\"type\":\"object\",\"properties\":{\"recordId\":{\"type\":\"integer\",\"minimum\":1},"
+        + "\"rowVersion\":{\"type\":\"string\",\"description\":\"Record's current rowVersion\"},"
+        + IdempotencyKeyProperty + "},\"required\":[\"recordId\",\"rowVersion\",\"idempotencyKey\"],\"additionalProperties\":false}";
+
+    public const string ApproveDescription =
+        "Approves an approval task assigned to you (taskId from list_approval_tasks box todo). rowVersion is current.rowVersion from "
+        + "get_record_approval. This tool is high-risk by default: the first call returns data.preview with the outcome "
+        + "(waitOthers: other approvers of this stage still have to sign; nextStage: nextStageName starts; complete: the record moves to "
+        + "targetOptionId; route: a flow chart decides the next step at run time). Editing fields while approving is only available in the web interface. "
+        + "On error code conflict, call get_record_approval again. Requires idempotencyKey: reuse the same key only when resending the same call.";
+
+    public const string ApproveSchema =
+        "{\"type\":\"object\",\"properties\":{\"taskId\":{\"type\":\"integer\",\"minimum\":1},"
+        + "\"rowVersion\":{\"type\":\"string\",\"description\":\"current.rowVersion from get_record_approval\"},"
+        + CommentProperty + ","
+        + IdempotencyKeyProperty + "},\"required\":[\"taskId\",\"rowVersion\",\"idempotencyKey\"],\"additionalProperties\":false}";
+
+    public const string RejectDescription =
+        "Rejects an approval task assigned to you: to initiator ends the approval (the record moves to the flow's reject status if one is set), "
+        + "to previous sends it back to the previous stage. comment is required. rowVersion is current.rowVersion from get_record_approval. "
+        + "This tool is high-risk by default: the first call returns data.preview with the outcome (toInitiator with targetOptionId, or "
+        + "toPrevious with nextStageName). On error code conflict, call get_record_approval again. "
+        + "Requires idempotencyKey: reuse the same key only when resending the same call.";
+
+    public const string RejectSchema =
+        "{\"type\":\"object\",\"properties\":{\"taskId\":{\"type\":\"integer\",\"minimum\":1},"
+        + "\"rowVersion\":{\"type\":\"string\",\"description\":\"current.rowVersion from get_record_approval\"},"
+        + "\"to\":{\"type\":\"string\",\"enum\":[\"initiator\",\"previous\"],\"default\":\"initiator\"},"
+        + "\"comment\":{\"type\":\"string\",\"description\":\"Required reason kept in the approval history\"},"
+        + IdempotencyKeyProperty + "},\"required\":[\"taskId\",\"rowVersion\",\"comment\",\"idempotencyKey\"],\"additionalProperties\":false}";
+
     /// <summary>沒有參數的工具的 JSON Schema。</summary>
     public const string NoArgumentsSchema = """{"type":"object","properties":{},"additionalProperties":false}""";
 }

@@ -24,13 +24,15 @@ public class McpUpkeepTests : McpTokenTestBase
 
     private JobLeaseFence Fence(string owner = Owner) => new(JobKey, owner, NowUtc);
 
-    private McpConfirmation AddCode(DateTime createdUtc, DateTime expiresUtc, DateTime? usedUtc = null, DateTime? voidedUtc = null)
+    private McpConfirmation AddCode(DateTime createdUtc, DateTime expiresUtc, DateTime? usedUtc = null, DateTime? voidedUtc = null,
+        DateTime? declinedUtc = null)
     {
         var row = new McpConfirmation
         {
             CodeHash = McpSecrets.Hash(McpSecrets.NewConfirmationCode()), TokenId = 42, UserId = "wenhui", ToolName = "get_record",
             ArgumentsHash = new string('a', 64), TargetVersion = "v", CreatedUtc = createdUtc, ExpiresUtc = expiresUtc, UsedUtc = usedUtc,
-            VoidedUtc = voidedUtc,
+            VoidedUtc = voidedUtc, DeclinedUtc = declinedUtc,
+            Method = declinedUtc is null ? McpConfirmationMethod.Code : McpConfirmationMethod.Elicitation,
         };
         Db.Context.Add(row);
         Db.Context.SaveChanges();
@@ -72,6 +74,21 @@ public class McpUpkeepTests : McpTokenTestBase
 
         RemainingCodes().Should().BeEmpty();
         ExpiredRows().Should().ContainSingle("只有作廢的那個沒用過");
+    }
+
+    /// <summary>mcp2b：使用者在對話框拒絕的碼（作廢＋拒絕時間）已記過「使用者拒絕」，刪掉時不再記逾時；逾時稽核是高風險級別。</summary>
+    [Fact]
+    public async Task Declined_Deleted_NoExpired_ExpiredIsHighRisk()
+    {
+        var declined = AddCode(NowUtc.AddDays(-3), NowUtc.AddDays(1), voidedUtc: NowUtc.AddDays(-2), declinedUtc: NowUtc.AddDays(-2));
+        var expired = AddCode(NowUtc.AddDays(-3), NowUtc.AddDays(-2));
+
+        (await PurgeCodes()).Data.Should().Be(2);
+
+        RemainingCodes().Should().BeEmpty();
+        var audit = ExpiredRows().Should().ContainSingle().Subject;
+        (audit.ConfirmationId, audit.RiskLevel).Should().Be((expired.Id, AuditRiskLevel.HighRisk));
+        ExpiredRows().Should().NotContain(a => a.ConfirmationId == declined.Id);
     }
 
     [Fact]

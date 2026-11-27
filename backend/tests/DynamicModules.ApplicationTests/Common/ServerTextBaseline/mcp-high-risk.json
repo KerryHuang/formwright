@@ -1,0 +1,26 @@
+{
+  "McpConfirmationDeclined": {
+    "zh-TW": "使用者沒有同意這個動作，已取消；不要再自動重試，請先問使用者",
+    "en-US": "The user did not approve this action, so it was cancelled. Do not retry automatically; ask the user first",
+    "th": "ผู้ใช้ไม่ได้อนุมัติการดำเนินการนี้ จึงยกเลิกแล้ว อย่าลองใหม่อัตโนมัติ โปรดถามผู้ใช้ก่อน",
+    "vi": "Người dùng không đồng ý thao tác này nên đã hủy; đừng tự động thử lại, hãy hỏi người dùng trước"
+  },
+  "McpElicitationRequired": {
+    "zh-TW": "這個系統要求高風險動作由使用者在 AI 用戶端的對話框確認，這個用戶端不支援，請改在畫面操作",
+    "en-US": "This system requires high-risk actions to be confirmed by the user in a dialog of the AI client, and this client does not support it. Please use the web interface instead",
+    "th": "ระบบนี้กำหนดให้ผู้ใช้ยืนยันการดำเนินการความเสี่ยงสูงในกล่องโต้ตอบของไคลเอนต์ AI แต่ไคลเอนต์นี้ไม่รองรับ โปรดทำผ่านหน้าเว็บแทน",
+    "vi": "Hệ thống này yêu cầu người dùng xác nhận thao tác rủi ro cao trong hộp thoại của ứng dụng AI, nhưng ứng dụng này không hỗ trợ; vui lòng thao tác trên giao diện web"
+  },
+  "McpElicitationMessage": {
+    "zh-TW": "AI 要執行高風險動作「{0}」，請確認以下內容：\n{1}",
+    "en-US": "The AI wants to perform the high-risk action \"{0}\". Please review:\n{1}",
+    "th": "AI ต้องการดำเนินการความเสี่ยงสูง \"{0}\" โปรดตรวจสอบ:\n{1}",
+    "vi": "AI muốn thực hiện thao tác rủi ro cao \"{0}\". Vui lòng kiểm tra:\n{1}"
+  },
+  "McpElicitationConfirm": {
+    "zh-TW": "確認執行",
+    "en-US": "Confirm and run",
+    "th": "ยืนยันและดำเนินการ",
+    "vi": "Xác nhận và thực hiện"
+  }
+}

@@ -24,6 +24,13 @@ public interface IMcpTool
 
     /// <summary>高風險工具的執行：組出實作 <see cref="IMcpConfirmedRequest"/> 的請求、帶上 <paramref name="ticket"/> 送出。</summary>
     Task<McpToolOutcome> ExecuteAsync(McpToolCall call, McpConfirmationTicket ticket, CancellationToken ct) => throw new NotSupportedException();
+
+    /// <summary>
+    /// 寫入路徑（mcp2b）：工具一律用 <see cref="RunAsync"/> 送冪等寫入請求；被設成高風險時，執行器先用 <see cref="PreviewAsync"/> 預演，
+    /// 確認時在上膛的寫入稽核裡驗碼（<c>McpWriteAuditBehavior</c>），不走 <see cref="ExecuteAsync"/>。
+    /// 預設：宣告為一般寫入的工具是 true；宣告為高風險、送非冪等確認請求（<c>IMcpConfirmedRequest</c>）的工具是 false。
+    /// </summary>
+    bool UsesWritePath => Descriptor.Risk == McpRisk.Write;
 }
 
 /// <summary>
@@ -50,7 +57,8 @@ public sealed record McpToolCall(JsonElement Arguments, McpPolicySnapshot Limits
 public sealed record McpToolOutcome(bool IsError, object? Meta, object? Data, string? ErrorCode = null, MessageRef? ErrorMessage = null,
     IReadOnlyDictionary<string, MessageRef>? Fields = null, int? RetryAfterSeconds = null,
     string? TargetKind = null, string? TargetId = null, int? ResultCount = null, IReadOnlyList<long>? RecordIds = null,
-    ServiceResult? Failure = null, McpResize? Resize = null, string? OversizeHint = null, string? AuditReason = null)
+    ServiceResult? Failure = null, McpResize? Resize = null, string? OversizeHint = null, string? AuditReason = null,
+    McpInputRequired? InputRequired = null)
 {
     public static McpToolOutcome Ok(object? data, object? meta = null) => new(false, meta, data);
 
@@ -79,7 +87,9 @@ public static class McpErrorCodes
     public const string Stale = "stale", Invalid = "invalid", Forbidden = "forbidden", NotFound = "not_found", RateLimited = "rate_limited",
         ConfirmationInvalid = "confirmation_invalid", AuditUnavailable = "audit_unavailable", ResultTooLarge = "result_too_large",
         UnknownTool = "unknown_tool", InvalidArguments = "invalid_arguments", ScopeDenied = "scope_denied", InternalError = "internal_error",
-        Conflict = "conflict", IdempotencyKeyReused = "idempotency_key_reused", WriteLoop = "write_loop";
+        Conflict = "conflict", IdempotencyKeyReused = "idempotency_key_reused", WriteLoop = "write_loop",
+        // mcp2b（設計 §6.3.1）：使用者在 elicitation 對話框拒絕或取消；client 不支援 elicitation 而政策要求拒絕
+        ConfirmationDeclined = "confirmation_declined", ElicitationRequired = "elicitation_required";
 }
 
 /// <summary>寫入工具成功但沒有提交時，稽核列 <c>ReasonCode</c> 允許的值（mcp2a 判斷 3、9）。</summary>

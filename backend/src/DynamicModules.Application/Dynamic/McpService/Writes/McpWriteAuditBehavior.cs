@@ -17,10 +17,17 @@ namespace DynamicModules.Application.Dynamic.McpService.Writes;
 /// 同時是稽核請求或確認請求也丟（一次呼叫只能一列）。成功時寫一列、存檔，提交後標記本次呼叫已提交；失敗照常回傳，
 /// 由執行器在交易外寫失敗列。
 /// </para>
+/// <para>
+/// 高風險的確認執行（mcp2b；上膛帶 <see cref="McpWriteConfirmation"/>）：業務寫入之前逐項驗確認碼（<see cref="McpConfirmationValidator"/>）、
+/// 比對目標現在的版本、條件式標記已用，任一項不符回 <c>confirmation_invalid</c>、不送業務請求；之後業務失敗整筆回滾（已用標記一起退）。
+/// 成功那一列帶確認 id、確認結果與實際級別。刪除、簽核走這條，不實作 <see cref="IMcpConfirmedRequest"/>（§7.3 的伏筆就此解掉：
+/// 管理員把它們移出清單時同一個寫入請求改走一般寫入稽核，不必另做請求）。
+/// </para>
 /// </summary>
 public sealed class McpWriteAuditBehavior<TReq, TRes>(
     IRequestChannel channel, McpWriteScope scope, IAuditLog audit, IUnitOfWork uow, AfterCommitActions afterCommit,
-    IOperationContext operation) : IPipelineBehavior<TReq, TRes>
+    IOperationContext operation, McpConfirmationValidator validator, IMcpConfirmationRepository confirmations, TimeProvider time)
+    : IPipelineBehavior<TReq, TRes>
     where TReq : notnull
 {
     public const string Replayed = "replayed";
@@ -38,15 +45,32 @@ public sealed class McpWriteAuditBehavior<TReq, TRes>(
                 ? $"MCP 工具一次呼叫只能送一個寫入請求（{typeof(TReq).Name}）"
                 : $"MCP 通道的寫入請求 {typeof(TReq).Name} 沒有經過寫入工具上膛");
 
+        long? confirmationId = null;
+        if (armed.Confirmation is { } confirm)
+        {
+            if (await ConsumeAsync(confirm, ct) is not { } consumed) return (TRes)(object)McpConfirmationResults.Invalid();
+            scope.ConfirmationId = confirmationId = consumed;
+        }
+
         var response = await next();
         if (response is not ServiceResult { IsSuccess: true } result) return response;
 
         var (kind, id) = McpWriteTargets.Of(request, result.Data);
         // Add 只加進追蹤；存檔失敗丟出，業務異動一起回滾（寫法照 AuditBehavior）
         audit.Add(new AuditEntry(armed.Action, AuditResult.Success, kind, id, armed.TargetLabel,
-            ReasonCode: operation.Replayed ? Replayed : null, Summary: armed.Summary, ArgumentsHash: armed.ArgumentsHash));
+            ReasonCode: operation.Replayed ? Replayed : null, Summary: armed.Summary, ArgumentsHash: armed.ArgumentsHash,
+            ConfirmationId: confirmationId, ConfirmationOutcome: confirmationId is null ? null : AuditConfirmationOutcome.Confirmed,
+            Risk: armed.Risk));
         await uow.CommitAsync(ct);
         afterCommit.Add("mcp.write", scope.CommitMarker(call));
         return response;
+    }
+
+    /// <summary>確認碼驗證、目標版本比對、條件式標記已用；都通過回確認列 id，否則 null（不說明哪一項）。</summary>
+    private async Task<long?> ConsumeAsync(McpWriteConfirmation confirm, CancellationToken ct)
+    {
+        if (await validator.ValidAsync(confirm.Ticket, ct) is not { } row) return null;
+        if (await confirm.CurrentVersion(ct) is not { } current || !string.Equals(row.TargetVersion, current, StringComparison.Ordinal)) return null;
+        return await confirmations.TryConsumeAsync(row.Id, time.GetUtcNow().UtcDateTime, ct) == 1 ? row.Id : null;
     }
 }

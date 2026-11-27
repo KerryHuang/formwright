@@ -15,6 +15,12 @@ public sealed record McpPolicySnapshot(
     int TokenMaxLifetimeDays, int TokenDefaultLifetimeDays, int TokenMaxPerUser,
     int CallsPerMinute, int CallsPerDay, int MaxRows, int ConfirmTtlSeconds);
 
+/// <summary>
+/// 高風險設定的一次讀值（mcp2b）：<see cref="Tools"/> 是實際的高風險清單（已聯集地板）；<see cref="RejectWithoutElicitation"/> 為真時，
+/// client 不支援 elicitation 就一律拒絕高風險工具（<c>elicitation_required</c>），否則退回確認碼。
+/// </summary>
+public sealed record McpHighRiskSettings(IReadOnlySet<string> Tools, bool RejectWithoutElicitation);
+
 /// <summary>MCP 政策的讀值與存取判斷；每次呼叫都經 <see cref="IPolicyReader"/> 讀（不另外快取，改值下一個請求就生效）。</summary>
 public sealed class McpPolicies(IPolicyReader policies, RecipientResolver recipients, ILogger<McpPolicies> logger)
 {
@@ -50,6 +56,30 @@ public sealed class McpPolicies(IPolicyReader policies, RecipientResolver recipi
     public async Task<(int Triggers, int WindowMinutes)> ReadLoopAsync(CancellationToken ct) =>
         (await policies.IntAsync(PolicyCatalog.OpsRuleLoopTriggersPerRecord, null, ct),
             await policies.IntAsync(PolicyCatalog.OpsRuleLoopWindowMinutes, null, ct));
+
+    /// <summary>
+    /// 高風險設定（mcp2b，設計 §6.3.1、§6.4）。不併進 <see cref="ReadAsync"/> 的存取判斷：壞值不該讓整個 AI 連線停擺。
+    /// 清單壞值或讀取失敗時用出廠清單（比管理員移出後的清單嚴），再一律聯集地板；「不支援 elicitation」壞值時用出廠值（退回確認碼）。
+    /// </summary>
+    public async Task<McpHighRiskSettings> ReadHighRiskAsync(CancellationToken ct)
+    {
+        IReadOnlyList<string> tools;
+        string withoutElicitation;
+        try
+        {
+            tools = await policies.ListAsync(PolicyCatalog.McpHighRiskTools, null, ct);
+            withoutElicitation = await policies.ChoiceAsync(PolicyCatalog.McpHighRiskWithoutElicitation, null, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "讀取 MCP 高風險政策失敗，改用出廠清單");
+            tools = PolicyDefinition.RecipientItems(PolicyCatalog.McpHighRiskTools.Factory);
+            withoutElicitation = PolicyCatalog.McpHighRiskWithoutElicitation.Factory;
+        }
+        var set = new HashSet<string>(tools, StringComparer.Ordinal);
+        set.UnionWith(PolicyCatalog.McpHighRiskTools.Required ?? []);
+        return new McpHighRiskSettings(set, withoutElicitation == PolicyCatalog.McpWithoutElicitationReject);
+    }
 
     private static readonly PolicyDefinition[] Defs =
     [

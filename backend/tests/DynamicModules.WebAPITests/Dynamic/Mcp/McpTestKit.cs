@@ -122,15 +122,17 @@ internal static class McpTestKit
     /// <param name="methodHeader">Mcp-Method 標頭：預設與 <paramref name="method"/> 相同；<see cref="OmitHeader"/> 不帶。</param>
     /// <param name="nameHeader">Mcp-Name 標頭：預設取 params 的 name；給了就用它。</param>
     /// <param name="notification">true 時不帶 id（JSON-RPC 通知）。</param>
+    /// <param name="clientCapabilities">client 宣告的能力（JSON 物件）；沒給是 <c>{}</c>。</param>
     public static HttpRequestMessage RawPost(string? token, string method = "tools/list", string paramsJson = "{}", string path = "/mcp",
-        IReadOnlyDictionary<string, string>? headers = null, string? methodHeader = null, string? nameHeader = null, bool notification = false)
+        IReadOnlyDictionary<string, string>? headers = null, string? methodHeader = null, string? nameHeader = null, bool notification = false,
+        string? clientCapabilities = null)
     {
         var parameters = JsonNode.Parse(paramsJson)!.AsObject();
         parameters["_meta"] = new JsonObject
         {
             ["io.modelcontextprotocol/protocolVersion"] = "2026-07-28",
             ["io.modelcontextprotocol/clientInfo"] = new JsonObject { ["name"] = "test-client", ["version"] = "1.0" },
-            ["io.modelcontextprotocol/clientCapabilities"] = new JsonObject(),
+            ["io.modelcontextprotocol/clientCapabilities"] = clientCapabilities is null ? new JsonObject() : JsonNode.Parse(clientCapabilities),
         };
         var body = new JsonObject { ["jsonrpc"] = "2.0", ["method"] = method, ["params"] = parameters };
         if (!notification) body["id"] = 1;

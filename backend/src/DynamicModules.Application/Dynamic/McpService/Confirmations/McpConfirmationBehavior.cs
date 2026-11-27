@@ -17,8 +17,8 @@ namespace DynamicModules.Application.Dynamic.McpService.Confirmations;
 /// </para>
 /// </summary>
 public sealed class McpConfirmationBehavior<TReq, TRes>(
-    IRequestChannel channel, ICurrentUser current, McpConfirmationScope scope, IMcpConfirmationRepository confirmations,
-    IAuditLog audit, IUnitOfWork uow, AfterCommitActions afterCommit, TimeProvider time) : IPipelineBehavior<TReq, TRes>
+    IRequestChannel channel, McpConfirmationScope scope, McpConfirmationValidator validator,
+    IAuditLog audit, IUnitOfWork uow, AfterCommitActions afterCommit) : IPipelineBehavior<TReq, TRes>
     where TReq : notnull
 {
     public async Task<TRes> Handle(TReq request, RequestHandlerDelegate<TRes> next, CancellationToken ct)
@@ -40,7 +40,7 @@ public sealed class McpConfirmationBehavior<TReq, TRes>(
         if (afterCommit.TransactionDepth > 1) throw new McpConfirmationNestingException();
 
         var ticket = confirmed.Confirmation;
-        var row = ticket is null ? null : await ValidAsync(ticket, ct);
+        var row = ticket is null ? null : await validator.ValidAsync(ticket, ct);
         if (ticket is null || row is null) return (TRes)(object)McpConfirmationResults.Invalid();
 
         var call = scope.BeginRequired(row);
@@ -51,23 +51,10 @@ public sealed class McpConfirmationBehavior<TReq, TRes>(
 
         // Add 只加進追蹤，外層交易提交時不會自動存檔；存檔失敗丟出，業務異動與已用標記一起回滾（寫法照 AuditBehavior）
         audit.Add(new AuditEntry(ticket.AuditCode, AuditResult.Success, TargetLabel: ticket.ToolName, Summary: ticket.AuditSummary,
-            ArgumentsHash: ticket.ArgumentsHash, ConfirmationId: row.Id, ConfirmationOutcome: AuditConfirmationOutcome.Confirmed));
+            ArgumentsHash: ticket.ArgumentsHash, ConfirmationId: row.Id, ConfirmationOutcome: AuditConfirmationOutcome.Confirmed,
+            Risk: AuditRiskLevel.HighRisk));
         await uow.CommitAsync(ct);
         afterCommit.Add("mcp.confirmed", scope.CommitMarker(call));
         return response;
-    }
-
-    private async Task<McpConfirmation?> ValidAsync(McpConfirmationTicket ticket, CancellationToken ct)
-    {
-        var hash = McpSecrets.Hash(ticket.Code);
-        var row = await confirmations.FindByHashTrackedAsync(hash, ct);
-        var now = time.GetUtcNow().UtcDateTime;
-        var ok = row is not null && McpSecrets.HashEquals(row.CodeHash, hash)
-            && row.UsedUtc is null && row.VoidedUtc is null && row.ExpiresUtc > now
-            && channel.TokenId is { } tokenId && row.TokenId == tokenId && ticket.TokenId == tokenId
-            && string.Equals(row.UserId, current.UserId, StringComparison.Ordinal)
-            && string.Equals(row.ToolName, ticket.ToolName, StringComparison.Ordinal)
-            && string.Equals(row.ArgumentsHash, ticket.ArgumentsHash, StringComparison.Ordinal);
-        return ok ? row : null;
     }
 }
