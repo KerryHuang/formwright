@@ -521,7 +521,8 @@ jobs:
           $rc = Install-Fw $env:V2 'upgrade-read-grant'
           Assert ($rc -eq 20) "既有的 Users 讀取授權時結束碼應為 20、實得 $rc"
           $log = Log-Text 'setup-upgrade-read-grant.log'
-          Assert ($log -match 'unexpected ACE for S-1-5-32-545') 'log 缺「unexpected ACE for S-1-5-32-545」（規則）'
+          # icacls /grant 會把原本繼承的 ACE 複製成明確 ACE，所以最先命中的可能是「explicit ACE for <SYSTEM 等>」而不是 Users 那條
+          Assert ($log -match 'set-acl failed: (unexpected ACE for S-1-5-32-545|explicit ACE for S-1-5-)') 'log 缺「unexpected ACE／explicit ACE」（規則）'
           Assert ($log -match [regex]::Escape('C:\ProgramData\Formwright')) 'log 缺資料目錄路徑'
           $s = Get-Service Formwright
           Assert ($s.StartType -eq 'Disabled' -and $s.Status -eq 'Stopped') "讀取授權被拒絕後服務應為 Disabled／Stopped、實得 $($s.StartType)／$($s.Status)"
