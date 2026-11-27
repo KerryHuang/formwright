@@ -368,7 +368,7 @@ SDK 查證（2026-11-26，讀本機 `ModelContextProtocol.Core` 2.4.0 的 XML �
 - client 會不會把 `requestState` 顯示給 LLM。不影響安全（第 4 點已擋），只影響要不要另外加密。
 - 已驗證的只有 SDK 本身：`ModelContextProtocol.Core` 2.4.0 的 C# client 掛上 `ElicitationHandler` 後，會自動處理 InputRequired、呼叫 handler、帶 `requestState` 與回答重送（WebAPI 測試 `McpHighRiskToolsApiTests` 的 elicitation 案例）。
 
-client 不支援 elicitation 時的處理（原待決）：做成政策 `mcp.highRiskWithoutElicitation`，選項「退回確認碼」（出廠）與「拒絕高風險工具」；選拒絕時回 `isError`，代碼 `elicitation_required`（mcp2b 主控裁決，待使用者確認出廠值，2026-11-27）。
+client 不支援 elicitation 時的處理（原待決）：做成政策 `mcp.highRiskWithoutElicitation`，選項「退回確認碼」（出廠）與「拒絕高風險工具」；選拒絕時回 `isError`，代碼 `elicitation_required`（mcp2b 主控裁決；使用者 2026-11-27 裁決維持出廠「退回確認碼」）。
 
 ### 6.4 高風險清單可調（使用者裁決；地板依 C7 使用者裁決，2026-11-12）
 
@@ -534,8 +534,8 @@ client 不支援 elicitation 時的處理（原待決）：做成政策 `mcp.hig
 
 **決策狀態**
 
-- `mcp.highRiskWithoutElicitation` 做成政策、出廠「退回確認碼」：主控裁決，待使用者確認（2026-11-27）。
-- 以下行為類決定由實作者代做，待使用者確認（2026-11-27）：
+- `mcp.highRiskWithoutElicitation` 做成政策、出廠「退回確認碼」：主控裁決，使用者 2026-11-27 裁決維持。
+- 以下決定由實作者代做（2026-11-27）；domain-advisor 分流判為技術類或既有依據已涵蓋（加進一般寫入依 §6.4），由主控定案，不另問使用者：
   - 管理員可以把一般寫入工具加進高風險清單（§6.4 只說「只有寫入類工具能加進清單」，沒排除一般寫入）；加進來後預演只是 AI 送出的參數本身；目標版本是既存目標的指紋（最終審查 R5，2026-11-27）：`update_record`、`submit_approval` 是記錄版本，`update_task`、`add_task_comment` 是任務版本加子任務集合（看得到的子任務 id、版本、狀態與全部子任務的完成／取消／總數，雜湊），`withdraw_approval` 是請求本身帶的實例版本（沒有依實例 id 讀簽核的唯讀請求，由 handler 比對），`create_record`、`create_task` 明確標「沒有既存目標」（`none`）。確認時在交易內重讀，預演後目標有變就 `confirmation_invalid`。
   - ~~政策值壞掉或讀取失敗時，清單退回出廠值、再聯集地板~~（最終審查 R2 推翻，2026-11-27）：出廠清單只比「管理員移出工具後」的清單嚴，管理員加進工具或設成「拒絕」時，退回出廠值反而撤掉確認要求。改成兩項任一有存值但無法使用、或讀取丟例外，寫入類工具一律回 `forbidden`（訊息同政策壞值「AI 連線的政策設定無法讀取，請系統管理員重新設定」）、不發確認碼；唯讀工具照常。沒設定時照出廠值。
   - 刪除的目標版本＝記錄版本＋串聯結果指紋（連帶刪除的 id、被清空的「記錄:欄位」排序後雜湊）；簽核的目標版本＝實例版本＋任務狀態＋單據記錄版本＋流程版本的雜湊（最終審查 R4，2026-11-27：彙總、公式重算只換單據記錄版本、不換實例版本，原本只綁實例會核准已改變的內容）；單據讀不到時預演回 `not_found`、確認時重算失敗視為不符。
