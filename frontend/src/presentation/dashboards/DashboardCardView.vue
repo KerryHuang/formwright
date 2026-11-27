@@ -15,13 +15,15 @@ const props = defineProps<{
   dashboardId: number; card: DashboardCard; reportName?: I18nText; filterRange: ReportDateRange | null; editing: boolean;
   /** 連結的目標儀表板觀看者看得到才顯示連結。 */
   linkVisible: boolean;
+  /** 這張卡片的查詢內容還在存檔中：存好之前不查。 */
+  unsaved?: boolean;
 }>();
 const emit = defineEmits<{ settings: [cardId: string, columns: ReportColumn[]]; remove: [cardId: string] }>();
 const { t, locale } = useI18n();
 
 // 卡片設定（含呈現方式）變了就換 key 重查；暫時的日期篩選本來就在 key 裡
 const signature = computed(() => JSON.stringify([props.card.viz, props.card.options]));
-const run = useRunCard(toRef(props, 'dashboardId'), computed(() => props.card.id), toRef(props, 'filterRange'), locale, signature);
+const run = useRunCard(toRef(props, 'dashboardId'), computed(() => props.card.id), toRef(props, 'filterRange'), locale, signature, () => !props.unsaved);
 const result = computed(() => run.data.value);
 const drillKeys = ref<string[] | null>(null);
 
@@ -59,7 +61,7 @@ const deltaClass = computed(() => ((result.value?.compare?.deltaPercent ?? 0) >=
       </template>
     </div>
     <div class="col q-pa-sm card-body">
-      <q-inner-loading :showing="run.isFetching.value && !result" />
+      <q-inner-loading :showing="(unsaved || run.isFetching.value) && !result" />
       <div v-if="run.isError.value" class="column items-start" data-testid="card-error">
         <span class="text-negative">{{ t('dashboards.card.loadFailed') }}</span>
         <q-btn flat dense no-caps color="primary" :label="t('dashboards.card.retry')" data-testid="card-retry" @click="run.refetch()" />

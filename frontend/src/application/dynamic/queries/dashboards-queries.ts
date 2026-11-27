@@ -23,11 +23,12 @@ export function useDashboard(id: MaybeRef<number | null>) {
 /** 卡片各自查詢、各自失敗；結果每次都重算，不吃快取。 */
 export function useRunCard(
   dashboardId: MaybeRef<number>, cardId: MaybeRef<string>, filterRange: MaybeRef<ReportDateRange | null>, locale: MaybeRef<string>,
-  signature: MaybeRef<string> = '',
+  signature: MaybeRef<string> = '', enabled: () => boolean = () => true,
 ) {
   return useQuery({
     queryKey: ['dashboard-card', dashboardId, cardId, filterRange, locale, signature],
     queryFn: () => dynamicApi.runCard(toValue(dashboardId), toValue(cardId), toValue(filterRange), toValue(locale)),
+    enabled,
     staleTime: 0,
     gcTime: 0,
     retry: false,
