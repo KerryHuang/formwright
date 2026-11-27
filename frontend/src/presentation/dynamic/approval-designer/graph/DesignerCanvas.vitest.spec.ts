@@ -10,8 +10,7 @@ import type { DesignerEdgeData, DesignerNodeData } from './designer-graph';
 
 // 真實的拖拉、縮放只能在瀏覽器驗；這裡換成會記錄呼叫的替身（其餘匯出仍用真的）。
 const flowFns = vi.hoisted(() => ({ fitView: vi.fn(), setCenter: vi.fn(), zoomIn: vi.fn(), zoomOut: vi.fn(), screenToFlowCoordinate: vi.fn((p: { x: number; y: number }) => ({ x: p.x - 10, y: p.y - 20 })) }));
-const connect = vi.hoisted(() => ({ drag: null as object | null, click: null as object | null }));
-vi.mock('@vue-flow/core', async (orig) => ({ ...(await orig<typeof import('@vue-flow/core')>()), useVueFlow: () => ({ ...flowFns, connectionStartHandle: ref(connect.drag), connectionClickStartHandle: ref(connect.click), viewport: ref({ x: 0, y: 0, zoom: 1 }), dimensions: ref({ width: 390, height: 600 }) }) }));
+vi.mock('@vue-flow/core', async (orig) => ({ ...(await orig<typeof import('@vue-flow/core')>()), useVueFlow: () => ({ ...flowFns, viewport: ref({ x: 0, y: 0, zoom: 1 }), dimensions: ref({ width: 390, height: 600 }) }) }));
 
 let lastAttrs: Record<string, unknown> = {};
 const VueFlowStub = defineComponent({
@@ -152,16 +151,14 @@ describe('DesignerCanvas', () => {
     expect(st.showPlus('bc', false)).toBe(true);
   });
 
-  it.each([[null, null, false], [{ nodeId: 'a' }, null, true], [null, { nodeId: 'a' }, true]])('the plus is told the current zoom and whether a connection is being drawn (drag %o, click %o) (#109)', (drag, click, connecting) => {
-    Object.assign(connect, { drag, click });
+  it('the plus is told the current zoom, so its touch area keeps a screen size (#109)', () => {
     const Flow = defineComponent({ name: 'VueFlow', setup: (_, { slots }) => () => h('div', slots['edge-designer']?.({ id: 'ab', data: { selected: true } })) });
-    const EdgeStub = defineComponent({ name: 'DesignerEdge', props: ['zoom', 'connecting'], setup: () => () => h('div') });
+    const EdgeStub = defineComponent({ name: 'DesignerEdge', props: ['zoom'], setup: () => () => h('div') });
     const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
     const w = mount(DesignerCanvas, {
       props: { canvasId: 'designer-po', nodes, edges: [] as Edge<DesignerEdgeData>[], draggable: true },
       global: { plugins: [[quasar.Quasar, { components: quasar }], i18n], stubs: { VueFlow: Flow, DesignerEdge: EdgeStub } },
     });
-    expect(w.findComponent({ name: 'DesignerEdge' }).props()).toMatchObject({ zoom: 1, connecting });
-    Object.assign(connect, { drag: null, click: null });
+    expect(w.findComponent({ name: 'DesignerEdge' }).props('zoom')).toBe(1);
   });
 });

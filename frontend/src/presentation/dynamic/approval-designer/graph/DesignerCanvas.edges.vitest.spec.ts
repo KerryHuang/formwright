@@ -40,4 +40,21 @@ describe('DesignerCanvas with the real Vue Flow', () => {
     expect(flow.edges.value.map((e) => e.id)).toEqual(['e1', 'e2']);
     w.unmount();
   });
+
+  // #109 R2：「＋」畫在線標籤層；節點層要排在它後面，節點與把手的命中才會高於「＋」的透明點擊區。
+  it('draws the node layer after the edge label layer (the plus never covers nodes or handles)', async () => {
+    const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
+    const w = mount(DesignerCanvas, {
+      props: { canvasId: 'edges-layers', nodes: nodes(), edges: edges(), draggable: true, canConnect },
+      global: { plugins: [[quasar.Quasar, { components: quasar }], i18n] },
+      attachTo: document.body,
+    });
+    await flushPromises();
+    const labels = w.element.querySelector('.vue-flow__edge-labels')!;
+    const layer = w.element.querySelector('.vue-flow__nodes')!;
+    expect(labels.compareDocumentPosition(layer) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(labels.parentElement).toBe(layer.parentElement);
+    w.unmount();
+  });
 });
+

@@ -5,6 +5,7 @@ import { defineComponent, h } from 'vue';
 import { createI18n } from 'vue-i18n';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import DesignerEdge from './DesignerEdge.vue';
+import source from './DesignerEdge.vue?raw';
 
 beforeAll(() => { (SVGElement.prototype as unknown as { getBBox: () => object }).getBBox = () => ({ x: 0, y: 0, width: 40, height: 12 }); });
 const base = { id: 'e1', sourceX: 100, sourceY: 50, targetX: 400, targetY: 140, sourcePosition: 'right', targetPosition: 'left' };
@@ -61,13 +62,6 @@ describe('DesignerEdge', () => {
     w.unmount();
   });
 
-  it('while a connection is being drawn the touch area is gone, so it cannot cover the target handle (#109)', () => {
-    const w = draw({ data: { bendX: 300, fullLabel: '' }, plus: true, zoom: 0.5, connecting: true });
-    expect(w.find('[data-testid="de-edge-plus"]').exists()).toBe(true);
-    expect(w.find('[data-testid="de-edge-plus-hit"]').exists()).toBe(false);
-    w.unmount();
-  });
-
   // #109：畫布縮小時「＋」跟著縮小（820 寬約 10px），透明點擊區在螢幕上固定 44px，看得到的按鈕大小不變。
   it.each([0.25, 0.5, 1, 1.5])('the touch area is 44 screen px at zoom %s, and tapping it opens the menu once', async (zoom) => {
     const w = draw({ data: { bendX: 300, fullLabel: '' }, plus: true, zoom, insertKinds: [{ kind: 'approval', disabled: false }] });
@@ -80,6 +74,36 @@ describe('DesignerEdge', () => {
     for (const type of ['touchstart', 'touchend', 'mousedown', 'mouseup', 'click']) await hit.trigger(type);
     await new Promise((r) => setTimeout(r, 400));
     expect(document.querySelectorAll('[data-testid="de-insert-approval"]')).toHaveLength(1);
+    w.unmount();
+  });
+
+  // #109 R2：透明點擊區不得攔住節點與把手。節點層在 Vue Flow 裡排在線標籤層後面（見 DesignerCanvas.edges spec），
+  // 「＋」這一層只要不設 z-index，節點與把手就一律在它上面。jsdom 不套元件樣式，所以直接檢查樣式原文。
+  it('nothing in the plus raises it above the nodes, so handles and nodes win the hit test (#109)', () => {
+    const style = source.slice(source.indexOf('<style'));
+    expect(style).toContain('.de-plus {');
+    expect(style).not.toContain('z-index');
+    const w = draw({ data: { bendX: 300, fullLabel: '' }, plus: true, zoom: 0.25, insertKinds: [] });
+    for (let el: HTMLElement | null = w.get('[data-testid="de-edge-plus-hit"]').element as HTMLElement; el; el = el.parentElement) expect(el.style.zIndex).toBe('');
+    w.unmount();
+  });
+
+  // 終點把手中心在 targetX 右邊 7；「＋」離終點節點至少半個欄距（28），一般排版下看得到的圓鈕不被把手蓋住。
+  it.each([[196, 217, 196], [300, 321, 300], [300, 400, 350]])('bend %s, target %s: the plus sits at x=%s, clear of the target handle (#109)', (bendX, targetX, x) => {
+    const w = draw({ targetX, data: { bendX, fullLabel: '' }, plus: true, insertKinds: [] });
+    expect((w.get('[data-testid="de-edge-plus"]').element.parentElement as HTMLElement).style.transform).toContain(`translate(${x}px, 140px)`);
+    w.unmount();
+  });
+
+  it.each(['Enter', ' '])('the plus is still a focusable button that opens with the keyboard (%j) (#109)', async (key) => {
+    const w = draw({ data: { bendX: 300, fullLabel: '' }, plus: true, zoom: 0.25, insertKinds: [{ kind: 'approval', disabled: false }] });
+    const plus = w.get('[data-testid="de-edge-plus"]');
+    expect(plus.element.tagName.toLowerCase()).toBe('button');
+    const code = key === 'Enter' ? 13 : 32;
+    await plus.trigger('keydown', { key, keyCode: code });
+    await plus.trigger('keyup', { key, keyCode: code });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(document.querySelector('[data-testid="de-insert-approval"]')).not.toBeNull();
     w.unmount();
   });
 });

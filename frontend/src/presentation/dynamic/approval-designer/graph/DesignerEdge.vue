@@ -2,16 +2,20 @@
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, type EdgeProps } from '@vue-flow/core';
 import { computed, h } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { COL_GAP } from 'src/domain/dynamic/approval-graph-layout';
 import { kindIcon, type AddKind, type DesignerEdgeData } from './designer-graph';
 
 // 設計頁的線（J74）：內建 smoothstep，轉折點由 designer-graph 依座標算好（data.bendX），與進度圖同一條規則。
 // 標籤被截斷時，完整文字放進 SVG <title>（滑鼠移上去可看）。
-// 線上「＋」（fg3e，§10.3）：滑鼠移到線上或選取線（觸控）時出現，放在轉折欄到終點那一段的中點（兄弟線共用起點那段，終點那段每條線各自一段）；
+// 線上「＋」（fg3e，§10.3）：滑鼠移到線上或選取線（觸控）時出現，放在轉折欄到終點那一段的中點（兄弟線共用起點那段，終點那段每條線各自一段；太靠近終點時往左讓）；
 // 點了選型別插入。顯示與否由畫布決定（`plus`），選單開著時回報 `menu`，畫布才不會在滑鼠離開線時把它收掉。
 // 「＋」跟著畫布縮放（820 寬縮到全圖時約 10px），所以按鈕裡放一塊透明點擊區，依 `zoom` 反算成螢幕上固定 44px，看得到的大小不變（#109）。
-// 低倍率時這塊會蓋到終點的入線把手，所以拉線中（`connecting`：拖曳或已點出發點）不放。
+// 節點與把手一律在「＋」上面：節點層排在線標籤層後面，「＋」不設層級，透明點擊區就只吃得到空白處，不會攔住拉線或點節點。
+// 位置另外離終點節點至少半個欄距，一般排版下看得到的圓鈕落在欄距裡，不被入線把手蓋住。
 const TOUCH_PX = 44;
-const props = defineProps<EdgeProps<DesignerEdgeData> & { plus?: boolean; zoom?: number; connecting?: boolean; insertKinds?: { kind: AddKind; disabled: boolean; limit?: boolean }[] }>();
+/** targetX 是入線把手左緣（節點左緣再往左 7）；「＋」中心離它至少這麼多＝離節點左緣半個 COL_GAP。 */
+const TARGET_CLEAR = COL_GAP / 2 - 7;
+const props = defineProps<EdgeProps<DesignerEdgeData> & { plus?: boolean; zoom?: number; insertKinds?: { kind: AddKind; disabled: boolean; limit?: boolean }[] }>();
 const emit = defineEmits<{ insert: [kind: AddKind]; menu: [open: boolean]; hover: [on: boolean] }>();
 const { t } = useI18n();
 const geometry = computed(() => getSmoothStepPath({
@@ -26,7 +30,7 @@ const label = computed(() => {
 const hitStyle = computed(() => { const size = `${TOUCH_PX / (props.zoom || 1)}px`; return { width: size, height: size }; });
 const plusAt = computed(() => {
   const bx = props.data?.bendX ?? geometry.value[1];
-  return { x: (bx + props.targetX) / 2, y: props.targetY };
+  return { x: Math.min((bx + props.targetX) / 2, props.targetX - TARGET_CLEAR), y: props.targetY };
 });
 </script>
 
@@ -38,7 +42,7 @@ const plusAt = computed(() => {
       @mouseenter="emit('hover', true)" @mouseleave="emit('hover', false)"
     >
       <q-btn round unelevated size="xs" color="primary" icon="add" :aria-label="t('approval.designer.graph.insert')" :title="t('approval.designer.graph.insert')" data-testid="de-edge-plus">
-        <span v-if="!connecting" class="de-plus-hit" :style="hitStyle" aria-hidden="true" data-testid="de-edge-plus-hit" />
+        <span class="de-plus-hit" :style="hitStyle" aria-hidden="true" data-testid="de-edge-plus-hit" />
         <q-menu @show="emit('menu', true)" @hide="emit('menu', false)">
           <q-list dense style="min-width: 140px">
             <q-item
@@ -59,6 +63,6 @@ const plusAt = computed(() => {
 </template>
 
 <style scoped>
-.de-plus { position: absolute; pointer-events: all; z-index: 1; }
+.de-plus { position: absolute; pointer-events: all; }
 .de-plus-hit { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
 </style>

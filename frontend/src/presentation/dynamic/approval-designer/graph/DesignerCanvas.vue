@@ -83,7 +83,6 @@ function dropWhenLineGone(shown: Ref<string | null>) {
 dropWhenLineGone(hovered);
 dropWhenLineGone(menuEdge);
 const showPlus = (id: string, selected: boolean | undefined) => editable.value && (!!selected || hovered.value === id || menuEdge.value === id);
-const connecting = computed(() => !!(flow.connectionStartHandle?.value || flow.connectionClickStartHandle?.value));
 const validConnection = (c: Connection) => !!props.canConnect && props.canConnect(c.source, c.target);
 const zoomIn = () => { void flow.zoomIn({ duration: 150 }); };
 const zoomOut = () => { void flow.zoomOut({ duration: 150 }); };
@@ -104,7 +103,7 @@ const editable = computed(() => props.draggable);
       <template #node-designer="p"><DesignerNode :data="p.data" :valid-connection="validConnection" @open="emit('node-open', p.id)" /></template>
       <template #edge-designer="p">
         <DesignerEdge
-          v-bind="p" :plus="showPlus(p.id, p.data?.selected)" :zoom="flow.viewport.value.zoom" :connecting="connecting" :insert-kinds="insertKinds" @insert="(k: AddKind) => emit('edge-insert', p.id, k)"
+          v-bind="p" :plus="showPlus(p.id, p.data?.selected)" :zoom="flow.viewport.value.zoom" :insert-kinds="insertKinds" @insert="(k: AddKind) => emit('edge-insert', p.id, k)"
           @hover="(on: boolean) => hover(p.id, on)" @menu="(open: boolean) => (menuEdge = open ? p.id : menuEdge === p.id ? null : menuEdge)"
         />
       </template>
