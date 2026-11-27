@@ -1,6 +1,6 @@
 # Formwright ERP 功能總清單
 
-依據 origin/main a053a30b，2026-11-11。總計：完成 163／共 273（另有 20 項決定不做）；進行中 2、已規劃 75、構想 33；待確認 0 項。更新於 2026-11-27。
+依據 origin/main a053a30b，2026-11-11。總計：完成 163／共 274（另有 20 項決定不做）；進行中 2、已規劃 75、構想 34；待確認 0 項。更新於 2026-11-27。
 
 範圍只含 Formwright ERP 的功能（核心平台與各應用程式）；產品內建的維運能力（觀測、事件中心、告警、廠商維運中心與維運 agent）也是產品功能，列在「核心平台：維運與監控」；不含部署流程與開發流程。`[x]` 已完成（行尾括號內灰底是完成日（`YYYY/MM/DD`），取打勾那天；清單 2026/11/11 建立時已完成的記建立日）、`[ ] 🚧` 進行中、`[ ] 📋` 已規劃（有設計或已排進 roadmap 工作段）、`[ ] 💡` 構想（只討論過，還沒設計）、`[-]` 決定不做。部分完成的項目算未完成，說明寫「部分：已有 X，缺 Y」。
 
@@ -99,7 +99,7 @@
 
 ## 核心平台：維運與監控
 
-完成 6／共 10。設計見 ops-observability；順序見 [roadmap](roadmap.md)：p1 → o1a → 簽核 a2d1 → a4b → a6 → a2d2–a2d7 → a4a → ci1 → tz1 → a5 → a3 → fg1–fg6 → kb、kr → st → gt → o1b、o1c → un1 → pg0 → pg1 → O2 → p2、p3 → mcp1 → O3–O6（簽核提前為使用者 11-12 裁決；p2、p3 位置與 O3–O6 的先後使用者 11-12 確認）。設計的 C1–C7 已由使用者 2026-11-12 全部裁決（ops-observability §16）。
+完成 6／共 11。設計見 ops-observability；順序見 [roadmap](roadmap.md)：p1 → o1a → 簽核 a2d1 → a4b → a6 → a2d2–a2d7 → a4a → ci1 → tz1 → a5 → a3 → fg1–fg6 → kb、kr → st → gt → o1b、o1c → un1 → pg0 → pg1 → O2 → p2、p3 → mcp1 → O3–O6（簽核提前為使用者 11-12 裁決；p2、p3 位置與 O3–O6 的先後使用者 11-12 確認）。設計的 C1–C7 已由使用者 2026-11-12 全部裁決（ops-observability §16）。
 
 - [x] 維運地基（段 O1） — o1a（request id、結構化 log、health live／ready、版本端點、前端錯誤收件端點）、o1b（背景排程器與資料表租約、通知維護工作、提醒新規則），o1c（前端錯誤回報、錯誤提示附錯誤代碼、前端版本注入）都已上線；結構化 log 與 request id、health live／ready、版本端點、前端錯誤收集、背景排程器（任務提醒不再依賴使用者上線）；「即將到期」提醒改為到期前 N 天內任一天打開通知或排程器跑到就補一次、同一任務只補一次（使用者 11-12 裁決）（`2026/11/18`）
 - [x] PostgreSQL provider 抽象（段 pg0a） — 依 `Database:Provider` 選 SQLite／PostgreSQL，SQLite 行為不變、不加 migration；設計見 [PostgreSQL provider](superpowers/specs/2026-11-12-postgres-provider-design.md)（`2026/11/18`）
@@ -111,6 +111,7 @@
 - [ ] 📋 維運 agent 修正 PR（段 O5） — L3；agent 開 PR、CI gate、使用者核准合併，日後可依告警類型放行自動合併；需先建 CI ⛔ 等：O4
 - [ ] 📋 雲端版自動處置（段 O6） — L2；維運中心照 runbook 呼叫產品 MCP 維運處置工具（預演＋確認），冷卻、上限、稽核；只雲端版；L2 由維運中心 runbook 執行、agent 只能建議（使用者 11-12 裁決 C4） ⛔ 等：O3、O4
 - [x] 一鍵安裝版（段 in1） — in1a 後端、in1b 前端設定精靈與維護頁（`2026/11/26`）、in1c Ubuntu／Docker、in1d Windows 安裝檔、in1e 發版 workflow 與文件已合併；第一版發版（打 tag）待使用者；前置 lt1 SQLite 50 人壓測已通過（`2026/11/26`）；Windows 安裝檔與 Ubuntu 一行指令裝成系統服務，Ubuntu 另附 Docker compose；首次開啟走瀏覽器設定精靈（環境檢查、資料庫、admin、公司、備份）；預設 SQLite、進階接 PostgreSQL，只管內網、第一版不簽章（使用者 11-26 裁決）；設計見 [一鍵安裝版](superpowers/specs/2026-11-26-installer-design.md)（`2026/11/27`）
+- [ ] 💡 訂閱授權（#146） — 作者發授權碼、安裝時連 Azure 啟用並通知作者、回傳簽章授權檔管到期；使用者 11-27 裁決延後：產品完成或有客戶要用時再做；討論結果與 10 題待決見票
 
 ## 核心平台：AI 接入（MCP）
 
