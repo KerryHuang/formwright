@@ -69,9 +69,9 @@ function rowLines(r: DetailRowState): string[] {
     return f && hiddenCell(f, r) ? [`${labelOf(key)}：${msg}`] : [];
   });
 }
-/** Collapsed card on a phone: the values of the first two fields this row shows. */
+/** Collapsed card on a phone: the first two non-empty values this row shows. */
 function summaryOf(r: DetailRowState) {
-  return fields.value.filter((f) => !hiddenCell(f, r)).slice(0, 2).map((f) => summaryText(f, r)).filter(Boolean).join(' · ');
+  return fields.value.filter((f) => !hiddenCell(f, r)).map((f) => summaryText(f, r)).filter(Boolean).slice(0, 2).join(' · ');
 }
 function summaryText(f: SchemaField, r: DetailRowState) {
   const value = r.values[f.key];

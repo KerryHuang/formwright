@@ -172,6 +172,13 @@ describe('DetailGrid on a phone', () => {
     expect(first.text()).not.toContain('數量');
   });
 
+  it('summary skips empty fields and shows the first two that have a value', async () => {
+    const fields = [field(1, 'text', '項次'), field(2, 'text', '品名'), field(3, 'decimal', '數量'), field(4, 'text', '備註')];
+    const w = mountGrid({ detail: detail([], fields), modelValue: [existing(1, { f_2: '螺絲', f_3: 3, f_4: '急件' })] });
+    await resize(390);
+    expect(summaries(w)).toEqual(['螺絲 · 3']);
+  });
+
   it('summary uses the reference title: stored, then newly picked', async () => {
     const product: SchemaField = { ...field(1, 'reference', '產品'), reference: { kind: 'module', key: 'product', name: { 'zh-TW': '產品' }, lightUrl: '' } };
     const stored: DetailRowState = { ...existing(1, { f_1: 7, f_2: 3 }), references: { f_1: { state: 'ok', key: '7', title: '大螺絲' } as never } };
