@@ -266,7 +266,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 
 用[產品內備份](#產品內備份)的一份 `sets/<名稱>/` 把資料庫與附件放回安裝版的資料目錄。通用原則同[從備份還原（SQLite）](#從備份還原sqlite)；這裡只列各平台的路徑與指令。先確認備份的 `manifest.json` 的 `appVersion` 不比已安裝的版本新（新備份不能用舊版開）。升級前備份在歷程裡顯示為「立即」、沒有操作者，`snapshotUtc` 在升級那一刻之前、`appVersion` 是升級前的版本。
 
-下面三個平台的順序大致相同：停服務 → 另存現有資料 → 比對備份的 SHA-256 → 讀備份 manifest 的附件數、補附件（Ubuntu、Docker 放在覆蓋之前；Windows 在覆蓋之後）→ 覆蓋資料庫 → 啟動。**比對、另存、附件階段失敗時資料庫還沒被覆蓋**，停在那裡、不要啟動服務；**覆蓋資料庫開始之後才失敗**（複製、刪 WAL／SHM、啟動），要假設資料庫已經不是原樣：維持停站，不要啟動，從另存的副本取回（各平台的取回方式見下面每段結尾）。
+下面三個平台的順序大致相同：停服務 → 另存現有資料 → 比對備份的 SHA-256 → 讀備份 manifest 的附件數、核對並補附件（Ubuntu、Docker 放在覆蓋之前，逐筆核對附件清單 `attachments.txt`；Windows 在覆蓋之前只核對清單本身，覆蓋之後補附件）→ 覆蓋資料庫 → 啟動。**比對、另存、附件階段失敗時資料庫還沒被覆蓋**，停在那裡、不要啟動服務；**覆蓋資料庫開始之後才失敗**（複製、刪 WAL／SHM、啟動），要假設資料庫已經不是原樣：維持停站，不要啟動，從另存的副本取回（各平台的取回方式見下面每段結尾）。
 
 **Windows**（已在真機演練，Windows 11、Formwright 0.1.0-rc.1；第 3 步的明確比對寫法是演練之後改的，沒有再單獨演練）：
 
@@ -281,12 +281,14 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
    if ($want -notmatch '^[0-9a-fA-F]{64}$' -or $got -ne $want) { throw "SHA-256 不符或 manifest 讀不到，不要還原這一份" }
    ```
 
+   覆蓋之前也核對附件清單（這項檢查是演練之後加的，沒有在 Windows 跑過）：`@(Get-Content "$set\attachments.txt").Count`（行數）要等於 `manifest.json` 的 `attachments.count`，`(Get-FileHash "$set\attachments.txt" -Algorithm SHA256).Hash` 要等於 `attachments.listSha256`（大小寫不拘）；任一不符就停，不要還原這一份。這只檢查清單本身，不代表附件池裡的檔案齊全。
+
 4. `Copy-Item "$set\database.sqlite" C:\ProgramData\Formwright\data\formwright.db -Force`，再刪掉 `formwright.db-wal`、`formwright.db-shm`。這樣是**覆蓋既有檔**，保留原檔的權限；不要用會保留來源權限的工具（`robocopy /SEC`、`xcopy /O`），否則資料目錄的權限會和預期不同，下次升級被拒絕。
 5. 附件：先看所選備份的 `manifest.json` 裡 `attachments.count`（附件數）：是 0 就沒有附件要補，略過這一步；大於 0 就把 `C:\ProgramData\Formwright\backup\attachments\` 的內容複製到 `C:\ProgramData\Formwright\data\attachments\`（多出來的檔案可用「清孤兒附件」清掉）。大於 0 卻找不到 `backup\attachments` 資料夾，表示搬備份時漏帶了共用附件池，請先把同一備份根目錄的 `attachments\` 找回來；**不要用資料夾有沒有來判斷有沒有附件**。manifest 讀不到 `attachments.count` 時同樣先停下來。這一步在覆蓋資料庫之後，所以附件補不齊、決定放棄還原時，請用步驟 2 另存的副本把資料庫放回去。
 6. `Start-Service Formwright`，用瀏覽器或 `Invoke-RestMethod http://127.0.0.1:<埠>/api/version` 確認有回應（埠見 `C:\ProgramData\Formwright\formwright.json` 的 `Server:Port`，預設 8080）。
 7. **不要用檔案總管進 `C:\ProgramData\Formwright` 按「繼續」**：Windows 會替你的帳號加一條明確授權。管理員帳號的授權不擋升級（見上面「資料目錄權限」），但其他帳號的授權會。
 
-**Ubuntu**（2026-11-27 在 WSL2 Ubuntu 24.04 以 root 照下面這段實跑：備份沒有附件時略過附件、還原後資料與備份一致、服務正常啟動。一般 sudo 帳號與備份裡有附件的真機情況未演練；有附件、缺附件池、雜湊不符、manifest 缺附件數這幾種另在 Ubuntu 24.04 容器內用假的 `systemctl` 驗過，不含真服務）：服務名 `formwright`，資料 `/var/lib/formwright/data`，備份 `/var/lib/formwright/backup`，資料庫檔 `formwright.db`；資料目錄與備份目錄擁有者是 `formwright:formwright`、0700，一般登入帳號進不去，所以檔案的列舉與複製都放在同一個 root shell 裡做。升級流程只對 `/var/lib/formwright`、`/etc/formwright`、`data`、`backup` 這幾個目錄重設擁有者與權限，**不檢查也不重設其下檔案**，所以還原後檔案的擁有者要維持 `formwright`，否則服務寫不進去。把 `<名稱>` 換成要還原的那份：
+**Ubuntu**（2026-11-27 在 WSL2 Ubuntu 24.04 以 root 照下面這段實跑：備份沒有附件時略過附件、還原後資料與備份一致、服務正常啟動。一般 sudo 帳號與備份裡有附件的真機情況未演練；附件清單的逐筆核對是實跑之後加的；有附件、附件池空或缺檔、大小不符、清單雜湊或行數不符這幾種在 Ubuntu 24.04 容器內用假的 `systemctl` 驗過，不含真服務與真附件）：服務名 `formwright`，資料 `/var/lib/formwright/data`，備份 `/var/lib/formwright/backup`，資料庫檔 `formwright.db`；資料目錄與備份目錄擁有者是 `formwright:formwright`、0700，一般登入帳號進不去，所以檔案的列舉與複製都放在同一個 root shell 裡做。升級流程只對 `/var/lib/formwright`、`/etc/formwright`、`data`、`backup` 這幾個目錄重設擁有者與權限，**不檢查也不重設其下檔案**，所以還原後檔案的擁有者要維持 `formwright`，否則服務寫不進去。把 `<名稱>` 換成要還原的那份：
 
 ```bash
 sudo systemctl stop formwright
@@ -312,13 +314,33 @@ sudo sh -c 'set -e
   if [ -z "$count" ]; then echo "manifest 讀不到附件數（attachments.count），中止；資料庫沒有被動到" >&2; exit 1; fi
   if [ "$count" -eq 0 ]; then
     echo "這份備份沒有附件，略過"
-  elif [ -d "$BACKUP/attachments" ]; then
-    mkdir -p "$DATA/attachments"
-    cp -r "$BACKUP/attachments/." "$DATA/attachments/"
-    chown -R formwright:formwright "$DATA/attachments"
   else
-    echo "這份備份有 $count 個附件，但找不到 $BACKUP/attachments/；請把同一備份根目錄的 attachments/ 一起找回再重跑，中止，資料庫沒有被動到" >&2
-    exit 1
+    # 覆蓋資料庫前核對附件清單與附件池；清單每行是「附件編號、Tab、大小」
+    fail() { echo "$1；中止，資料庫沒有被動到" >&2; exit 1; }
+    LIST="$SET/attachments.txt"
+    listwant=$(sed -n "s/.*\"listSha256\" *: *\"\([0-9a-fA-F]\{64\}\)\".*/\1/p" "$SET/manifest.json" | head -n 1 | tr A-F a-f)
+    [ -n "$listwant" ] || fail "manifest 讀不到 attachments.listSha256"
+    [ -f "$LIST" ] || fail "找不到附件清單 $LIST"
+    listgot=$(sha256sum "$LIST" | cut -d" " -f1)
+    [ "$listgot" = "$listwant" ] || fail "附件清單的 SHA-256 不符"
+    lines=$(grep -c "" "$LIST" || true)
+    [ "$lines" = "$count" ] || fail "附件清單有 $lines 行，和 manifest 的附件數 $count 不一致"
+    TAB=$(printf "\t")
+    # 第一輪只檢查：清單裡每一個附件都在附件池、大小相符
+    while IFS="$TAB" read -r aid size; do
+      echo "$aid" | grep -qx "[0-9a-f]\{32\}" || fail "附件清單裡有格式不對的附件編號"
+      rel="$(echo "$aid" | cut -c1-2)/$(echo "$aid" | cut -c3-4)/$aid"
+      src="$BACKUP/attachments/$rel"
+      [ -f "$src" ] && [ "$(stat -c %s "$src")" = "$size" ] || fail "附件池 $BACKUP/attachments/ 缺少 $rel 或大小不符（請把同一備份根目錄的 attachments/ 一起找回再重跑）"
+    done < "$LIST"
+    # 第二輪只複製清單裡的附件，複製後核對目的檔
+    while IFS="$TAB" read -r aid size; do
+      rel="$(echo "$aid" | cut -c1-2)/$(echo "$aid" | cut -c3-4)/$aid"
+      dst="$DATA/attachments/$rel"
+      mkdir -p "${dst%/*}" && cp "$BACKUP/attachments/$rel" "$dst" && [ "$(stat -c %s "$dst")" = "$size" ] || fail "附件 $rel 複製失敗"
+      chown formwright:formwright "$DATA/attachments" "$DATA/attachments/${rel%%/*}" "${dst%/*}" "$dst" || fail "附件 $rel 改擁有者失敗"
+    done < "$LIST"
+    echo "已核對並複製 $count 個附件"
   fi
   # 從這裡開始資料庫會被覆蓋
   install -o formwright -g formwright -m 600 "$SET/database.sqlite" "$DATA/formwright.db"
@@ -332,7 +354,9 @@ sudo sh -c 'set -e
 - 在「從這裡開始資料庫會被覆蓋」之前停下來（訊息寫「資料庫沒有被動到」，或 SHA、另存失敗）：資料庫沒動，修好原因（例如把漏掉的 `attachments/` 找回）後重跑同一段。
 - 覆蓋之後才失敗（`install` 或 `rm` 出錯、磁碟滿），或「還原完成」之後服務啟動失敗：**不要假設原資料庫沒變**，維持停站。另存副本在 `/root/formwright-pre-restore-<時間>/`，用 `sudo ls /root/` 找最新的那個目錄（腳本開頭也印過完整路徑）。取回原資料：`sudo sh -c 'cp -p /root/formwright-pre-restore-<時間>/formwright.db* /var/lib/formwright/data/ && chown formwright:formwright /var/lib/formwright/data/formwright.db*'`（原本若有 `-wal`、`-shm` 檔，副本裡也會一起在；取回前先刪掉資料目錄裡還原版留下的同名 `-wal`、`-shm`）。服務啟動失敗先用 `sudo journalctl -u formwright -e` 看原因。
 
-**Docker compose**（2026-11-27 在 Windows 11＋Docker Desktop 照停服務、跑還原腳本、啟動這個順序實跑成功，備份沒有附件。**有附件、Linux 主機未真機演練。** 當時是直接執行 LF 換行的腳本；下面容忍 Windows 換行的執行指令、取回原資料的指令是之後加的，只在 macOS 的 Docker 上（linux/amd64 模擬）驗過，沒有在 PowerShell 跑過）：下面的指令都在**放 `docker-compose.yml` 的資料夾**執行，Windows 用 PowerShell（不要用命令提示字元）。資料 volume 掛在容器的 `/app/data`，備份 volume 掛在 `/backup`（備份在 `/backup/sets/<名稱>/`）；容器內以 root 執行，不必另外改檔案擁有者。指令用 `docker compose run` 開一個暫時容器，volume 與映像沿用 compose 檔，不必另拉映像、也不必查 volume 名稱。不用 `docker run … sh -c '…'` 把整段腳本寫在指令列：Windows PowerShell 5.1 會吃掉引號內的雙引號，腳本會以 `Syntax error: Unterminated quoted string` 失敗，所以腳本存成檔案再執行。有用 `FORMWRIGHT_IMAGE` 指定映像的話，執行這些指令時要帶同樣的設定。Linux 帳號沒有 Docker 權限時，每個 `docker` 指令前面加 `sudo`。
+**Docker compose**（2026-11-27 在 Windows 11＋Docker Desktop 照停服務、跑還原腳本、啟動這個順序實跑成功，備份沒有附件。**有附件、Linux 主機未真機演練。** 當時是直接執行 LF 換行的腳本；下面容忍 Windows 換行的執行指令、取回原資料的指令是之後加的，只在 macOS 的 Docker 上（linux/amd64 模擬）驗過，沒有在 PowerShell 跑過。附件清單的逐筆核對也是之後加的，只在 macOS 的 Docker 上用模擬附件驗過）：下面的指令都在**放 `docker-compose.yml` 的資料夾**執行，Windows 用 PowerShell（不要用命令提示字元）。資料 volume 掛在容器的 `/app/data`，備份 volume 掛在 `/backup`（備份在 `/backup/sets/<名稱>/`）；容器內以 root 執行，不必另外改檔案擁有者。指令用 `docker compose run` 開一個暫時容器，volume 與映像沿用 compose 檔，不必另拉映像、也不必查 volume 名稱。不用 `docker run … sh -c '…'` 把整段腳本寫在指令列：Windows PowerShell 5.1 會吃掉引號內的雙引號，腳本會以 `Syntax error: Unterminated quoted string` 失敗，所以腳本存成檔案再執行。有用 `FORMWRIGHT_IMAGE` 指定映像的話，執行這些指令時要帶同樣的設定。Linux 帳號沒有 Docker 權限時，每個 `docker` 指令前面加 `sudo`。
+
+**本段適用同一套安裝、資料 volume 還在的情況**（例如資料改壞、資料庫損壞、想回到某一天的備份）。換電腦或 volume 不見了，目前沒有逐步流程：下面的腳本在沒有現有資料庫時會中止；產品備份也不含登入金鑰（影響見[從備份還原（SQLite）](#從備份還原sqlite)第 5 步的金鑰說明），設定檔也不在備份裡，請聯絡維護者。
 
 1. 列出備份、看要還原那份的 `manifest.json`（`appVersion` 不比已安裝版本新）。輸出前面的 `Container … Creating`、`Created` 是暫時容器的訊息：
 
@@ -347,6 +371,8 @@ sudo sh -c 'set -e
    # Formwright Docker compose 還原腳本（在暫時容器裡執行）
    set -e
    SET=/backup/sets/<名稱>
+   BACKUP=/backup
+   DATA=/app/data
    want=$(sed -n "s/.*\"sha256\" *: *\"\([0-9a-fA-F]\{64\}\)\".*/\1/p" "$SET/manifest.json" | head -n 1 | tr A-F a-f)
    [ -n "$want" ] || { echo "manifest 讀不到 database.sha256，中止；資料庫沒有被動到" >&2; exit 1; }
    got=$(sha256sum "$SET/database.sqlite" | cut -d" " -f1)
@@ -359,12 +385,32 @@ sudo sh -c 'set -e
    [ -n "$count" ] || { echo "manifest 讀不到附件數（attachments.count），中止；資料庫沒有被動到" >&2; exit 1; }
    if [ "$count" -eq 0 ]; then
      echo "這份備份沒有附件，略過"
-   elif [ -d /backup/attachments ]; then
-     mkdir -p /app/data/attachments
-     cp -r /backup/attachments/. /app/data/attachments/
    else
-     echo "這份備份有 $count 個附件，但找不到 /backup/attachments/；請把同一備份根目錄的 attachments/ 一起找回再重跑，中止，資料庫沒有被動到" >&2
-     exit 1
+     # 覆蓋資料庫前核對附件清單與附件池；清單每行是「附件編號、Tab、大小」
+     fail() { echo "$1；中止，資料庫沒有被動到" >&2; exit 1; }
+     LIST="$SET/attachments.txt"
+     listwant=$(sed -n "s/.*\"listSha256\" *: *\"\([0-9a-fA-F]\{64\}\)\".*/\1/p" "$SET/manifest.json" | head -n 1 | tr A-F a-f)
+     [ -n "$listwant" ] || fail "manifest 讀不到 attachments.listSha256"
+     [ -f "$LIST" ] || fail "找不到附件清單 $LIST"
+     listgot=$(sha256sum "$LIST" | cut -d" " -f1)
+     [ "$listgot" = "$listwant" ] || fail "附件清單的 SHA-256 不符"
+     lines=$(grep -c "" "$LIST" || true)
+     [ "$lines" = "$count" ] || fail "附件清單有 $lines 行，和 manifest 的附件數 $count 不一致"
+     TAB=$(printf "\t")
+     # 第一輪只檢查：清單裡每一個附件都在附件池、大小相符
+     while IFS="$TAB" read -r aid size; do
+       echo "$aid" | grep -qx "[0-9a-f]\{32\}" || fail "附件清單裡有格式不對的附件編號"
+       rel="$(echo "$aid" | cut -c1-2)/$(echo "$aid" | cut -c3-4)/$aid"
+       src="$BACKUP/attachments/$rel"
+       [ -f "$src" ] && [ "$(stat -c %s "$src")" = "$size" ] || fail "附件池 $BACKUP/attachments/ 缺少 $rel 或大小不符（請把同一備份根目錄的 attachments/ 一起找回再重跑）"
+     done < "$LIST"
+     # 第二輪只複製清單裡的附件，複製後核對目的檔
+     while IFS="$TAB" read -r aid size; do
+       rel="$(echo "$aid" | cut -c1-2)/$(echo "$aid" | cut -c3-4)/$aid"
+       dst="$DATA/attachments/$rel"
+       mkdir -p "${dst%/*}" && cp "$BACKUP/attachments/$rel" "$dst" && [ "$(stat -c %s "$dst")" = "$size" ] || fail "附件 $rel 複製失敗"
+     done < "$LIST"
+     echo "已核對並複製 $count 個附件"
    fi
    # 從這裡開始資料庫會被覆蓋
    cp "$SET/database.sqlite" /app/data/formwright.db
@@ -376,7 +422,10 @@ sudo sh -c 'set -e
 
    ```bash
    docker compose stop formwright
+   docker compose ps -a
    ```
+
+   `ps -a` 的 `STATUS` 欄顯示 `Exited` 才往下做；`stop` 報錯，或仍顯示 `Up`，就停在這裡，不要執行後面的指令（不加 `-a` 的 `docker compose ps` 不列出已停止的容器）。
 
 4. 建立另存原資料用的 `pre-restore` 資料夾，再執行腳本。資料夾已經存在（以前還原過）時，先把舊的改名，不要混用。Windows PowerShell：
 
