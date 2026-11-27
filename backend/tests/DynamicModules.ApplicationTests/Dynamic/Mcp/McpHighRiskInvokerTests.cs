@@ -210,11 +210,13 @@ public class McpHighRiskInvokerTests : McpWriteTestBase
     /// <summary>
     /// R2：管理員加嚴（update_record 加進清單、不支援對話框時拒絕）之後，兩項高風險政策任一存了壞值或讀取丟例外：
     /// 寫入類呼叫一律拒絕（不退回出廠清單、不放寬成確認碼），不發碼、不寫；唯讀照常。
+    /// secondThrows（複審建議）：清單讀成功、第二項（不支援對話框時）讀取丟例外，同樣拒絕。
     /// </summary>
     [Theory]
     [InlineData("toolsBad")]
     [InlineData("choiceBad")]
     [InlineData("readThrows")]
+    [InlineData("secondThrows")]
     public async Task HighRiskPolicyUnusable_WritesRejected_ReadsWork(string fault)
     {
         await SetSystem(PolicyCatalog.McpHighRiskTools, "update_record,delete_record,approve,reject");
@@ -223,6 +225,7 @@ public class McpHighRiskInvokerTests : McpWriteTestBase
         {
             case "toolsBad": await SetSystem(PolicyCatalog.McpHighRiskTools, "update_record,query_records"); break;
             case "choiceBad": await SetSystem(PolicyCatalog.McpHighRiskWithoutElicitation, "allow"); break;
+            case "secondThrows": _policyFault.Only = PolicyCatalog.McpHighRiskWithoutElicitation; _policyFault.On = true; break;
             default: _policyFault.On = true; break;
         }
         var before = ValuesOf(Target);
@@ -267,14 +270,15 @@ public class McpHighRiskInvokerTests : McpWriteTestBase
         services.AddScoped<IPolicyReader>(sp => new FaultyHighRiskReader(sp.GetRequiredService<PolicyReader>(), _policyFault));
     }
 
-    public sealed class HighRiskPolicyFault { public bool On { get; set; } }
+    /// <summary><see cref="Only"/> 有值時只對那一項丟例外。</summary>
+    public sealed class HighRiskPolicyFault { public bool On { get; set; } public PolicyDefinition? Only { get; set; } }
 
-    /// <summary>讀兩項高風險政策時丟例外（模擬資料庫讀取失敗），其他政策照常。</summary>
+    /// <summary>讀兩項高風險政策（或只有 <see cref="HighRiskPolicyFault.Only"/> 那一項）時丟例外（模擬資料庫讀取失敗），其他政策照常。</summary>
     private sealed class FaultyHighRiskReader(IPolicyReader inner, HighRiskPolicyFault fault) : IPolicyReader
     {
         private void Check(PolicyDefinition def)
         {
-            if (fault.On && (def == PolicyCatalog.McpHighRiskTools || def == PolicyCatalog.McpHighRiskWithoutElicitation))
+            if (fault.On && (fault.Only is { } only ? def == only : def == PolicyCatalog.McpHighRiskTools || def == PolicyCatalog.McpHighRiskWithoutElicitation))
                 throw new InvalidOperationException("模擬讀取失敗");
         }
 
