@@ -13,23 +13,30 @@
 #  (C) $Parent exists (upgrade, reinstall, or somebody else created it first): VERIFY ONLY. This script never writes an ACL or an owner on an
 #      existing item: no Set-Acl, no icacls, no setowner. It checks, read-only: the trust rules below for the whole tree, then that the parent is
 #      exactly the locked state and that every item below it is exactly the expected set. Any deviation (including a read grant an
-#      administrator added by hand) = refuse (exit 2) with the path and the rule in the message. No ACL or owner of an existing item has been
+#      administrator added by hand for any account that is not a direct member of local Administrators) = refuse (exit 2) with the path and the rule in the message. No ACL or owner of an existing item has been
 #      rewritten. The administrator fixes the item by hand and runs the installer again. This script itself writes only by creating a missing
 #      Data or Backup directory (it just inherits from the verified parent, no ACL is written); on a refusal that directory may already exist,
 #      and the installer's earlier steps (pre-upgrade backup, replacing the program files) may already be done.
 #  (D) Final check of the whole tree against the expected set (fresh and existing alike): owner Administrators or SYSTEM (an existing tree
 #      also allows the service account: files the service created itself, such as keys, the database and backups, belong to it), non-null
-#      DACL, inheriting (not protected), exactly 3 inherited ACEs: SYSTEM and Administrators exactly Full Control (0x1F01FF), service account
+#      DACL, inheriting (not protected), exactly 3 inherited ACEs (not counting extra Allow ACEs of local administrator members): SYSTEM and Administrators exactly Full Control (0x1F01FF), service account
 #      exactly Modify (0x1301BF); any other mask, missing or extra bit alike (e.g. DeleteChild, Synchronize), is refused;
 #      inheritance flags right for files and directories. The parent has the same three principals and masks as explicit ACEs. Violations of the expected set are reported as:
 #      "unexpected owner", "protected (non-inheriting) permissions", "unexpected ACE for <sid>", "explicit ACE for <sid>",
 #      "<n> ACEs, expected 3", "... is not Full Control", "service account mask ... is not exactly Modify", plus "parent ..." for the parent itself.
 #      Everything that makes an existing tree untrusted (links, unreadable ACLs or directories included) is a refusal (exit 2); only an internal
 #      error of this script exits 1.
+# Local administrator accounts (user decision 2026-11-27): on an existing tree the direct USER members of the local Administrators group
+#   (S-1-5-32-544, listed read-only through ADSI; nested groups are not expanded) are trusted. Their extra ALLOW ACEs (any mask, explicit or
+#   inherited, any inheritance flags; Windows adds one when an administrator opens the folder in Explorer and presses "Continue") do not
+#   refuse the upgrade and are not rewritten. The three required ACEs are still checked exactly; a DENY ACE of such an account, any ACE
+#   of another account (Users, ordinary local users, groups) and the owner rule are unchanged. If the member list cannot be read the
+#   upgrade is refused (exit 2). Each accepted SID is written as one line to -LogFile. A fresh install is unchanged.
 # Trust rules (checked first, every item, the parent included):
 #   - not a reparse point; owner is SYSTEM, Administrators, TrustedInstaller or the service account; DACL exists (not null);
 #   - no Allow ACE with a write-class right (WriteData/AddFile, AppendData/AddSubdirectory, WriteEA, WriteAttributes, Delete, DeleteChild,
-#     WriteDAC, WriteOwner, GenericWrite, GenericAll) for any SID except SYSTEM, Administrators, the service account, and CREATOR OWNER
+#     WriteDAC, WriteOwner, GenericWrite, GenericAll) for any SID except SYSTEM, Administrators, the service account, direct user members
+#     of the local Administrators group (see above), and CREATOR OWNER
 #     (only when InheritOnly). Read-class grants to anyone pass this rule but are refused by the expected set in (D);
 #   - files: hard link count must be 1 (CreateFileW + GetFileInformationByHandle; failing to open or query = refuse).
 # Residual risk: an ACL change does not revoke handles opened earlier, so an account that was once granted write access and still holds an
@@ -95,6 +102,42 @@ public static class FwLinks {
 $script:rejected = $false
 function Reject([string]$Message) { $script:rejected = $true; throw $Message }
 
+# Lines for the installer log (read back by the installer, also on success): accepted ACEs of local administrator members
+$script:adminSids = @()
+$script:adminAceSeen = @{}
+function Add-AdminAceNote([string]$Sid, [string]$Path) {
+  if (-not $script:adminAceSeen.ContainsKey($Sid)) { $script:adminAceSeen[$Sid] = @{ First = $Path; Count = 0 } }
+  $script:adminAceSeen[$Sid].Count++
+}
+function Get-AdminAceNotes {
+  foreach ($k in ($script:adminAceSeen.Keys | Sort-Object)) {
+    $e = $script:adminAceSeen[$k]
+    "accepted Allow ACE of local Administrators member ${k} on $($e.Count) item(s), first: $($e.First) (upgrade check does not rewrite it)"
+  }
+}
+
+# SIDs of the USER accounts that are direct members of the local Administrators group (S-1-5-32-544). Nested groups are not expanded.
+# Windows PowerShell 5.1 compatible (ADSI WinNT provider; the group name is resolved from the SID because it is localized).
+# Cannot be listed = refuse (exit 2): an empty set is never assumed.
+function Get-AdminMemberSids([string]$AdminsSid) {
+  $err = $null
+  $sids = @()
+  try {
+    $name = (New-Object Security.Principal.SecurityIdentifier($AdminsSid)).Translate([Security.Principal.NTAccount]).Value
+    $name = $name.Substring($name.IndexOf('\') + 1)
+    $group = [ADSI]"WinNT://./$name,group"
+    foreach ($m in @($group.Invoke('Members'))) {
+      $t = $m.GetType()
+      $cls = [string]$t.InvokeMember('Class', 'GetProperty', $null, $m, $null)
+      if ($cls -ne 'User') { continue }
+      $bytes = [byte[]]$t.InvokeMember('objectSid', 'GetProperty', $null, $m, $null)
+      $sids += (New-Object Security.Principal.SecurityIdentifier($bytes, 0)).Value
+    }
+  } catch { $err = $_.Exception.Message }
+  if ($null -ne $err) { Reject "cannot list the members of the local Administrators group, so administrator accounts cannot be confirmed ($err)" }
+  return ,@($sids)
+}
+
 # Read-only check of one existing item (see the header for the rules)
 function Test-Trusted($Item, [string[]]$OwnersOk, [string[]]$WriteOk, [string]$ServiceSid) {
   $path = $Item.FullName
@@ -105,8 +148,9 @@ function Test-Trusted($Item, [string[]]$OwnersOk, [string[]]$WriteOk, [string]$S
   if ([string]::IsNullOrEmpty($a.GetSecurityDescriptorSddlForm('Access'))) { Reject "no DACL (null DACL): $path" }
   foreach ($r in $a.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
     if ($r.AccessControlType -ne 'Allow') { continue }
-    if ((([int]$r.FileSystemRights) -band $WriteMask) -eq 0) { continue }
     $sid = $r.IdentityReference.Value
+    if ($script:adminSids -contains $sid) { Add-AdminAceNote $sid $path; continue }   # direct user member of local Administrators: trusted (see header)
+    if ((([int]$r.FileSystemRights) -band $WriteMask) -eq 0) { continue }
     if ($WriteOk -contains $sid) { continue }
     if ($sid -eq $sidCreatorOwner -and (($r.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) -ne 0)) { continue }
     Reject "untrusted write ACE for ${sid}: $path"
@@ -170,7 +214,12 @@ function Get-ParentProblem {
   $now = Read-Acl $Parent
   if ($now.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $sidAdmins.Value) { return 'parent owner is not Administrators' }
   if (-not $now.AreAccessRulesProtected) { return 'parent still inherits permissions' }
-  $rules = @($now.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
+  $all = @($now.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
+  foreach ($r in $all) {
+    if ($script:adminSids -contains $r.IdentityReference.Value -and "$($r.AccessControlType)" -ne 'Allow') { return "Deny ACE for administrator member $($r.IdentityReference.Value)" }
+  }
+  # extra Allow ACEs of local administrator members (any mask and flags) are not counted; the three required ACEs stay exact
+  $rules = @($all | Where-Object { $script:adminSids -notcontains $_.IdentityReference.Value })
   if ($rules.Count -ne 3) { return "parent has $($rules.Count) ACEs, expected 3" }
   $wantFlags = [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
   $seen = @()
@@ -225,7 +274,13 @@ function Test-Expected([string]$Dir, [string[]]$OwnersOk) {
     if ($OwnersOk -notcontains $owner) { Fail "unexpected owner ${owner}: $path" }
     if ($a.AreAccessRulesProtected) { Fail "protected (non-inheriting) permissions: $path" }
     if ([string]::IsNullOrEmpty($a.GetSecurityDescriptorSddlForm('Access'))) { Fail "no DACL: $path" }
-    $rs = @($a.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
+    $all = @($a.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
+    foreach ($r in $all) {
+      $sid = $r.IdentityReference.Value
+      if ($script:adminSids -contains $sid -and "$($r.AccessControlType)" -ne 'Allow') { Fail "Deny ACE for administrator member ${sid}: $path" }
+    }
+    # extra Allow ACEs of local administrator members (explicit or inherited, any mask and flags) are not counted
+    $rs = @($all | Where-Object { $script:adminSids -notcontains $_.IdentityReference.Value })
     $want = if ($item.PSIsContainer) { $dirFlags } else { $fileFlags }
     $seen = @()
     foreach ($r in $rs) {
@@ -285,6 +340,7 @@ try {
   $script:existing = -not $createdByUs
   if ($script:existing) {
     if (-not (Test-Path -LiteralPath $Parent -PathType Container)) { Reject "not a directory: $Parent" }
+    $script:adminSids = Get-AdminMemberSids $sidAdmins.Value
     $ownersOk = @($sidSystem.Value, $sidAdmins.Value, $sidTrustedInstaller, $sidService.Value)
     $writeOk = @($sidSystem.Value, $sidAdmins.Value, $sidService.Value)
     Test-Trusted (Get-ItemChecked $Parent) $ownersOk $writeOk $sidService.Value
@@ -307,11 +363,13 @@ try {
   if ($script:existing) { $ownersOk += $sidService.Value }
   Test-Expected $Parent $ownersOk
   if ($script:itemCount -lt 2) { throw "expected at least the data and backup directories below the parent, found $($script:itemCount) items" }
+  $notes = @(Get-AdminAceNotes)
+  if ($notes.Count -gt 0 -and $LogFile -ne '') { Set-Content -LiteralPath $LogFile -Value $notes -Encoding ASCII }
   exit 0
 } catch {
   $msg = "set-acl failed: $($_.Exception.Message)"
   [Console]::Error.WriteLine($msg)
-  if ($LogFile -ne '') { Set-Content -LiteralPath $LogFile -Value $msg -Encoding ASCII }
+  if ($LogFile -ne '') { Set-Content -LiteralPath $LogFile -Value (@(Get-AdminAceNotes) + $msg) -Encoding ASCII }
   if ($script:rejected) { exit 2 }
   exit 1
 }

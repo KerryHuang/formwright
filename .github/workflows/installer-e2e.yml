@@ -535,11 +535,21 @@ jobs:
           Assert-AclState -AllowServiceOwner
           # M06 回歸：先手動放一條舊版留下的寬規則（只有 port、不限來源與程式），不帶參數升級後必須被收斂成一條受限的規則
           New-NetFirewallRule -DisplayName Formwright -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8080 | Out-Null
+          # 本機管理員帳號的授權不擋升級（使用者裁決 2026-11-27）：建一個本機使用者加入 Administrators，在父目錄加它的明確 FullControl
+          # （Windows 檔案總管按「繼續」會加的那種）；下面這次升級必須成功、授權原封不動、log 有接受的說明
+          $parentDir = 'C:\ProgramData\Formwright'
+          $adminUser = 'fwtestadmin'
+          $adminSid = New-TempAdmin $adminUser
+          Icacls $parentDir /grant "${adminUser}:(OI)(CI)F"
+          $parentSddlBefore = (Get-Acl -LiteralPath $parentDir).Sddl
           $start = Now-Utc
-          Assert ((Install-Fw $env:V2 'upgrade') -eq 0) '升級結束碼不是 0'
+          Assert ((Install-Fw $env:V2 'upgrade') -eq 0) '升級結束碼不是 0（本機管理員帳號的明確授權不該擋升級）'
           Version-Is $env:V2
           Wiz verify-kept $Base | Out-Null
-          Assert-AclState -AllowServiceOwner
+          Assert-AclState -AllowServiceOwner -AllowAdminSid @($adminSid)
+          Assert ((Get-Acl -LiteralPath $parentDir).Sddl -ceq $parentSddlBefore) '升級改動了資料父目錄的 ACL（管理員成員的授權應原封不動）'
+          $alog = Log-Text 'setup-upgrade.log'
+          Assert ($alog -match [regex]::Escape("accepted Allow ACE of local Administrators member $adminSid")) 'log 缺「accepted Allow ACE of local Administrators member」說明'
           $rules = @(Get-NetFirewallRule -DisplayName Formwright)
           Assert ($rules.Count -eq 1) "升級後防火牆規則應剛好一條、實得 $($rules.Count)"
           $remote = @(($rules[0] | Get-NetFirewallAddressFilter).RemoteAddress)
@@ -552,6 +562,24 @@ jobs:
             "$($_.trigger)".ToLower() -eq 'manual' -and $null -eq $_.requestedUserId -and "$($_.status)".ToLower() -eq 'succeeded' -and
             (To-UtcOffset $_.queuedUnix) -ge $start })
           Assert ($hit.Count -ge 1) "升級後沒有新的成功 Manual 備份（起點 $($start.ToString('o'))、新增 $($new.Count) 筆）"
+          # 把該帳號移出 Administrators（ACE 保留）：它不再是管理員成員，升級必須拒絕（結束碼 20、log 有 untrusted write ACE），ACE 不動
+          Remove-TempAdminFromGroup $adminUser
+          $rc = Install-Fw $env:V2 'upgrade-admin-removed'
+          Assert ($rc -eq 20) "帳號移出 Administrators 後升級應為 20、實得 $rc"
+          $rlog = Log-Text 'setup-upgrade-admin-removed.log'
+          Assert ($rlog -match 'untrusted write ACE') 'log 缺「untrusted write ACE」'
+          Assert ($rlog -match [regex]::Escape($adminSid)) 'log 缺該帳號的 SID'
+          Assert ((Get-Acl -LiteralPath $parentDir).Sddl -ceq $parentSddlBefore) '被拒絕的升級改動了資料父目錄的 ACL'
+          # 清回原狀：先移除 ACE（帳號還在才解析得到名稱）、重設子項繼承、再刪使用者；之後同一個安裝程式必須成功，樹回到嚴格的預期集合
+          Icacls $parentDir /remove $adminUser
+          Icacls $Data /reset /T /C /L
+          Icacls $Backup /reset /T /C /L
+          Icacls 'C:\ProgramData\Formwright\formwright.json' /reset /C /L
+          Remove-TempUser $adminUser
+          Assert-AclState -AllowServiceOwner
+          Assert ((Install-Fw $env:V2 'upgrade-admin-cleaned') -eq 0) '清掉管理員成員授權後升級應成功'
+          Version-Is $env:V2
+          Assert-AclState -AllowServiceOwner
 
       - name: upgrade-backup-fails（AC-07、D-20）
         run: |
