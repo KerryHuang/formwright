@@ -403,32 +403,43 @@ do_reinstall() {
 # 放在 <state> 底下是因為整條父目錄鏈（/var/lib、<state>）只有 root 能寫，檢查之後沒有人能替換路徑。
 UPGRADE_LOG=""
 
-# <state> 照 ensure_dirs 的做法：symlink 或非目錄拒絕，舊配置的擁有者與權限直接收緊成 root 0755，之後才碰 logs
+# 「uid:gid 八進位權限」；GNU stat，測試換成替身
+owner_mode() { stat -c '%u:%g %a' -- "$1"; }
+
+# <state> 照 ensure_dirs 的做法：symlink 或非目錄拒絕，舊配置的擁有者與權限直接收緊成 root 0755，之後才碰 logs。
+# logs 只認 root:root 0700 的目錄；其他擁有者或權限的目錄整個刪掉重建（裡面可能有收權限前被放進去的 FIFO、連結或檔案）
 prepare_log_dir() {
-  local state_dir log_dir
-  log_dir=$(dirname "$UPGRADE_LOG"); state_dir=$(dirname "$log_dir")
+  local log_dir="$1" state_dir
+  state_dir=$(dirname "$log_dir")
   # 每一步明確檢查回傳值：呼叫端在 `||` 左側呼叫本函式，那時 set -e 不生效
   refuse_unsafe_path "$state_dir"
   mkdir -p "$state_dir" || die 1 dirs_failed "$state_dir"
   chown root:root "$state_dir" || die 1 dirs_failed "$state_dir"
   chmod 0755 "$state_dir" || die 1 dirs_failed "$state_dir"
   refuse_unsafe_path "$log_dir"
-  mkdir -p "$log_dir" || die 1 log_failed "$UPGRADE_LOG"
-  chown root:root "$log_dir" || die 1 log_failed "$UPGRADE_LOG"
-  chmod 0700 "$log_dir" || die 1 log_failed "$UPGRADE_LOG"
+  if [ -d "$log_dir" ] && [ "$(owner_mode "$log_dir")" != "0:0 700" ]; then
+    rm -rf -- "$log_dir" || die 1 log_failed "$log_dir"
+  fi
+  if [ ! -d "$log_dir" ]; then
+    mkdir -m 700 "$log_dir" || die 1 log_failed "$log_dir"
+    chown root:root "$log_dir" || die 1 log_failed "$log_dir"
+    chmod g-s "$log_dir" || die 1 log_failed "$log_dir" # 父目錄帶 setgid 時會繼承，權限就不是 700
+  fi
 }
 
-# 新建紀錄檔（0600；noclobber：已存在就失敗），寫入走 fd 3、讀回走 fd 4，之後不再用路徑開它。
+# 用 mktemp 新建紀錄檔（排他建立、隨機檔名、0600），確認是 root 的一般檔案才開：
+# 寫入走 fd 3、讀回走 fd 4（同一個檔），之後不再用路徑開它。
 # 停服務前先寫一行標頭：開始時就寫不進去（磁碟滿、唯讀）在這裡擋下；之後才滿的擋不到。
 # 要在目前的 shell 呼叫（fd 要留給呼叫端），所以失敗用回傳值、不 die
-open_upgrade_log() { # <舊版號>
-  local mask rc=0
-  mask=$(umask); umask 077; set -C
-  { exec 3> "$UPGRADE_LOG"; } || rc=1
-  set +C; umask "$mask"
-  [ "$rc" = 0 ] || return 1
+open_upgrade_log() { # <紀錄目錄> <舊版號>
+  local template
+  template="$1/upgrade-$(date -u +%Y%m%dT%H%M%SZ)-XXXXXXXX.log"
+  UPGRADE_LOG=$(mktemp "$template") || { UPGRADE_LOG="$template"; return 1; }
+  { [ -f "$UPGRADE_LOG" ] && [ ! -L "$UPGRADE_LOG" ]; } || return 1
+  case "$(owner_mode "$UPGRADE_LOG")" in "0:0 "*) ;; *) return 1 ;; esac
+  { exec 3>> "$UPGRADE_LOG"; } || return 1
   { exec 4< "$UPGRADE_LOG"; } || return 1
-  printf '# %s upgrade %s -> %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$PACKAGE_VERSION" >&3 || return 1
+  printf '# %s upgrade %s -> %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$2" "$PACKAGE_VERSION" >&3 || return 1
 }
 
 # 備份中止時終端只印機器標記行（原始 log 可能含密碼等內容）與紀錄檔位置
@@ -439,20 +450,21 @@ show_backup_log() {
 }
 
 do_upgrade() {
-  local old_version
+  local old_version log_dir
   old_version=$(installed_version)
   msg upgrading "$old_version" "$PACKAGE_VERSION"
   stage_package
   # 停服務之前先備好紀錄檔：建不出來就中止，舊版照跑（子 shell 攔下 die，才清得掉 .new）
-  UPGRADE_LOG="$(dirname "$FW_DATA_DIR")/logs/upgrade-$(date -u +%Y%m%dT%H%M%SZ)-$$.log"
-  (prepare_log_dir) || { rm -rf "${FW_PROGRAM_DIR}.new"; exit 1; }
-  open_upgrade_log "$old_version" || { rm -rf "${FW_PROGRAM_DIR}.new"; die 1 log_failed "$UPGRADE_LOG"; }
+  log_dir="$(dirname "$FW_DATA_DIR")/logs"
+  (prepare_log_dir "$log_dir") || { rm -rf "${FW_PROGRAM_DIR}.new"; exit 1; }
+  open_upgrade_log "$log_dir" "$old_version" || { rm -rf "${FW_PROGRAM_DIR}.new"; die 1 log_failed "$UPGRADE_LOG"; }
   # 先用舊版（替換檔案之前）備份：新版 migration 會在啟動時先跑
   systemctl stop formwright || true
   msg backup_running
   local rc=0
   # 子程序只拿到 stdout／stderr（接到 root 開好的紀錄檔），服務帳號不需要進得了紀錄目錄
   (cd "$FW_PROGRAM_DIR" && as_service ./DynamicModules.WebAPI --backup-now "--Install:ConfigFile=$FW_CONFIG_FILE") >&3 2>&1 3>&- 4<&- || rc=$?
+  exec 3>&- # 寫完了；下面只從 fd 4 讀
   case "$(backup_exit_to_action "$rc")" in
     abort21) systemctl start formwright || true; rm -rf "${FW_PROGRAM_DIR}.new"; show_backup_log >&2; die 21 backup_not_configured ;;
     abort20) systemctl start formwright || true; rm -rf "${FW_PROGRAM_DIR}.new"; show_backup_log >&2; die 20 backup_failed ;;
@@ -461,7 +473,7 @@ do_upgrade() {
   if [ "$rc" != 0 ]; then msg backup_skipped
   elif grep -aq '^FORMWRIGHT_BACKUP_SETUP_PENDING' <&4; then msg backup_pending
   else msg backup_done; fi
-  exec 3>&- 4<&-
+  exec 4<&-
   # 舊配置的主機在這裡一併收緊權限；失敗（例如目錄是 symlink）就把舊版服務拉起來、不換程式
   # 失敗時程式還沒換：清掉 .new、把舊版服務拉起來並確認真的在跑（拉不起來就明講），再以非 0 結束
   (ensure_dirs) || { rm -rf "${FW_PROGRAM_DIR}.new"; systemctl start formwright || true; wait_active || die 1 start_failed "$FW_PROGRAM_DIR"; exit 1; }

@@ -252,7 +252,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 ### 升級
 
 - **Windows**：直接執行新版安裝程式。會先停服務、用舊版程式做一次備份，備份成功才換檔案；備份失敗就中止，安裝程式會把舊版服務重新啟動並等它回應；舊版沒能重新啟動時訊息會明說，要手動啟動服務。備份位置沒設時會問要不要略過備份（靜默安裝要帶 `/SKIPBACKUP`，否則中止）。資料與設定不動。
-- **Ubuntu**：重跑同一行安裝指令。流程同上，備份失敗以結束碼 20 中止、舊版照跑；備份位置沒設或設定無效、又沒加 `--skip-backup` 時以結束碼 21 中止。`--skip-backup` 只略過「備份位置沒設或設定無效」，不略過備份失敗。升級前備份的完整輸出不印在終端，寫進 `/var/lib/formwright/logs/upgrade-<UTC 時間>-<程序編號>.log`（目錄 root 0700、檔案 0600；每次升級一個，不自動清除），終端只印一行結果；備份中止時印出 `FORMWRIGHT_BACKUP_…` 標記行、紀錄檔路徑與查看指令，不印原始內容。升級會先把 `/var/lib/formwright` 收緊成 root 0755。停服務之前會建立紀錄檔並寫入第一行；這時就建不出來或寫不進去（例如 `logs` 是符號連結、磁碟已滿）就中止，舊版照跑。開始之後才滿的情況檢查不到，會照備份程序的結束碼處理。
+- **Ubuntu**：重跑同一行安裝指令。流程同上，備份失敗以結束碼 20 中止、舊版照跑；備份位置沒設或設定無效、又沒加 `--skip-backup` 時以結束碼 21 中止。`--skip-backup` 只略過「備份位置沒設或設定無效」，不略過備份失敗。升級前備份的完整輸出不印在終端，寫進 `/var/lib/formwright/logs/upgrade-<UTC 時間>-<隨機碼>.log`（目錄 root 0700、檔案 0600；每次升級一個，不自動清除），終端只印一行結果；備份中止時印出 `FORMWRIGHT_BACKUP_…` 標記行、紀錄檔路徑與查看指令，不印原始內容。升級會先把 `/var/lib/formwright` 收緊成 root 0755。`logs` 目錄如果不是 `root:root` 0700（例如手動改過權限），會整個刪掉重建，裡面的舊紀錄一併消失；要留的紀錄請複製到別處。停服務之前會建立紀錄檔並寫入第一行；這時就建不出來或寫不進去（例如 `logs` 是符號連結、磁碟已滿）就中止，舊版照跑。開始之後才滿的情況檢查不到，會照備份程序的結束碼處理。
 - **Docker compose**：Releases 附的 `docker-compose.yml` 固定在該版的映像版號，`docker compose pull` 只會重拉同一版，不會升級。升級用下列任一種方式：
   - 下載新版 Release 的 `docker-compose.yml` 覆蓋舊檔，再 `docker compose pull && docker compose up -d`。
   - 或不動檔案，pull 與 up 都帶同一個映像設定：`FORMWRIGHT_IMAGE=ghcr.io/kerryhuang/formwright:<新版號> docker compose pull && FORMWRIGHT_IMAGE=ghcr.io/kerryhuang/formwright:<新版號> docker compose up -d`（也可寫進 shell 環境，兩個指令才一致）。

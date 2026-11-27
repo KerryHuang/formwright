@@ -278,6 +278,8 @@ up_stubs() { # 在子 shell 內呼叫；$up 是這個案例的根目錄
   installed_version() { echo 1.0.0; }
   systemctl() { echo "systemctl $*" >> "$up/calls"; }
   chown() { echo "chown $*" >> "$up/calls"; }
+  # 測試不是 root：擁有者一律回報 root，mode 讀實際值
+  owner_mode() { echo "0:0 $(mode_of "$1")"; }
   ensure_dirs() { :; }; swap_program() { :; }; write_unit() { :; }; wait_active() { :; }
   as_service() {
     local i; for i in $(seq 1 30); do echo "{\"LogLevel\":\"Information\",\"n\":$i}"; done
@@ -294,8 +296,8 @@ up_case() { # <名稱> <備份結束碼> <備份最後一行> [OPT_SKIP_BACKUP]�
     do_upgrade ) >"$out" 2>&1
   echo $?
 }
-has() { grep -qF -- "$2" "$1" 2>/dev/null && echo yes || echo no; }
-up_log() { find "$up/state/logs" -name 'upgrade-*.log' 2>/dev/null | head -n 1; }
+has() { [ -f "$1" ] && grep -qF -- "$2" "$1" 2>/dev/null && echo yes || echo no; }
+up_log() { find "$up/state/logs" -type f -name 'upgrade-*.log' 2>/dev/null | head -n 1; }
 
 rc=$(up_case ok 0 'FORMWRIGHT_BACKUP_OK k1'); up="$tmp/up-ok"
 check "升級：備份成功 exit 0" "0" "$rc"
@@ -363,6 +365,79 @@ check "升級：寫入失敗的案例確實建出了紀錄檔" "yes" "$([ -n "$(
 check "升級：寫入失敗沒有呼叫 systemctl、沒有備份" "no|no" "$([ -e "$up/systemctl-called" ] && echo yes || echo no)|$([ -e "$up/backup-called" ] && echo yes || echo no)"
 check "升級：寫入失敗清掉 .new" "no" "$([ -e "$up/prog.new" ] && echo yes || echo no)"
 check "升級：寫入失敗訊息含紀錄檔路徑" "yes" "$(has "$out" "msg log_failed $up/state/logs/upgrade-")"
+
+# 接管舊配置（state 原屬服務帳號）時，logs 裡先放好的物件一律不開、不寫：不可信的 logs 整個重建。
+# 有些寫法會卡在開 FIFO 上，所以每個案例限時（macOS 沒有 timeout 指令）
+with_deadline() { # <秒> <指令…>：逾時回 137；指令放在自己的程序群組，逾時整組砍掉、不留卡住的子程序
+  local secs="$1" pid dog rc; shift
+  set -m; "$@" & pid=$!; set +m
+  ( sleep "$secs"; kill -9 -- "-$pid" ) >/dev/null 2>&1 & dog=$!
+  wait "$pid" 2>/dev/null; rc=$?
+  kill "$dog" 2>/dev/null; wait "$dog" 2>/dev/null
+  return "$rc"
+}
+planted_upgrade() { # 在目前的 $up 跑升級；logs 目錄的擁有者回報成 ${logs_owner}，直到它被重建
+  ( set -e
+    up_stubs; backup_rc=0 backup_line='FORMWRIGHT_BACKUP_OK planted'
+    date() { echo 20260101T000000Z; }
+    owner_mode() {
+      if [ "$1" = "$up/state/logs" ] && [ -e "$1/.planted" ]; then echo "$logs_owner $(mode_of "$1")"
+      else echo "0:0 $(mode_of "$1")"; fi
+    }
+    do_upgrade ) >"$out" 2>&1
+}
+# 舊寫法的檔名可預測（時間＋PID），新寫法在 macOS 的 mktemp 也可能照字面建：兩種名字都先佔住
+planted_names="upgrade-20260101T000000Z-$$.log upgrade-20260101T000000Z-XXXXXXXX.log"
+for kind in fifo link-dangling link-fifo link-file file; do
+  for owner in "999:999 755" "999:999 700" "0:0 755"; do
+    up="$tmp/up-plant-$kind-${owner// /-}"; mkdir -p "$up/prog" "$up/state/logs"; chmod 0700 "$up/state"
+    logs_owner="${owner% *}"; chmod "${owner#* }" "$up/state/logs"; : > "$up/state/logs/.planted"
+    echo untouched > "$up/victim"; mkfifo "$up/victim-fifo"
+    for n in $planted_names; do
+      f="$up/state/logs/$n"
+      case "$kind" in
+        fifo) mkfifo "$f" ;;
+        link-dangling) ln -s "$up/nowhere" "$f" ;;
+        link-fifo) ln -s "$up/victim-fifo" "$f" ;;
+        link-file) ln -s "$up/victim" "$f" ;;
+        file) echo planted > "$f" ;;
+      esac
+    done
+    with_deadline 20 planted_upgrade; rc=$?
+    label="升級：預置 ${kind}（logs ${owner}）"
+    check "$label → 限時內成功" "0" "$rc"
+    log=$(up_log)
+    check "${label}：只剩一個新紀錄檔" "1" "$(find "$up/state/logs" -mindepth 1 | wc -l | tr -d ' ')"
+    check "${label}：紀錄檔是 0600 一般檔案" "yes|600" "$([ -f "$log" ] && [ ! -L "$log" ] && echo yes || echo no)|$(mode_of "$log")"
+    check "${label}：紀錄寫進新檔" "yes" "$(has "$log" 'FORMWRIGHT_BACKUP_OK planted')"
+    check "${label}：目錄重建成 0700" "700" "$(mode_of "$up/state/logs")"
+    check "${label}：連結目標沒被動到" "untouched|no" "$(cat "$up/victim")|$([ -e "$up/nowhere" ] && echo yes || echo no)"
+  done
+done
+
+# 可信的 logs（root 0700）保留，裡面既有的紀錄不被覆寫
+up="$tmp/up-keep"; mkdir -p "$up/prog" "$up/state/logs"; chmod 0700 "$up/state/logs"
+echo previous > "$up/state/logs/upgrade-20250101T000000Z-old.log"
+( set -e; up_stubs; backup_rc=0 backup_line='FORMWRIGHT_BACKUP_OK kept'; do_upgrade ) >"$out" 2>&1; rc=$?
+check "升級：可信的 logs 保留舊紀錄" "0|previous|2" "$rc|$(cat "$up/state/logs/upgrade-20250101T000000Z-old.log")|$(find "$up/state/logs" -type f | wc -l | tr -d ' ')"
+
+# 建出來的東西不是 root 的一般檔案（mktemp 替身）：停服務前中止，不開啟它
+for kind in fifo symlink owner; do
+  up="$tmp/up-mk-$kind"; mkdir -p "$up/prog" "$up/state"; echo untouched > "$up/victim"
+  mk_upgrade() {
+    ( set -e; up_stubs; backup_rc=0 backup_line=x
+      mktemp() {
+        local f="${1%XXXXXXXX.log}stub.log"
+        case "$kind" in fifo) mkfifo "$f" ;; symlink) ln -s "$up/victim" "$f" ;; owner) : > "$f" ;; esac
+        echo "$f"
+      }
+      [ "$kind" != owner ] || owner_mode() { case "$1" in *.log) echo "999:999 600" ;; *) echo "0:0 $(mode_of "$1")" ;; esac; }
+      do_upgrade ) >"$out" 2>&1
+  }
+  with_deadline 20 mk_upgrade; rc=$?
+  check "升級：紀錄檔是 $kind → 限時內 exit 1" "1" "$rc"
+  check "升級：紀錄檔是 ${kind}：沒停服務、清 .new、目標不動" "no|no|untouched" "$(has "$up/calls" systemctl)|$([ -e "$up/prog.new" ] && echo yes || echo no)|$(cat "$up/victim")"
+done
 
 # 紀錄目錄或它的父目錄是 symlink：停服務之前就中止，目標不動
 for victim in state logs; do
