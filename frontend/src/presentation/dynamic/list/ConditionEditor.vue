@@ -216,10 +216,6 @@ function setJson(v: string | null) {
 </template>
 
 <style scoped>
-/* 桌機維持單列不換行；手機（< 600px）才換行，欄位各自至少 9rem，避免橫向捲動。 */
-.condition-row { flex-wrap: nowrap; }
-@media (max-width: 599.98px) {
-  .condition-row { flex-wrap: wrap; }
-  .condition-row > .col { flex: 1 1 9rem; min-width: 0; }
-}
+/* 依容器寬度換行（不看視窗寬度，側邊面板也適用）：放得下就單列，放不下就換行，欄位各自至少 9rem，避免橫向捲動。 */
+.condition-row > .col { flex: 1 1 9rem; min-width: 0; }
 </style>
