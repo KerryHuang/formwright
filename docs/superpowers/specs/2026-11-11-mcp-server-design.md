@@ -557,7 +557,7 @@ client 不支援 elicitation 時的處理（原待決）：做成政策 `mcp.hig
 
 **工具行為**
 
-- `delete_record`：`recordId`、`rowVersion`、`idempotencyKey` 必填；預演回 `recordId`、`moduleKey`、`cascadeDelete`（連帶刪除的記錄）、`clearReferences`（會被清空參照的記錄與欄位）。
+- `delete_record`：`recordId`、`rowVersion`、`idempotencyKey` 必填；預演回 `recordId`、`moduleKey`、`cascadeDelete`（連帶刪除的記錄）、`clearReferences`（會被清空參照的記錄與欄位）。最終審查 R3（2026-11-27）：規劃器跨所有來源查詢只供完整性檢查；對外摘要要每一筆連帶刪除或清空的來源都看得到（來源模組讀取權，明細照表頭；來源記錄在資料範圍內；命中的參照欄位沒被群組隱藏，MCP 通道也沒「不提供給 AI」），有任一筆看不到就整次回 `forbidden`「這筆刪除會連帶影響你在這裡看不到的資料，無法列出完整影響；請改在畫面上刪除」，不建碼、不跳對話框。內部刪除計畫與指紋不變；移出清單後的一般寫入不經預演，照常刪除。
 - `approve`：`taskId`、`rowVersion`（實例版本）、`idempotencyKey` 必填，`comment` 選填；不收可編輯欄位（只在畫面）。預演回關卡、結局（`waitOthers`／`nextStage`／`complete`／`route`）、下一關名稱、下一關是否有條件、核准後的目標狀態。
 - `reject`：另外必填 `comment`，`to` 是 `initiator`（出廠）或 `previous`；意見長度與必填由 handler 依政策判斷。預演回結局 `toInitiator`／`toPrevious` 與重簽的關卡。
 - 寫入類工具都多一個選填的 `confirmationCode` 參數；這次是一般寫入時忽略它。
@@ -577,7 +577,7 @@ client 不支援 elicitation 時的處理（原待決）：做成政策 `mcp.hig
 - 簽核預演不列轉移觸發的事件效果（任務規則、事件記帳、通知），只到「轉到哪個狀態」。最終審查 C1（2026-11-27）：同意與退回的預演附一句「注意：執行後可能還有上面未列出的自動效果…」，確認碼路徑在 `data.notice`、對話框接在預演內容後面（`McpPreview.Notice`）；只讀的轉移效果摘要留待後續。
 - 流程圖（graph）實例的同意只回 `route`，不預測走哪條分支；graph 實例的同意不比對請求帶的 `rowVersion`（照 handler）。
 - 確認執行成功後，用同一個確認碼與冪等鍵重送會回 `confirmation_invalid`，不回放第一次的結果：驗碼在 `IdempotencyBehavior` 之前，碼已用過。模型要用讀取工具確認是否已執行。
-- 預演內容的 AI 欄位遮罩只涵蓋工具本身的輸出（刪除與簽核預演只給 id、模組代碼、關卡名稱與狀態選項 id，不含記錄值）。
+- 預演內容的 AI 欄位遮罩只涵蓋工具本身的輸出（刪除與簽核預演只給 id、模組代碼、關卡名稱與狀態選項 id，不含記錄值）；刪除預演另依來源的讀取權、資料範圍與欄位可見性決定能不能揭露（R3），看不到就拒絕 AI 刪除。拒絕本身透露「有看不到的來源」這一件事，換取不列出模組、欄位與筆數。
 - 高風險清單裡的一般寫入工具（管理員加進來的）預演只是參數本身，沒有影響分析。
 - 預演與對話框裡的關卡名稱是四語物件（和工具輸出相同），沒有依呼叫語系挑一種；對話框因此會列出四種語言。
 - 確認碼不符時（含目標版本改變），稽核那一列沒有確認 id：寫入稽核在驗碼失敗時不透露是哪一筆確認。

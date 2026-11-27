@@ -40,5 +40,11 @@
     "en-US": "Note: running this may also trigger automatic effects not listed above, such as tasks, event postings and notifications triggered by the status change",
     "th": "หมายเหตุ: เมื่อดำเนินการแล้วอาจมีผลอัตโนมัติอื่นที่ไม่ได้แสดงไว้ข้างบน เช่น งาน การบันทึกเหตุการณ์ และการแจ้งเตือนที่เกิดจากการเปลี่ยนสถานะ",
     "vi": "Lưu ý: sau khi thực hiện có thể còn các tác động tự động chưa liệt kê ở trên, như công việc, ghi nhận sự kiện và thông báo do chuyển trạng thái kích hoạt"
+  },
+  "DeletePreviewRestricted": {
+    "zh-TW": "這筆刪除會連帶影響你在這裡看不到的資料，無法列出完整影響；請改在畫面上刪除",
+    "en-US": "Deleting this record also affects data you cannot see here, so the full impact cannot be listed. Please delete it in the web interface instead",
+    "th": "การลบระเบียนนี้จะกระทบข้อมูลที่คุณมองไม่เห็นจากที่นี่ จึงแสดงผลกระทบทั้งหมดไม่ได้ โปรดลบผ่านหน้าเว็บแทน",
+    "vi": "Xóa bản ghi này sẽ ảnh hưởng đến dữ liệu bạn không xem được ở đây nên không thể liệt kê đầy đủ ảnh hưởng; vui lòng xóa trên giao diện web"
   }
 }

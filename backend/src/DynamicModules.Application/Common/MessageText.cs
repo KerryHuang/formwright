@@ -190,7 +190,7 @@ public static class MessageText
         McpConfirmationDeclined = nameof(McpConfirmationDeclined), McpElicitationRequired = nameof(McpElicitationRequired),
         McpElicitationMessage = nameof(McpElicitationMessage), McpElicitationConfirm = nameof(McpElicitationConfirm),
         McpElicitationTruncated = nameof(McpElicitationTruncated), McpElicitationTooLarge = nameof(McpElicitationTooLarge),
-        McpApprovalUnlistedEffects = nameof(McpApprovalUnlistedEffects),
+        McpApprovalUnlistedEffects = nameof(McpApprovalUnlistedEffects), DeletePreviewRestricted = nameof(DeletePreviewRestricted),
         // 產品內備份（備份設計 §11、§5.5）
         BackupInProgress = nameof(BackupInProgress), BackupNotConfigured = nameof(BackupNotConfigured),
         BackupLocationPending = nameof(BackupLocationPending);
@@ -858,6 +858,10 @@ public static class MessageText
         [McpElicitationConfirm] = ("確認執行", "Confirm and run", "ยืนยันและดำเนินการ", "Xác nhận và thực hiện"),
         [McpElicitationTruncated] = ("…（已截短，全文 {0} 字）", "… (shortened; full text is {0} characters)",
             "… (ตัดให้สั้นลงแล้ว ข้อความเต็มมี {0} อักขระ)", "… (đã rút gọn; toàn văn có {0} ký tự)"),
+        [DeletePreviewRestricted] = ("這筆刪除會連帶影響你在這裡看不到的資料，無法列出完整影響；請改在畫面上刪除",
+            "Deleting this record also affects data you cannot see here, so the full impact cannot be listed. Please delete it in the web interface instead",
+            "การลบระเบียนนี้จะกระทบข้อมูลที่คุณมองไม่เห็นจากที่นี่ จึงแสดงผลกระทบทั้งหมดไม่ได้ โปรดลบผ่านหน้าเว็บแทน",
+            "Xóa bản ghi này sẽ ảnh hưởng đến dữ liệu bạn không xem được ở đây nên không thể liệt kê đầy đủ ảnh hưởng; vui lòng xóa trên giao diện web"),
         [McpApprovalUnlistedEffects] = ("注意：執行後可能還有上面未列出的自動效果，例如狀態轉移觸發的任務、事件記帳與通知",
             "Note: running this may also trigger automatic effects not listed above, such as tasks, event postings and notifications triggered by the status change",
             "หมายเหตุ: เมื่อดำเนินการแล้วอาจมีผลอัตโนมัติอื่นที่ไม่ได้แสดงไว้ข้างบน เช่น งาน การบันทึกเหตุการณ์ และการแจ้งเตือนที่เกิดจากการเปลี่ยนสถานะ",

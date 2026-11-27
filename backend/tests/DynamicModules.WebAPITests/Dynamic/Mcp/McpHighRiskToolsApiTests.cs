@@ -246,6 +246,63 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
     }
 
     /// <summary>
+    /// 受限的來源（不提供給 AI、群組隱藏、沒有讀取權、不在資料範圍），清空參照與連帶刪除都一樣：拒絕這次 AI 刪除、請改用畫面，
+    /// 結果不含來源模組、欄位 key 與筆數，不建確認碼、不刪。
+    /// </summary>
+    [Theory]
+    [InlineData("setNull", "aiExcluded")]
+    [InlineData("setNull", "groupHidden")]
+    [InlineData("setNull", "noRead")]
+    [InlineData("setNull", "outOfScope")]
+    [InlineData("cascade", "aiExcluded")]
+    [InlineData("cascade", "groupHidden")]
+    [InlineData("cascade", "noRead")]
+    [InlineData("cascade", "outOfScope")]
+    public async Task DeletePreview_RestrictedSource_Refused_NothingLeaked(string onDelete, string restriction)
+    {
+        var (id, rv, source, refKey) = await HiddenSourceRig(onDelete, restriction);
+        await using var sales = await Sales01();
+
+        var r = await Call("delete_record", DeleteArgs(id, rv), sales);
+
+        Code(r).Should().Be(McpErrorCodes.Forbidden, r.GetRawText());
+        r.GetRawText().Should().NotContain(source).And.NotContain(refKey);
+        Exists(id).Should().BeTrue();
+        Query(_app, db => db.Set<McpConfirmation>().Count()).Should().Be(0);
+    }
+
+    /// <summary>對照組：來源都看得到時照常列出清空與連帶刪除。對話框也不會跳出受限來源的內容（同一份摘要）。</summary>
+    [Theory]
+    [InlineData("setNull")]
+    [InlineData("cascade")]
+    public async Task DeletePreview_VisibleSource_Listed(string onDelete)
+    {
+        var (id, rv, source, refKey) = await HiddenSourceRig(onDelete, "none");
+        await using var sales = await Sales01();
+
+        var p = Ok(await Call("delete_record", DeleteArgs(id, rv), sales)).GetProperty("data").GetProperty("preview");
+
+        if (onDelete == "cascade") p.GetProperty("cascadeDelete")[0].GetProperty("moduleKey").GetString().Should().Be(source);
+        else p.GetProperty("clearReferences")[0].GetProperty("fieldKey").GetString().Should().Be(refKey);
+    }
+
+    /// <summary>移出清單（一般寫入）時，受限來源不影響刪除本身：完整性照規劃器處理，清空或連帶刪除都照常執行。</summary>
+    [Theory]
+    [InlineData("setNull", "aiExcluded")]
+    [InlineData("setNull", "noRead")]
+    [InlineData("cascade", "aiExcluded")]
+    public async Task Delete_RemovedFromList_RestrictedSource_DirectWriteStillWorks(string onDelete, string restriction)
+    {
+        SetPolicy(_app, PolicyCatalog.McpHighRiskTools, "approve,reject");
+        var (id, rv, _, _) = await HiddenSourceRig(onDelete, restriction);
+        await using var sales = await Sales01();
+
+        Ok(await Call("delete_record", DeleteArgs(id, rv), sales));
+
+        Exists(id).Should().BeFalse();
+    }
+
+    /// <summary>
     /// 來源看得到、預演列出清空或連帶刪除的清單：確認碼與對話框同意都照常執行
     /// （迴歸：對話框摘要截短時清單裡的物件曾丟「已經有父節點」而回 internal_error）。
     /// </summary>
@@ -275,6 +332,22 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
 
         Ok(r);
         Exists(id).Should().BeFalse();
+    }
+
+    /// <summary>受限來源走對話框：不跳對話框、回同樣的拒絕。</summary>
+    [Fact]
+    public async Task DeletePreview_RestrictedSource_Elicitation_NoDialog()
+    {
+        var (id, rv, source, _) = await HiddenSourceRig("setNull", "aiExcluded");
+        EnsureUser(_app, "sales01", u => (u.IsDemoAccount, u.MustChangePassword) = (false, false));
+        var (client, asked) = await ElicitingClient(() => Answer("accept", true), IssueToken(_app, "sales01", WriteScopes).Raw);
+        await using var _c = client;
+
+        var r = (await CallRaw(client, "delete_record", DeleteArgs(id, rv))).StructuredContent!.Value;
+
+        Code(r).Should().Be(McpErrorCodes.Forbidden, r.GetRawText());
+        asked.Should().BeEmpty();
+        Exists(id).Should().BeTrue();
     }
 
     /// <summary>管理員把 delete_record 移出清單：改成一般寫入，直接執行、寫入稽核級別是 Write、沒有確認列。</summary>

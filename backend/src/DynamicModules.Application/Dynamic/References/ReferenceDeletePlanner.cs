@@ -7,9 +7,11 @@ namespace DynamicModules.Application.Dynamic.References;
 /// <summary>Title 由 handler 依使用者權限決定填或 null；規劃器一律給 null。</summary>
 public record BlockingRef(string ModuleKey, I18nText ModuleName, I18nText FieldLabel, long RecordId, string? Title);
 
+/// <summary><see cref="DeletedVia"/>：連帶刪除的每一筆是經哪個參照欄位命中的（與 <see cref="ToDelete"/> 同序），揭露前判斷欄位可見性用（mcp2b 審查 R3）。</summary>
 public record DeletePlan(
     IReadOnlyList<Record> ToDelete, IReadOnlyList<(Record Record, Field Field)> ToClear,
-    IReadOnlyList<BlockingRef> Blocking, int BlockingTotal, bool DepthExceeded);
+    IReadOnlyList<BlockingRef> Blocking, int BlockingTotal, bool DepthExceeded,
+    IReadOnlyList<(Record Record, Field Field)>? DeletedVia = null);
 
 /// <summary>409 的額外資料，WebAPI 展開成 { message, references, total }。</summary>
 public record DeleteBlockedResponse(IReadOnlyList<BlockingRef> References, int Total);
@@ -29,6 +31,7 @@ public class ReferenceDeletePlanner(IModuleRepository modules, IRecordRepository
         var incoming = new Dictionary<string, IReadOnlyList<(Module Source, Field Field)>>();
         var visited = new HashSet<long> { root.Id };
         var toDelete = new List<Record>();
+        var deletedVia = new List<(Record, Field)>();
         var toClear = new List<(Record, Field)>();
         var blocking = new List<BlockingRef>();
         var depthExceeded = false;
@@ -57,6 +60,7 @@ public class ReferenceDeletePlanner(IModuleRepository modules, IRecordRepository
                             if (item.Depth + 1 > MaxDepth) { depthExceeded = true; break; }
                             visited.Add(s.Id);
                             toDelete.Add(s);
+                            deletedVia.Add((s, field));
                             queue.Enqueue((s, source.Key, item.Depth + 1));
                         }
                         break;
@@ -68,6 +72,6 @@ public class ReferenceDeletePlanner(IModuleRepository modules, IRecordRepository
         // 先被列為 Restrict 來源、之後才被連帶刪除的記錄不算擋住。
         // 同一來源記錄經多個欄位或多條路徑命中時只算一筆。
         blocking = blocking.Where(b => !visited.Contains(b.RecordId)).DistinctBy(b => (b.ModuleKey, b.RecordId)).ToList();
-        return new DeletePlan(toDelete, toClear, blocking, blocking.Count, depthExceeded);
+        return new DeletePlan(toDelete, toClear, blocking, blocking.Count, depthExceeded, deletedVia);
     }
 }
