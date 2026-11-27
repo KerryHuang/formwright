@@ -63,4 +63,4 @@ git fetch -q && git merge-base --is-ancestor origin/main HEAD && git push -q ori
 ## 5. 收尾
 
 - 進度寫進 `docs/roadmap.md` 的工作段表格；功能清單打勾並重算。
-- 確認分支已是 origin/main 的祖先後，移除 worktree 與分支。
+- 確認分支已是 origin/main 的祖先後，移除 worktree 與分支；推過的遠端功能分支也一起刪（`git push origin --delete <分支>`），不必再問（使用者 2026-11-27 裁決）。
