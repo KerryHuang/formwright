@@ -2,6 +2,7 @@ using System.Text.Json;
 using DynamicModules.Application.Common.Audit;
 using DynamicModules.Application.Dynamic.McpService.Confirmations;
 using DynamicModules.Application.Dynamic.McpService.Tools;
+using DynamicModules.Application.Dynamic.PolicyService;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.Mcp;
 using DynamicModules.Domain.Policies;
@@ -14,7 +15,7 @@ namespace DynamicModules.ApplicationTests.Dynamic.Mcp;
 
 /// <summary>
 /// mcp2b 執行器的高風險分支（MCP 設計 §6.3.1、§6.4），用正式 <c>delete_record</c> 刪真的記錄：elicitation 預演不帶碼、
-/// 碼的發出方式與送回方式不同一律 confirmation_invalid（兩個方向）、requestState 不是本系統發的、政策讀不到時退回出廠值。
+/// 碼的發出方式與送回方式不同一律 confirmation_invalid（兩個方向）、requestState 不是本系統發的、高風險政策壞值或讀不到時拒絕寫入。
 /// 端到端（SDK client 真的跳對話框）在 WebAPI 的 McpHighRiskToolsApiTests。
 /// </summary>
 [Trait("Category", "Postgres")]
@@ -206,17 +207,82 @@ public class McpHighRiskInvokerTests : McpWriteTestBase
         (audit.RiskLevel, audit.ConfirmationOutcome).Should().Be((AuditRiskLevel.HighRisk, AuditConfirmationOutcome.Confirmed));
     }
 
-    /// <summary>政策值壞掉（直接寫進不合法的值）：退回出廠值，delete_record 仍是高風險（fail closed）。</summary>
-    [Fact]
-    public async Task BrokenPolicyValue_FallsBackToFactory()
+    /// <summary>
+    /// R2：管理員加嚴（update_record 加進清單、不支援對話框時拒絕）之後，兩項高風險政策任一存了壞值或讀取丟例外：
+    /// 寫入類呼叫一律拒絕（不退回出廠清單、不放寬成確認碼），不發碼、不寫；唯讀照常。
+    /// </summary>
+    [Theory]
+    [InlineData("toolsBad")]
+    [InlineData("choiceBad")]
+    [InlineData("readThrows")]
+    public async Task HighRiskPolicyUnusable_WritesRejected_ReadsWork(string fault)
     {
-        Db.Context.Set<SystemSetting>().Add(new SystemSetting { Key = PolicyCatalog.McpHighRiskTools.SettingKey, Value = "query_records" });
-        await Db.Context.SaveChangesAsync();
+        await SetSystem(PolicyCatalog.McpHighRiskTools, "update_record,delete_record,approve,reject");
+        await SetSystem(PolicyCatalog.McpHighRiskWithoutElicitation, PolicyCatalog.McpWithoutElicitationReject);
+        switch (fault)
+        {
+            case "toolsBad": await SetSystem(PolicyCatalog.McpHighRiskTools, "update_record,query_records"); break;
+            case "choiceBad": await SetSystem(PolicyCatalog.McpHighRiskWithoutElicitation, "allow"); break;
+            default: _policyFault.On = true; break;
+        }
+        var before = ValuesOf(Target);
 
+        var delete = await Run(DeleteArgs(Target), Plain);
+        var write = await Run2(TestWriteTool.Name, WriteArgs());
+        var read = await Run2("fake_list", "{}");
+
+        CodeOf(delete).Should().Be(McpErrorCodes.Forbidden, delete.Text);
+        CodeOf(write).Should().Be(McpErrorCodes.Forbidden, write.Text);
+        Exists(Target).Should().BeTrue();
+        ValuesOf(Target).Should().Be(before);
+        Codes().Should().BeEmpty("不發確認碼");
+        read.IsError.Should().BeFalse(read.Text);
+    }
+
+    /// <summary>R2：兩項都沒設定時照出廠值（delete_record 高風險、沒對話框退回確認碼）。</summary>
+    [Fact]
+    public async Task HighRiskPolicyUnset_FactoryApplies()
+    {
         var r = await Run(DeleteArgs(Target), Plain);
 
         r.IsError.Should().BeFalse(r.Text);
         r.Structured.GetProperty("meta").TryGetProperty("confirmation", out _).Should().BeTrue();
         Exists(Target).Should().BeTrue();
+    }
+
+    private async Task<McpFormattedResult> Run2(string tool, string args)
+    {
+        Db.Context.ChangeTracker.Clear();
+        try { return await Invoke(tool, args, Plain); }
+        finally { Db.Context.ChangeTracker.Clear(); }
+    }
+
+    private readonly HighRiskPolicyFault _policyFault = new();
+
+    protected override void ConfigureServices(IServiceCollection services)
+    {
+        base.ConfigureServices(services);
+        services.AddSingleton(_policyFault);
+        services.AddScoped<PolicyReader>();
+        services.AddScoped<IPolicyReader>(sp => new FaultyHighRiskReader(sp.GetRequiredService<PolicyReader>(), _policyFault));
+    }
+
+    public sealed class HighRiskPolicyFault { public bool On { get; set; } }
+
+    /// <summary>讀兩項高風險政策時丟例外（模擬資料庫讀取失敗），其他政策照常。</summary>
+    private sealed class FaultyHighRiskReader(IPolicyReader inner, HighRiskPolicyFault fault) : IPolicyReader
+    {
+        private void Check(PolicyDefinition def)
+        {
+            if (fault.On && (def == PolicyCatalog.McpHighRiskTools || def == PolicyCatalog.McpHighRiskWithoutElicitation))
+                throw new InvalidOperationException("模擬讀取失敗");
+        }
+
+        public Task<PolicyResolution> ResolveAsync(PolicyDefinition def, long? moduleId, CancellationToken ct) { Check(def); return inner.ResolveAsync(def, moduleId, ct); }
+        public Task<int> IntAsync(PolicyDefinition def, long? moduleId, CancellationToken ct) { Check(def); return inner.IntAsync(def, moduleId, ct); }
+        public Task<bool> BoolAsync(PolicyDefinition def, long? moduleId, CancellationToken ct) { Check(def); return inner.BoolAsync(def, moduleId, ct); }
+        public Task<string> ChoiceAsync(PolicyDefinition def, long? moduleId, CancellationToken ct) { Check(def); return inner.ChoiceAsync(def, moduleId, ct); }
+        public Task<IReadOnlyList<string>> ListAsync(PolicyDefinition def, long? moduleId, CancellationToken ct) { Check(def); return inner.ListAsync(def, moduleId, ct); }
+        public void Invalidate() => inner.Invalidate();
     }
 }

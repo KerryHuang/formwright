@@ -537,7 +537,7 @@ client 不支援 elicitation 時的處理（原待決）：做成政策 `mcp.hig
 - `mcp.highRiskWithoutElicitation` 做成政策、出廠「退回確認碼」：主控裁決，待使用者確認（2026-11-27）。
 - 以下行為類決定由實作者代做，待使用者確認（2026-11-27）：
   - 管理員可以把一般寫入工具加進高風險清單（§6.4 只說「只有寫入類工具能加進清單」，沒排除一般寫入）；加進來後預演只是 AI 送出的參數本身。
-  - 政策值壞掉（直接寫進資料庫的不合法值）或讀取失敗時，清單退回出廠值、再聯集地板，不讓整個 AI 連線停擺；「不支援 elicitation」退回出廠值。和 mcp1a 九項政策「壞值即停用」不同，理由是這兩項只影響確認方式，出廠清單比管理員移出後的清單嚴。
+  - ~~政策值壞掉或讀取失敗時，清單退回出廠值、再聯集地板~~（最終審查 R2 推翻，2026-11-27）：出廠清單只比「管理員移出工具後」的清單嚴，管理員加進工具或設成「拒絕」時，退回出廠值反而撤掉確認要求。改成兩項任一有存值但無法使用、或讀取丟例外，寫入類工具一律回 `forbidden`（訊息同政策壞值「AI 連線的政策設定無法讀取，請系統管理員重新設定」）、不發確認碼；唯讀工具照常。沒設定時照出廠值。
   - 刪除的目標版本＝記錄版本＋串聯結果指紋（連帶刪除的 id、被清空的「記錄:欄位」排序後雜湊）；簽核的目標版本＝實例版本＋任務狀態。
   - 對話框按 accept 但「確認執行」沒勾（false），當成拒絕；client 只帶 `requestState`、沒帶回答，也當成拒絕（碼作廢）。
   - 對話框的訊息依呼叫語系，預演內容用縮排 JSON、最多 3,000 字。
@@ -1163,7 +1163,7 @@ mcp1a 的版本以 [mcp1a 計畫](../plans/2026-11-11-mcp-server-mcp1a.md)「實
 | 3 個高風險工具（`delete_record`、`approve`、`reject`）、範圍 `business.write`、出廠級別高風險 | `McpToolCatalog` | 平台功能清單 |
 | 高風險清單的選項只有寫入類工具；地板由工具宣告（`HighRiskFloor`）決定，目前是空的 | `McpToolCatalog.HighRiskOptions`、`HighRiskFloor` | 安全（C7） |
 | 實際級別：唯讀一律唯讀、地板一律高風險、其餘看清單 | `McpToolCatalog.EffectiveRisk` | 安全 |
-| 高風險政策壞值或讀取失敗時用出廠清單並聯集地板 | `McpPolicies.ReadHighRiskAsync` | 安全（fail closed） |
+| 高風險政策任一壞值或讀取失敗時拒絕寫入類工具（唯讀照常）；清單一律聯集地板 | `McpPolicies.ReadHighRiskAsync`、`McpToolInvoker` | 安全（fail closed） |
 | 確認碼的發出方式與送回方式要相同，否則 `confirmation_invalid` | `McpConfirmationValidator` | 安全（§6.3.1 第 4 點） |
 | 只有 MRTR 而且 client 宣告 form elicitation 才走對話框 | `McpSdkAdapter` | 技術限制（不支援時丟例外會變 internal error） |
 | 對話框只收一個布林「確認執行」 | `McpSdkAdapter` | 安全（規範不准 form 收敏感資訊） |

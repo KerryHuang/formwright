@@ -164,7 +164,13 @@ public sealed class McpToolInvoker(
             if (risk != McpRisk.Read)
             {
                 highRisk = await policies.ReadHighRiskAsync(ct);
-                risk = McpToolCatalog.EffectiveRisk(tool.Descriptor, highRisk.Tools);
+                if (highRisk.Unusable)
+                {
+                    // 審查 R2：高風險政策壞值或讀不到，不知道該不該確認，寫入一律拒絕（fail closed）；唯讀不經這裡
+                    outcome = McpToolOutcome.Error(McpErrorCodes.Forbidden, McpMessages.Denial(McpMessages.CodePolicyInvalid));
+                    return (Format(tool.Descriptor.Name, outcome, Text), AuditResult.Denied, McpErrorCodes.Forbidden);
+                }
+                risk =McpToolCatalog.EffectiveRisk(tool.Descriptor, highRisk.Tools);
                 // 帶 requestState 的是對既有對話框的回覆（審查 R1）：照該確認原本的安全要求驗回答與碼，
                 // 不因政策在對話框開著時改成一般寫入就略過——否則拒絕反而觸發寫入
                 if (context.RequestState is not null) risk = McpRisk.HighRisk;
