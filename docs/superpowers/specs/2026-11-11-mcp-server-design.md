@@ -540,7 +540,7 @@ client 不支援 elicitation 時的處理（原待決）：做成政策 `mcp.hig
   - ~~政策值壞掉或讀取失敗時，清單退回出廠值、再聯集地板~~（最終審查 R2 推翻，2026-11-27）：出廠清單只比「管理員移出工具後」的清單嚴，管理員加進工具或設成「拒絕」時，退回出廠值反而撤掉確認要求。改成兩項任一有存值但無法使用、或讀取丟例外，寫入類工具一律回 `forbidden`（訊息同政策壞值「AI 連線的政策設定無法讀取，請系統管理員重新設定」）、不發確認碼；唯讀工具照常。沒設定時照出廠值。
   - 刪除的目標版本＝記錄版本＋串聯結果指紋（連帶刪除的 id、被清空的「記錄:欄位」排序後雜湊）；簽核的目標版本＝實例版本＋任務狀態。
   - 對話框按 accept 但「確認執行」沒勾（false），當成拒絕；client 只帶 `requestState`、沒帶回答，也當成拒絕（碼作廢）。
-  - 對話框的訊息依呼叫語系，預演內容用縮排 JSON、最多 3,000 字。
+  - 對話框的訊息依呼叫語系，預演內容用縮排 JSON、最多 3,000 字。最終審查 R6（2026-11-27）改為：摘要由伺服器排（一般寫入先列目標、再列全部參數，物件的鍵依 Ordinal 排序，不照 AI 送的順序）；超過 200 字的字串值各自截短並標「…（已截短，全文 N 字）」，不會吞掉後面的欄位；截短後整份仍超過 3,000 字就不建碼、不發對話框，回 `invalid`「要確認的內容太多，對話框最多顯示 3000 字；請把這次操作拆小再試」。只有對話框截短，確認碼路徑的 `data.preview` 照完整內容給 AI。
   - 工具 annotations 依目錄的出廠級別：刪除、簽核標 `destructiveHint` true、`idempotentHint` 不給；管理員移出清單後 annotations 不變（刪除仍然是破壞性動作）。
 
 **與原設計不同之處**
@@ -1168,7 +1168,7 @@ mcp1a 的版本以 [mcp1a 計畫](../plans/2026-11-11-mcp-server-mcp1a.md)「實
 | 只有 MRTR 而且 client 宣告 form elicitation 才走對話框 | `McpSdkAdapter` | 技術限制（不支援時丟例外會變 internal error） |
 | 對話框只收一個布林「確認執行」 | `McpSdkAdapter` | 安全（規範不准 form 收敏感資訊） |
 | `requestState` 格式 `fwe1.<確認碼>` | `McpElicitationState` | 技術限制 |
-| 對話框的預演內容最多 3,000 字 | `McpToolInvoker.ElicitationPreviewMax` | 技術限制 |
+| 對話框的預演內容最多 3,000 字（放不下就不發對話框）、單一字串值顯示 200 字 | `McpToolInvoker.ElicitationPreviewMax`、`ElicitationLongTextMax` | 技術限制 |
 | 寫入確認：在交易內依序驗碼、重算目標版本、條件式標記已用，任一失敗不執行 | `McpWriteAuditBehavior` | 安全、資料完整性 |
 | 使用者拒絕的碼作廢，清理時不再記「逾時未確認」 | `DeclineMcpConfirmationRequest`、`PurgeMcpBatches` | 資料完整性 |
 | 高風險工具 annotations：`destructiveHint` true、`idempotentHint` 不給 | `McpSdkAdapter` | 技術限制 |

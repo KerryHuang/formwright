@@ -288,6 +288,12 @@ public sealed class McpToolInvoker(
             if (preview.Failure is { } failed) return failed;
             var method = context.ElicitationAvailable ? McpConfirmationMethod.Elicitation : McpConfirmationMethod.Code;
             confirmVia = ViaOf(method);
+            // 對話框放不下完整的確認內容（審查 R6）：不建碼、不發對話框，請 AI 縮小單次操作
+            string? dialog = null;
+            if (method == McpConfirmationMethod.Elicitation
+                && (dialog = ElicitationPreview(preview.Summary, n => Text(McpMessages.ElicitationTruncated(n)))) is null)
+                return McpToolOutcome.Error(McpErrorCodes.Invalid, McpMessages.ElicitationTooLarge(ElicitationPreviewMax))
+                    with { TargetKind = preview.TargetKind, TargetId = preview.TargetId };
             var summary = JsonSerializer.Serialize(preview.Summary, McpResultFormatter.Json);
             var created = await sender.Send(new CreateMcpConfirmationRequest(name, McpArguments.Hash(args), preview.TargetVersion, summary, method), ct);
             if (!created.IsSuccess) return McpToolOutcome.From(created);
@@ -297,7 +303,7 @@ public sealed class McpToolInvoker(
                 return McpToolOutcome.Ok(null) with
                 {
                     TargetKind = preview.TargetKind, TargetId = preview.TargetId,
-                    InputRequired = new McpInputRequired(Text(McpMessages.ElicitationMessage(name, ElicitationPreview(preview.Summary))),
+                    InputRequired = new McpInputRequired(Text(McpMessages.ElicitationMessage(name, dialog!)),
                         Text(McpMessages.ElicitationConfirm), McpElicitationState.Of(c.Code)),
                 };
             return McpToolOutcome.Ok(new { preview = preview.Summary },
@@ -361,15 +367,41 @@ public sealed class McpToolInvoker(
     /// <summary>稽核摘要的確認方式（<c>confirm</c>）：<c>code</c> 或 <c>elicitation</c>。</summary>
     private static string ViaOf(McpConfirmationMethod method) => method == McpConfirmationMethod.Elicitation ? "elicitation" : "code";
 
-    /// <summary>對話框裡的預演摘要（縮排 JSON，最多 <see cref="ElicitationPreviewMax"/> 字）。內容與工具輸出相同，已套 AI 欄位遮罩。</summary>
-    private static string ElicitationPreview(object? summary)
+    /// <summary>
+    /// 對話框裡的預演摘要（縮排 JSON，審查 R6）：內容與工具輸出相同、已套 AI 欄位遮罩、鍵順序由工具排好。超過 <see cref="ElicitationLongTextMax"/>
+    /// 字的字串值各自截短並標明全文字數（<paramref name="truncated"/>），不會吞掉後面的欄位；截短後整份仍超過 <see cref="ElicitationPreviewMax"/>
+    /// 字就回 null（不發可執行的對話框）。
+    /// </summary>
+    private static string? ElicitationPreview(object? summary, Func<int, string> truncated)
     {
-        var text = JsonSerializer.Serialize(summary, ElicitationJson);
-        return text.Length > ElicitationPreviewMax ? text[..ElicitationPreviewMax] + "…" : text;
+        var node = JsonSerializer.SerializeToNode(summary, McpResultFormatter.Json);
+        node = Shorten(node, truncated);
+        var text = node is null ? "null" : node.ToJsonString(ElicitationJson);
+        return text.Length > ElicitationPreviewMax ? null : text;
+    }
+
+    private static JsonNode? Shorten(JsonNode? node, Func<int, string> truncated)
+    {
+        switch (node)
+        {
+            case JsonObject o:
+                foreach (var key in o.Select(p => p.Key).ToList()) o[key] = Shorten(o[key], truncated);
+                return o;
+            case JsonArray a:
+                for (var i = 0; i < a.Count; i++) a[i] = Shorten(a[i], truncated);
+                return a;
+            case JsonValue v when v.TryGetValue<string>(out var s) && s.Length > ElicitationLongTextMax:
+                return JsonValue.Create(s[..ElicitationLongTextMax] + truncated(s.Length));
+            default:
+                return node?.DeepClone();
+        }
     }
 
     /// <summary>對話框說明的預演摘要上限（技術限制，對話框不是捲動長文的地方）。</summary>
     private const int ElicitationPreviewMax = 3000;
+
+    /// <summary>對話框裡單一字串值的顯示上限（技術限制）；超過的截短並標明全文字數。</summary>
+    private const int ElicitationLongTextMax = 200;
 
     // 對話框是給人看的純文字，不是 HTML：非 ASCII 照原文輸出（預設編碼器會跳脫成 \uXXXX，實機看不懂）
     private static readonly JsonSerializerOptions ElicitationJson =

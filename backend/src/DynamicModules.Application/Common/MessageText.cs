@@ -189,6 +189,7 @@ public static class MessageText
         // AI 連線高風險工具（mcp2b，設計 §6.3.1）
         McpConfirmationDeclined = nameof(McpConfirmationDeclined), McpElicitationRequired = nameof(McpElicitationRequired),
         McpElicitationMessage = nameof(McpElicitationMessage), McpElicitationConfirm = nameof(McpElicitationConfirm),
+        McpElicitationTruncated = nameof(McpElicitationTruncated), McpElicitationTooLarge = nameof(McpElicitationTooLarge),
         // 產品內備份（備份設計 §11、§5.5）
         BackupInProgress = nameof(BackupInProgress), BackupNotConfigured = nameof(BackupNotConfigured),
         BackupLocationPending = nameof(BackupLocationPending);
@@ -854,6 +855,12 @@ public static class MessageText
         [McpElicitationMessage] = ("AI 要執行高風險動作「{0}」，請確認以下內容：\n{1}", "The AI wants to perform the high-risk action \"{0}\". Please review:\n{1}",
             "AI ต้องการดำเนินการความเสี่ยงสูง \"{0}\" โปรดตรวจสอบ:\n{1}", "AI muốn thực hiện thao tác rủi ro cao \"{0}\". Vui lòng kiểm tra:\n{1}"),
         [McpElicitationConfirm] = ("確認執行", "Confirm and run", "ยืนยันและดำเนินการ", "Xác nhận và thực hiện"),
+        [McpElicitationTruncated] = ("…（已截短，全文 {0} 字）", "… (shortened; full text is {0} characters)",
+            "… (ตัดให้สั้นลงแล้ว ข้อความเต็มมี {0} อักขระ)", "… (đã rút gọn; toàn văn có {0} ký tự)"),
+        [McpElicitationTooLarge] = ("要確認的內容太多，對話框最多顯示 {0} 字；請把這次操作拆小再試",
+            "There is too much to confirm; the dialog can show at most {0} characters. Split this action into smaller ones and try again",
+            "มีเนื้อหาที่ต้องยืนยันมากเกินไป กล่องโต้ตอบแสดงได้สูงสุด {0} อักขระ โปรดแบ่งการดำเนินการนี้ให้เล็กลงแล้วลองใหม่",
+            "Nội dung cần xác nhận quá nhiều; hộp thoại chỉ hiển thị tối đa {0} ký tự. Hãy chia thao tác này nhỏ hơn rồi thử lại"),
         [BackupInProgress] = ("備份進行中，請等這一份完成後再試", "A backup is in progress. Try again after it finishes",
             "กำลังสำรองข้อมูลอยู่ โปรดลองอีกครั้งหลังจากเสร็จสิ้น", "Đang sao lưu, vui lòng thử lại sau khi hoàn tất"),
         [BackupLocationPending] = ("備份位置還在準備中（伺服器啟動後一分鐘內），請稍後再試", "The backup location is still being set up (within a minute after the server starts). Try again shortly",

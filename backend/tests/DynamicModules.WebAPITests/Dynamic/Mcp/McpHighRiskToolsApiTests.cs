@@ -454,6 +454,73 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
         InstanceStatus(instanceId).Should().Be(ApprovalInstanceStatus.Approved);
     }
 
+    // ───────── 對話框摘要由伺服器排（審查 R6）─────────
+
+    private async Task<(string NoteKey, string TitleKey, long Id, string RowVersion)> LongTextRig()
+    {
+        var module = await CreateModule(_admin);
+        var (_, note, _) = await AddField(_admin, module, "textarea");
+        await Activate(_admin, module);
+        var title = await TitleKey(_admin, module);
+        var res = await _admin.PostAsJsonAsync($"{Base}/modules/{module}/records", new { values = new Dictionary<string, object> { [title] = "原標題" } });
+        res.StatusCode.Should().Be(HttpStatusCode.Created, await res.Content.ReadAsStringAsync());
+        var created = await JsonOf(res);
+        return (note, title, created.GetProperty("id").GetInt64(), created.GetProperty("rowVersion").GetString()!);
+    }
+
+    /// <summary>
+    /// update_record 加進清單，長文字放最前面、目標與真正的變更放後面：對話框仍列出目標 id 與全部變更，長文字截短並標明全文字數；
+    /// 換參數順序得到同一份對話框內容。
+    /// </summary>
+    [Fact]
+    public async Task Elicitation_LongTextFirst_TargetAndChangesShown_OrderIndependent()
+    {
+        SetPolicy(_app, PolicyCatalog.McpHighRiskTools, "update_record,delete_record,approve,reject");
+        var (note, title, id, rv) = await LongTextRig();
+        var longText = new string('長', 5000);
+        var longFirst = new Dictionary<string, object?>
+        {
+            ["values"] = new Dictionary<string, object> { [note] = longText, [title] = "重要變更" }, ["rowVersion"] = rv, ["recordId"] = id,
+            ["idempotencyKey"] = NewIdem(),
+        };
+        var targetFirst = new Dictionary<string, object?>
+        {
+            ["recordId"] = id, ["rowVersion"] = rv, ["values"] = new Dictionary<string, object> { [title] = "重要變更", [note] = longText },
+            ["idempotencyKey"] = NewIdem(),
+        };
+        var (client, asked) = await ElicitingClient(() => Answer("decline"));
+        await using var _ = client;
+
+        Code((await CallRaw(client, "update_record", longFirst)).StructuredContent!.Value).Should().Be(McpErrorCodes.ConfirmationDeclined);
+        Code((await CallRaw(client, "update_record", targetFirst)).StructuredContent!.Value).Should().Be(McpErrorCodes.ConfirmationDeclined);
+
+        asked.Should().HaveCount(2);
+        var message = asked[0]!.Message;
+        message.Should().Contain(id.ToString()).And.Contain(title).And.Contain("重要變更").And.Contain("5000");
+        message.Should().NotContain(new string('長', 1000), "長文字截短");
+        asked[1]!.Message.Should().Be(message, "對話框內容由伺服器排，不照 AI 的參數順序");
+    }
+
+    /// <summary>變更多到對話框放不下：不發對話框、不建確認碼，回錯誤請 AI 縮小單次操作；記錄不動。</summary>
+    [Fact]
+    public async Task Elicitation_TooManyChanges_NoDialog_Rejected()
+    {
+        SetPolicy(_app, PolicyCatalog.McpHighRiskTools, "update_record,delete_record,approve,reject");
+        var (_, title, id, rv) = await LongTextRig();
+        var values = Enumerable.Range(0, 40).ToDictionary(i => $"f_extra{i}", i => (object)new string('多', 300));
+        values[title] = "重要變更";
+        var (client, asked) = await ElicitingClient(() => Answer("accept", true));
+        await using var _ = client;
+
+        var r = (await CallRaw(client, "update_record", new Dictionary<string, object?> { ["recordId"] = id, ["rowVersion"] = rv, ["values"] = values, ["idempotencyKey"] = NewIdem() }))
+            .StructuredContent!.Value;
+
+        Code(r).Should().Be(McpErrorCodes.Invalid, r.GetRawText());
+        asked.Should().BeEmpty();
+        Query(_app, db => db.Set<McpConfirmation>().Count()).Should().Be(0);
+        Query(_app, db => db.Set<Record>().Single(x => x.Id == id).RowVersion).Should().Be(rv);
+    }
+
     /// <summary>elicitation 發出的碼改用 confirmationCode 送：一律 confirmation_invalid（§6.3.1 第 4 點）。</summary>
     [Fact]
     public async Task Elicitation_CodeSentAsConfirmationCode_Invalid()

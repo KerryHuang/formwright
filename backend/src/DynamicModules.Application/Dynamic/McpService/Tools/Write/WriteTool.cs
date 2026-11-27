@@ -34,8 +34,22 @@ public abstract class WriteTool(ISender sender, string name, string schema, stri
     {
         var target = await TargetAsync(McpArgs.Of(call.Arguments), ct);
         if (target.Failure is { } failure) return McpPreview.Failed(failure);
-        return new McpPreview(new { tool = Descriptor.Name, arguments = WithoutKey(call.Arguments) }, target.Version, target.Kind, target.Id);
+        // 摘要由伺服器排（審查 R6）：先目標、再全部參數；物件的鍵依 Ordinal 排序，不照 AI 送來的順序
+        return new McpPreview(new
+        {
+            tool = Descriptor.Name,
+            target = target.Kind is null ? null : new { kind = target.Kind, id = target.Id },
+            arguments = Canonical(WithoutKey(call.Arguments)),
+        }, target.Version, target.Kind, target.Id);
     }
+
+    private static System.Text.Json.Nodes.JsonNode? Canonical(System.Text.Json.Nodes.JsonNode? node) => node switch
+    {
+        System.Text.Json.Nodes.JsonObject o => new System.Text.Json.Nodes.JsonObject(o.OrderBy(p => p.Key, StringComparer.Ordinal)
+            .Select(p => KeyValuePair.Create(p.Key, Canonical(p.Value?.DeepClone())))),
+        System.Text.Json.Nodes.JsonArray a => new System.Text.Json.Nodes.JsonArray(a.Select(x => Canonical(x?.DeepClone())).ToArray()),
+        _ => node?.DeepClone(),
+    };
 
     /// <summary>
     /// 這次寫入的既存目標現在的指紋：改記錄是記錄版本，改任務與留言是任務版本加子任務集合；新增類回 <see cref="McpWriteTarget.None"/>。

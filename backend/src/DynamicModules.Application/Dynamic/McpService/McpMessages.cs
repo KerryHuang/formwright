@@ -70,6 +70,10 @@ public static class McpMessages
     public static MessageRef ElicitationRequired => MessageRef.Of(MessageText.McpElicitationRequired);
     /// <summary>elicitation 對話框的說明：工具名稱與預演摘要（已遮罩，同工具輸出）。</summary>
     public static MessageRef ElicitationMessage(string tool, string preview) => MessageRef.Of(MessageText.McpElicitationMessage, tool, preview);
+    /// <summary>對話框裡長文字截短的標示（審查 R6）：全文 <paramref name="length"/> 字。</summary>
+    public static MessageRef ElicitationTruncated(int length) => MessageRef.Of(MessageText.McpElicitationTruncated, length);
+    /// <summary>確認內容截短後仍超過對話框上限 <paramref name="max"/> 字（審查 R6）：不發對話框。</summary>
+    public static MessageRef ElicitationTooLarge(int max) => MessageRef.Of(MessageText.McpElicitationTooLarge, max);
     /// <summary>elicitation 對話框唯一的布林欄位標題。</summary>
     public static MessageRef ElicitationConfirm => MessageRef.Of(MessageText.McpElicitationConfirm);
     public static MessageRef Unauthorized => MessageRef.Of(MessageText.McpUnauthorized);
