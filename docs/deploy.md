@@ -286,7 +286,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 6. `Start-Service Formwright`，用瀏覽器或 `Invoke-RestMethod http://127.0.0.1:<埠>/api/version` 確認有回應（埠見 `C:\ProgramData\Formwright\formwright.json` 的 `Server:Port`，預設 8080）。
 7. **不要用檔案總管進 `C:\ProgramData\Formwright` 按「繼續」**：Windows 會替你的帳號加一條明確授權。管理員帳號的授權不擋升級（見上面「資料目錄權限」），但其他帳號的授權會。
 
-**Ubuntu**（2026-11-27 在 WSL2 Ubuntu 24.04 以 root 演練過較早的版本；附件判斷在演練之後改為依 manifest 的附件數，主控會再複驗。一般 sudo 帳號與備份裡有附件的真機情況未演練。改版後的腳本另在 Ubuntu 24.04 容器內用假的 `systemctl` 驗過四種情境，不含真服務）：服務名 `formwright`，資料 `/var/lib/formwright/data`，備份 `/var/lib/formwright/backup`，資料庫檔 `formwright.db`；資料目錄與備份目錄擁有者是 `formwright:formwright`、0700，一般登入帳號進不去，所以檔案的列舉與複製都放在同一個 root shell 裡做。升級流程只對 `/var/lib/formwright`、`/etc/formwright`、`data`、`backup` 這幾個目錄重設擁有者與權限，**不檢查也不重設其下檔案**，所以還原後檔案的擁有者要維持 `formwright`，否則服務寫不進去。把 `<名稱>` 換成要還原的那份：
+**Ubuntu**（2026-11-27 在 WSL2 Ubuntu 24.04 以 root 照下面這段實跑：備份沒有附件時略過附件、還原後資料與備份一致、服務正常啟動。一般 sudo 帳號與備份裡有附件的真機情況未演練；有附件、缺附件池、雜湊不符、manifest 缺附件數這幾種另在 Ubuntu 24.04 容器內用假的 `systemctl` 驗過，不含真服務）：服務名 `formwright`，資料 `/var/lib/formwright/data`，備份 `/var/lib/formwright/backup`，資料庫檔 `formwright.db`；資料目錄與備份目錄擁有者是 `formwright:formwright`、0700，一般登入帳號進不去，所以檔案的列舉與複製都放在同一個 root shell 裡做。升級流程只對 `/var/lib/formwright`、`/etc/formwright`、`data`、`backup` 這幾個目錄重設擁有者與權限，**不檢查也不重設其下檔案**，所以還原後檔案的擁有者要維持 `formwright`，否則服務寫不進去。把 `<名稱>` 換成要還原的那份：
 
 ```bash
 sudo systemctl stop formwright
