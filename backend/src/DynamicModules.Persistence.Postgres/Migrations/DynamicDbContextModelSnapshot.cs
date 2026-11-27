@@ -2677,8 +2677,19 @@ namespace DynamicModules.Persistence.Postgres.Migrations
                     b.Property<DateTime>("CreatedUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("DeclinedUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime>("ExpiresUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("text")
+                        .HasDefaultValueSql("'code'")
+                        .UseCollation("C");
 
                     b.Property<string>("PreviewSummary")
                         .IsRequired()

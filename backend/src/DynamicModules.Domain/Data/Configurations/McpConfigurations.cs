@@ -47,6 +47,10 @@ public class McpConfirmationConfiguration : IEntityTypeConfiguration<McpConfirma
         b.Property(x => x.ExpiresUtc).AsUtc();
         b.Property(x => x.UsedUtc).AsUtc();
         b.Property(x => x.VoidedUtc).AsUtc();
+        b.Property(x => x.DeclinedUtc).AsUtc();
+        // 既有列（mcp2b 之前）都是確認碼；預設值讓 migration 套上去時舊列讀得回來
+        // 哨兵值設成不存在的列舉值：新列一律送出程式給的值，資料庫預設只給 migration 之前的舊列
+        b.Property(x => x.Method).AsCamelText().HasDefaultValueSql("'code'").HasSentinel((McpConfirmationMethod)(-1));
         b.HasIndex(x => x.CodeHash).IsUnique();
         b.HasIndex(x => new { x.TokenId, x.CreatedUtc });
         b.HasIndex(x => x.ExpiresUtc);

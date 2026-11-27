@@ -12,8 +12,8 @@ public enum AuditRiskLevel { Read, Write, HighRisk }
 /// <summary>稽核結果；畫面操作只記成功（O2-U9），其餘給登入失敗與 MCP。</summary>
 public enum AuditResult { Success, Denied, Invalid, Failed }
 
-/// <summary>高風險動作的確認結果（mcp1 填）。</summary>
-public enum AuditConfirmationOutcome { Preview, Confirmed, Expired, Mismatch }
+/// <summary>高風險動作的確認結果（mcp1 填；Declined 是 mcp2b 的 elicitation 被使用者拒絕或取消）。</summary>
+public enum AuditConfirmationOutcome { Preview, Confirmed, Expired, Mismatch, Declined }
 
 /// <summary>
 /// 稽核紀錄一列（維運設計 §5.6、§17.4 <c>Dynamic_AuditLog</c>；MCP 設計 §8.1 共用）。只能新增：repository 沒有修改與單筆刪除，

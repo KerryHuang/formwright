@@ -2377,8 +2377,18 @@ namespace DynamicModules.Persistence.Migrations
                     b.Property<DateTime>("CreatedUtc")
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("DeclinedUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("ExpiresUtc")
                         .HasColumnType("TEXT");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValueSql("'code'");
 
                     b.Property<string>("PreviewSummary")
                         .IsRequired()
