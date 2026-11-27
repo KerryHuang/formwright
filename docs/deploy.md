@@ -207,7 +207,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 
 ### 三條安裝路
 
-第一次安裝、不熟電腦請看 [Windows 安裝教學](install-windows.md)（含截圖）。
+第一次安裝、不熟電腦請看 [Windows 安裝教學](install-windows.md)或 [Ubuntu 安裝教學](install-ubuntu.md)（含截圖）。
 
 | | 指令或操作 |
 |---|---|
