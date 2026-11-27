@@ -7,7 +7,7 @@ import {
   reorderConditionEdge, setEdge, setNode, topoOrder, type EditOptions, type GraphState,
 } from './approval-graph-edit';
 import { createHistory, push, undo } from './approval-graph-history';
-import { layoutLeftToRight } from './approval-graph-layout';
+import { COL_GAP, NODE_H, NODE_W, layoutLeftToRight } from './approval-graph-layout';
 
 const names: EditOptions['names'] = { approval: (n) => ({ 'zh-TW': `簽核 ${n}` }), conditionLabel: (n) => ({ 'zh-TW': `條件 ${n}` }) };
 const opts: EditOptions = { names };
@@ -153,6 +153,67 @@ describe('insertOnEdge', () => {
     const before = JSON.stringify(s);
     insertOnEdge(s, 'e2', 'fork', opts);
     expect(JSON.stringify(s)).toBe(before);
+  });
+});
+
+// #109：插入後新節點不疊在既有節點上；上游與無關節點不動，只有新節點與下游往後推。
+describe('insertOnEdge makes room (#109)', () => {
+  const overlaps = (s: GraphState) => ids(s).flatMap((a, i) => ids(s).slice(i + 1).filter((b) =>
+    Math.abs(s.positions[a].x - s.positions[b].x) < NODE_W && Math.abs(s.positions[a].y - s.positions[b].y) < NODE_H).map((b) => `${a}+${b}`));
+  const tidied = (s: GraphState) => relayout(s);
+  const added = (before: GraphState, after: GraphState) => ids(after).filter((id) => !ids(before).includes(id));
+  const kinds = ['approval', 'notify', 'condition', 'fork'] as const;
+
+  it.each(kinds)('%s on a tidy line: nothing overlaps, upstream stays, downstream only moves right', (kind) => {
+    const before = tidied(line());
+    const s = insertOnEdge(before, 'e2', kind, opts);
+    expect(overlaps(s)).toEqual([]);
+    expect(s.positions.start).toEqual(before.positions.start);
+    expect(s.positions.mgr).toEqual(before.positions.mgr);
+    for (const id of ['fin', 'end']) {
+      expect(s.positions[id].y).toBe(before.positions[id].y);
+      expect(s.positions[id].x).toBeGreaterThan(before.positions[id].x);
+    }
+    // 新節點都在上游右側、下游左側，且欄距不小於整理排版的 COL_GAP
+    for (const id of added(before, s)) {
+      expect(s.positions[id].x).toBeGreaterThanOrEqual(s.positions.mgr.x + NODE_W + COL_GAP);
+      expect(s.positions.fin.x).toBeGreaterThanOrEqual(s.positions[id].x + NODE_W + COL_GAP);
+    }
+    expect(s.positions.end.x).toBeGreaterThanOrEqual(s.positions.fin.x + NODE_W + COL_GAP);
+  });
+
+  it('an approval on a tidy line lands where tidy would put it', () => {
+    const s = insertOnEdge(tidied(line()), 'e2', 'approval', opts);
+    expect(s.positions).toEqual(relayout(s).positions);
+  });
+
+  it('when there is already room, no existing node moves', () => {
+    const before = line();
+    ['fin', 'ceo', 'end'].forEach((id, i) => { before.positions[id] = { x: 2000 + i * 224, y: 0 }; });
+    const s = insertOnEdge(before, 'e2', 'fork', opts);
+    for (const id of ids(before)) expect(s.positions[id]).toEqual(before.positions[id]);
+    expect(overlaps(s)).toEqual([]);
+  });
+
+  it.each(kinds)('%s on one branch of a fork: the other branch and the fork stay put, nothing overlaps', (kind) => {
+    const base = tidied(insertOnEdge(tidied(line()), 'e2', 'fork', opts));
+    const [first, second] = base.definition.edges.filter((e) => e.from === 'fork-1').map((e) => e.to);
+    for (const [mine, other] of [[first, second], [second, first]]) {
+      const into = base.definition.edges.find((e) => e.from === 'fork-1' && e.to === mine)!;
+      const s = insertOnEdge(base, into.id, kind, opts);
+      expect(overlaps(s)).toEqual([]);
+      for (const id of ['start', 'mgr', 'fork-1', other]) expect(s.positions[id]).toEqual(base.positions[id]);
+      expect(s.positions[mine].x).toBeGreaterThan(base.positions[mine].x);
+    }
+  });
+
+  it('an unrelated node in the way is never moved; the new nodes go past it', () => {
+    const before = tidied(line());
+    before.definition.nodes.push(node('loose', 'approval'));
+    before.positions.loose = { x: before.positions.fin.x, y: before.positions.fin.y + 100 };
+    const s = insertOnEdge(before, 'e2', 'condition', opts);
+    expect(s.positions.loose).toEqual(before.positions.loose);
+    expect(overlaps(s)).toEqual([]);
   });
 });
 

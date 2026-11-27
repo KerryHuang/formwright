@@ -1,5 +1,5 @@
 import type { ApprovalEdgeDef, ApprovalNodeDef, ApprovalNodeKind, GraphDefinition } from './approval-flow-types';
-import { layoutLeftToRight } from './approval-graph-layout';
+import { COL_GAP, LABELED_COL_GAP, NODE_H, NODE_W, layoutLeftToRight } from './approval-graph-layout';
 import type { I18nText } from './types';
 
 // 流程圖設計器的編輯純函式（J71、J72）：每個函式吃 GraphState、回新的 GraphState（沒有改動時回原物件）。
@@ -76,9 +76,72 @@ function forkBlock(a: Alloc, opts: EditOptions) {
   return { fork, join, branches, edges, nodes: [fork, ...branches, join] };
 }
 
-const spread = (p: Position, i: number, n: number): Position => ({ x: p.x, y: p.y + (i - (n - 1) / 2) * 100 });
+/** 顯示文字的線（有標籤，或條件線顯示條件摘要）：起點右側的欄距要加寬（U59）。 */
+function labeledEdges(def: GraphDefinition): Set<string> {
+  const kind = new Map(def.nodes.map((n) => [n.id, n.kind]));
+  return new Set(def.edges.filter((e) => (!!e.label && Object.keys(e.label).length > 0) || (kind.get(e.from) === 'condition' && !e.default)).map((e) => e.id));
+}
 
-/** U49：在線 A→B 上插入節點，線上原有的標籤與條件留在前一段（A→新節點）。 */
+/**
+ * 插入後騰位置（#109）：只動新節點（`added`）與插入處下游（從 `to` 走得到的節點），上游與無關節點不動。
+ * 1. 新節點照整理排版（只排 `from`、新節點、`to` 這一小段）的相對位置放在 `from` 右側一個欄距；
+ *    高度對齊原本那條線：`from` 分岔時是終點的高度，否則是起點的高度。
+ * 2. 依拓撲順序只往右推：前一個節點動過時，原本在它右邊的下一個節點保持至少一個欄距；與其他節點重疊就推到它右邊。
+ */
+function makeRoom(s: GraphState, from: string, to: string, added: ApprovalNodeDef[]): void {
+  const { nodes, edges } = s.definition;
+  const isNew = new Set(added.map((n) => n.id));
+  const entry = edges.find((e) => e.from === from && isNew.has(e.to))!.to;
+  const labeled = labeledEdges(s.definition);
+  const gap = (id: string) => (edges.some((e) => e.from === id && labeled.has(e.id)) ? LABELED_COL_GAP : COL_GAP);
+  const at = (id: string): Position => s.positions[id] ?? { x: 0, y: 0 };
+
+  const part = new Set([from, to, ...isNew]);
+  const ideal = relayout({
+    definition: { ...s.definition, nodes: nodes.filter((n) => part.has(n.id)), edges: edges.filter((e) => isNew.has(e.from) || isNew.has(e.to)) },
+    positions: {},
+  }).positions;
+  const anchor = { x: at(from).x + NODE_W + gap(from), y: edges.filter((e) => e.from === from).length > 1 ? at(to).y : at(from).y };
+  for (const id of isNew) s.positions[id] = { x: anchor.x + ideal[id].x - ideal[entry].x, y: anchor.y + ideal[id].y - ideal[entry].y };
+
+  const walk = (start: string, next: (e: ApprovalEdgeDef) => [string, string]) => {
+    const seen = new Set([start]);
+    const queue = [start];
+    for (let i = 0; i < queue.length; i++) {
+      for (const e of edges) {
+        const [a, b] = next(e);
+        if (a === queue[i] && !seen.has(b) && !isNew.has(b)) { seen.add(b); queue.push(b); }
+      }
+    }
+    return seen;
+  };
+  // 編輯中的圖可能有環：走得回起點的節點算上游，不動
+  const upstream = walk(from, (e) => [e.to, e.from]);
+  const movable = new Set([...isNew, ...[...walk(to, (e) => [e.from, e.to])].filter((id) => !upstream.has(id))]);
+  const order = topoOrder({
+    ...s.definition,
+    nodes: [nodes.find((n) => n.id === entry)!, ...nodes.filter((n) => n.id !== entry && movable.has(n.id))],
+    edges: edges.filter((e) => movable.has(e.from) && movable.has(e.to)),
+  });
+
+  const before = new Map(order.map((id) => [id, at(id)]));
+  const moved = new Set(isNew);
+  const placed = nodes.map((n) => n.id).filter((id) => !movable.has(id));
+  for (const id of order) {
+    const p = { ...at(id) };
+    for (const e of edges) {
+      if (e.to !== id || !moved.has(e.from)) continue;
+      if (!isNew.has(e.from) && before.get(id)!.x <= before.get(e.from)!.x) continue; // 手排成往回的線照舊
+      p.x = Math.max(p.x, at(e.from).x + NODE_W + gap(e.from));
+    }
+    const hit = () => placed.find((o) => Math.abs(at(o).x - p.x) < NODE_W && Math.abs(at(o).y - p.y) < NODE_H);
+    for (let o = hit(); o !== undefined; o = hit()) p.x = at(o).x + NODE_W + COL_GAP;
+    if (p.x !== at(id).x) { moved.add(id); s.positions[id] = p; }
+    placed.push(id);
+  }
+}
+
+/** U49：在線 A→B 上插入節點，線上原有的標籤與條件留在前一段（A→新節點）；新節點與下游往右騰出位置（#109）。 */
 export function insertOnEdge(state: GraphState, edgeId: string, kind: ApprovalNodeKind, opts: EditOptions = {}): GraphState {
   if (kind !== 'approval' && kind !== 'condition' && kind !== 'fork' && kind !== 'notify') return state;
   const s = clone(state);
@@ -86,20 +149,17 @@ export function insertOnEdge(state: GraphState, edgeId: string, kind: ApprovalNo
   if (!edge) return state;
   const oldTo = edge.to;
   const a = allocator(s.definition, opts.reserved);
-  const pa = s.positions[edge.from];
-  const pb = s.positions[oldTo];
-  const mid: Position = pa && pb ? { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 } : (pa ?? pb ?? { x: 0, y: 0 });
-  const add = (n: ApprovalNodeDef[], at: Position[]) => n.forEach((x, i) => { s.definition.nodes.push(x); s.positions[x.id] = at[i]; });
+  let added: ApprovalNodeDef[];
   if (kind === 'approval' || kind === 'notify') {
     const n = kind === 'approval' ? newApproval(a, opts) : newNotify(a, opts);
     edge.to = n.id;
     s.definition.edges.push({ id: a.edge(), from: n.id, to: oldTo });
-    add([n], [mid]);
+    added = [n];
   } else if (kind === 'fork') {
     const b = forkBlock(a, opts);
     edge.to = b.fork.id;
     s.definition.edges.push(...b.edges, { id: a.edge(), from: b.join.id, to: oldTo });
-    add(b.nodes, [{ x: mid.x - 224, y: mid.y }, spread(mid, 0, 2), spread(mid, 1, 2), { x: mid.x + 224, y: mid.y }]);
+    added = b.nodes;
   } else {
     const c: ApprovalNodeDef = { id: a.node('condition').id, kind: 'condition' };
     const x = newApproval(a, opts);
@@ -109,8 +169,10 @@ export function insertOnEdge(state: GraphState, edgeId: string, kind: ApprovalNo
       { id: a.edge(), from: c.id, to: x.id, order: 1, ...(opts.names?.conditionLabel ? { label: opts.names.conditionLabel(1) } : {}) },
       { id: a.edge(), from: x.id, to: oldTo },
     );
-    add([c, x], [{ x: mid.x - 112, y: mid.y }, { x: mid.x + 112, y: mid.y + 100 }]);
+    added = [c, x];
   }
+  s.definition.nodes.push(...added);
+  makeRoom(s, edge.from, oldTo, added);
   return s;
 }
 
@@ -290,12 +352,10 @@ export function renameCode(state: GraphState, oldId: string, newId: string): Gra
 
 /** 整理排版（J73）：重算全部座標；有標籤的線（含條件線，它們顯示條件摘要）起點右側的欄距加寬（U59）。 */
 export function relayout(state: GraphState): GraphState {
-  const kind = new Map(state.definition.nodes.map((n) => [n.id, n.kind]));
-  const labeled = new Set(state.definition.edges.filter((e) => (!!e.label && Object.keys(e.label).length > 0) || (kind.get(e.from) === 'condition' && !e.default)).map((e) => e.id));
   const r = layoutLeftToRight(
     state.definition.nodes.map((n) => ({ id: n.id, kind: n.kind })),
     state.definition.edges.map((e) => ({ id: e.id, from: e.from, to: e.to })),
-    { labeledEdgeIds: labeled },
+    { labeledEdgeIds: labeledEdges(state.definition) },
   );
   const positions = Object.fromEntries(Object.entries(r.positions).map(([id, p]) => [id, { x: p.x, y: p.y }]));
   const same = Object.keys(positions).length === Object.keys(state.positions).length
