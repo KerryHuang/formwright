@@ -270,74 +270,111 @@ check "purge 取 Backup 區段的 Root（不是 Attachments 的）" "/b" "$(cfg_
 check "root 不直接 sed 設定檔" "0" "$(grep -cE 'sed .*"\$FW_CONFIG_FILE"' "$here/install.sh")"
 check "install.sh 檔頭列出 FORMWRIGHT_DOWNLOAD_BASE" "yes" "$(head -n 12 "$here/install.sh" | grep -q FORMWRIGHT_DOWNLOAD_BASE && echo yes || echo no)"
 
-# --- 升級前備份的輸出寫進 log 檔、終端只印一行（#145）：stub 掉 systemd 與換程式的步驟 ---
+# --- 升級前備份的輸出寫進紀錄檔、終端只印結果（#145）：stub 掉 systemd 與換程式的步驟 ---
+# shellcheck disable=SC2034  # 這些變數由子 shell 內的 do_upgrade 讀取
+up_stubs() { # 在子 shell 內呼叫；$up 是這個案例的根目錄
+  FW_PROGRAM_DIR="$up/prog" FW_DATA_DIR="$up/state/data" PACKAGE_VERSION=2.0.0
+  stage_package() { mkdir -p "$FW_PROGRAM_DIR.new"; }
+  installed_version() { echo 1.0.0; }
+  systemctl() { echo "systemctl $*" >> "$up/calls"; }
+  chown() { echo "chown $*" >> "$up/calls"; }
+  ensure_dirs() { :; }; swap_program() { :; }; write_unit() { :; }; wait_active() { :; }
+  as_service() {
+    local i; for i in $(seq 1 30); do echo "{\"LogLevel\":\"Information\",\"n\":$i}"; done
+    echo '{"LogLevel":"Warning","Message":"password=s3cret","stream":"stderr"}' >&2
+    echo "$backup_line"; return "$backup_rc"
+  }
+}
 up_case() { # <名稱> <備份結束碼> <備份最後一行> [OPT_SKIP_BACKUP]；回傳升級的 exit code，終端輸出在 $out
-  up="$tmp/up-$1"; rm -rf "$up"; mkdir -p "$up/prog"
+  up="$tmp/up-$1"; rm -rf "$up"; mkdir -p "$up/prog" "$up/state"; chmod 0700 "$up/state"
   # shellcheck disable=SC2034  # 這些變數由子 shell 內的 do_upgrade、msg 讀取
   ( set -e
-    FW_PROGRAM_DIR="$up/prog" FW_LOG_DIR="$up/log" FW_LANG="${UP_LANG:-en}" OPT_SKIP_BACKUP="${4:-0}" PACKAGE_VERSION=2.0.0
-    stage_package() { mkdir -p "$FW_PROGRAM_DIR.new"; }
-    installed_version() { echo 1.0.0; }
-    systemctl() { echo "systemctl $*" >> "$up/calls"; }
-    chown() { echo "chown $*" >> "$up/calls"; }
-    ensure_dirs() { :; }; swap_program() { :; }; write_unit() { :; }; wait_active() { :; }
-    as_service() {
-      local i; for i in $(seq 1 30); do echo "{\"LogLevel\":\"Information\",\"n\":$i}"; done
-      echo '{"LogLevel":"Warning","stream":"stderr"}' >&2
-      echo "$backup_line"; return "$backup_rc"
-    }
+    up_stubs; FW_LANG="${UP_LANG:-en}" OPT_SKIP_BACKUP="${4:-0}"
     backup_rc="$2"; backup_line="$3"
     do_upgrade ) >"$out" 2>&1
   echo $?
 }
 has() { grep -qF -- "$2" "$1" 2>/dev/null && echo yes || echo no; }
-up_log() { find "$up/log" -name 'upgrade-*.log' 2>/dev/null | head -n 1; }
+up_log() { find "$up/state/logs" -name 'upgrade-*.log' 2>/dev/null | head -n 1; }
 
 rc=$(up_case ok 0 'FORMWRIGHT_BACKUP_OK k1'); up="$tmp/up-ok"
 check "升級：備份成功 exit 0" "0" "$rc"
 check "升級：終端沒有 JSON log" "no" "$(has "$out" '"LogLevel"')"
 check "升級：終端印備份完成" "yes" "$(has "$out" 'Pre-upgrade backup completed.')"
 log=$(up_log)
-check "升級：log 含 stdout 與機器標記" "yes" "$(has "$log" 'FORMWRIGHT_BACKUP_OK k1')"
-check "升級：log 含 stderr" "yes" "$(has "$log" '"stream":"stderr"')"
-check "升級：log 目錄 0700" "700" "$(mode_of "$up/log")"
-check "升級：log 檔 0600" "600" "$(mode_of "$log")"
-check "升級：log 目錄給 root" "yes" "$(has "$up/calls" "chown root:root $up/log")"
+check "升級：紀錄檔第一行是時間與版號標頭" "yes" "$(head -n 1 "$log" | grep -qE '^# [0-9T:-]+Z upgrade 1\.0\.0 -> 2\.0\.0$' && echo yes || echo no)"
+check "升級：紀錄檔含 stdout 與機器標記" "yes" "$(has "$log" 'FORMWRIGHT_BACKUP_OK k1')"
+check "升級：紀錄檔含 stderr" "yes" "$(has "$log" '"stream":"stderr"')"
+check "升級：紀錄目錄 0700" "700" "$(mode_of "$up/state/logs")"
+check "升級：紀錄檔 0600" "600" "$(mode_of "$log")"
+check "升級：紀錄目錄給 root" "yes" "$(has "$up/calls" "chown root:root $up/state/logs")"
+check "升級：舊配置的父目錄收緊成 root 0755" "755|yes" "$(mode_of "$up/state")|$(grep -qx "chown root:root $up/state" "$up/calls" && echo yes || echo no)"
 
-for case_ in "1 20 Pre-upgrade" "2 21 No"; do
-  read -r brc want head_ <<< "$case_"
-  rc=$(up_case "fail$brc" "$brc" "FORMWRIGHT_BACKUP_X code$brc"); up="$tmp/up-fail$brc"; log=$(up_log)
+for case_ in "1 20 FAILED unexpected Pre-upgrade backup failed" "2 21 NOT_CONFIGURED locationInvalid The backup location is not configured or is invalid"; do
+  read -r brc want kind code head_ <<< "$case_"
+  rc=$(up_case "fail$brc" "$brc" "FORMWRIGHT_BACKUP_$kind $code"); up="$tmp/up-fail$brc"; log=$(up_log)
   check "升級：備份結束碼 $brc → exit $want" "$want" "$rc"
-  check "升級 ${want}：印既有訊息" "yes" "$(grep -q "^$head_" "$out" && echo yes || echo no)"
-  check "升級 ${want}：印 log 路徑" "yes" "$([ -n "$log" ] && has "$out" "$log" || echo no)"
-  check "升級 ${want}：只印最後 20 行（含最後一行）" "yes" "$(has "$out" "FORMWRIGHT_BACKUP_X code$brc")"
-  check "升級 ${want}：JSON 行數 19（最後 20 行扣掉標記行）" "19" "$(grep -c '"LogLevel"' "$out")"
+  check "升級 ${want}：印既有訊息" "yes" "$(has "$out" "$head_")"
+  check "升級 ${want}：印機器標記行" "yes" "$(grep -qx "FORMWRIGHT_BACKUP_$kind $code" "$out" && echo yes || echo no)"
+  check "升級 ${want}：印紀錄檔路徑與查看指令" "yes" "$([ -n "$log" ] && has "$out" "sudo less $log" || echo no)"
+  check "升級 ${want}：終端不含原始 log" "no|no" "$(has "$out" '"LogLevel"')|$(has "$out" 's3cret')"
   check "升級 ${want}：舊版服務拉起來" "yes" "$(has "$up/calls" 'systemctl start formwright')"
   check "升級 ${want}：清掉 .new" "no" "$([ -e "$up/prog.new" ] && echo yes || echo no)"
   check "升級 ${want}：不印備份完成" "no" "$(has "$out" 'Pre-upgrade backup completed.')"
 done
 
-rc=$(up_case skip 2 'FORMWRIGHT_BACKUP_NOT_CONFIGURED notConfigured' 1)
+rc=$(up_case skip 2 'FORMWRIGHT_BACKUP_NOT_CONFIGURED locationInvalid' 1)
 check "升級：--skip-backup exit 0" "0" "$rc"
-check "升級：--skip-backup 明說略過、不說完成" "yes|no" "$(has "$out" 'skipped because of --skip-backup')|$(has "$out" 'Pre-upgrade backup completed.')"
+check "升級：--skip-backup 明說沒設或無效而略過、不說完成" "yes|no" "$(has "$out" 'not configured or is invalid; the pre-upgrade backup was skipped')|$(has "$out" 'Pre-upgrade backup completed.')"
 rc=$(up_case pending 0 'FORMWRIGHT_BACKUP_SETUP_PENDING')
 check "升級：精靈未完成 exit 0" "0" "$rc"
 check "升級：精靈未完成明說沒有資料可備份、不說完成" "yes|no" "$(has "$out" 'nothing to back up')|$(has "$out" 'Pre-upgrade backup completed.')"
 UP_LANG=zh-TW; rc=$(up_case zh 0 'FORMWRIGHT_BACKUP_OK k2'); unset UP_LANG
 check "升級：繁中訊息" "yes" "$(has "$out" '升級前備份完成')"
 
-# log 目錄是 symlink：停服務之前就中止，目標不動
-up="$tmp/up-sym"; mkdir -p "$tmp/up-target"
-# shellcheck disable=SC2034  # 同上：子 shell 內讀取
-rc=$( ( FW_PROGRAM_DIR="$tmp/up-symprog" FW_LOG_DIR="$tmp/up-symlog" PACKAGE_VERSION=2.0.0
-  ln -s "$tmp/up-target" "$tmp/up-symlog"
-  stage_package() { mkdir -p "$FW_PROGRAM_DIR.new"; }
-  systemctl() { echo "systemctl $*" >> "$tmp/up-sym.calls"; }
-  chown() { echo "chown $*" >> "$tmp/up-sym.calls"; }
-  do_upgrade ) >"$out" 2>&1; echo $? )
-check "升級：log 目錄是 symlink → exit 1" "1" "$rc"
-check "升級：symlink 時沒有停服務、沒有 chown" "no" "$([ -e "$tmp/up-sym.calls" ] && echo yes || echo no)"
-check "升級：symlink 目標沒有被寫入" "" "$(ls -A "$tmp/up-target")"
-check "升級：symlink 時清掉 .new" "no" "$([ -e "$tmp/up-symprog.new" ] && echo yes || echo no)"
+# 紀錄檔只開一次：備份期間路徑被換成 symlink，輸出仍進原本那個檔；子程序拿不到多餘的 fd
+up="$tmp/up-swap"; mkdir -p "$up/prog" "$up/state"; echo untouched > "$up/victim"
+( set -e
+  up_stubs; backup_rc=1
+  as_service() {
+    local f; f=$(find "$up/state/logs" -name 'upgrade-*.log')
+    mv "$f" "$up/orig.log"; ln -s "$up/victim" "$f"
+    if { : >&3; } 2>/dev/null; then echo leaked-fd3; fi
+    if { : <&4; } 2>/dev/null; then echo leaked-fd4; fi
+    echo 'FORMWRIGHT_BACKUP_FAILED swapped'; return 1
+  }
+  do_upgrade ) >"$out" 2>&1; rc=$?
+check "升級：路徑中途被換掉仍 exit 20" "20" "$rc"
+check "升級：輸出寫進原本開好的檔" "yes" "$(has "$up/orig.log" 'FORMWRIGHT_BACKUP_FAILED swapped')"
+check "升級：symlink 目標沒有被寫入" "untouched" "$(cat "$up/victim")"
+check "升級：標記行從原本開好的檔讀出" "yes" "$(has "$out" 'FORMWRIGHT_BACKUP_FAILED swapped')"
+check "升級：子程序沒有繼承 fd 3、4" "no" "$(has "$up/orig.log" 'leaked-fd')"
+
+# 建檔成功、第一筆寫入失敗（用檔案大小上限 0 模擬寫不進去）：不停服務、不備份、清 .new
+# 輸出走管線：上限 0 之下子 shell 寫不了任何一般檔案。msg 換成替身：macOS 的 bash 3.2 用暫存檔做 here-string，上限 0 下查不了字串表
+up="$tmp/up-full"; mkdir -p "$up/prog" "$up/state"
+( up_stubs; chown() { :; }; msg() { echo "msg $*"; }
+  systemctl() { : > "$up/systemctl-called"; }
+  as_service() { : > "$up/backup-called"; }
+  trap '' XFSZ; ulimit -f 0
+  do_upgrade ) 2>&1 | cat > "$out"; rc=${PIPESTATUS[0]}
+check "升級：第一筆寫入失敗 → exit 1" "1" "$rc"
+check "升級：寫入失敗的案例確實建出了紀錄檔" "yes" "$([ -n "$(up_log)" ] && echo yes || echo no)"
+check "升級：寫入失敗沒有呼叫 systemctl、沒有備份" "no|no" "$([ -e "$up/systemctl-called" ] && echo yes || echo no)|$([ -e "$up/backup-called" ] && echo yes || echo no)"
+check "升級：寫入失敗清掉 .new" "no" "$([ -e "$up/prog.new" ] && echo yes || echo no)"
+check "升級：寫入失敗訊息含紀錄檔路徑" "yes" "$(has "$out" "msg log_failed $up/state/logs/upgrade-")"
+
+# 紀錄目錄或它的父目錄是 symlink：停服務之前就中止，目標不動
+for victim in state logs; do
+  up="$tmp/up-sym-$victim"; mkdir -p "$up/prog" "$up/target"; chmod 0711 "$up/target"
+  if [ "$victim" = state ]; then ln -s "$up/target" "$up/state"
+  else mkdir "$up/state"; ln -s "$up/target" "$up/state/logs"; fi
+  ( up_stubs; do_upgrade ) >"$out" 2>&1; rc=$?
+  check "升級：$victim 是 symlink → exit 1" "1" "$rc"
+  check "升級：$victim symlink 沒有停服務" "no" "$(has "$up/calls" 'systemctl')"
+  check "升級：$victim symlink 沒有 chown 到它或目標" "no" "$(grep -qE "(/$victim|target)\$" "$up/calls" 2>/dev/null && echo yes || echo no)"
+  check "升級：$victim symlink 目標沒有被寫入、mode 不變" "|711" "$(ls -A "$up/target")|$(mode_of "$up/target")"
+  check "升級：$victim symlink 清掉 .new" "no" "$([ -e "$up/prog.new" ] && echo yes || echo no)"
+done
 
 exit $fail

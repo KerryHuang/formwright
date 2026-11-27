@@ -7,7 +7,7 @@
 #   FORMWRIGHT_DOWNLOAD_BASE（改從鏡像或測試伺服器下載：套件與 SHA256SUMS 兩個檔都從這個位置取；
 #   sudo 預設會清掉環境變數，要寫成 sudo FORMWRIGHT_DOWNLOAD_BASE=… bash install.sh）
 # 結束碼：0 成功；10 不是 root；11 不支援的系統；12 下載或校驗失敗；
-#        20 升級前備份失敗（已中止、舊版照跑）；21 備份位置沒設且沒給 --skip-backup
+#        20 升級前備份失敗（已中止、舊版照跑）；21 備份位置沒設或無效且沒給 --skip-backup
 set -euo pipefail
 
 # 預設值由 scripts/installer/render-defaults.mjs 依 installer/install-defaults.json 寫入，不要手改標記之間的內容
@@ -25,8 +25,6 @@ FW_REPO=''
 # 測試用：FW_ROOT 是 /etc、/opt 的路徑前綴（正式執行為空）；FW_ARCH 取代 uname -m
 FW_ROOT="${FW_ROOT:-}"
 FW_UNIT_FILE=/etc/systemd/system/formwright.service
-# 升級前備份的完整輸出（程式的 JSON log）寫在這裡，只有 root 讀得到
-FW_LOG_DIR=/var/log/formwright
 FW_LANG="${FW_LANG:-en}"
 
 ACTION=install
@@ -50,15 +48,15 @@ installing=正在安裝 Formwright %s …
 upgrading=正在升級 Formwright：%s → %s
 backup_running=升級前先備份資料 …
 backup_done=升級前備份完成。
-backup_skipped=備份位置沒有設定，依 --skip-backup 略過升級前備份。
+backup_skipped=備份位置沒有設定或設定無效，依 --skip-backup 略過升級前備份。
 backup_pending=設定精靈還沒完成，沒有資料需要備份。
 backup_log=升級前備份的詳細紀錄（只有 root 讀得到）：%s
-backup_log_tail=紀錄的最後 20 行：
-log_failed=無法建立紀錄檔 %s，已中止，程式沒有更新。
+backup_log_view=用 sudo less %s 查看完整內容。
+log_failed=無法建立或寫入紀錄檔 %s，已中止，程式沒有更新。
 unsafe_path=拒絕處理：%s 是符號連結或不是目錄，沒有做任何變更。請確認後手動處理再重跑。
 dirs_failed=無法設定 %s 的擁有者或權限，已中止，程式沒有更新。
 backup_failed=升級前備份失敗，升級已中止，舊版照常執行。
-backup_not_configured=備份位置沒有設定，升級已中止；確定不備份就加 --skip-backup 重跑。
+backup_not_configured=備份位置沒有設定或設定無效，升級已中止；確定不備份就加 --skip-backup 重跑。
 upgraded=已升級到版本 %s。
 start_failed=服務沒有在時限內啟動，請用 journalctl -u formwright 查看；舊版程式留在 %s。
 open_url=請用瀏覽器開啟：%s
@@ -83,15 +81,15 @@ installing=Installing Formwright %s ...
 upgrading=Upgrading Formwright: %s -> %s
 backup_running=Backing up data before the upgrade ...
 backup_done=Pre-upgrade backup completed.
-backup_skipped=No backup location is configured; the pre-upgrade backup was skipped because of --skip-backup.
+backup_skipped=The backup location is not configured or is invalid; the pre-upgrade backup was skipped because of --skip-backup.
 backup_pending=The setup wizard has not been completed; there is nothing to back up.
 backup_log=Full pre-upgrade backup log (readable by root only): %s
-backup_log_tail=Last 20 lines of the log:
-log_failed=Could not create the log file %s; stopped without updating the program.
+backup_log_view=To see the full log, run: sudo less %s
+log_failed=Could not create or write the log file %s; stopped without updating the program.
 unsafe_path=Refusing to continue: %s is a symbolic link or not a directory. Nothing was changed; fix it manually and re-run.
 dirs_failed=Could not set the owner or permissions of %s; stopped without updating the program.
 backup_failed=Pre-upgrade backup failed; the upgrade was cancelled and the current version is still running.
-backup_not_configured=No backup location is configured, so the upgrade was cancelled. Re-run with --skip-backup if you are sure you want to upgrade without a backup.
+backup_not_configured=The backup location is not configured or is invalid, so the upgrade was cancelled. Re-run with --skip-backup if you are sure you want to upgrade without a backup.
 upgraded=Upgraded to version %s.
 start_failed=The service did not start in time; check journalctl -u formwright. The previous program files are kept in %s.
 open_url=Open in your browser: %s
@@ -401,23 +399,43 @@ do_reinstall() {
   print_url
 }
 
-# 建立這次升級的紀錄檔 UPGRADE_LOG（目錄 root 0700、檔案 0600）。
-# /var/log 在 Ubuntu 上 syslog 群組可寫，所以目錄同樣擋 symlink；noclobber 讓既有檔案（含 symlink）不會被覆寫。
+# 升級前備份的完整輸出（程式的 JSON log）寫進 <state>/logs/upgrade-*.log，只有 root 讀得到。
+# 放在 <state> 底下是因為整條父目錄鏈（/var/lib、<state>）只有 root 能寫，檢查之後沒有人能替換路徑。
 UPGRADE_LOG=""
-create_upgrade_log() {
-  refuse_unsafe_path "$FW_LOG_DIR"
+
+# <state> 照 ensure_dirs 的做法：symlink 或非目錄拒絕，舊配置的擁有者與權限直接收緊成 root 0755，之後才碰 logs
+prepare_log_dir() {
+  local state_dir log_dir
+  log_dir=$(dirname "$UPGRADE_LOG"); state_dir=$(dirname "$log_dir")
   # 每一步明確檢查回傳值：呼叫端在 `||` 左側呼叫本函式，那時 set -e 不生效
-  mkdir -p "$FW_LOG_DIR" || die 1 log_failed "$UPGRADE_LOG"
-  chown root:root "$FW_LOG_DIR" || die 1 log_failed "$UPGRADE_LOG"
-  chmod 0700 "$FW_LOG_DIR" || die 1 log_failed "$UPGRADE_LOG"
-  (umask 077; set -C; : > "$UPGRADE_LOG") || die 1 log_failed "$UPGRADE_LOG"
+  refuse_unsafe_path "$state_dir"
+  mkdir -p "$state_dir" || die 1 dirs_failed "$state_dir"
+  chown root:root "$state_dir" || die 1 dirs_failed "$state_dir"
+  chmod 0755 "$state_dir" || die 1 dirs_failed "$state_dir"
+  refuse_unsafe_path "$log_dir"
+  mkdir -p "$log_dir" || die 1 log_failed "$UPGRADE_LOG"
+  chown root:root "$log_dir" || die 1 log_failed "$UPGRADE_LOG"
+  chmod 0700 "$log_dir" || die 1 log_failed "$UPGRADE_LOG"
 }
 
-# 備份失敗時印紀錄檔位置與結尾，讓使用者不必另外去找原因
+# 新建紀錄檔（0600；noclobber：已存在就失敗），寫入走 fd 3、讀回走 fd 4，之後不再用路徑開它。
+# 停服務前先寫一行標頭：開始時就寫不進去（磁碟滿、唯讀）在這裡擋下；之後才滿的擋不到。
+# 要在目前的 shell 呼叫（fd 要留給呼叫端），所以失敗用回傳值、不 die
+open_upgrade_log() { # <舊版號>
+  local mask rc=0
+  mask=$(umask); umask 077; set -C
+  { exec 3> "$UPGRADE_LOG"; } || rc=1
+  set +C; umask "$mask"
+  [ "$rc" = 0 ] || return 1
+  { exec 4< "$UPGRADE_LOG"; } || return 1
+  printf '# %s upgrade %s -> %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$PACKAGE_VERSION" >&3 || return 1
+}
+
+# 備份中止時終端只印機器標記行（原始 log 可能含密碼等內容）與紀錄檔位置
 show_backup_log() {
+  grep -aE '^FORMWRIGHT_BACKUP_(FAILED|NOT_CONFIGURED) [A-Za-z0-9._-]+$' <&4 || true
   msg backup_log "$UPGRADE_LOG"
-  msg backup_log_tail
-  tail -n 20 "$UPGRADE_LOG" || true
+  msg backup_log_view "$UPGRADE_LOG"
 }
 
 do_upgrade() {
@@ -426,22 +444,24 @@ do_upgrade() {
   msg upgrading "$old_version" "$PACKAGE_VERSION"
   stage_package
   # 停服務之前先備好紀錄檔：建不出來就中止，舊版照跑（子 shell 攔下 die，才清得掉 .new）
-  UPGRADE_LOG="$FW_LOG_DIR/upgrade-$(date -u +%Y%m%dT%H%M%SZ)-$$.log"
-  (create_upgrade_log) || { rm -rf "${FW_PROGRAM_DIR}.new"; exit 1; }
+  UPGRADE_LOG="$(dirname "$FW_DATA_DIR")/logs/upgrade-$(date -u +%Y%m%dT%H%M%SZ)-$$.log"
+  (prepare_log_dir) || { rm -rf "${FW_PROGRAM_DIR}.new"; exit 1; }
+  open_upgrade_log "$old_version" || { rm -rf "${FW_PROGRAM_DIR}.new"; die 1 log_failed "$UPGRADE_LOG"; }
   # 先用舊版（替換檔案之前）備份：新版 migration 會在啟動時先跑
   systemctl stop formwright || true
   msg backup_running
   local rc=0
-  # 紀錄檔由 root 開好再交給子程序寫，服務帳號不需要進得了紀錄目錄
-  (cd "$FW_PROGRAM_DIR" && as_service ./DynamicModules.WebAPI --backup-now "--Install:ConfigFile=$FW_CONFIG_FILE") >> "$UPGRADE_LOG" 2>&1 || rc=$?
+  # 子程序只拿到 stdout／stderr（接到 root 開好的紀錄檔），服務帳號不需要進得了紀錄目錄
+  (cd "$FW_PROGRAM_DIR" && as_service ./DynamicModules.WebAPI --backup-now "--Install:ConfigFile=$FW_CONFIG_FILE") >&3 2>&1 3>&- 4<&- || rc=$?
   case "$(backup_exit_to_action "$rc")" in
     abort21) systemctl start formwright || true; rm -rf "${FW_PROGRAM_DIR}.new"; show_backup_log >&2; die 21 backup_not_configured ;;
     abort20) systemctl start formwright || true; rm -rf "${FW_PROGRAM_DIR}.new"; show_backup_log >&2; die 20 backup_failed ;;
   esac
   # 結束碼 0 不一定做了備份（精靈沒跑完），2 搭配 --skip-backup 也會往下走：照實說
   if [ "$rc" != 0 ]; then msg backup_skipped
-  elif grep -q '^FORMWRIGHT_BACKUP_SETUP_PENDING' "$UPGRADE_LOG"; then msg backup_pending
+  elif grep -aq '^FORMWRIGHT_BACKUP_SETUP_PENDING' <&4; then msg backup_pending
   else msg backup_done; fi
+  exec 3>&- 4<&-
   # 舊配置的主機在這裡一併收緊權限；失敗（例如目錄是 symlink）就把舊版服務拉起來、不換程式
   # 失敗時程式還沒換：清掉 .new、把舊版服務拉起來並確認真的在跑（拉不起來就明講），再以非 0 結束
   (ensure_dirs) || { rm -rf "${FW_PROGRAM_DIR}.new"; systemctl start formwright || true; wait_active || die 1 start_failed "$FW_PROGRAM_DIR"; exit 1; }
@@ -469,7 +489,7 @@ do_purge() {
   if [ "$OPT_YES" != 1 ]; then
     [ -r /dev/tty ] || die 1 purge_need_yes
     local answer=""
-    msg purge_confirm "$state_dir, $config_dir, $FW_LOG_DIR" > /dev/tty
+    msg purge_confirm "$state_dir, $config_dir" > /dev/tty
     read -r answer < /dev/tty || true
     [ "$answer" = yes ] || { msg purge_cancelled; exit 1; }
   fi
@@ -477,7 +497,7 @@ do_purge() {
   backup_root=$(read_config | awk '/"Backup"[[:space:]]*:/ { f = 1 } f && /"Root"/ { print; exit }' \
     | sed -n 's/.*"Root"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)
   do_remove >/dev/null
-  rm -rf "$state_dir" "$config_dir" "$FW_LOG_DIR"
+  rm -rf "$state_dir" "$config_dir"
   if id "$FW_SERVICE_USER" >/dev/null 2>&1; then userdel "$FW_SERVICE_USER" || true; fi
   msg purge_done
   case "$backup_root" in

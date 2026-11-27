@@ -15,6 +15,7 @@ on:
       - 'backend/src/DynamicModules.WebAPI/Ops/PreUpgradeBackup.cs'
       - 'Dockerfile'
       - '.github/workflows/installer-e2e.yml'
+      - '.github/workflows/release.yml'
   workflow_call:
   workflow_dispatch:
 
@@ -45,10 +46,10 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.0
-      - name: 腳本檢查（shellcheck、預設值產生腳本、install.sh 離線測試）
+      - name: 腳本檢查（shellcheck、預設值產生腳本、publish 參數、install.sh 離線測試）
         run: |
           shellcheck installer/linux/install.sh installer/linux/install.test.sh scripts/installer/e2e/wizard.sh
-          node --test scripts/installer/render-defaults.test.mjs
+          node --test scripts/installer/render-defaults.test.mjs scripts/installer/publish-args.test.mjs
           node scripts/installer/render-defaults.mjs --check
           python3 -I scripts/installer/e2e/totp_test.py
           bash installer/linux/install.test.sh
@@ -149,8 +150,9 @@ jobs:
           # #145：終端只印一行結果，程式的 JSON log 進 root 才讀得到的紀錄檔
           if grep -q '"LogLevel"' up.txt; then echo "升級的終端輸出不該有 JSON log"; exit 1; fi
           grep -q 'Pre-upgrade backup completed' up.txt
-          test "$(sudo stat -c '%U %a' /var/log/formwright)" = 'root 700'
-          log=$(sudo find /var/log/formwright -name 'upgrade-*.log' | sort | tail -n 1)
+          test "$(sudo stat -c '%U %a' /var/lib/formwright)" = 'root 755'
+          test "$(sudo stat -c '%U %a' /var/lib/formwright/logs)" = 'root 700'
+          log=$(sudo find /var/lib/formwright/logs -name 'upgrade-*.log' | sort | tail -n 1)
           test -n "$log"
           test "$(sudo stat -c '%U %a' "$log")" = 'root 600'
           sudo grep -q '^FORMWRIGHT_BACKUP_OK ' "$log"
@@ -166,12 +168,18 @@ jobs:
           sudo chmod 0500 /var/lib/formwright/backup
           rc=0; sudo FORMWRIGHT_PACKAGE="$P3" bash installer/linux/install.sh > en.txt 2>&1 || rc=$?
           cat en.txt; test "$rc" = 20; grep -q 'Pre-upgrade backup failed' en.txt
-          grep -q '/var/log/formwright/upgrade-.*\.log' en.txt; grep -q 'Last 20 lines of the log' en.txt
-          log=$(grep -o '/var/log/formwright/upgrade-[^ ]*\.log' en.txt | head -n 1)
+          # 終端只印機器標記與紀錄檔位置，不印原始 log
+          grep -q '^FORMWRIGHT_BACKUP_FAILED ' en.txt
+          grep -q 'sudo less /var/lib/formwright/logs/upgrade-.*\.log' en.txt
+          if grep -q '"LogLevel"' en.txt; then echo "備份失敗的終端輸出不該有 JSON log"; exit 1; fi
+          log=$(grep -o '/var/lib/formwright/logs/upgrade-[^ ]*\.log' en.txt | head -n 1)
           sudo grep -q '^FORMWRIGHT_BACKUP_FAILED ' "$log"
+          sudo grep -q '"LogLevel"' "$log"
           rc=0; sudo FORMWRIGHT_PACKAGE="$P3" bash installer/linux/install.sh --lang zh-TW > zh.txt 2>&1 || rc=$?
           cat zh.txt; test "$rc" = 20; grep -q '升級前備份失敗' zh.txt
-          grep -q '/var/log/formwright/upgrade-.*\.log' zh.txt
+          grep -q '^FORMWRIGHT_BACKUP_FAILED ' zh.txt
+          grep -q 'sudo less /var/lib/formwright/logs/upgrade-.*\.log' zh.txt
+          if grep -q '"LogLevel"' zh.txt; then echo "備份失敗的終端輸出不該有 JSON log"; exit 1; fi
           test "$(systemctl is-active formwright)" = active
           curl -fsS "$URL/api/version" > v.json; jq -e --arg v "$V2" '.version == $v' v.json
           sudo chown formwright:formwright /var/lib/formwright/backup
@@ -230,7 +238,6 @@ jobs:
           sudo bash installer/linux/install.sh purge --yes
           test ! -e /var/lib/formwright
           test ! -e /etc/formwright
-          test ! -e /var/log/formwright
           if id formwright; then echo "使用者應已刪除"; exit 1; fi
 
       - name: upgrade-while-pending（Review Focus 3）
