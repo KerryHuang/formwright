@@ -6,6 +6,7 @@ import { createI18n } from 'vue-i18n';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import RecordHeaderBar, { type HeaderAction } from './RecordHeaderBar.vue';
+import barSource from './RecordHeaderBar.vue?raw';
 
 type Props = InstanceType<typeof RecordHeaderBar>['$props'];
 
@@ -144,5 +145,55 @@ describe('RecordHeaderBar', () => {
     await flushPromises();
     const items = [...document.body.querySelectorAll('.q-menu .q-item')];
     expect(items.map((i) => i.textContent?.trim())).toEqual(['送簽：已確認', '轉成進貨單', '列印：採購單', '刪除']);
+  });
+
+  it('phone: the badge sits below the fixed bar (scrolls with the content), the bar itself is back, title and menu only', async () => {
+    const w = await mountBar({ actions: actions(), menuOnly: true }, 390);
+    const bar = w.find('[data-testid="record-header-bar"]');
+    expect(bar.find('[data-testid="badge"]').exists()).toBe(false);
+    expect(w.find('[data-testid="badge"]').exists()).toBe(true);
+    expect(bar.element.nextElementSibling?.querySelector('[data-testid="badge"]')).not.toBeNull();
+    expect(bar.element.querySelector('.record-header-main')!.children).toHaveLength(2);
+  });
+
+  it('wide: the badge stays inside the bar', async () => {
+    const w = await mountBar({ actions: actions() });
+    expect(w.find('[data-testid="record-header-bar"] [data-testid="badge"]').exists()).toBe(true);
+  });
+
+  it('phone with menuOnly: the top menu is named Record actions with a document icon; the bottom More keeps its own name', async () => {
+    const top = await mountBar({ actions: actions(), menuOnly: true }, 390);
+    const btn = top.find('[data-testid="record-more"]');
+    expect(btn.attributes('aria-label')).toBe(zhTW.common.recordActions);
+    expect(btn.attributes('title')).toBe(zhTW.common.recordActions);
+    expect(btn.text()).toContain('description');
+    expect(btn.text()).not.toContain('more_vert');
+    top.unmount();
+    const bottom = await mountBar({ actions: actions() }, 390);
+    const more = bottom.find('[data-testid="record-more"]');
+    expect(more.attributes('aria-label')).toBe(zhTW.common.moreActions);
+    expect(more.text()).toContain('more_vert');
+  });
+
+  it('phone: a disabled child (busy printing) is a disabled menu item', async () => {
+    const w = await mountBar({
+      actions: [{ key: 'print', label: '列印', testid: 'a-print', children: [{ key: 's', label: '採購單', menuLabel: '列印：採購單', disable: true, testid: 'a-print-s', run }] }],
+    }, 390);
+    await w.find('[data-testid="record-more"]').trigger('click');
+    await flushPromises();
+    const item = document.body.querySelector('[data-testid="a-print-s"]')!;
+    expect(item.classList.contains('disabled')).toBe(true);
+  });
+
+  it('style contract: padding follows the q-page padding at every breakpoint, the action group wraps inside the bar, the phone title ellipsizes', () => {
+    // jsdom does not apply scoped SFC css; the numbers must match Quasar's .q-layout-padding (8 / 16 / 24 px).
+    expect(barSource).not.toMatch(/margin:[^;]*-16px/);
+    expect(barSource).toMatch(/--rhb-pad:\s*8px/);
+    expect(barSource).toMatch(/@media \(min-width: 600px\)[^}]*--rhb-pad:\s*16px/);
+    expect(barSource).toMatch(/@media \(min-width: 1440px\)[^}]*--rhb-pad:\s*24px/);
+    expect(barSource).toMatch(/calc\(-1 \* var\(--rhb-pad\)\)/);
+    expect(barSource).toMatch(/\.record-header-actions\s*{[^}]*max-width:\s*100%/);
+    expect(barSource).toMatch(/text-overflow:\s*ellipsis/);
+    expect(barSource).toMatch(/white-space:\s*nowrap/);
   });
 });

@@ -106,8 +106,10 @@ const approvalBar = computed(() => phone.value && !schema.value?.readOnly && has
 const submitTargets = computed(() => (canSubmit.value ? approvalQuery.data.value?.submitTargets ?? [] : []).filter((to) => stateLabel(to)));
 
 // The convert and print buttons only trigger: their dialogs live here, outside the (phone) menu that unmounts when it closes.
-// Not for a temporary-read grant (no conversions there), and not before the record says which case this is.
-const conversionsQuery = useRecordConversions(recordId, computed(() => !!recordQuery.data.value && !grant.value));
+// Asked for only where the content below is shown (same conditions as the template chain), and never for a temporary-read grant.
+const contentShown = computed(() => !historyPending.value && !historyOnly.value && !forbidden.value && !schemaMissing.value && !recordMissing.value && !failed.value
+  && !!schema.value && !!recordQuery.data.value);
+const conversionsQuery = useRecordConversions(recordId, computed(() => contentShown.value && !grant.value));
 const convertKey = ref<string | null>(null);
 const convertOpen = computed(() => (conversionsQuery.data.value ?? []).find((c) => c.key === convertKey.value));
 const convertTargetName = (c: RecordConversion) => resolveI18n(c.targetName, locale.value);
@@ -130,7 +132,7 @@ const headerActions = computed<HeaderAction[]>(() => {
     list.push({
       key: 'print', label: t('print.print'), icon: 'print', loading: print.busy.value, testid: 'print-menu',
       children: print.items.value.map((o) => ({
-        key: o.key, label: o.name, menuLabel: t('print.printNamed', { name: o.name }), testid: `print-${o.key}`, run: () => void print.show(o.key, o.name),
+        key: o.key, label: o.name, menuLabel: t('print.printNamed', { name: o.name }), testid: `print-${o.key}`, disable: print.busy.value, run: () => void print.show(o.key, o.name),
       })),
     });
   }

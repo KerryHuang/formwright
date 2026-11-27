@@ -5,6 +5,7 @@ export interface HeaderActionChild {
   /** Text in the phone menu (defaults to label). */
   menuLabel?: string;
   run: () => void;
+  disable?: boolean;
   testid?: string;
 }
 
@@ -58,7 +59,7 @@ const phone = computed(() => $q.screen.lt.sm);
 const bottomActions = computed(() => (phone.value && !props.menuOnly ? props.actions.filter((a) => a.bottom) : []));
 const menuSource = computed(() => (props.menuOnly ? props.actions : props.actions.filter((a) => !a.bottom)));
 const menu = computed<RowAction[]>(() => menuSource.value.flatMap((a): RowAction[] => (a.children
-  ? a.children.map((c) => ({ label: c.menuLabel ?? c.label, run: c.run, testid: c.testid }))
+  ? a.children.map((c) => ({ label: c.menuLabel ?? c.label, run: c.run, disable: c.disable, testid: c.testid }))
   : [{ label: a.menuLabel ?? a.label, run: a.run ?? (() => { if (a.to) void router.push(a.to); }), negative: a.negative, testid: a.testid }])));
 const showBottom = computed(() => phone.value && !props.menuOnly && (bottomActions.value.length > 0 || menu.value.length > 0));
 const barTitle = computed(() => props.title || (phone.value ? props.backLabel : undefined));
@@ -74,7 +75,7 @@ function btnProps(a: HeaderAction) {
 </script>
 
 <template>
-  <div class="record-header-bar" data-testid="record-header-bar">
+  <div class="record-header-bar" :class="{ 'is-phone': phone }" data-testid="record-header-bar">
     <div class="record-header-main">
       <q-btn
         flat dense no-caps icon="arrow_back" :label="phone ? undefined : backLabel" :round="phone" :aria-label="backAriaLabel"
@@ -84,10 +85,10 @@ function btnProps(a: HeaderAction) {
         <span v-if="!phone" class="record-header-sep" aria-hidden="true">/</span>
         <span class="text-h6 record-header-title" :data-testid="titleTestid ?? 'record-title'">{{ barTitle }}</span>
       </template>
-      <slot name="badge" />
+      <slot v-if="!phone" name="badge" />
     </div>
     <div v-if="phone && menuOnly && menu.length" class="record-header-actions">
-      <RowActionMenu :actions="menu" testid="record-more" />
+      <RowActionMenu :actions="menu" icon="description" :aria-label="t('common.recordActions')" :title="t('common.recordActions')" testid="record-more" />
     </div>
     <div v-else-if="!phone && actions.length" class="record-header-actions" data-testid="record-actions">
       <template v-for="a in actions" :key="a.key">
@@ -102,6 +103,7 @@ function btnProps(a: HeaderAction) {
       </template>
     </div>
   </div>
+  <div v-if="phone && $slots.badge" class="record-header-badge"><slot name="badge" /></div>
   <QPageSticky v-if="showBottom" position="bottom" expand class="record-bottom-sticky" style="margin: 0">
     <div class="row items-center justify-between no-wrap full-width record-bottom-bar" data-testid="record-bottom-bar">
       <q-btn v-for="a in bottomActions" :key="a.key" v-bind="btnProps(a)" @click="a.run?.()" />
@@ -119,8 +121,10 @@ function btnProps(a: HeaderAction) {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin: 0 -16px 16px;
-  padding: 8px 16px;
+  /* Same padding as Quasar's .q-layout-padding (q-page padding): 8 / 16 / 24px; the bar spans the full page width, not past it. */
+  --rhb-pad: 8px;
+  margin: 0 calc(-1 * var(--rhb-pad)) 16px;
+  padding: 8px var(--rhb-pad);
   background: var(--t-panel);
   border-bottom: 1px solid var(--t-border);
 }
@@ -133,14 +137,21 @@ function btnProps(a: HeaderAction) {
 }
 .record-header-sep { color: var(--t-muted); }
 .record-header-title { overflow-wrap: anywhere; }
+/* Phone: one row, the title gives way with an ellipsis instead of wrapping. */
+.record-header-bar.is-phone { flex-wrap: nowrap; }
+.is-phone .record-header-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.record-header-badge { margin: -8px 0 16px; }
 .record-header-actions {
   display: flex;
   flex: 0 0 auto;
+  max-width: 100%;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin-left: auto;
 }
+@media (min-width: 600px) { .record-header-bar { --rhb-pad: 16px; } }
+@media (min-width: 1440px) { .record-header-bar { --rhb-pad: 24px; } }
 /* Above the blocks that follow in the page (they are positioned too), below the header, drawers and dialogs. */
 .record-bottom-sticky { z-index: 100; }
 .record-bottom-bar {

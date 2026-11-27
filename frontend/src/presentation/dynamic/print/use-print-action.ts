@@ -1,5 +1,5 @@
 import { useQuasar } from 'quasar';
-import { computed, toValue, ref, type MaybeRefOrGetter } from 'vue';
+import { computed, ref, toValue, watch, type MaybeRefOrGetter } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { usePrintTemplates } from 'src/application/dynamic/queries/print-queries';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
@@ -21,16 +21,30 @@ export function usePrintAction(moduleKey: MaybeRefOrGetter<string>, recordId: Ma
   const open = ref(false);
   const busy = ref(false);
 
+  // Each request gets a number; a record switch bumps it, so an answer that arrives after the switch is dropped instead of opening on the new record.
+  let seq = 0;
+  watch(() => [toValue(moduleKey), toValue(recordId)], () => {
+    seq += 1;
+    open.value = false;
+    html.value = '';
+    title.value = '';
+    busy.value = false;
+  });
+
   async function show(key: string, name: string) {
+    if (busy.value) return; // synchronous guard: a second click while loading must not send a second request
     busy.value = true;
+    const mine = ++seq;
     try {
-      html.value = await dynamicApi.printRecord(toValue(recordId), key, locale.value);
+      const doc = await dynamicApi.printRecord(toValue(recordId), key, locale.value);
+      if (mine !== seq) return;
+      html.value = doc;
       title.value = name;
       open.value = true;
     } catch (e) {
-      $q.notify({ type: 'negative', message: (e as ApiError).message || t('print.failed') });
+      if (mine === seq) $q.notify({ type: 'negative', message: (e as ApiError).message || t('print.failed') });
     } finally {
-      busy.value = false;
+      if (mine === seq) busy.value = false;
     }
   }
 

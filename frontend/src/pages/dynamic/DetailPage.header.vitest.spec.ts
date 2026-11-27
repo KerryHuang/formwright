@@ -34,14 +34,16 @@ const conversion = (extra: Partial<RecordConversion> = {}): RecordConversion => 
   key: 'q2o', name: { 'zh-TW': '轉訂單' }, targetModuleKey: 'order', targetName: { 'zh-TW': '訂單' }, allowed: true, targets: [], ...extra,
 });
 
-interface Setup { permissions?: SchemaPermissions; conversions?: RecordConversion[]; templates?: boolean; current?: ApprovalInstanceView | null; rec?: DynamicRecord }
+interface Setup { schemaFail?: number; recordModule?: string; recordFail?: number; permissions?: SchemaPermissions; conversions?: RecordConversion[]; templates?: boolean; current?: ApprovalInstanceView | null; rec?: DynamicRecord }
 
 async function mountPage(width: number, s: Setup = {}) {
   window.innerWidth = width;
   setActivePinia(createPinia());
   useIdentityStore().userId = 'me';
-  api.getModuleSchema.mockResolvedValue(schema(s.permissions ?? all));
-  api.getRecord.mockResolvedValue(s.rec ?? record);
+  if (s.schemaFail) api.getModuleSchema.mockRejectedValue({ status: s.schemaFail, message: 'x' });
+  else api.getModuleSchema.mockResolvedValue(schema(s.permissions ?? all));
+  if (s.recordFail) api.getRecord.mockRejectedValue({ status: s.recordFail, message: 'x' });
+  else api.getRecord.mockResolvedValue(s.recordModule ? { ...record, moduleKey: s.recordModule } : s.rec ?? record);
   api.related.mockResolvedValue([] as never);
   api.recordHistory.mockResolvedValue({ items: [], totalCount: 0, currentPage: 1, pagesSize: 20 });
   api.getRecordTasks.mockResolvedValue({ items: [], canAdd: false, manualRules: [] });
@@ -178,6 +180,8 @@ describe('DetailPage sticky header', () => {
     const w = await mountPage(390, { templates: true, permissions: { ...all, edit: false, delete: false }, current, rec });
     expect(w.find('[data-testid="approval-mobile-bar"]').exists()).toBe(true);
     expect(w.find('[data-testid="record-bottom-bar"]').exists()).toBe(false);
+    expect(w.find('[data-testid="record-more"]').attributes('aria-label')).toBe(zhTW.common.recordActions);
+    expect(w.find('[data-testid="approval-more"]').exists() ? w.find('[data-testid="approval-more"]').attributes('aria-label') : zhTW.common.moreActions).toBe(zhTW.common.moreActions);
     const items = await openMore(w);
     expect(items.map((i) => i.textContent?.trim())).toContain('列印：採購單');
   });
@@ -186,5 +190,39 @@ describe('DetailPage sticky header', () => {
     const w = await mountPage(390, { permissions: none });
     expect(w.find('[data-testid="record-bottom-bar"]').exists()).toBe(false);
     expect(w.find('.q-page').attributes('style') ?? '').not.toContain('88px');
+  });
+
+  it('phone: while a print request is in flight the print items are disabled in the menu', async () => {
+    const w = await mountPage(390, { templates: true });
+    api.printRecord.mockReturnValue(new Promise(() => {}));
+    let items = await openMore(w);
+    items[0]!.click();
+    await flushPromises();
+    items = await openMore(w);
+    expect(items[0]!.classList.contains('disabled')).toBe(true);
+    expect(api.printRecord).toHaveBeenCalledTimes(1);
+  });
+
+  describe('conversions are asked for only where the content is shown', () => {
+    it('a record of another module (recordMissing) sends no conversion request', async () => {
+      await mountPage(1366, { recordModule: 'other' });
+      expect(api.getRecordConversions).not.toHaveBeenCalled();
+    });
+    it('a missing schema sends no conversion request', async () => {
+      await mountPage(1366, { schemaFail: 404 });
+      expect(api.getRecordConversions).not.toHaveBeenCalled();
+    });
+    it('a failed schema load sends no conversion request', async () => {
+      await mountPage(1366, { schemaFail: 500 });
+      expect(api.getRecordConversions).not.toHaveBeenCalled();
+    });
+    it('a missing record sends no conversion request', async () => {
+      await mountPage(1366, { recordFail: 404 });
+      expect(api.getRecordConversions).not.toHaveBeenCalled();
+    });
+    it('the normal case still asks once', async () => {
+      await mountPage(1366, { conversions: [conversion()] });
+      expect(api.getRecordConversions).toHaveBeenCalledTimes(1);
+    });
   });
 });
