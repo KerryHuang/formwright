@@ -156,6 +156,7 @@ public static class DependencyInjection
         services.AddScoped<Dynamic.AppService.SharedMasters.MasterDesigner>();
         services.AddScoped<Dynamic.AppService.SharedMasters.MasterMerger>();
         services.AddScoped<Dynamic.AppService.Integrations.IntegrationReconciler>();
+        services.AddScoped<Dynamic.AppService.Integrations.TemplatePartnerScan>();
         services.AddScoped<Dynamic.AttachmentService.AttachmentUploadGate>();
         services.AddScoped<Dynamic.AttachmentService.AttachmentUploadTracker>();
         services.AddScoped<Dynamic.AppService.AppExporter>();

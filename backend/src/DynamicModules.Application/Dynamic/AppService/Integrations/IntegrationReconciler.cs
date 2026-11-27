@@ -125,28 +125,6 @@ public class IntegrationReconciler(
     internal string TemplatePartnerReason(string partner, LocaleContext locale) =>
         $"waiting: {messages.Get(locale, MessageText.IntegrationPartnerIsTemplate, partner)}";
 
-    /// <summary>
-    /// 已安裝、且夥伴是範本的整合登記的事件鍵與檢查鍵：寫入管線（<see cref="EventStage"/>、<see cref="CheckStage"/>）濾掉它們，
-    /// 夥伴種類已變、還沒調和時連動與檢查也不執行。一次讀整合與應用程式清單，沒有已安裝的整合時只有一次查詢。
-    /// </summary>
-    public async Task<(IReadOnlySet<string> Events, IReadOnlySet<string> Checks)> TemplatePartnerItemsAsync(CancellationToken ct)
-    {
-        var eventKeys = new HashSet<string>();
-        var checkKeys = new HashSet<string>();
-        var rows = (await apps.ListIntegrationsAsync(ct)).Where(r => r.Installed).ToList();
-        if (rows.Count == 0) return (eventKeys, checkKeys);
-        var appList = await apps.ListAsync(ct);
-        foreach (var row in rows)
-        {
-            var owner = appList.FirstOrDefault(a => a.Id == row.AppId);
-            if (owner is null || IntegrationDeclarations.Find(owner, row.Code) is not { } decl || TemplatePartner(decl, appList) is null) continue;
-            var items = IntegrationItems.Parse(row.ItemsJson);
-            eventKeys.UnionWith(items.Events);
-            checkKeys.UnionWith(items.Checks);
-        }
-        return (eventKeys, checkKeys);
-    }
-
     /// <summary>夥伴都在：應用程式 Open，且用到的模組都是 Active。Missing 列出不在的。</summary>
     internal async Task<(bool Present, string? Missing)> PartnersAsync(AppIntegrationDecl decl, List<App> appList, CancellationToken ct)
     {

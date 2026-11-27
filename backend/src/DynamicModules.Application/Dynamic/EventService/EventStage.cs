@@ -23,7 +23,7 @@ namespace DynamicModules.Application.Dynamic.EventService;
 public class EventStage(
     IWriteJournal journal, IEventRepository events, IModuleRepository modules, FieldTypeRegistry registry, IBusinessTime time,
     EffectApplier applier, AppService.Integrations.IntegrationGuardStage integrationGuard, RuleFailureNote notes,
-    IPolicyReader policies, AppService.Integrations.IntegrationReconciler integrations) : IWriteStage
+    IPolicyReader policies, AppService.Integrations.TemplatePartnerScan templatePartners) : IWriteStage
 {
     public const string Loop = "連動事件形成循環";
 
@@ -36,7 +36,6 @@ public class EventStage(
         var visited = new HashSet<string>();
         var eventsByModule = new Dictionary<long, List<ModuleEvent>>();
         var modulesById = new Dictionary<long, Module?>();
-        IReadOnlySet<string>? templatePartnerEvents = null;   // 有候選事件時才讀，整個 stage 只讀一次
         var maxDepth = await policies.IntAsync(PolicyCatalog.EventMaxDepth, null, ct);
 
         while (journal.Entries.Count > cursor)
@@ -57,7 +56,7 @@ public class EventStage(
                     if (list.Count > 0)
                     {
                         // 夥伴是範本的整合登記的事件不執行，即使調和還沒把它停用（範本套件設計 §7.5）
-                        templatePartnerEvents ??= (await integrations.TemplatePartnerItemsAsync(ct)).Events;
+                        var templatePartnerEvents = (await templatePartners.ItemsAsync(ct)).Events;   // 有候選事件時才讀
                         if (templatePartnerEvents.Count > 0) list = list.Where(e => !templatePartnerEvents.Contains(e.Key)).ToList();
                     }
                     eventsByModule[entry.ModuleId] = list;
