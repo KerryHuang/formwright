@@ -32,6 +32,10 @@ public abstract class WriteTool(ISender sender, string name, string schema, stri
     /// </summary>
     public virtual async Task<McpPreview> PreviewAsync(McpToolCall call, CancellationToken ct)
     {
+        // 參數結構先照執行時的同一份解析驗過（第二次複審 N6）：錯的參數回 invalid_arguments，不讓摘要呈現在型別不對的節點上丟例外
+        var parsed = McpArgs.Of(call.Arguments);
+        Validate(parsed);
+        if (parsed.HasErrors) return McpPreview.Failed(parsed.Invalid());
         var target = await TargetAsync(McpArgs.Of(call.Arguments), ct);
         if (target.Failure is { } failure) return McpPreview.Failed(failure);
         // 摘要由伺服器排（審查 R6）：先目標、再全部參數；物件的鍵依 Ordinal 排序，不照 AI 送來的順序
@@ -44,6 +48,9 @@ public abstract class WriteTool(ISender sender, string name, string schema, stri
             arguments,
         }, target.Version, target.Kind, target.Id, Descriptive: descriptive);
     }
+
+    /// <summary>預演前的參數結構驗證：子類別用和 <see cref="RunAsync"/> 同一份解析記錯誤；預設不驗（目標讀取時會驗它要的參數）。</summary>
+    protected virtual void Validate(McpArgs a) { }
 
     /// <summary>
     /// 預演摘要的呈現（複審 N3）：把 <paramref name="arguments"/> 裡有執行意義的值換成正式寫入的正規化形式（就地改），回對話框可以截短的描述性文字位置
@@ -72,7 +79,7 @@ public abstract class WriteTool(ISender sender, string name, string schema, stri
             foreach (var d in schema.Details ?? [])
                 if (details[d.ModuleKey] is System.Text.Json.Nodes.JsonArray rows)
                     foreach (var row in rows)
-                        Present(row?["values"] as System.Text.Json.Nodes.JsonObject, d.Fields,
+                        Present(row is System.Text.Json.Nodes.JsonObject o ? o["values"] as System.Text.Json.Nodes.JsonObject : null, d.Fields,
                             McpSummaryPath.Key(McpSummaryPath.Item(McpSummaryPath.Of("arguments", "details", d.ModuleKey)), "values"), descriptive);
         return descriptive;
     }

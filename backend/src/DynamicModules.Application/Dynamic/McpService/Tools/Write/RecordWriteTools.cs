@@ -21,13 +21,17 @@ public sealed class CreateRecordTool(ISender sender)
     protected override Task<IReadOnlySet<string>?> PresentAsync(System.Text.Json.Nodes.JsonObject arguments, McpWriteTarget target, CancellationToken ct) =>
         RecordValuesAsync(arguments["moduleKey"] is System.Text.Json.Nodes.JsonValue v && v.TryGetValue<string>(out var key) ? key : null, arguments, ct);
 
+    protected override void Validate(McpArgs a) => Parse(a);
+
+    private static (string? ModuleKey, Dictionary<string, System.Text.Json.JsonElement?> Values, Dictionary<string, List<McpArgs.DetailRow>>? Details, string? HostKey)
+        Parse(McpArgs a) =>
+        (a.String("moduleKey", required: true, maxLength: Domain.Entities.Dynamic.Module.KeyMaxLength), a.Values("values"),
+            a.Details("details", allowId: false), a.String("hostKey"));
+
     public override async Task<McpToolOutcome> RunAsync(McpToolCall call, CancellationToken ct)
     {
         var a = McpArgs.Of(call.Arguments);
-        var moduleKey = a.String("moduleKey", required: true, maxLength: Domain.Entities.Dynamic.Module.KeyMaxLength);
-        var values = a.Values("values");
-        var details = a.Details("details", allowId: false);
-        var hostKey = a.String("hostKey");
+        var (moduleKey, values, details, hostKey) = Parse(a);
         if (a.HasErrors) return a.Invalid();
 
         var ignored = await IgnoredFieldsAsync(moduleKey!, values.Keys, ct);
@@ -51,13 +55,16 @@ public sealed class UpdateRecordTool(ISender sender)
     protected override Task<IReadOnlySet<string>?> PresentAsync(System.Text.Json.Nodes.JsonObject arguments, McpWriteTarget target, CancellationToken ct) =>
         RecordValuesAsync(target.ModuleKey, arguments, ct);
 
+    protected override void Validate(McpArgs a) => Parse(a);
+
+    private static (long? Id, string? RowVersion, Dictionary<string, System.Text.Json.JsonElement?> Values, Dictionary<string, List<McpArgs.DetailRow>>? Details)
+        Parse(McpArgs a) =>
+        (a.Long("recordId", required: true), a.String("rowVersion", required: true), a.Values("values"), a.Details("details", allowId: true));
+
     public override async Task<McpToolOutcome> RunAsync(McpToolCall call, CancellationToken ct)
     {
         var a = McpArgs.Of(call.Arguments);
-        var id = a.Long("recordId", required: true);
-        var rowVersion = a.String("rowVersion", required: true);
-        var values = a.Values("values");
-        var details = a.Details("details", allowId: true);
+        var (id, rowVersion, values, details) = Parse(a);
         if (a.HasErrors) return a.Invalid();
 
         var current = await Sender.Send(new GetRecordRequest(id!.Value), ct);

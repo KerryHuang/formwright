@@ -1109,6 +1109,68 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
         p.GetProperty("arguments").GetProperty(forgedKey).GetString().Should().Be(new string('偽', 300));
     }
 
+    // ───────── 明細列不是物件（第二次複審 N6）─────────
+
+    /// <summary>N6：高風險的 create_record／update_record，明細列送數字、字串或陣列：確認碼與對話框的第一次呼叫都回 invalid_arguments 並指出那一列，不回 internal_error、不建碼、不寫。</summary>
+    [Theory]
+    [InlineData("create_record", false, "number")]
+    [InlineData("create_record", false, "string")]
+    [InlineData("create_record", false, "array")]
+    [InlineData("create_record", true, "number")]
+    [InlineData("create_record", true, "string")]
+    [InlineData("create_record", true, "array")]
+    [InlineData("update_record", false, "number")]
+    [InlineData("update_record", false, "string")]
+    [InlineData("update_record", false, "array")]
+    [InlineData("update_record", true, "number")]
+    [InlineData("update_record", true, "string")]
+    [InlineData("update_record", true, "array")]
+    public async Task Preview_DetailRowNotObject_InvalidArguments(string tool, bool elicitation, string row)
+    {
+        SetPolicy(_app, PolicyCatalog.McpHighRiskTools, "update_record,create_record,delete_record,approve,reject");
+        var (_, _, _, _, _, _, header, detail, _) = await PaddedRefRig();
+        var headerTitle = await TitleKey(_admin, header);
+        object rowValue = row switch { "number" => 7, "string" => "列", _ => new[] { 1 } };
+        var args = new Dictionary<string, object?>
+        {
+            ["details"] = new Dictionary<string, object[]> { [detail] = [rowValue] }, ["idempotencyKey"] = NewIdem(),
+        };
+        var headerId = Query(_app, db => db.Set<Module>().Single(m => m.Key == header).Id);
+        long? recordId = null;
+        string? rv = null;
+        if (tool == "create_record")
+        {
+            args["moduleKey"] = header;
+            args["values"] = new Dictionary<string, object> { [headerTitle] = "表頭" };
+        }
+        else
+        {
+            var res = await _admin.PostAsJsonAsync($"{Base}/modules/{header}/records", new { values = new Dictionary<string, object> { [headerTitle] = "表頭" } });
+            res.StatusCode.Should().Be(HttpStatusCode.Created, await res.Content.ReadAsStringAsync());
+            var rec = await JsonOf(res);
+            (recordId, rv) = (rec.GetProperty("id").GetInt64(), rec.GetProperty("rowVersion").GetString());
+            (args["recordId"], args["rowVersion"]) = (recordId, rv);
+        }
+        var before = Query(_app, db => db.Set<Record>().Count(x => x.ModuleId == headerId));
+        JsonElement r;
+        List<ElicitRequestParams?>? asked = null;
+        if (elicitation)
+        {
+            var (client, a) = await ElicitingClient(() => Answer("accept", true));
+            await using var _c = client;
+            r = (await CallRaw(client, tool, args)).StructuredContent!.Value;
+            asked = a;
+        }
+        else r = await Call(tool, args);
+
+        Code(r).Should().Be(McpErrorCodes.InvalidArguments, r.GetRawText());
+        r.GetProperty("error").GetProperty("fields").TryGetProperty($"details.{detail}[0]", out _).Should().BeTrue(r.GetRawText());
+        asked?.Should().BeEmpty();
+        Query(_app, db => db.Set<McpConfirmation>().Count()).Should().Be(0);
+        Query(_app, db => db.Set<Record>().Count(x => x.ModuleId == headerId)).Should().Be(before);
+        if (recordId is { } id) Query(_app, db => db.Set<Record>().Single(x => x.Id == id).RowVersion).Should().Be(rv);
+    }
+
     /// <summary>變更多到對話框放不下：不發對話框、不建確認碼，回錯誤請 AI 縮小單次操作；記錄不動。</summary>
     [Fact]
     public async Task Elicitation_TooManyChanges_NoDialog_Rejected()
