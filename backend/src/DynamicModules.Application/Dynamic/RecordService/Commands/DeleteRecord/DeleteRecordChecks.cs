@@ -20,9 +20,13 @@ public sealed record DeleteRecordCheck(Record Record, Module Module, DeletePlan 
 public sealed class DeleteRecordChecks(
     IModuleRepository modules, IRecordRepository records, IDynamicAccessGuard guard, ReferenceDeletePlanner planner,
     Dynamic.LedgerService.LedgerGate ledgerGate, Dynamic.EventService.EventFactLock factLock, FieldLocks locks,
-    Dynamic.ApprovalService.ApprovalGate approvalGate)
+    Dynamic.ApprovalService.ApprovalGate approvalGate, DeleteSourceDisclosure disclosure)
 {
-    public async Task<(DeleteRecordCheck? Check, ServiceResult? Failure)> RunAsync(long id, string? rowVersion, CancellationToken ct)
+    /// <param name="requireDisclosable">
+    /// 預演（要把影響列給 AI）時為 true：連帶刪除或清空的來源有任一筆使用者看不到，就在其他會帶出來源資訊的檢查（凍結欄位）之前整次拒絕、請改用畫面（複審 N2）。
+    /// </param>
+    public async Task<(DeleteRecordCheck? Check, ServiceResult? Failure)> RunAsync(long id, string? rowVersion, CancellationToken ct,
+        bool requireDisclosable = false)
     {
         // 看不到這筆（也沒有刪除權限）就和不存在相同（#15）；看得到之後才回 Closed 的 409、缺權限的 403
         if (await RecordReadGate.ForActionAsync(id, PermissionAction.Delete, records, modules, guard, ct) is not { } gate)
@@ -46,12 +50,18 @@ public sealed class DeleteRecordChecks(
             return (null, ServiceResult.ConflictWith(MessageRef.Of(MessageText.DeleteReferenced),
                 new DeleteBlockedResponse(await WithTitlesAsync(plan.Blocking.Take(MaxListed), ct), plan.BlockingTotal)));
 
+        var deletedIds = plan.ToDelete.Select(r => r.Id).Append(record.Id).ToHashSet();
+        var cleared = plan.ToClear.Where(c => !deletedIds.Contains(c.Record.Id)).ToList();
+        // 對外摘要只能列使用者看得到的（審查 R3）：規劃器跨所有來源查詢供完整性檢查，結果不能直接公開；有任一筆看不到就整次拒絕、請改用畫面
+        if (requireDisclosable && !await disclosure.AllVisibleAsync((plan.DeletedVia ?? []).Concat(cleared), ct))
+            return (null, ServiceResult.Forbidden(MessageRef.Of(MessageText.DeletePreviewRestricted)));
+
         // 連帶刪除（Cascade）或清空參照（SetNull）的記錄也要守狀態機的唯讀：在任何寫入之前檢查，有一筆被鎖就整個不做
         if (await TouchesLockedRecordAsync(plan, record, ct) is { } lockedMessage) return (null, ServiceResult.Conflict(lockedMessage));
 
-        var deletedIds = plan.ToDelete.Select(r => r.Id).Append(record.Id).ToHashSet();
-        // 清空參照也算寫入：要清空的是凍結的貢獻欄位（貢獻者已關閉）就整筆不刪（共用主檔設計 §7 凍結第 5 點）
-        if (await locks.RejectClearAsync(plan.ToClear.Where(c => !deletedIds.Contains(c.Record.Id)).Select(c => c.Field), ct) is { } frozenMessage)
+        // 清空參照也算寫入：要清空的是凍結的貢獻欄位（貢獻者已關閉）就整筆不刪（共用主檔設計 §7 凍結第 5 點）；
+        // 來源使用者看不到時只回通用訊息，不帶欄位標籤與應用程式名稱（複審 N2），鎖本身照擋
+        if (await locks.RejectClearAsync(cleared, (r, f) => disclosure.VisibleAsync(r, f, ct), ct) is { } frozenMessage)
             return (null, ServiceResult.Conflict(frozenMessage));
         return (new DeleteRecordCheck(record, module, plan), null);
     }

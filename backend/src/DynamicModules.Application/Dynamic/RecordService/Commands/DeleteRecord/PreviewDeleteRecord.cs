@@ -26,12 +26,12 @@ public sealed record DeletePreviewClear(string ModuleKey, string FieldKey, int C
 public sealed record DeleteRecordPreview(long RecordId, string ModuleKey, string RowVersion, IReadOnlyList<DeletePreviewCascade> CascadeDelete,
     IReadOnlyList<DeletePreviewClear> ClearReferences, string Fingerprint);
 
-public sealed class PreviewDeleteRecordHandler(DeleteRecordChecks checks, IModuleRepository modules, DeleteSourceDisclosure disclosure)
+public sealed class PreviewDeleteRecordHandler(DeleteRecordChecks checks, IModuleRepository modules)
     : IRequestHandler<PreviewDeleteRecordRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(PreviewDeleteRecordRequest request, CancellationToken ct)
     {
-        var (check, failure) = await checks.RunAsync(request.Id, request.RowVersion, ct);
+        var (check, failure) = await checks.RunAsync(request.Id, request.RowVersion, ct, requireDisclosable: true);
         if (check is null) return failure!;
         var (record, module, plan) = check;
         var keys = new Dictionary<long, string> { [module.Id] = module.Key };
@@ -47,9 +47,6 @@ public sealed class PreviewDeleteRecordHandler(DeleteRecordChecks checks, IModul
             cascade.Add(new DeletePreviewCascade(await KeyOf(g.Key), g.Count()));
         var deletedIds = plan.ToDelete.Select(r => r.Id).Append(record.Id).ToHashSet();
         var cleared = plan.ToClear.Where(c => !deletedIds.Contains(c.Record.Id)).ToList();
-        // 對外摘要只能列使用者看得到的（審查 R3）：規劃器跨所有來源查詢供完整性檢查，結果不能直接公開；有任一筆看不到就整次拒絕、請改用畫面
-        if (!await disclosure.AllVisibleAsync((plan.DeletedVia ?? []).Concat(cleared), ct))
-            return ServiceResult.Forbidden(MessageRef.Of(MessageText.DeletePreviewRestricted));
         var clears = new List<DeletePreviewClear>();
         foreach (var g in cleared.GroupBy(c => (c.Record.ModuleId, c.Field.Key)).OrderBy(g => g.Key.ModuleId).ThenBy(g => g.Key.Key, StringComparer.Ordinal))
             clears.Add(new DeletePreviewClear(await KeyOf(g.Key.ModuleId), g.Key.Key, g.Select(c => c.Record.Id).Distinct().Count()));

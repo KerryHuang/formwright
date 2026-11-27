@@ -32,12 +32,16 @@ public sealed class FieldLocks(ISharedMasterRepository shared)
         return _cache[moduleId] = locks.Count == 0 ? None : locks;
     }
 
-    /// <summary>刪除記錄要清空的參照欄位裡，第一個凍結的（清空也算寫入，設計 §7 凍結第 5 點）；都沒有回 null。</summary>
-    public async Task<MessageRef?> RejectClearAsync(IEnumerable<Field> cleared, CancellationToken ct)
+    /// <summary>
+    /// 刪除記錄要清空的參照欄位裡，第一個凍結的（清空也算寫入，設計 §7 凍結第 5 點）；都沒有回 null。
+    /// <paramref name="visible"/> 判斷使用者看不看得到那筆來源的那個欄位，看不到就回通用訊息（複審 N2）。
+    /// </summary>
+    public async Task<MessageRef?> RejectClearAsync(IEnumerable<(Record Record, Field Field)> cleared, Func<Record, Field, Task<bool>> visible,
+        CancellationToken ct)
     {
-        foreach (var field in cleared)
+        foreach (var (record, field) in cleared)
             if ((await FrozenAsync(field.ModuleId, ct)).TryGetValue(field.Id, out var owner))
-                return FrozenFieldException.MessageOf(field, owner);
+                return FrozenFieldException.MessageOf(field, owner, await visible(record, field));
         return null;
     }
 

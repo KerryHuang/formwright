@@ -324,6 +324,104 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
         else p.GetProperty("clearReferences")[0].GetProperty("fieldKey").GetString().Should().Be(refKey);
     }
 
+    // ───────── 凍結欄位的拒絕訊息（複審 N2）─────────
+
+    private const string FrozenLabel = "凍結參照欄位甲", FrozenAppName = "凍結測試應用乙";
+
+    /// <summary>把來源模組的參照欄位標成「已關閉應用程式的貢獻欄位」（凍結）；標籤與應用程式名稱換成可辨識的字串，好斷言有沒有外洩。</summary>
+    private void Freeze(string source, string refKey) => Query(_app, db =>
+    {
+        var moduleId = db.Set<Module>().Single(m => m.Key == source).Id;
+        var field = db.Set<Field>().Single(f => f.ModuleId == moduleId && f.Key == refKey);
+        field.LabelI18n = new Domain.ValueObjects.I18nText([new("zh-TW", FrozenLabel)]);
+        var app = new App
+        {
+            Key = "frozen" + field.Id, NameI18n = new Domain.ValueObjects.I18nText([new("zh-TW", FrozenAppName)]),
+            Status = AppStatus.Closed, Source = "test", PackageVersion = "1.0.0", FormatVersion = 1,
+        };
+        db.Set<App>().Add(app);
+        db.SaveChanges();
+        db.Set<AppField>().Add(new AppField { AppId = app.Id, Name = "bp/frozen.ref", FieldId = field.Id });
+        return db.SaveChanges();
+    });
+
+    /// <summary>
+    /// N2：清空的參照欄位凍結、而且來源受限（不提供給 AI、群組隱藏、沒有讀取權）：確認碼與對話框的第一次呼叫都只回「改在畫面刪除」，
+    /// 不帶欄位標籤、key、應用程式名稱，不發碼、不跳對話框、不刪。
+    /// </summary>
+    [Theory]
+    [InlineData("aiExcluded", false)]
+    [InlineData("groupHidden", false)]
+    [InlineData("noRead", false)]
+    [InlineData("aiExcluded", true)]
+    [InlineData("groupHidden", true)]
+    [InlineData("noRead", true)]
+    public async Task DeletePreview_FrozenRestrictedSource_NothingLeaked(string restriction, bool elicitation)
+    {
+        var (id, rv, source, refKey) = await HiddenSourceRig("setNull", restriction);
+        Freeze(source, refKey);
+        EnsureUser(_app, "sales01", u => (u.IsDemoAccount, u.MustChangePassword) = (false, false));
+        var token = IssueToken(_app, "sales01", WriteScopes).Raw;
+        JsonElement r;
+        List<ElicitRequestParams?>? asked = null;
+        if (elicitation)
+        {
+            var (client, a) = await ElicitingClient(() => Answer("accept", true), token);
+            await using var _c = client;
+            r = (await CallRaw(client, "delete_record", DeleteArgs(id, rv))).StructuredContent!.Value;
+            asked = a;
+        }
+        else
+        {
+            await using var sales = await ConnectAsync(_app, token);
+            r = await Call("delete_record", DeleteArgs(id, rv), sales);
+        }
+
+        Code(r).Should().Be(McpErrorCodes.Forbidden, r.GetRawText());
+        RestrictedMessage(r).Should().Contain("請改在畫面上刪除");
+        // GetRawText 會把中文跳脫成 \uXXXX，中文要對解碼後的訊息斷言
+        RestrictedMessage(r).Should().NotContain(FrozenLabel).And.NotContain(FrozenAppName);
+        r.GetRawText().Should().NotContain(refKey).And.NotContain(source);
+        asked?.Should().BeEmpty();
+        Exists(id).Should().BeTrue();
+        Query(_app, db => db.Set<McpConfirmation>().Count()).Should().Be(0);
+    }
+
+    /// <summary>N2：移出清單（一般寫入、不經預演）時鎖照擋，但來源看不到就只回通用的凍結訊息，不帶欄位標籤與應用程式名稱。</summary>
+    [Theory]
+    [InlineData("aiExcluded")]
+    [InlineData("noRead")]
+    public async Task Delete_RemovedFromList_FrozenRestrictedSource_GenericMessage(string restriction)
+    {
+        SetPolicy(_app, PolicyCatalog.McpHighRiskTools, "approve,reject");
+        var (id, rv, source, refKey) = await HiddenSourceRig("setNull", restriction);
+        Freeze(source, refKey);
+        await using var sales = await Sales01();
+
+        var r = await Call("delete_record", DeleteArgs(id, rv), sales);
+
+        Code(r).Should().Be(McpErrorCodes.Conflict, r.GetRawText());
+        RestrictedMessage(r).Should().Be("這筆資料有無法修改的欄位");
+        r.GetRawText().Should().NotContain(refKey).And.NotContain(source);
+        Exists(id).Should().BeTrue();
+    }
+
+    /// <summary>N2 對照組：來源看得到時照舊回合法的凍結提示（衝突、帶欄位標籤與應用程式名稱），完整性鎖不拿掉、不刪。</summary>
+    [Fact]
+    public async Task DeletePreview_FrozenVisibleSource_ConflictNamesField()
+    {
+        var (id, rv, source, refKey) = await HiddenSourceRig("setNull", "none");
+        Freeze(source, refKey);
+        await using var sales = await Sales01();
+
+        var r = await Call("delete_record", DeleteArgs(id, rv), sales);
+
+        Code(r).Should().Be(McpErrorCodes.Conflict, r.GetRawText());
+        RestrictedMessage(r).Should().Contain(FrozenLabel).And.Contain(FrozenAppName);
+        Exists(id).Should().BeTrue();
+        Query(_app, db => db.Set<McpConfirmation>().Count()).Should().Be(0);
+    }
+
     private static string RestrictedMessage(JsonElement r) => r.GetProperty("error").GetProperty("message").GetString()!;
 
     /// <summary>N4：其他權限拒絕照舊用通用訊息遮掉（白名單只放「改在畫面刪除」這一句）。</summary>
