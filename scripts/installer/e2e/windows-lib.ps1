@@ -24,21 +24,26 @@ function Now-Utc { [DateTimeOffset]::FromUnixTimeSeconds([DateTimeOffset]::UtcNo
 #  父目錄：擁有者 Administrators、受保護（不繼承）、恰好三個 Allow ACE（SYSTEM、Administrators 剛好完全控制；服務帳號剛好 Modify），皆 OI CI、非繼承；
 #  父目錄之下每個項目：不是 reparse point、DACL 非空、擁有者是 Administrators 或 SYSTEM（-AllowServiceOwner 時也接受服務帳號：精靈完成後服務自己建的檔案）、
 #  不是受保護、恰好三個「繼承」ACE（同一組三個主體與遮罩；目錄旗標 OI CI、檔案旗標無），沒有任何明確 ACE。至少要有 data 與 backup 兩個子項（空集合不得通過）。
-# 本機 Administrators 群組（S-1-5-32-544）的在地化名稱；net.exe 要用名稱
-function Get-AdminsGroupName {
-  $n = (New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')).Translate([Security.Principal.NTAccount]).Value
-  $n.Substring($n.IndexOf('\') + 1)
-}
-# net.exe 的非 0 結束碼不會讓 step 失敗；一律經這裡
-function Net-Checked([string[]]$NetArgs) { & "$env:SystemRoot\System32\net.exe" @NetArgs | Out-Null; if ($LASTEXITCODE -ne 0) { throw "FAIL: net $($NetArgs[0..1] -join ' ')（結束碼 $LASTEXITCODE）" } }
-# 建一個本機使用者並加入本機 Administrators，回傳它的 SID（密碼隨機、只在這台臨時 runner 上用）
+# 本機使用者與 Administrators（S-1-5-32-544）成員：用 Microsoft.PowerShell.LocalAccounts（SecureString 密碼，全程不會有互動提示；
+# net user 密碼超過 14 字元會跳確認），建好就回傳 SID，之後一律以 SID 操作（不靠名稱解析）
+$AdminsSid = 'S-1-5-32-544'
 function New-TempAdmin([string]$Name) {
-  Net-Checked @('user', $Name, ('Fw!' + [guid]::NewGuid().ToString('N')), '/add')
-  Net-Checked @('localgroup', (Get-AdminsGroupName), $Name, '/add')
-  (New-Object Security.Principal.NTAccount($Name)).Translate([Security.Principal.SecurityIdentifier]).Value
+  $pw = ConvertTo-SecureString ('Fw!' + [guid]::NewGuid().ToString('N')) -AsPlainText -Force
+  $u = New-LocalUser -Name $Name -Password $pw -AccountNeverExpires -PasswordNeverExpires -Description 'formwright e2e temporary administrator'
+  $sid = $u.SID.Value
+  try { Add-LocalGroupMember -SID $AdminsSid -Member $sid -ErrorAction Stop }
+  catch { Remove-LocalUser -SID $sid -ErrorAction SilentlyContinue; throw }
+  $sid
 }
-function Remove-TempAdminFromGroup([string]$Name) { Net-Checked @('localgroup', (Get-AdminsGroupName), $Name, '/delete') }
-function Remove-TempUser([string]$Name) { Net-Checked @('user', $Name, '/delete') }
+function Remove-TempAdminFromGroup([string]$Sid) { Remove-LocalGroupMember -SID $AdminsSid -Member $Sid -ErrorAction Stop }
+function Remove-TempUser([string]$Sid) { Remove-LocalUser -SID $Sid -ErrorAction Stop }
+# 失敗時的盡力清理（只用 SID；每步各自吞掉錯誤，不遮住原始失敗）：ACE、群組成員、使用者
+function Clear-TempAdmin([string]$Sid, [string]$Parent) {
+  if (-not $Sid) { return }
+  try { Icacls $Parent /remove "*$Sid" } catch { Write-Warning "清理 ACE 失敗：$_" }
+  try { Remove-LocalGroupMember -SID $AdminsSid -Member $Sid -ErrorAction SilentlyContinue } catch { Write-Warning "清理群組成員失敗：$_" }
+  try { Remove-LocalUser -SID $Sid -ErrorAction SilentlyContinue } catch { Write-Warning "清理使用者失敗：$_" }
+}
 
 function Assert-AclRule($r, [string]$Where, [string]$Svc, $WantFlags, [bool]$Inherited) {
   $id = $r.IdentityReference.Value; $mask = [int]$r.FileSystemRights

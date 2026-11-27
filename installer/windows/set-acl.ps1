@@ -118,7 +118,8 @@ function Get-AdminAceNotes {
 
 # SIDs of the USER accounts that are direct members of the local Administrators group (S-1-5-32-544). Nested groups are not expanded.
 # Windows PowerShell 5.1 compatible (ADSI WinNT provider; the group name is resolved from the SID because it is localized).
-# Cannot be listed = refuse (exit 2): an empty set is never assumed.
+# Cannot be listed, or a member whose Class or objectSid cannot be read = refuse (exit 2). A complete listing with no direct user member
+# returns an empty set; that only means no extra account is trusted (the strict rules apply), it is not a refusal by itself.
 function Get-AdminMemberSids([string]$AdminsSid) {
   $err = $null
   $sids = @()
@@ -129,6 +130,7 @@ function Get-AdminMemberSids([string]$AdminsSid) {
     foreach ($m in @($group.Invoke('Members'))) {
       $t = $m.GetType()
       $cls = [string]$t.InvokeMember('Class', 'GetProperty', $null, $m, $null)
+      if ([string]::IsNullOrEmpty($cls)) { throw 'a group member has no Class' }
       if ($cls -ne 'User') { continue }
       $bytes = [byte[]]$t.InvokeMember('objectSid', 'GetProperty', $null, $m, $null)
       $sids += (New-Object Security.Principal.SecurityIdentifier($bytes, 0)).Value
