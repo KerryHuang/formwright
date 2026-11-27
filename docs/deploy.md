@@ -217,7 +217,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 
 - **預發版**（tag 有後綴，例 `v0.1.0-rc.1`）：Release 標成 prerelease，`releases/latest` 不會指向它；Ubuntu 改用 `curl -fsSL https://github.com/KerryHuang/formwright/releases/download/<tag>/install.sh | sudo bash`，Windows 與 Docker 到該版的 Release 頁下載。映像只推版號 tag，不更新 `latest`。
 - **SmartScreen**：Windows 安裝檔沒有簽章，執行時會出現「Windows 已保護您的電腦」。按「其他資訊」→「仍要執行」。
-- **設定碼**：精靈第一步要輸入的 12 碼英數字（例 `K7QM-3HZP-W2XA`），只能用一次。Windows 在安裝程式最後一頁；Ubuntu 在安裝指令的輸出（`FORMWRIGHT_SETUP_CODE=` 那一行）；Docker 在容器 log。
+- **設定碼**：精靈第一步要輸入的 12 碼英數字（例 `K7QM-3HZP-W2XA`），只能用一次。Windows 在安裝程式最後一頁；Ubuntu 在安裝指令的輸出（`FORMWRIGHT_SETUP_CODE=` 那一行）；Docker 在容器 log。**沒抄到或忘了**：設定碼存在資料目錄的 `setup-code` 檔，重啟不會重生，精靈完成才刪除，所以精靈完成前都能讀回來：Windows 用「以系統管理員身分執行」的記事本開 `C:\ProgramData\Formwright\data\setup-code`；Ubuntu 執行 `sudo cat /var/lib/formwright/data/setup-code`（資料目錄只有 root 與 `formwright` 帳號讀得到）；Docker 執行 `docker compose logs formwright` 找「設定精靈的設定碼」那行（檔案在 data volume 的 `/app/data/setup-code`）。安裝程式只在全新安裝時顯示設定碼，升級與重新安裝不會再顯示。
 - **雙因素**：依系統預設，管理員第一次登入後會先被要求設定雙因素驗證，要準備好驗證器 App。
 - **語言**：安裝程式與腳本提供繁體中文與英文。Windows 只有繁中介面的 Windows（含香港、澳門）用繁中，其他一律英文；Ubuntu 只有系統語言是 `zh_TW`、`zh_HK`、`zh_MO` 才用繁中，其他一律英文。`sudo` 會丟掉呼叫端的環境變數，所以要指定語言請寫成 `curl … \| sudo bash -s -- --lang zh-TW`（或 `--lang en`）。
 - **Ubuntu 的選項**：`--port <n>`（只在全新安裝生效）、`--skip-backup`、`--lang <zh-TW|en>`；動作 `remove`、`purge`（`curl … \| sudo bash -s -- remove`）。Windows 靜默安裝參數：`/PORT=<n>`、`/SKIPBACKUP`、`/FIREWALLSCOPE=<範圍>`；解除安裝帶 `/DELETEDATA`。
@@ -266,7 +266,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 
 用[產品內備份](#產品內備份)的一份 `sets/<名稱>/` 把資料庫與附件放回安裝版的資料目錄。通用原則同[從備份還原（SQLite）](#從備份還原sqlite)；這裡只列各平台的路徑與指令。先確認備份的 `manifest.json` 的 `appVersion` 不比已安裝的版本新（新備份不能用舊版開）。升級前備份在歷程裡顯示為「立即」、沒有操作者，`snapshotUtc` 在升級那一刻之前、`appVersion` 是升級前的版本。
 
-下面三個平台都是同一個順序：停服務 → 另存現有資料 → 比對備份的 SHA-256 → 覆蓋 → 補附件 → 啟動。**任何一步失敗就停在那裡、不要啟動服務**，原本的資料還在（或在另存的副本裡）。
+下面三個平台的順序大致相同：停服務 → 另存現有資料 → 比對備份的 SHA-256 → 補附件（Ubuntu、Docker 放在覆蓋之前；Windows 在覆蓋之後）→ 覆蓋資料庫 → 啟動。**任何一步失敗就停在那裡、不要啟動服務**，原本的資料還在（或在另存的副本裡）。
 
 **Windows**（已在真機演練，Windows 11、Formwright 0.1.0-rc.1；第 3 步的明確比對寫法是演練之後改的，沒有再單獨演練）：
 
@@ -282,11 +282,11 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
    ```
 
 4. `Copy-Item "$set\database.sqlite" C:\ProgramData\Formwright\data\formwright.db -Force`，再刪掉 `formwright.db-wal`、`formwright.db-shm`。這樣是**覆蓋既有檔**，保留原檔的權限；不要用會保留來源權限的工具（`robocopy /SEC`、`xcopy /O`），否則資料目錄的權限會和預期不同，下次升級被拒絕。
-5. 附件：把 `C:\ProgramData\Formwright\backup\attachments\` 的內容複製到 `C:\ProgramData\Formwright\data\attachments\`（多出來的檔案可用「清孤兒附件」清掉）。
+5. 附件：把 `C:\ProgramData\Formwright\backup\attachments\` 的內容複製到 `C:\ProgramData\Formwright\data\attachments\`（多出來的檔案可用「清孤兒附件」清掉）。沒有 `backup\attachments` 資料夾表示這個站台還沒備份過任何附件，沒有附件要補，略過這一步。
 6. `Start-Service Formwright`，用瀏覽器或 `Invoke-RestMethod http://127.0.0.1:<埠>/api/version` 確認有回應（埠見 `C:\ProgramData\Formwright\formwright.json` 的 `Server:Port`，預設 8080）。
 7. **不要用檔案總管進 `C:\ProgramData\Formwright` 按「繼續」**：Windows 會替你的帳號加一條明確授權。管理員帳號的授權不擋升級（見上面「資料目錄權限」），但其他帳號的授權會。
 
-**Ubuntu**（⚠️ 依 `installer/linux/install.sh` 推論，**未在真機演練**）：服務名 `formwright`，資料 `/var/lib/formwright/data`，備份 `/var/lib/formwright/backup`，資料庫檔 `formwright.db`；資料目錄與備份目錄擁有者是 `formwright:formwright`、0700，一般登入帳號進不去，所以檔案的列舉與複製都放在同一個 root shell 裡做。升級流程只對 `/var/lib/formwright`、`/etc/formwright`、`data`、`backup` 這幾個目錄重設擁有者與權限，**不檢查也不重設其下檔案**，所以還原後檔案的擁有者要維持 `formwright`，否則服務寫不進去。把 `<名稱>` 換成要還原的那份：
+**Ubuntu**（2026-11-27 在 WSL2 Ubuntu 24.04 以 root 演練過，情境是附件池不存在；下面附件步驟改成「存在才複製」並移到覆蓋之前，是演練之後改的，**待複驗**。以一般 sudo 帳號、備份裡有附件的情況未演練）：服務名 `formwright`，資料 `/var/lib/formwright/data`，備份 `/var/lib/formwright/backup`，資料庫檔 `formwright.db`；資料目錄與備份目錄擁有者是 `formwright:formwright`、0700，一般登入帳號進不去，所以檔案的列舉與複製都放在同一個 root shell 裡做。升級流程只對 `/var/lib/formwright`、`/etc/formwright`、`data`、`backup` 這幾個目錄重設擁有者與權限，**不檢查也不重設其下檔案**，所以還原後檔案的擁有者要維持 `formwright`，否則服務寫不進去。把 `<名稱>` 換成要還原的那份：
 
 ```bash
 sudo systemctl stop formwright
@@ -305,18 +305,23 @@ sudo sh -c 'set -e
   test -n "$want"
   got=$(sha256sum "$SET/database.sqlite" | cut -d" " -f1)
   test "$got" = "$want"
+  # 附件池只有備份過至少一個附件後才存在；沒有就略過。放在覆蓋資料庫之前：附件複製失敗時資料庫還沒動
+  if [ -d /var/lib/formwright/backup/attachments ]; then
+    mkdir -p "$DATA/attachments"
+    cp -r /var/lib/formwright/backup/attachments/. "$DATA/attachments/"
+    chown -R formwright:formwright "$DATA/attachments"
+  else
+    echo "沒有附件備份，略過"
+  fi
   install -o formwright -g formwright -m 600 "$SET/database.sqlite" "$DATA/formwright.db"
   rm -f "$DATA/formwright.db-wal" "$DATA/formwright.db-shm"
-  mkdir -p "$DATA/attachments"
-  cp -r /var/lib/formwright/backup/attachments/. "$DATA/attachments/"
-  chown -R formwright:formwright "$DATA/attachments"
   echo "還原完成；原資料另存在 $SAVE"
 '
 ```
 
 上面那段印出「還原完成」才執行 `sudo systemctl start formwright`，再 `curl -fsS http://127.0.0.1:<埠>/api/version` 確認（埠見 `/etc/formwright/formwright.json`）。沒印就不要啟動，把錯誤訊息和 `$SAVE` 目錄的內容留著排查。
 
-**Docker compose**（⚠️ 依 `deploy/docker-compose.yml` 推論，**未在真機演練**）：資料 volume `formwright-data` 掛在 `/app/data`，備份 volume `formwright-backup` 掛在 `/backup`（備份在 `/backup/sets/<名稱>/`）；實際 volume 名稱前面有 compose 專案名（預設 `formwright_formwright-data`，用 `docker volume ls` 確認）。映像沒有指定非 root 使用者，容器內檔案是 root 擁有，下面用暫時容器以 root 複製。不確定的地方：容器是否以非 root 執行要以你用的映像為準（`docker compose run --rm --entrypoint id formwright`），不是 root 就要在複製後把 `/app/data` 內檔案 `chown` 成那個使用者。暫時容器在覆蓋前會讀 `manifest.json` 比對 `database.sha256`，不符或讀不到就以非 0 結束，`&&` 後面的 `docker compose start` 就不會執行，服務維持停止：
+**Docker compose**（⚠️ 依 `deploy/docker-compose.yml` 推論，**未在真機演練**；附件步驟「存在才複製」並移到覆蓋之前，也是 Ubuntu 演練發現問題後照改的）：資料 volume `formwright-data` 掛在 `/app/data`，備份 volume `formwright-backup` 掛在 `/backup`（備份在 `/backup/sets/<名稱>/`）；實際 volume 名稱前面有 compose 專案名（預設 `formwright_formwright-data`，用 `docker volume ls` 確認）。映像沒有指定非 root 使用者，容器內檔案是 root 擁有，下面用暫時容器以 root 複製。不確定的地方：容器是否以非 root 執行要以你用的映像為準（`docker compose run --rm --entrypoint id formwright`），不是 root 就要在複製後把 `/app/data` 內檔案 `chown` 成那個使用者。暫時容器在覆蓋前會讀 `manifest.json` 比對 `database.sha256`，不符或讀不到就以非 0 結束，`&&` 後面的 `docker compose start` 就不會執行，服務維持停止：
 
 ```bash
 docker compose stop formwright
@@ -330,14 +335,19 @@ docker run --rm -v formwright_formwright-data:/data -v formwright_formwright-bac
   [ "$got" = "$want" ] || { echo "SHA-256 不符，不還原" >&2; exit 1; }
   for f in /data/formwright.db*; do [ -e "$f" ] || continue; cp -p "$f" /save/; done
   [ -s /save/formwright.db ]
+  # 附件池只有備份過至少一個附件後才存在；沒有就略過。放在覆蓋資料庫之前
+  if [ -d /backup/attachments ]; then
+    mkdir -p /data/attachments
+    cp -r /backup/attachments/. /data/attachments/
+  else
+    echo "沒有附件備份，略過"
+  fi
   cp "$SET/database.sqlite" /data/formwright.db
   rm -f /data/formwright.db-wal /data/formwright.db-shm
-  mkdir -p /data/attachments
-  cp -r /backup/attachments/. /data/attachments/
 ' && docker compose start formwright
 ```
 
-指令失敗時服務保持停止，現有資料沒有被動到（比對與另存都在覆蓋之前）；修好原因後再重跑同一段。
+指令失敗時服務保持停止；比對、另存與附件複製都在覆蓋資料庫之前，所以資料庫在失敗時沒有被動到（附件只會多出檔案，之後可用「清孤兒附件」清掉）。修好原因後再重跑同一段。
 
 **退回舊版程式**：兩種安裝程式都**不擋降版**——Windows 的 `formwright.iss` 用同一個 AppId、不比對版本、程式檔以 `ignoreversion` 覆蓋，`install.sh` 也不比對版本，所以執行舊版安裝檔會當成一次升級做完（Windows：停服務、用目前已裝的程式做一次備份、換成舊版程式、檢查資料目錄權限、啟動）。但**舊程式開到新版升過的資料庫不保證相容**：沒有統一的降版拒絕機制，可能啟動失敗（Windows 的安裝程式最後等服務就緒逾時、結束碼 20、服務被停用），也可能啟動成功、之後寫入新版的資料結構，或在特定功能出錯。所以不要把「啟動失敗」當成保護，也不要讓舊程式先碰到新版資料庫。建議順序：
 
