@@ -286,6 +286,7 @@ public static class DependencyInjection
         services.AddScoped<Dynamic.McpService.Confirmations.McpConfirmationScope>();
         services.AddScoped<Dynamic.McpService.Confirmations.McpConfirmationValidator>();
         services.AddScoped<Dynamic.RecordService.Commands.DeleteRecord.DeleteRecordChecks>();
+        services.AddScoped<Dynamic.RecordService.Commands.DeleteRecord.DeleteSourceDisclosure>();
         services.AddScoped<Dynamic.McpService.Writes.McpWriteScope>();
         services.AddScoped<Dynamic.McpService.Writes.IMcpWriteScope>(sp => sp.GetRequiredService<Dynamic.McpService.Writes.McpWriteScope>());
         services.AddScoped<Dynamic.McpService.Confirmations.IMcpConfirmationScope>(sp =>

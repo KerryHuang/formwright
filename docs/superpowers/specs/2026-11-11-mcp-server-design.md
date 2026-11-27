@@ -557,7 +557,7 @@ client 不支援 elicitation 時的處理（原待決）：做成政策 `mcp.hig
 
 **工具行為**
 
-- `delete_record`：`recordId`、`rowVersion`、`idempotencyKey` 必填；預演回 `recordId`、`moduleKey`、`cascadeDelete`（連帶刪除的記錄）、`clearReferences`（會被清空參照的記錄與欄位）。最終審查 R3（2026-11-27）：規劃器跨所有來源查詢只供完整性檢查；對外摘要要每一筆連帶刪除或清空的來源都看得到（來源模組讀取權，明細照表頭；來源記錄在資料範圍內；命中的參照欄位沒被群組隱藏，MCP 通道也沒「不提供給 AI」），有任一筆看不到就整次回 `forbidden`「這筆刪除會連帶影響你在這裡看不到的資料，無法列出完整影響；請改在畫面上刪除」，不建碼、不跳對話框。執行器對 Forbidden 一律換成通用的「沒有權限」，只有訊息鍵白名單裡的這一句照原文給（複審 N4，`McpToolInvoker.SafeForbiddenKeys`）。內部刪除計畫與指紋不變；移出清單後的一般寫入不經預演，照常刪除。
+- `delete_record`：`recordId`、`rowVersion`、`idempotencyKey` 必填；預演回 `recordId`、`moduleKey`、`cascadeDelete`（連帶刪除的記錄）、`clearReferences`（會被清空參照的記錄與欄位）。最終審查 R3（2026-11-27）：規劃器跨所有來源查詢只供完整性檢查；對外摘要要每一筆連帶刪除或清空的來源都看得到（來源模組可讀，也就是啟用中或已關閉，明細另要表頭存在且可讀，複審 N1；來源模組讀取權，明細照表頭；來源記錄在資料範圍內；命中的參照欄位沒被群組隱藏，MCP 通道也沒「不提供給 AI」），有任一筆看不到就整次回 `forbidden`「這筆刪除會連帶影響你在這裡看不到的資料，無法列出完整影響；請改在畫面上刪除」，不建碼、不跳對話框。執行器對 Forbidden 一律換成通用的「沒有權限」，只有訊息鍵白名單裡的這一句照原文給（複審 N4，`McpToolInvoker.SafeForbiddenKeys`）。內部刪除計畫與指紋不變；移出清單後的一般寫入不經預演，照常刪除。
 - `approve`：`taskId`、`rowVersion`（實例版本）、`idempotencyKey` 必填，`comment` 選填；不收可編輯欄位（只在畫面）。預演回關卡、結局（`waitOthers`／`nextStage`／`complete`／`route`）、下一關名稱、下一關是否有條件、核准後的目標狀態。
 - `reject`：另外必填 `comment`，`to` 是 `initiator`（出廠）或 `previous`；意見長度與必填由 handler 依政策判斷。預演回結局 `toInitiator`／`toPrevious` 與重簽的關卡。
 - 寫入類工具都多一個選填的 `confirmationCode` 參數；這次是一般寫入時忽略它。

@@ -239,6 +239,91 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
         return (id, rec.GetProperty("rowVersion").GetString()!, source, refKey);
     }
 
+    // ───────── 明細來源的模組狀態（複審 N1）─────────
+
+    /// <summary>
+    /// 業務群組對目標與表頭有完整權限；明細模組有一個指向目標的參照欄位（<paramref name="onDelete"/>），明細列屬於一筆表頭記錄。
+    /// <paramref name="state"/>：active＝都啟用、closedDetail＝明細已關閉（可讀）、inactiveDetail＝明細停用、inactiveHeader＝表頭停用。
+    /// </summary>
+    private async Task<(long Id, string RowVersion, string Detail, string RefKey)> DetailSourceRig(string onDelete, string state)
+    {
+        var target = await CreateModule(_admin);
+        var header = await CreateModule(_admin);
+        var detail = await CreateModule(_admin);
+        await AddField(_admin, detail, "reference", new { refTarget = new { kind = "module", key = header }, relation = "detail" });
+        var (_, refKey, _) = await AddField(_admin, detail, "reference", new { refTarget = new { kind = "module", key = target }, onDelete });
+        await Activate(_admin, target);
+        await Activate(_admin, header);
+        await Activate(_admin, detail);
+        _app.GrantBusinessGroups(target);
+        _app.GrantBusinessGroups(header);
+        var targetTitle = await TitleKey(_admin, target);
+        var created = await _admin.PostAsJsonAsync($"{Base}/modules/{target}/records", new { values = new Dictionary<string, object> { [targetTitle] = "要刪的主檔" } });
+        created.StatusCode.Should().Be(HttpStatusCode.Created, await created.Content.ReadAsStringAsync());
+        var rec = await JsonOf(created);
+        var id = rec.GetProperty("id").GetInt64();
+        var (headerTitle, detailTitle) = (await TitleKey(_admin, header), await TitleKey(_admin, detail));
+        var head = await _admin.PostAsJsonAsync($"{Base}/modules/{header}/records", new
+        {
+            values = new Dictionary<string, object> { [headerTitle] = "表頭單據" },
+            details = new Dictionary<string, object[]> { [detail] = [new { values = new Dictionary<string, object> { [refKey] = id, [detailTitle] = "明細列" } }] },
+        });
+        head.StatusCode.Should().Be(HttpStatusCode.Created, await head.Content.ReadAsStringAsync());
+        var detailId = Query(_app, db => db.Set<Module>().Single(m => m.Key == detail).Id);
+        Query(_app, db => db.Set<Record>().Count(r => r.ModuleId == detailId && !r.DeleteFlag)).Should().Be(1, "前提：有一筆明細列");
+        var (statusOf, status) = state switch
+        {
+            "closedDetail" => (detail, ModuleStatus.Closed),
+            "inactiveDetail" => (detail, ModuleStatus.Inactive),
+            "inactiveHeader" => (header, ModuleStatus.Inactive),
+            _ => ((string?)null, ModuleStatus.Active),
+        };
+        if (statusOf is not null)
+            Query(_app, db =>
+            {
+                db.Set<Module>().Single(m => m.Key == statusOf).Status = status;
+                return db.SaveChanges();
+            });
+        return (id, rec.GetProperty("rowVersion").GetString()!, detail, refKey);
+    }
+
+    /// <summary>N1：明細或表頭停用（不可讀）時，清空與連帶刪除都整次拒絕，不帶明細模組、欄位與筆數，不發碼、不跳對話框。</summary>
+    [Theory]
+    [InlineData("setNull", "inactiveDetail")]
+    [InlineData("cascade", "inactiveDetail")]
+    [InlineData("setNull", "inactiveHeader")]
+    [InlineData("cascade", "inactiveHeader")]
+    public async Task DeletePreview_UnreadableDetailSource_Refused(string onDelete, string state)
+    {
+        var (id, rv, detail, refKey) = await DetailSourceRig(onDelete, state);
+        await using var sales = await Sales01();
+
+        var r = await Call("delete_record", DeleteArgs(id, rv), sales);
+
+        Code(r).Should().Be(McpErrorCodes.Forbidden, r.GetRawText());
+        RestrictedMessage(r).Should().Contain("請改在畫面上刪除");
+        r.GetRawText().Should().NotContain(detail).And.NotContain(refKey);
+        Exists(id).Should().BeTrue();
+        Query(_app, db => db.Set<McpConfirmation>().Count()).Should().Be(0);
+    }
+
+    /// <summary>N1 對照組：啟用中或已關閉（可讀）的明細照常列出。</summary>
+    [Theory]
+    [InlineData("setNull", "active")]
+    [InlineData("cascade", "active")]
+    [InlineData("setNull", "closedDetail")]
+    [InlineData("cascade", "closedDetail")]
+    public async Task DeletePreview_ReadableDetailSource_Listed(string onDelete, string state)
+    {
+        var (id, rv, detail, refKey) = await DetailSourceRig(onDelete, state);
+        await using var sales = await Sales01();
+
+        var p = Ok(await Call("delete_record", DeleteArgs(id, rv), sales)).GetProperty("data").GetProperty("preview");
+
+        if (onDelete == "cascade") p.GetProperty("cascadeDelete")[0].GetProperty("moduleKey").GetString().Should().Be(detail);
+        else p.GetProperty("clearReferences")[0].GetProperty("fieldKey").GetString().Should().Be(refKey);
+    }
+
     private static string RestrictedMessage(JsonElement r) => r.GetProperty("error").GetProperty("message").GetString()!;
 
     /// <summary>N4：其他權限拒絕照舊用通用訊息遮掉（白名單只放「改在畫面刪除」這一句）。</summary>
