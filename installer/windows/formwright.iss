@@ -6,7 +6,7 @@
 ; /FIREWALLSCOPE=<遠端位址範圍>（防火牆允許的來源，localsubnet 或位址、CIDR、範圍，逗號分隔；沒給就沿用上次安裝的值，再沒有就用 install-defaults.json 的 firewallRemoteIp）。
 ; 權限（set-acl.ps1）：先檢查資料父目錄的直接上層（ProgramData：擁有者可信、沒有他人可刪除／改名／改權限它的授權）；全新安裝時父目錄用最終的受保護權限一次建立（沒有繼承權限的可寫空窗）並設定權限；
 ; 升級（目錄已存在）只驗證、不重設：安裝程式對既有項目不寫任何 ACL 或擁有者，先對整棵樹做唯讀預檢（不是 reparse point、擁有者可信、DACL 存在、沒有 SYSTEM／Administrators／服務帳號以外的寫入授權、檔案硬連結數為 1），
-; 再驗證父目錄與每個項目恰為預期集合（連系統管理員自己加的讀取授權也算偏差）；有偏差就拒絕（結束碼 20、服務停用，安裝 log 寫明路徑與違反的規則），此時沒有任何寫入發生，由管理員手動修好後重跑。
+; 再驗證父目錄與每個項目恰為預期集合（連系統管理員自己加的讀取授權也算偏差）；有偏差就拒絕（結束碼 20、服務停用，安裝 log 寫明路徑與違反的規則）。拒絕時既有檔案與目錄的權限、擁有者沒有被改寫，但升級前備份、程式檔替換與補建缺少的子目錄可能已經完成；由管理員手動修好權限後重跑安裝程式。
 ; 升級時缺少的 Data、Backup 子目錄仍會建立（只繼承父目錄，不寫 ACL）。跑 set-acl 時服務已確認停止（下方 ApplyAcl 檢查，沒停就不跑）。
 ; 剩餘風險：ACL 改變不會撤銷更早取得的 handle；既有項目不寫入，所以曾被授權寫入的帳號即使持有舊 handle 植入連結，也無法誘導 set-acl 改到樹外檔案的權限；全新安裝時父目錄剛建立、沒有他人被授權過。
 ; set-acl 之外的安裝步驟與服務之後在該目錄內做的事不在此保護範圍。請勿另外把資料目錄的寫入權授給其他帳號。
@@ -96,7 +96,7 @@ english.BackupNotConfiguredNotRestored=No backup location is configured, so the 
 english.FirewallScopeInvalid=/FIREWALLSCOPE may contain only letters, digits and . : / , - (a netsh remoteip value such as localsubnet or 192.0.2.0/24,198.51.100.0/24).
 english.ServiceMaybeDisabled=The Formwright service may be left disabled or stopped. Set it back and start it manually: sc config Formwright start= auto, then sc start Formwright.
 english.StepFailedNotStopped=Setup did not complete: %1 failed (exit code %2), and the Formwright service could not be fully stopped and disabled (it may still be running or may restart). Stop and disable it manually (sc config Formwright start= disabled, then sc stop Formwright), fix the problem, then run the installer again (it enables the service again); details are in the setup log.
-english.AclUntrusted=Setup did not complete: the data directory contains permissions or links that do not belong to Formwright (details are in the setup log), so for safety the installer refused to continue and changed nothing (it never resets permissions of an existing data directory on upgrade). The Formwright service was stopped and disabled. Ask an administrator to fix or remove that item by hand (the setup log names the path and the rule), then run the installer again (it enables the service again).
+english.AclUntrusted=Setup did not complete: the data directory contains permissions or links that are not as expected (the setup log names the path and the rule). On upgrade the installer never rewrites the permissions or owner of existing files and folders, so none of those were changed; but the pre-upgrade backup, the replacement of the program files and the creation of missing subfolders may already have been done. The Formwright service was stopped and disabled. Ask an administrator to fix or remove that item by hand, then run the installer again (it enables the service again).
 english.UninstallStopFailed=Could not stop the Formwright service, so nothing was removed. Stop it manually and run the uninstaller again.
 
 chinesetraditional.PortPageTitle=連接埠
@@ -121,7 +121,7 @@ chinesetraditional.BackupNotConfiguredNotRestored=備份位置沒有設定，升
 chinesetraditional.FirewallScopeInvalid=/FIREWALLSCOPE 只能含英文字母、數字與 . : / , -（netsh remoteip 的值，例如 localsubnet 或 192.0.2.0/24,198.51.100.0/24）。
 chinesetraditional.ServiceMaybeDisabled=Formwright 服務可能停在停用或停止狀態。請手動改回並啟動：sc config Formwright start= auto，再 sc start Formwright。
 chinesetraditional.StepFailedNotStopped=安裝沒有完成：「%1」失敗（結束碼 %2），而且 Formwright 服務沒能完整停止並停用（可能仍在執行或會自動重啟）。請手動停用並停止（sc config Formwright start= disabled，再 sc stop Formwright），排除問題後重新執行安裝程式（會重新啟用服務），詳情在安裝 log。
-chinesetraditional.AclUntrusted=安裝沒有完成：資料目錄裡有不屬於 Formwright 的權限或連結（詳情見安裝 log），為安全起見安裝程式拒絕繼續且沒有改動任何東西（升級時不會重設既有資料目錄的權限）。Formwright 服務已停止並停用。請系統管理員依安裝 log 寫明的路徑與規則手動修好或移除該項目後重新執行安裝程式（會重新啟用服務）。
+chinesetraditional.AclUntrusted=安裝沒有完成：資料目錄裡有不符合預期的權限或連結（安裝 log 寫明路徑與違反的規則）。升級時安裝程式不會改寫既有檔案與目錄的權限或擁有者，所以它們沒有被改動；但升級前備份、程式檔替換與補建缺少的子目錄可能已經完成。Formwright 服務已停止並停用。請系統管理員手動修好或移除該項目後重新執行安裝程式（會重新啟用服務）。
 chinesetraditional.UninstallStopFailed=服務停不下來，所以沒有移除任何東西。請手動停止後重新執行解除安裝。
 
 [Code]
@@ -446,7 +446,7 @@ begin
   Result := (not Exists) or ServiceInState('STOPPED');
 end;
 
-// 資料父目錄的權限（M02）：全新安裝建立並設定；既有目錄（升級）只驗證、不重設——唯讀預檢整棵樹並比對預期集合，有偏差＝結束碼 2、什麼都沒改。
+// 資料父目錄的權限（M02）：全新安裝建立並設定；既有目錄（升級）只驗證、不重設——唯讀預檢整棵樹並比對預期集合，有偏差＝結束碼 2（既有項目的權限與擁有者不改寫；升級前備份、程式檔替換可能已完成）。
 // 沒有確認服務已停止就不跑（預檢通過的安全論證以此為前提）。
 function ApplyAcl: Boolean;
 var
@@ -463,7 +463,7 @@ begin
   if Rc = 0 then
     Result := True
   else if Rc = 2 then
-    FailStepWith('AclUntrusted', 'data directory check (permission, owner or link not as expected; nothing was changed; see the setup log)', Rc)
+    FailStepWith('AclUntrusted', 'data directory check (permission, owner or link not as expected; see the setup log)', Rc)
   else
     FailStep('set permissions (set-acl.ps1)', Rc);
 end;

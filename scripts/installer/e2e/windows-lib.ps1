@@ -21,7 +21,7 @@ function To-UtcOffset($UnixSeconds) {
 function Now-Utc { [DateTimeOffset]::FromUnixTimeSeconds([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()) }
 
 # B01／M02：資料父目錄的完整預期集合（與安裝程式 set-acl.ps1 的驗證同一套）：
-#  父目錄：擁有者 Administrators、受保護（不繼承）、恰好三個 Allow ACE（SYSTEM、Administrators 完全控制；服務帳號 Modify、沒有 WriteDACL／WriteOwner），皆 OI CI、非繼承；
+#  父目錄：擁有者 Administrators、受保護（不繼承）、恰好三個 Allow ACE（SYSTEM、Administrators 剛好完全控制；服務帳號剛好 Modify），皆 OI CI、非繼承；
 #  父目錄之下每個項目：不是 reparse point、DACL 非空、擁有者是 Administrators 或 SYSTEM（-AllowServiceOwner 時也接受服務帳號：精靈完成後服務自己建的檔案）、
 #  不是受保護、恰好三個「繼承」ACE（同一組三個主體與遮罩；目錄旗標 OI CI、檔案旗標無），沒有任何明確 ACE。至少要有 data 與 backup 兩個子項（空集合不得通過）。
 function Assert-AclRule($r, [string]$Where, [string]$Svc, $WantFlags, [bool]$Inherited) {
@@ -29,11 +29,10 @@ function Assert-AclRule($r, [string]$Where, [string]$Svc, $WantFlags, [bool]$Inh
   Assert ("$($r.AccessControlType)" -eq 'Allow') "$Where：$id 的 ACE 不是 Allow"
   Assert ($r.IsInherited -eq $Inherited) "$Where：$id 的 ACE 繼承狀態不對（IsInherited=$($r.IsInherited)）"
   Assert ($r.InheritanceFlags -eq $WantFlags -and "$($r.PropagationFlags)" -eq 'None') "$Where：$id 的 ACE 繼承旗標不對（$($r.InheritanceFlags)/$($r.PropagationFlags)）"
-  if ($id -eq 'S-1-5-18' -or $id -eq 'S-1-5-32-544') { Assert (($mask -band 0x1F01FF) -eq 0x1F01FF) "$Where：$id 應為完全控制" }
+  # 遮罩要精確：完全控制 0x1F01FF（回報時可能少 Synchronize 位元 → 0xF01FF），Modify 0x1301BF（或 0x301BF），多一個位元（例如 DeleteChild）都不行
+  if ($id -eq 'S-1-5-18' -or $id -eq 'S-1-5-32-544') { Assert (@(0x1F01FF, 0xF01FF) -contains $mask) ("$Where：$id 應剛好是完全控制、實得 0x{0:X}" -f $mask) }
   elseif ($id -eq $Svc) {
-    Assert (($mask -band 0x301BF) -eq 0x301BF) "$Where：服務帳號應有 Modify"
-    Assert (($mask -band 0xC0000) -eq 0) "$Where：服務帳號不該有 WriteDACL／WriteOwner"
-    Assert (($mask -band 0x1F01FF) -ne 0x1F01FF) "$Where：服務帳號不該是完全控制"
+    Assert (@(0x1301BF, 0x301BF) -contains $mask) ("$Where：服務帳號應剛好是 Modify、實得 0x{0:X}" -f $mask)
   } else { throw "FAIL: $Where 有不該有的 ACE：$id" }
 }
 function Assert-AclState([string]$Parent = 'C:\ProgramData\Formwright', [switch]$AllowServiceOwner) {
@@ -118,6 +117,16 @@ function New-LockedData {
   Icacls $parent /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' "*$(Get-ServiceSid):(OI)(CI)M"
   Icacls $parent /setowner '*S-1-5-32-544'
   New-Item -ItemType Directory -Force -Path $Data | Out-Null
+}
+
+# 把父目錄上服務帳號那條 ACE 換成指定遮罩（其他 ACE、受保護狀態、擁有者不動），用來注入「多於 Modify」的偏差
+function Set-ServiceAceMask([string]$Parent, [int]$Mask) {
+  $svcSid = New-Object Security.Principal.SecurityIdentifier((Get-ServiceSid))
+  $acl = Get-Acl -LiteralPath $Parent
+  foreach ($r in @($acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]) | Where-Object { $_.IdentityReference.Value -eq $svcSid.Value })) { [void]$acl.RemoveAccessRuleSpecific($r) }
+  $flags = [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
+  $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($svcSid, [Security.AccessControl.FileSystemRights]$Mask, $flags, 'None', 'Allow')))
+  Set-Acl -LiteralPath $Parent -AclObject $acl
 }
 
 # 靜默執行安裝程式，回傳結束碼；log 落在 $LogDir\setup-<名稱>.log

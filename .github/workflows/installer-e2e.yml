@@ -512,7 +512,7 @@ jobs:
           Assert ($s.StartType -eq 'Disabled' -and $s.Status -eq 'Stopped') "預檢拒絕後服務應為 Disabled／Stopped、實得 $($s.StartType)／$($s.Status)"
           Icacls $Data /setowner '*S-1-5-32-544'
           Assert-AclState -AllowServiceOwner   # 改回擁有者後樹要回到預期集合，下一段的拒絕才確定是讀取授權造成的
-          # M02：系統管理員自己加的讀取授權（沒有寫入權）也算偏差，升級必須拒絕：結束碼 20、log 有規則與路徑、服務停用、授權原封不動（沒有任何寫入）
+          # M02：系統管理員自己加的讀取授權（沒有寫入權）也算偏差，升級必須拒絕：結束碼 20、log 有規則與路徑、服務停用、授權原封不動（沒有改寫既有項目的 ACL）
           $cfg = 'C:\ProgramData\Formwright\formwright.json'
           Icacls $Data /grant 'BUILTIN\Users:(OI)(CI)R'
           Icacls $cfg /grant 'BUILTIN\Users:R'
@@ -699,13 +699,18 @@ jobs:
           Set-Content -Path "$target\sentinel.txt" -Value 'sentinel'
           $aclBefore = (Get-Acl -LiteralPath $target).Sddl
           $sentinelBefore = (Get-Acl -LiteralPath "$target\sentinel.txt").Sddl
-          New-LockedData   # 父目錄先鎖成只有 SYSTEM／Administrators，預檢才會在 junction 上停下，而不是先被 ProgramData 繼承的 Users 權限擋掉
+          New-LockedData   # 父目錄先放成最終形狀（受保護、SYSTEM／Administrators 完全控制、服務帳號 Modify），預檢才會在 junction 上停下，而不是先卡在父目錄形狀或 ProgramData 繼承的 Users 權限
           try {
             New-Item -ItemType Junction -Path "$Data\evil" -Target $target | Out-Null
             try {
               $rc = Install-Fw $env:V1 'inject-junction'
               Assert ($rc -eq 20) "junction 時結束碼應為 20、實得 $rc"
-              Assert ((Log-Text 'setup-inject-junction.log') -match 'reparse point') 'log 缺「reparse point」'
+              $jlog = Log-Text 'setup-inject-junction.log'
+              Assert ($jlog -match 'reparse point') 'log 缺「reparse point」'
+              # 分類：set-acl 以拒絕（結束碼 2）回報，走 AclUntrusted 訊息，不是一般的「set permissions」步驟失敗（結束碼 1）
+              Assert ($jlog -match 'set-acl.ps1: set-acl failed: reparse point') 'log 缺 set-acl 的「reparse point」規則訊息'
+              Assert ($jlog -match 'Setup did not complete: the data directory contains permissions or links') 'junction 應走 AclUntrusted 訊息（set-acl 結束碼 2）'
+              Assert ($jlog -notmatch 'Setup did not complete: set permissions') 'junction 不該被分類成一般的 set permissions 失敗（結束碼 1）'
               $s = Get-Service Formwright -ErrorAction SilentlyContinue
               Assert ($null -ne $s -and $s.StartType -eq 'Disabled' -and $s.Status -eq 'Stopped') 'junction 失敗後服務應為 Disabled／Stopped'
               Assert ((Get-Content "$target\sentinel.txt") -eq 'sentinel') 'junction 目標的哨兵檔內容變了'
@@ -801,6 +806,22 @@ jobs:
             & net.exe localgroup $grp /delete | Out-Null
             Cleanup 'inject-ancestor'
           }
+          # 6) 父目錄的服務帳號 ACE 多一個位元（Modify 加 DeleteSubdirectoriesAndFiles，0x1301FF）：遮罩要精確，必須拒絕（結束碼 20、log 有 not exactly Modify），ACL 不被改；案例結束整個資料目錄由 Cleanup 刪掉
+          New-LockedData
+          try {
+            Set-ServiceAceMask 'C:\ProgramData\Formwright' 0x1301FF
+            $maskBefore = (Get-Acl -LiteralPath 'C:\ProgramData\Formwright').Sddl
+            try {
+              $rc = Install-Fw $env:V1 'inject-extramask'
+              Assert ($rc -eq 20) "服務帳號遮罩多一個位元時結束碼應為 20、實得 $rc"
+              $mlog = Log-Text 'setup-inject-extramask.log'
+              Assert ($mlog -match 'service account mask 0x1301FF is not exactly Modify') 'log 缺「service account mask 0x1301FF is not exactly Modify」'
+              Assert ($mlog -match 'Setup did not complete: the data directory contains permissions or links') '遮罩偏差應走 AclUntrusted 訊息（set-acl 結束碼 2）'
+              $s = Get-Service Formwright -ErrorAction SilentlyContinue
+              Assert ($null -ne $s -and $s.StartType -eq 'Disabled' -and $s.Status -eq 'Stopped') '預檢拒絕後服務應為 Disabled／Stopped'
+              Assert ((Get-Acl -LiteralPath 'C:\ProgramData\Formwright').Sddl -ceq $maskBefore) '被拒絕的升級改動了父目錄的 ACL'
+            } finally { Quiesce-Fw }
+          } finally { Cleanup 'inject-extramask' }
           # 斷言失敗都會 throw；清場中的原生命令（sc、icacls、net 對已不存在的對象）可能留下非 0 的 LASTEXITCODE，GitHub 的 pwsh 包裝會拿它當步驟結果
           $global:LASTEXITCODE = 0
 
