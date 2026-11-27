@@ -499,5 +499,22 @@ describe('ListPage on a phone', () => {
     expect(w.find('table').exists()).toBe(true);
     expect(w.find('[data-testid="record-card-1"]').exists()).toBe(false);
   });
-});
 
+  it('long status and title can wrap: the status is width-limited and shrinkable', async () => {
+    withStatus();
+    const w = await mountWithRows(390, [{ ...row, values: { f_4: 'draft' } }]);
+    const status = w.get('[data-testid="record-card-status"]');
+    expect(status.classes()).not.toContain('col-auto');
+    const style = (status.element as HTMLElement).style;
+    expect([style.maxWidth, style.minWidth, style.overflowWrap]).toEqual(['50%', '0px', 'anywhere']);
+    const title = w.get('[data-testid="record-card-title"]').element as HTMLElement;
+    expect([title.style.minWidth, title.style.overflowWrap]).toEqual(['0px', 'anywhere']);
+  });
+
+  it('the card is announced as a link named after the record', async () => {
+    const w = await mountWithRows(390, [row]);
+    const card = w.get('[data-testid="record-card-1"]');
+    expect(card.attributes('role')).toBe('link');
+    expect(card.attributes('aria-label')).toBe('列一');
+  });
+});

@@ -1,5 +1,5 @@
 <script setup lang="ts" generic="T">
-import { ref, watch } from 'vue';
+import { ref, useId, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 // POC thin wrapper; replaced by the framework component of the same name when merged.
@@ -11,12 +11,18 @@ const props = defineProps<{
   isCellHidden?: (row: T, name: string) => boolean;
 }>();
 const emit = defineEmits<{ add: [] }>();
-defineSlots<Record<`cell-${string}`, (p: { row: T; index: number }) => unknown> & {
+defineSlots<Record<`cell-${string}`, (p: {
+  row: T; index: number;
+  /** 手機卡片上欄名元素的 id，給輸入元件的 aria-labelledby；表格模式沒有。 */
+  labelId?: string;
+}) => unknown> & {
   'row-actions'?: (p: { row: T; index: number }) => unknown;
   /** 手機寬度可編輯時，收合卡片上的值摘要。 */
   summary?: (p: { row: T; index: number }) => unknown;
 }>();
 const { t } = useI18n();
+const uid = useId();
+const labelId = (row: T, name: string) => `${uid}-${props.rowKey(row)}-${name}`;
 
 /** 手機卡片展開中的列（rowKey）。 */
 const opened = ref(new Set<string>());
@@ -51,7 +57,7 @@ watch(() => props.rows.map(props.rowKey), (keys, before) => {
       <q-card v-for="(row, index) in rows" :key="rowKey(row)" flat bordered class="q-mb-sm" data-testid="row-card">
         <div
           v-if="!readonly" class="row items-center no-wrap q-pa-sm cursor-pointer card-clickable" role="button" tabindex="0"
-          :aria-expanded="isOpen(row)" data-testid="row-card-toggle" @click="toggle(row)"
+          :aria-expanded="isOpen(row)" style="min-height: 44px" data-testid="row-card-toggle" @click="toggle(row)"
           @keydown.enter.self.prevent="toggle(row)" @keydown.space.self.prevent="toggle(row)"
         >
           <div class="text-muted q-mr-sm">#{{ index + 1 }}</div>
@@ -64,8 +70,8 @@ watch(() => props.rows.map(props.rowKey), (keys, before) => {
         <div v-show="isOpen(row)" class="q-pa-sm" data-testid="row-card-body">
           <template v-for="c in columns" :key="c.name">
             <div v-if="!isCellHidden?.(row, c.name)" class="q-mb-sm" role="group" :aria-label="c.label">
-              <div class="text-caption text-muted">{{ c.label }}</div>
-              <div style="overflow-wrap: anywhere"><slot :name="`cell-${c.name}`" :row="row" :index="index" /></div>
+              <div :id="labelId(row, c.name)" class="text-caption text-muted" data-cell-label>{{ c.label }}</div>
+              <div style="overflow-wrap: anywhere"><slot :name="`cell-${c.name}`" :row="row" :index="index" :label-id="labelId(row, c.name)" /></div>
             </div>
           </template>
           <div v-if="$slots['row-actions']"><slot name="row-actions" :row="row" :index="index" /></div>

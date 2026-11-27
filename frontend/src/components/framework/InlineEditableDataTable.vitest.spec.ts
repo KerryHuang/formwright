@@ -137,4 +137,9 @@ describe('InlineEditableDataTable', () => {
     await w.setProps({ rows: [] });
     expect(w.text()).toContain(zhTW.dynamic.noData);
   });
+
+  it('the phone card header is at least 44px tall to tap', async () => {
+    const w = await mountAt(390);
+    expect((w.get('[data-testid="row-card-toggle"]').element as HTMLElement).style.minHeight).toBe('44px');
+  });
 });

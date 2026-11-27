@@ -310,12 +310,13 @@ const openRecord = (row: DynamicRecord) => router.push(`/dynamic/${moduleKey.val
         <template #item="{ row, cols }">
           <div class="col-12 q-py-xs">
             <q-card
-              flat bordered class="cursor-pointer card-clickable" tabindex="0" :data-testid="`record-card-${row.id}`"
+              flat bordered class="cursor-pointer card-clickable" tabindex="0" role="link" :aria-label="row.title" :data-testid="`record-card-${row.id}`"
               @click="openRecord(row)" @keydown.enter.self.prevent="openRecord(row)" @keydown.space.self.prevent="openRecord(row)"
             >
               <q-card-section class="row items-start no-wrap q-gutter-x-sm q-py-sm" data-testid="record-card-header">
-                <div class="col text-subtitle2" style="overflow-wrap: anywhere">{{ row.title }}</div>
-                <div v-if="statusText(row)" class="col-auto" data-testid="record-card-status">
+                <div class="col text-subtitle2" style="min-width: 0; overflow-wrap: anywhere" data-testid="record-card-title">{{ row.title }}</div>
+                <!-- 狀態文字可能很長：限寬、可縮小、可斷行，不把卡片撐出畫面 -->
+                <div v-if="statusText(row)" style="max-width: 50%; min-width: 0; overflow-wrap: anywhere" data-testid="record-card-status">
                   <span class="status-dot" :class="stateDot(row)" aria-hidden="true" />{{ statusText(row) }}
                 </div>
               </q-card-section>

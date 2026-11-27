@@ -125,10 +125,10 @@ const removeRow = (r: DetailRowState) => emit('update:modelValue', r.id === unde
       :has-error="hasError" :is-cell-hidden="cellHidden" @add="addRow"
     >
       <template #summary="{ row }">{{ summaryOf(row) }}</template>
-      <template v-for="f in fields" :key="f.key" #[`cell-${f.key}`]="{ row }">
+      <template v-for="f in fields" :key="f.key" #[`cell-${f.key}`]="{ row, labelId }">
         <div v-if="hiddenCell(f, row)" data-testid="cell-hidden" />
         <component
-          :is="fieldTypeRegistry[f.type].component" v-else v-bind="cellProps(f, row)" :model-value="row.values[f.key]"
+          :is="fieldTypeRegistry[f.type].component" v-else v-bind="cellProps(f, row)" :model-value="row.values[f.key]" :aria-labelledby="labelId"
           @update:model-value="(v: unknown) => setCell(row, f.key, v)"
           v-on="f.type === 'reference' ? { picked: (item: LightItem) => onPicked(f.key, item) } : {}"
         />

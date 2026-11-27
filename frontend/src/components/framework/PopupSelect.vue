@@ -23,6 +23,8 @@ const props = defineProps<{
   error?: string;
   readonly?: boolean;
   required?: boolean;
+  /** 畫面上另有欄名元素時，用它的 id 當輸入框名稱。 */
+  ariaLabelledby?: string;
 }>();
 const emit = defineEmits<{
   'update:modelValue': [value: Key | Key[] | null];
@@ -101,7 +103,7 @@ const isPicked = (item: LightItem) => (props.multiple ? picked.value : current.v
 <template>
   <q-input
     :model-value="display" :label="required ? `${label} *` : label" :error="!!error" :error-message="error"
-    readonly outlined dense :class="{ 'cursor-pointer': !readonly }" data-testid="popup-input" @click="show"
+    readonly outlined dense :class="{ 'cursor-pointer': !readonly }" :aria-labelledby="ariaLabelledby" data-testid="popup-input" @click="show"
   >
     <template #append>
       <q-icon v-if="!readonly" name="search" />

@@ -21,13 +21,14 @@ const existing = (id: number, values: Record<string, unknown>): DetailRowState =
   uid: `u${id}`, id, rowVersion: `v${id}`, values: { ...values }, original: values, deleted: false,
 });
 
-function mountGrid(props: { detail?: SchemaDetail; modelValue?: DetailRowState[]; readonly?: boolean; errors?: Map<string, Record<string, string>>; headerValues?: Record<string, unknown>; headerFields?: SchemaField[] }) {
+function mountGrid(props: { detail?: SchemaDetail; modelValue?: DetailRowState[]; readonly?: boolean; errors?: Map<string, Record<string, string>>; headerValues?: Record<string, unknown>; headerFields?: SchemaField[] }, attach = false) {
   const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
   const w = mount(DetailGrid, {
     props: {
       detail: detail(), modelValue: [], readonly: false, errors: new Map(), ...props,
       'onUpdate:modelValue': (v: DetailRowState[]) => w.setProps({ modelValue: v }),
     },
+    ...(attach && { attachTo: document.body }),
     global: { plugins: [[quasar.Quasar, { components: quasar }], createPinia(), i18n, [VueQueryPlugin, { queryClient: new QueryClient() }]] },
   });
   return w;
@@ -217,5 +218,41 @@ describe('DetailGrid on a phone', () => {
     expect(w.find('[data-testid="add-row"]').exists()).toBe(false);
     expect(w.find('[data-testid="delete-row"]').exists()).toBe(false);
   });
-});
 
+  const typed: SchemaField[] = [
+    field(1, 'text', '品名'), field(2, 'textarea', '備註'), field(3, 'decimal', '數量'), field(4, 'date', '交期'),
+    field(5, 'datetime', '到貨時間'), field(6, 'time', '時段'), field(7, 'boolean', '急件'),
+    { ...field(8, 'enum', '等級'), options: [{ value: 'a', label: { 'zh-TW': '甲' }, sequence: 1, active: true }] as never },
+    { ...field(10, 'multienum', '標籤'), options: [{ value: 'a', label: { 'zh-TW': '甲' }, sequence: 1, active: true }] as never },
+    { ...field(11, 'reference', '產品'), reference: { kind: 'module', key: 'product', name: { 'zh-TW': '產品' }, lightUrl: '' } },
+    field(12, 'autonumber', '項次'),
+  ];
+  /** The accessible names the card's controls get through aria-labelledby. */
+  const namesOf = (root: Element) => [...root.querySelectorAll('input, textarea, select, [role="switch"], [role="combobox"]')]
+    // QToggle 內部的原生 checkbox 在 aria-hidden 裡，讀屏看不到
+    .filter((el) => !el.closest('[aria-hidden="true"]'))
+    .map((el) => (el.getAttribute('aria-labelledby') ?? '').split(' ')
+      .map((id) => root.ownerDocument.getElementById(id)?.textContent?.trim() ?? '').join(''));
+
+  for (const readonly of [false, true]) {
+    it(`every control in a card is named by its visible column label (readonly row rule: ${readonly})`, async () => {
+      const lock: SchemaRule = { kind: 'readOnly', targets: ['*'], condition: { field: 1, op: 'eq', value: 'x' }, options: [] };
+      const w = mountGrid({ detail: detail(readonly ? [lock] : [], typed), modelValue: [existing(1, { f_1: 'x' }), existing(2, { f_1: 'x' })] }, true);
+      await resize(390);
+      const bodies = w.findAll('[data-testid="row-card-body"]').map((b) => b.element);
+      for (const body of bodies) expect(namesOf(body)).toEqual(typed.map((f) => f.label['zh-TW']));
+      // 每一列的欄名 id 各自獨立
+      const ids = [...document.body.querySelectorAll('[data-testid="row-card-body"] [id][data-cell-label]')].map((e) => e.id);
+      expect(new Set(ids).size).toBe(typed.length * 2);
+      w.unmount();
+    });
+  }
+
+  it('the desktop table adds no aria-labelledby', async () => {
+    const w = mountGrid({ detail: detail([], typed), modelValue: [existing(1, { f_1: 'x' })] }, true);
+    await resize(1366);
+    expect(w.find('table').exists()).toBe(true);
+    expect(w.find('[aria-labelledby]').exists()).toBe(false);
+    w.unmount();
+  });
+});
