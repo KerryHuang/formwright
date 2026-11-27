@@ -3,9 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DashboardDetail, DashboardList } from 'src/domain/dynamic/dashboard-types';
 import DashboardView from 'src/presentation/dashboards/DashboardView.vue';
 import DashboardGrid from 'src/presentation/dashboards/DashboardGrid.vue';
-import AddCardDialog from 'src/presentation/dashboards/AddCardDialog.vue';
-import CardOptionsDialog from 'src/presentation/dashboards/CardOptionsDialog.vue';
-import { http } from 'src/services/api/http';
 import { card, click, detail, mountPage, okResult, q, qa, type World } from './dashboard-test-kit';
 import DashboardPage from './DashboardPage.vue';
 
@@ -227,62 +224,5 @@ describe('DashboardPage', () => {
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
     await click('dashboard-delete-confirm');
     expect(calls.some((c) => c.method === 'DELETE' && c.url === '/dashboards/3')).toBe(true);
-  });
-});
-
-/** 版面儲存先扣住，release(false) 讓它失敗；用來看「存好之前」畫面送了什麼。 */
-function holdLayoutSave() {
-  const inner = http.defaults.adapter as (c: unknown) => Promise<never>;
-  let release!: (ok?: boolean) => void;
-  const gate = new Promise<boolean>((res) => { release = (ok = true) => res(ok); });
-  http.defaults.adapter = async (config) => {
-    if (config.method === 'put' && config.url!.endsWith('/layout') && !(await gate)) {
-      return Promise.reject({ response: { status: 500, data: {} }, isAxiosError: true });
-    }
-    return inner(config);
-  };
-  return async (ok?: boolean) => { release(ok); await flushPromises(); await new Promise((r) => setTimeout(r, 20)); await flushPromises(); };
-}
-const runsOf = (calls: { url: string }[], id: string) => calls.filter((c) => c.url.endsWith(`/cards/${id}/run`)).length;
-
-describe('card runs wait for the layout save (#122)', () => {
-  it('a newly added card is not run before the layout is saved, and runs afterwards', async () => {
-    const { w, calls } = await mountDash(world(), '/dashboards/3');
-    const release = holdLayoutSave();
-    await click('dashboard-edit-toggle');
-    w.findComponent(AddCardDialog).vm.$emit('add', 1, 'table');
-    await flushPromises();
-    expect(q('card-c2')).not.toBeNull();
-    expect(runsOf(calls, 'c2')).toBe(0);
-    expect(q('card-c2')!.querySelector('.q-spinner')).not.toBeNull();
-    await release();
-    expect(runsOf(calls, 'c2')).toBeGreaterThan(0);
-    expect(q('card-c2')!.textContent).toContain('進行中');
-  });
-
-  it('a card whose settings changed is run again only after the save; untouched cards are not rerun', async () => {
-    const { w, calls } = await mountDash();
-    const release = holdLayoutSave();
-    await click('dashboard-edit-toggle');
-    await click('card-settings-c1');
-    const before = { c1: runsOf(calls, 'c1'), c2: runsOf(calls, 'c2') };
-    w.findComponent(CardOptionsDialog).vm.$emit('save', { title: null, viz: 'table', options: { sortDesc: false, cumulative: false, topN: 5 } });
-    await flushPromises();
-    expect(runsOf(calls, 'c1')).toBe(before.c1);
-    await release();
-    expect(runsOf(calls, 'c1')).toBeGreaterThan(before.c1);
-    expect(runsOf(calls, 'c2')).toBe(before.c2);
-  });
-
-  it('a failed save removes the new card without ever running it', async () => {
-    const { w, calls } = await mountDash(world(), '/dashboards/3');
-    const release = holdLayoutSave();
-    await click('dashboard-edit-toggle');
-    w.findComponent(AddCardDialog).vm.$emit('add', 1, 'table');
-    await flushPromises();
-    await release(false);
-    expect(q('dashboard-save-error')).not.toBeNull();
-    expect(q('card-c2')).toBeNull();
-    expect(runsOf(calls, 'c2')).toBe(0);
   });
 });

@@ -48,6 +48,14 @@ export function cardTitle(card: Pick<DashboardCard, 'title'>, reportName: I18nTe
   return resolveI18n(card.title ?? undefined, locale) || resolveI18n(reportName, locale);
 }
 
+/**
+ * 決定卡片查詢結果的內容（哪份報表、呈現方式、選項）。查詢快取鍵與「存檔中先不查」的判斷共用這一份：
+ * 卡片 id 刪除後會重用，鍵裡沒有 reportId 的話，新卡片會接到舊卡片還沒回來的查詢。
+ */
+export function cardQuerySignature(card: Pick<DashboardCard, 'reportId' | 'viz' | 'options'>): string {
+  return JSON.stringify([card.reportId, card.viz, card.options]);
+}
+
 /** 拖放或調整大小後的位置寫回卡片；沒有在 positions 裡的卡片不動。 */
 export function applyPositions(layout: DashboardLayout, positions: { i: string; x: number; y: number; w: number; h: number }[]): DashboardLayout {
   const byId = new Map(positions.map((p) => [p.i, p]));

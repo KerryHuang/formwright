@@ -2,7 +2,7 @@
 import { computed, ref, toRef } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRunCard } from 'src/application/dynamic/queries/dashboards-queries';
-import { cardTitle } from 'src/domain/dynamic/dashboard-layout';
+import { cardQuerySignature, cardTitle } from 'src/domain/dynamic/dashboard-layout';
 import type { DashboardCard } from 'src/domain/dynamic/dashboard-types';
 import type { ReportColumn, ReportDateRange } from 'src/domain/dynamic/report-types';
 import type { I18nText } from 'src/domain/dynamic/types';
@@ -21,8 +21,8 @@ const props = defineProps<{
 const emit = defineEmits<{ settings: [cardId: string, columns: ReportColumn[]]; remove: [cardId: string] }>();
 const { t, locale } = useI18n();
 
-// 卡片設定（含呈現方式）變了就換 key 重查；暫時的日期篩選本來就在 key 裡
-const signature = computed(() => JSON.stringify([props.card.viz, props.card.options]));
+// 報表或卡片設定（含呈現方式）變了就換 key 重查；暫時的日期篩選本來就在 key 裡
+const signature = computed(() => cardQuerySignature(props.card));
 const run = useRunCard(toRef(props, 'dashboardId'), computed(() => props.card.id), toRef(props, 'filterRange'), locale, signature, () => !props.unsaved);
 const result = computed(() => run.data.value);
 const drillKeys = ref<string[] | null>(null);

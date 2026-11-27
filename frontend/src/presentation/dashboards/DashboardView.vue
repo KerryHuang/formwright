@@ -6,9 +6,9 @@ import {
   useDashboard, useRestoreDashboard, useSaveDashboardLayout,
 } from 'src/application/dynamic/queries/dashboards-queries';
 import {
-  addCard, applyPositions, FILTER_PRESETS, removeCard, sameLayout, updateCard,
+  addCard, applyPositions, cardQuerySignature, FILTER_PRESETS, removeCard, sameLayout, updateCard,
 } from 'src/domain/dynamic/dashboard-layout';
-import type { CardOptions, DashboardCard, DashboardLayout } from 'src/domain/dynamic/dashboard-types';
+import type { CardOptions, DashboardLayout } from 'src/domain/dynamic/dashboard-types';
 import { compactI18n, resolveI18n, sameI18n } from 'src/domain/dynamic/i18n-text';
 import type { ReportColumn, ReportViz } from 'src/domain/dynamic/report-types';
 import type { I18nText } from 'src/domain/dynamic/types';
@@ -43,14 +43,14 @@ watch(() => props.dashboardId, () => { editing.value = false; filterKey.value = 
 const editing = ref(false);
 const saveError = ref(false);
 let chain: Promise<unknown> = Promise.resolve();
-// 卡片查詢由後端照存好的版面執行：新增、或改了查詢內容的卡片，存好之前不查（新卡片會 404，改過的會拿到舊設定的結果）
+// 卡片查詢由後端照存好的版面執行：新增、或改了查詢內容的卡片，存好之前不查（新卡片會 404，改過的會拿到舊設定的結果）。
+// 保證範圍只到同一個已掛載的 view：存檔中切走再回來，新的 view 不知道舊的存檔鏈，會照當時已存（或快取）的版面查。
 const unsaved = ref(new Set<string>());
-const queryOf = (c: DashboardCard) => JSON.stringify([c.reportId, c.viz, c.options]);
 function persist(next: DashboardLayout, name?: I18nText) {
   // 送出當下畫面上的版本：第一次另存個人版時伺服器拿它當基準，管理員在這之後的更新才會顯示「已更新」
   const loadedVersion = detail.value?.version;
-  const before = new Map(layout.value.cards.map((c) => [c.id, queryOf(c)]));
-  unsaved.value = new Set([...unsaved.value, ...next.cards.filter((c) => before.get(c.id) !== queryOf(c)).map((c) => c.id)]);
+  const before = new Map(layout.value.cards.map((c) => [c.id, cardQuerySignature(c)]));
+  unsaved.value = new Set([...unsaved.value, ...next.cards.filter((c) => before.get(c.id) !== cardQuerySignature(c)).map((c) => c.id)]);
   layout.value = next;
   saveError.value = false;
   inFlight++;
