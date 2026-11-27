@@ -1,6 +1,6 @@
-:root{--ink:#1E2A44;--muted:#3B4763;--link:#1F64C2;--danger:#B4443A;--warn:#9A5B00;--surface:#FFFFFF;--soft:#F4F6FA;--soft-blue:#EEF4FD;--soft-yellow:#FFF6D6;--band:#1E2A44;--line:#1E2A44;--step-hi:#FFD23F;--mark:#FFD23F;--shadow:#1E2A44;--cta-bg:var(--band);--cta-ink:#FFFFFF;color-scheme:light}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--ink:#E8EDF7;--muted:#AEB8CC;--link:#7DB3FF;--danger:#F08A80;--warn:#E8B45C;--surface:#111827;--soft:#182134;--soft-blue:#16243F;--soft-yellow:#2B2716;--band:#0B1222;--line:#C9D1E0;--step-hi:#4A3F12;--mark:#7A6410;--shadow:#2D4F8F;--cta-bg:#FFD23F;--cta-ink:#1E2A44;color-scheme:dark}}
-:root[data-theme="dark"]{--ink:#E8EDF7;--muted:#AEB8CC;--link:#7DB3FF;--danger:#F08A80;--warn:#E8B45C;--surface:#111827;--soft:#182134;--soft-blue:#16243F;--soft-yellow:#2B2716;--band:#0B1222;--line:#C9D1E0;--step-hi:#4A3F12;--mark:#7A6410;--shadow:#2D4F8F;--cta-bg:#FFD23F;--cta-ink:#1E2A44;color-scheme:dark}
+:root{--ink:#1E2A44;--muted:#3B4763;--link:#1F64C2;--step-link:#174E9C;--danger:#B4443A;--warn:#9A5B00;--surface:#FFFFFF;--soft:#F4F6FA;--soft-blue:#EEF4FD;--soft-yellow:#FFF6D6;--band:#1E2A44;--line:#1E2A44;--step-hi:#FFD23F;--mark:#FFD23F;--shadow:#1E2A44;--cta-bg:var(--band);--cta-ink:#FFFFFF;color-scheme:light}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--ink:#E8EDF7;--muted:#AEB8CC;--link:#7DB3FF;--step-link:#7DB3FF;--danger:#F08A80;--warn:#E8B45C;--surface:#111827;--soft:#182134;--soft-blue:#16243F;--soft-yellow:#2B2716;--band:#0B1222;--line:#C9D1E0;--step-hi:#4A3F12;--mark:#7A6410;--shadow:#2D4F8F;--cta-bg:#FFD23F;--cta-ink:#1E2A44;color-scheme:dark}}
+:root[data-theme="dark"]{--ink:#E8EDF7;--muted:#AEB8CC;--link:#7DB3FF;--step-link:#7DB3FF;--danger:#F08A80;--warn:#E8B45C;--surface:#111827;--soft:#182134;--soft-blue:#16243F;--soft-yellow:#2B2716;--band:#0B1222;--line:#C9D1E0;--step-hi:#4A3F12;--mark:#7A6410;--shadow:#2D4F8F;--cta-bg:#FFD23F;--cta-ink:#1E2A44;color-scheme:dark}
 body{color:var(--ink)}
 body{margin:0;background:var(--surface)}
 :where(a){color:var(--ink)}:where(a):hover{color:var(--link)}
@@ -102,7 +102,9 @@ body{margin:0;background:var(--surface)}
 .u65{cursor: pointer; font-size: 18px; font-weight: 900; padding: 14px 0}
 .u66{margin: 0 0 16px; color: var(--muted)}
 .u67{color: #FFFFFF}
-/* ===== 頂部導覽（≤1200px 收成「選單」按鈕；沒有 JS 時維持展開） ===== */
+/* 流程卡高亮時黃底上的藍色小字要達 AA，只換這幾個元素，不動全站 --link */
+.fw-step .u28,.fw-step .u50{color:var(--step-link)}
+/* ===== 頂部導覽（≤1200px 收成「選單」按鈕；nav.js 沒跑起來時維持展開） ===== */
 .fw-header{max-width:1200px;margin:0 auto;padding:18px 24px}
 .fw-nav{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 24px}
 .fw-brand{display:flex;align-items:center;gap:10px;text-decoration:none;min-height:44px}
@@ -115,18 +117,22 @@ body{margin:0;background:var(--surface)}
 .fw-theme button{min-height:44px;min-width:44px;justify-content:center}
 .fw-nav-panel .t-label{display:inline}
 @media (max-width:1200px){
-  .fw-js .fw-menu-btn{display:inline-flex;align-items:center;justify-content:center}
-  .fw-js .fw-nav-panel{display:none;flex-basis:100%;flex-direction:column;align-items:stretch;gap:4px;padding:8px 0 4px;border-top:2px solid var(--line)}
-  .fw-js .fw-nav-panel.is-open{display:flex}
-  .fw-js .fw-nav-link{padding:0 4px}
-  .fw-js .fw-nav-panel .fw-theme{align-self:flex-start;margin-top:8px}
+  .fw-nav-ready .fw-menu-btn{display:inline-flex;align-items:center;justify-content:center}
+  .fw-nav-ready .fw-nav-panel{display:none;flex-basis:100%;flex-direction:column;align-items:stretch;gap:4px;padding:8px 0 4px;border-top:2px solid var(--line)}
+  .fw-nav-ready .fw-nav-panel.is-open{display:flex}
+  .fw-nav-ready .fw-nav-link{padding:0 4px}
+  .fw-nav-ready .fw-nav-panel .fw-theme{align-self:flex-start;margin-top:8px}
 }
 /* 360px 級手機：縮小間距，讓品牌與「選單」鈕維持同一列 */
 @media (max-width:400px){.fw-header{padding:12px 14px}.fw-nav{gap:8px}.fw-brand{gap:6px}.fw-brand svg{width:32px;height:32px}.fw-menu-btn{padding:0 14px}}
 /* ===== 主題：主按鈕與硬陰影的深色處理在檔頭變數（--cta-*、--shadow） ===== */
 /* ===== 中文排版 ===== */
-h1,h2,h3{text-wrap:balance;text-spacing-trim:normal;font-feature-settings:"halt"}
-p,li,summary{text-wrap:pretty}
+/* 標點擠壓：標題要連單獨的全形標點都收窄。原生等效值是 trim-all，支援才用；否則退回字型的 halt（只有 normal 的瀏覽器不收單獨標點）。
+   正文只用原生 normal（僅收相鄰標點與行尾），不套 halt，保留全形標點的閱讀節奏。 */
+h1,h2,h3{text-wrap:balance}
+@supports (text-spacing-trim:trim-all){h1,h2,h3{text-spacing-trim:trim-all}}
+@supports not (text-spacing-trim:trim-all){h1,h2,h3{font-feature-settings:"halt"}}
+p,li,summary{text-wrap:pretty;text-spacing-trim:normal}
 /* ===== 首屏浮動標籤（桌機浮在卡片角落；窄螢幕改排在卡片前後、不疊字） ===== */
 .fw-hero-stage{flex:1 1 460px;min-width:0;position:relative;padding:28px 8px}
 .fw-chip{position:absolute;z-index:2;border:2px solid var(--line);border-radius:12px;padding:6px 14px;font-weight:900;font-size:15px}
