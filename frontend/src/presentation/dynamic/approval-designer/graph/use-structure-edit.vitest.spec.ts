@@ -50,6 +50,21 @@ describe('useStructureEdit', () => {
     expect(d.selection.value).toEqual({ kind: 'node', id: 'fork-1' });
   });
 
+  it('undo and redo of an insert restore the whole graph, moved positions included (#109)', () => {
+    for (const kind of ['approval', 'condition', 'fork', 'notify'] as const) {
+      const { d, s } = setup();
+      const copy = () => JSON.parse(JSON.stringify(d.state.value));
+      const before = copy();
+      s.insert('e1', kind);
+      const after = copy();
+      expect(after.positions.e).not.toEqual(before.positions.e); // 下游確實被推過
+      d.undo();
+      expect(copy()).toEqual(before);
+      d.redo();
+      expect(copy()).toEqual(after);
+    }
+  });
+
   it('policy limits disable the kinds (J81); before the values are back only end and notify (no approval node added) are allowed', () => {
     const { s, g } = setup({ limits: { ready: true, maxStages: 2 } });
     expect(s.paletteItems.value).toEqual([

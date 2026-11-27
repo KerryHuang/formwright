@@ -207,6 +207,63 @@ describe('insertOnEdge makes room (#109)', () => {
     }
   });
 
+  /** 指定座標（y 都一樣時只給 x）的圖。 */
+  const at = (s: GraphState, xs: Record<string, number>) => { for (const [id, x] of Object.entries(xs)) s.positions[id] = { x, y: s.positions[id].y }; return s; };
+  const STEP = NODE_W + COL_GAP;
+  const permutations = <T>(list: T[]): T[][] => (list.length < 2 ? [list] : list.flatMap((x, i) => permutations([...list.slice(0, i), ...list.slice(i + 1)]).map((p) => [x, ...p])));
+
+  it('a loop downstream: forward lines keep their gap whatever order the nodes are defined in', () => {
+    const nodes = [node('S', 'start'), node('C', 'condition'), appr('B'), appr('A')];
+    for (const order of permutations(nodes)) {
+      const before = at(mk(order, [edge('sa', 'S', 'A'), edge('ab', 'A', 'B'), edge('bc', 'B', 'C'), edge('ca', 'C', 'A', { default: true })]), { S: 0, A: STEP, B: 2 * STEP, C: 3 * STEP });
+      const s = insertOnEdge(before, 'sa', 'approval', opts);
+      const name = order.map((n) => n.id).join('');
+      expect(Object.fromEntries(['S', 'approval-1', 'A', 'B', 'C'].map((id) => [id, s.positions[id]])), name).toEqual(
+        { S: { x: 0, y: 0 }, 'approval-1': { x: STEP, y: 0 }, A: { x: 2 * STEP, y: 0 }, B: { x: 3 * STEP, y: 0 }, C: { x: 4 * STEP, y: 0 } },
+      );
+    }
+  });
+
+  it('a line that already ran backwards is not a constraint: its target is not dragged past its source', () => {
+    const before = at(mk(
+      [node('start', 'start'), appr('a'), node('c', 'condition'), node('end', 'end')],
+      [edge('e1', 'start', 'a'), edge('e2', 'a', 'c'), edge('back', 'c', 'a', { order: 1 }), edge('e3', 'c', 'end', { default: true })],
+    ), { start: 0, a: STEP, c: 2 * STEP, end: 3 * STEP + 80 });
+    const s = insertOnEdge(before, 'e1', 'approval', opts);
+    expect(s.positions.a.x).toBe(2 * STEP);
+    expect(s.positions.c.x).toBeGreaterThanOrEqual(s.positions.a.x + STEP);
+    expect(s.positions.end.x).toBeGreaterThanOrEqual(s.positions.c.x + NODE_W + COL_GAP);
+    expect(overlaps(s)).toEqual([]);
+  });
+
+  it('a shared downstream node waits for every moved predecessor, in any definition order', () => {
+    // start → f 分兩路：f → p → q → m（長）、f → r → m（短），插在短路上讓它變成較晚的那一路
+    const nodes = [node('start', 'start'), node('f', 'fork'), appr('p'), appr('q'), appr('r'), node('m', 'join', { forkId: 'f' })];
+    for (const order of [nodes, [...nodes].reverse()]) {
+      const before = mk(order, [edge('e1', 'start', 'f'), edge('fp', 'f', 'p'), edge('pq', 'p', 'q'), edge('qm', 'q', 'm'), edge('fr', 'f', 'r'), edge('rm', 'r', 'm')]);
+      const xy = (x: number, y: number) => ({ x: x * STEP, y });
+      before.positions = { start: xy(0, 0), f: xy(1, 0), p: xy(2, -100), q: xy(3, -100), r: xy(2, 100), m: xy(4, 0) };
+      let s = insertOnEdge(before, 'fr', 'approval', opts);
+      s = insertOnEdge(s, 'fr', 'approval', opts);
+      for (const id of ['start', 'f', 'p', 'q']) expect(s.positions[id]).toEqual(before.positions[id]);
+      expect(s.positions.r).toEqual(xy(4, 100));
+      expect(s.positions.m).toEqual(xy(5, 0));
+    }
+  });
+
+  it.each(['default', 'conditional'] as const)('inserting on the %s line of a condition keeps the line attributes and leaves the rest of the condition alone', (which) => {
+    const before = tidied(insertOnEdge(tidied(line()), 'e2', 'condition', opts));
+    const out = before.definition.edges.find((e) => e.from === 'cond-1' && !!e.default === (which === 'default'))!;
+    const s = insertOnEdge(before, out.id, 'approval', opts);
+    const n = added(before, s)[0];
+    expect(s.definition.edges.find((e) => e.id === out.id)).toEqual({ ...out, to: n });
+    const still = which === 'default' ? ['start', 'mgr', 'cond-1', 'approval-1'] : ['start', 'mgr', 'cond-1'];
+    for (const id of still) expect(s.positions[id]).toEqual(before.positions[id]);
+    for (const id of ids(before)) expect(s.positions[id].y).toBe(before.positions[id].y);
+    expect(s.positions.fin.x).toBeGreaterThanOrEqual(s.positions[n].x + NODE_W + COL_GAP);
+    expect(overlaps(s)).toEqual([]);
+  });
+
   it('an unrelated node in the way is never moved; the new nodes go past it', () => {
     const before = tidied(line());
     before.definition.nodes.push(node('loose', 'approval'));

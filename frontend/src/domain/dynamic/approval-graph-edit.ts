@@ -82,11 +82,30 @@ function labeledEdges(def: GraphDefinition): Set<string> {
   return new Set(def.edges.filter((e) => (!!e.label && Object.keys(e.label).length > 0) || (kind.get(e.from) === 'condition' && !e.default)).map((e) => e.id));
 }
 
+/** 無環依賴圖的處理順序：前驅都排完才輪到自己；可以先排的挑座標最左、最上（再比代號），結果與節點的定義順序無關。 */
+function dependencyOrder(ids: string[], edges: ApprovalEdgeDef[], at: (id: string) => Position): string[] {
+  const waiting = new Map(ids.map((id) => [id, edges.filter((e) => e.to === id).length]));
+  const first = (a: string, b: string) => at(a).x - at(b).x || at(a).y - at(b).y || a.localeCompare(b);
+  const ready = ids.filter((id) => waiting.get(id) === 0);
+  const out: string[] = [];
+  while (ready.length) {
+    const id = ready.sort(first).shift()!;
+    out.push(id);
+    for (const e of edges) {
+      if (e.from !== id) continue;
+      waiting.set(e.to, waiting.get(e.to)! - 1);
+      if (waiting.get(e.to) === 0) ready.push(e.to);
+    }
+  }
+  return out;
+}
+
 /**
  * 插入後騰位置（#109）：只動新節點（`added`）與插入處下游（從 `to` 走得到的節點），上游與無關節點不動。
  * 1. 新節點照整理排版（只排 `from`、新節點、`to` 這一小段）的相對位置放在 `from` 右側一個欄距；
  *    高度對齊原本那條線：`from` 分岔時是終點的高度，否則是起點的高度。
- * 2. 依拓撲順序只往右推：前一個節點動過時，原本在它右邊的下一個節點保持至少一個欄距；與其他節點重疊就推到它右邊。
+ * 2. 依「往右的線」排出的順序只往右推：前一個節點動過時，下一個節點保持至少一個欄距；與其他節點重疊就推到它右邊。
+ *    往右的線＝新節點出發的線，以及插入前終點就在起點右邊的舊線；原本往回或同欄的舊線不算，所以有環的圖也排得出順序。
  */
 function makeRoom(s: GraphState, from: string, to: string, added: ApprovalNodeDef[]): void {
   const { nodes, edges } = s.definition;
@@ -118,20 +137,16 @@ function makeRoom(s: GraphState, from: string, to: string, added: ApprovalNodeDe
   // 編輯中的圖可能有環：走得回起點的節點算上游，不動
   const upstream = walk(from, (e) => [e.to, e.from]);
   const movable = new Set([...isNew, ...[...walk(to, (e) => [e.from, e.to])].filter((id) => !upstream.has(id))]);
-  const order = topoOrder({
-    ...s.definition,
-    nodes: [nodes.find((n) => n.id === entry)!, ...nodes.filter((n) => n.id !== entry && movable.has(n.id))],
-    edges: edges.filter((e) => movable.has(e.from) && movable.has(e.to)),
-  });
+  // 判斷往右與否看移動前的座標（新節點此時是上面算好的位置）。舊線 x 嚴格遞增、新結構本身無環，這份依賴圖因此無環。
+  const forward = edges.filter((e) => movable.has(e.from) && movable.has(e.to) && (isNew.has(e.from) || at(e.to).x > at(e.from).x));
+  const order = dependencyOrder([...movable], forward, at);
 
-  const before = new Map(order.map((id) => [id, at(id)]));
   const moved = new Set(isNew);
   const placed = nodes.map((n) => n.id).filter((id) => !movable.has(id));
   for (const id of order) {
     const p = { ...at(id) };
-    for (const e of edges) {
+    for (const e of forward) {
       if (e.to !== id || !moved.has(e.from)) continue;
-      if (!isNew.has(e.from) && before.get(id)!.x <= before.get(e.from)!.x) continue; // 手排成往回的線照舊
       p.x = Math.max(p.x, at(e.from).x + NODE_W + gap(e.from));
     }
     const hit = () => placed.find((o) => Math.abs(at(o).x - p.x) < NODE_W && Math.abs(at(o).y - p.y) < NODE_H);
