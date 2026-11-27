@@ -64,7 +64,7 @@ Formwright 讓你在畫面上自己定義模組與欄位，系統自動長出列
 
 **自己架設**：三種安裝方式，都走瀏覽器設定精靈，細節（預設位置、升級、移除、環境變數）見[部署指南](docs/deploy.md#安裝版windowsubuntudocker-compose)。
 
-- **Windows**：到 [Releases](https://github.com/KerryHuang/formwright/releases) 下載 `Formwright-Setup-<版號>.exe` 執行。
+- **Windows**：到 [Releases](https://github.com/KerryHuang/formwright/releases) 下載 `Formwright-Setup-<版號>.exe` 執行；第一次安裝、不熟電腦請看 [Windows 安裝教學](docs/install-windows.md)。
 - **Ubuntu 22.04／24.04**：`curl -fsSL https://github.com/KerryHuang/formwright/releases/latest/download/install.sh | sudo bash`
 - **Docker compose**：下載 Releases 的 `docker-compose.yml`，執行 `docker compose up -d`。
 

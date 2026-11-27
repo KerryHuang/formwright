@@ -207,6 +207,8 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 
 ### 三條安裝路
 
+第一次安裝、不熟電腦請看 [Windows 安裝教學](install-windows.md)（含截圖）。
+
 | | 指令或操作 |
 |---|---|
 | Windows 10／Server 2019 以上（x64） | 下載 `Formwright-Setup-<版號>.exe`，按右鍵「以系統管理員身分執行」。最後一頁顯示網址與設定碼 |

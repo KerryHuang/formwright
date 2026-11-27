@@ -17,6 +17,8 @@ cd frontend && bun install && cd ..   # 第一次才需要
 
 ### 安裝版的設定精靈
 
+Windows 新手請先看[Windows 安裝教學](install-windows.md)（含每一步截圖）。
+
 用安裝程式（Windows 安裝檔、Ubuntu 一行指令、Docker compose）裝好的站台，第一次開啟時是「設定模式」：瀏覽器會自動轉到 `/setup`，在登入頁之前先走一輪設定精靈。
 
 **設定碼從哪裡看**：Windows 安裝程式最後一頁、Ubuntu 的終端輸出、Docker 用 `docker compose logs`。設定碼是 12 碼英數字（例 `K7QM-3HZP-W2XA`），抄下來時大小寫、前後空白、連字號有沒有都可以。標題列右上角的地球圖示可以切換語言。
