@@ -38,8 +38,12 @@ public interface IMcpTool
 /// <see cref="TargetVersion"/> 是目標現在的版本（執行時 handler 以它比對）。讀不到目標時用 <see cref="Failed"/>。
 /// <see cref="Notice"/>：給使用者看的補充說明（例如簽核「尚有未列出的自動效果」，審查 C1），執行器依語系放進 <c>data.notice</c> 與對話框。
 /// </summary>
+/// <param name="Descriptive">
+/// 摘要裡屬描述性文字、對話框可以截短的字串位置（從摘要根開始的鍵以 <c>/</c> 串接，陣列元素寫 <c>*</c>，例如 <c>arguments/values/f_note</c>）。
+/// 其他位置的字串（參照、選項、目標鍵等有執行意義、或分辨不了型別的）超過對話框單一值上限就不發對話框（複審 N3）。
+/// </param>
 public sealed record McpPreview(object? Summary, string TargetVersion, string? TargetKind = null, string? TargetId = null,
-    McpToolOutcome? Failure = null, MessageRef? Notice = null)
+    McpToolOutcome? Failure = null, MessageRef? Notice = null, IReadOnlySet<string>? Descriptive = null)
 {
     public static McpPreview Failed(McpToolOutcome failure) => new(null, "", Failure: failure);
 }

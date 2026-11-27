@@ -18,6 +18,9 @@ public sealed class CreateRecordTool(ISender sender)
     /// <summary>新增類：沒有既存目標（審查 R5）。</summary>
     protected override Task<McpWriteTarget> TargetAsync(McpArgs a, CancellationToken ct) => Task.FromResult(McpWriteTarget.None);
 
+    protected override Task<IReadOnlySet<string>?> PresentAsync(System.Text.Json.Nodes.JsonObject arguments, McpWriteTarget target, CancellationToken ct) =>
+        RecordValuesAsync(arguments["moduleKey"] is System.Text.Json.Nodes.JsonValue v && v.TryGetValue<string>(out var key) ? key : null, arguments, ct);
+
     public override async Task<McpToolOutcome> RunAsync(McpToolCall call, CancellationToken ct)
     {
         var a = McpArgs.Of(call.Arguments);
@@ -44,6 +47,9 @@ public sealed class UpdateRecordTool(ISender sender)
     : WriteTool(sender, "update_record", McpTexts.UpdateRecordSchema, McpTexts.UpdateRecordDescription)
 {
     protected override Task<McpWriteTarget> TargetAsync(McpArgs a, CancellationToken ct) => RecordTargetAsync(a, "recordId", ct);
+
+    protected override Task<IReadOnlySet<string>?> PresentAsync(System.Text.Json.Nodes.JsonObject arguments, McpWriteTarget target, CancellationToken ct) =>
+        RecordValuesAsync(target.ModuleKey, arguments, ct);
 
     public override async Task<McpToolOutcome> RunAsync(McpToolCall call, CancellationToken ct)
     {

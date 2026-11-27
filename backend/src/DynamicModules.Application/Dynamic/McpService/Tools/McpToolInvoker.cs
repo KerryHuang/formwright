@@ -288,12 +288,14 @@ public sealed class McpToolInvoker(
             if (preview.Failure is { } failed) return failed;
             var method = context.ElicitationAvailable ? McpConfirmationMethod.Elicitation : McpConfirmationMethod.Code;
             confirmVia = ViaOf(method);
-            // 對話框放不下完整的確認內容（審查 R6）：不建碼、不發對話框，請 AI 縮小單次操作
+            // 對話框放不下完整的確認內容（審查 R6）、或有執行意義的值長到要截短（複審 N3）：不建碼、不發對話框
             string? dialog = null;
-            if (method == McpConfirmationMethod.Elicitation
-                && (dialog = ElicitationPreview(preview.Summary, n => Text(McpMessages.ElicitationTruncated(n)))) is null)
-                return McpToolOutcome.Error(McpErrorCodes.Invalid, McpMessages.ElicitationTooLarge(ElicitationPreviewMax))
-                    with { TargetKind = preview.TargetKind, TargetId = preview.TargetId };
+            if (method == McpConfirmationMethod.Elicitation)
+            {
+                (dialog, var unshowable) = ElicitationPreview(preview, n => Text(McpMessages.ElicitationTruncated(n)));
+                if (unshowable is not null)
+                    return McpToolOutcome.Error(McpErrorCodes.Invalid, unshowable) with { TargetKind = preview.TargetKind, TargetId = preview.TargetId };
+            }
             var summary = JsonSerializer.Serialize(preview.Summary, McpResultFormatter.Json);
             var created = await sender.Send(new CreateMcpConfirmationRequest(name, McpArguments.Hash(args), preview.TargetVersion, summary, method), ct);
             if (!created.IsSuccess) return McpToolOutcome.From(created);
@@ -370,26 +372,53 @@ public sealed class McpToolInvoker(
     private static string ViaOf(McpConfirmationMethod method) => method == McpConfirmationMethod.Elicitation ? "elicitation" : "code";
 
     /// <summary>
-    /// 對話框裡的預演摘要（縮排 JSON，審查 R6）：內容與工具輸出相同、已套 AI 欄位遮罩、鍵順序由工具排好。超過 <see cref="ElicitationLongTextMax"/>
-    /// 字的字串值各自截短並標明全文字數（<paramref name="truncated"/>），不會吞掉後面的欄位；截短後整份仍超過 <see cref="ElicitationPreviewMax"/>
-    /// 字就回 null（不發可執行的對話框）。
+    /// 對話框裡的預演摘要（縮排 JSON，審查 R6）：內容與工具輸出相同、已套 AI 欄位遮罩、鍵順序由工具排好。工具標明為描述性文字（<see cref="McpPreview.Descriptive"/>）
+    /// 且超過 <see cref="ElicitationLongTextMax"/> 字的字串各自截短並標明全文字數（<paramref name="truncated"/>），不會吞掉後面的欄位。
+    /// 其他位置的字串超過上限（複審 N3：截短會看不出實際值）、或截短後整份仍超過 <see cref="ElicitationPreviewMax"/> 字，回拒絕訊息（不發可執行的對話框）。
     /// </summary>
-    private static string? ElicitationPreview(object? summary, Func<int, string> truncated)
+    private static (string? Dialog, MessageRef? Unshowable) ElicitationPreview(McpPreview preview, Func<int, string> truncated)
     {
-        var node = Shorten(JsonSerializer.SerializeToNode(summary, McpResultFormatter.Json), truncated);
+        if (!TryShorten(JsonSerializer.SerializeToNode(preview.Summary, McpResultFormatter.Json), "", preview.Descriptive ?? NoDescriptive, truncated, out var node))
+            return (null, McpMessages.ElicitationValueTooLong(ElicitationLongTextMax));
         var text = node is null ? "null" : node.ToJsonString(ElicitationJson);
-        return text.Length > ElicitationPreviewMax ? null : text;
+        return text.Length > ElicitationPreviewMax ? (null, McpMessages.ElicitationTooLarge(ElicitationPreviewMax)) : (text, null);
     }
 
-    // 一律產生新節點：直接把子節點塞回原容器會丟「已經有父節點」
-    private static JsonNode? Shorten(JsonNode? node, Func<int, string> truncated) => node switch
+    private static readonly IReadOnlySet<string> NoDescriptive = new HashSet<string>();
+
+    // 一律產生新節點：直接把子節點塞回原容器會丟「已經有父節點」。path 是從摘要根開始的鍵，以 / 串接，陣列元素寫 *
+    private static bool TryShorten(JsonNode? node, string path, IReadOnlySet<string> descriptive, Func<int, string> truncated, out JsonNode? result)
     {
-        JsonObject o => new JsonObject(o.Select(p => KeyValuePair.Create(p.Key, Shorten(p.Value, truncated)))),
-        JsonArray a => new JsonArray(a.Select(x => Shorten(x, truncated)).ToArray()),
-        JsonValue v when v.TryGetValue<string>(out var s) && s.Length > ElicitationLongTextMax =>
-            JsonValue.Create(s[..ElicitationLongTextMax] + truncated(s.Length)),
-        _ => node?.DeepClone(),
-    };
+        result = null;
+        switch (node)
+        {
+            case JsonObject o:
+                var obj = new JsonObject();
+                foreach (var (key, value) in o)
+                {
+                    if (!TryShorten(value, path.Length == 0 ? key : path + "/" + key, descriptive, truncated, out var child)) return false;
+                    obj[key] = child;
+                }
+                result = obj;
+                return true;
+            case JsonArray a:
+                var arr = new JsonArray();
+                foreach (var item in a)
+                {
+                    if (!TryShorten(item, path + "/*", descriptive, truncated, out var child)) return false;
+                    arr.Add(child);
+                }
+                result = arr;
+                return true;
+            case JsonValue v when v.TryGetValue<string>(out var s) && s.Length > ElicitationLongTextMax:
+                if (!descriptive.Contains(path)) return false;
+                result = JsonValue.Create(s[..ElicitationLongTextMax] + truncated(s.Length));
+                return true;
+            default:
+                result = node?.DeepClone();
+                return true;
+        }
+    }
 
     /// <summary>對話框說明的預演摘要上限（技術限制，對話框不是捲動長文的地方）。</summary>
     private const int ElicitationPreviewMax = 3000;

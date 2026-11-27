@@ -946,6 +946,115 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
         asked[1]!.Message.Should().Be(message, "對話框內容由伺服器排，不照 AI 的參數順序");
     }
 
+    // ───────── 有執行意義的值不能被截短成看不出差別（複審 N3）─────────
+
+    /// <summary>兩個長度相同、前面 200 個字都是 0 的參照字串（寫入時 <c>NumberStyles.None</c> 會轉成 id）。</summary>
+    private static string Padded(long id) => new string('0', 200) + id;
+
+    /// <summary>目標模組兩筆記錄；來源模組有一個指向目標的可選參照欄位、一筆記錄；明細模組掛在表頭下，也有指向目標的參照。</summary>
+    private async Task<(long X, long Y, string Source, string RefKey, long SourceId, string SourceRv, string Header, string Detail, string DetailRefKey)> PaddedRefRig()
+    {
+        var target = await CreateModule(_admin);
+        var source = await CreateModule(_admin);
+        var header = await CreateModule(_admin);
+        var detail = await CreateModule(_admin);
+        var (_, refKey, _) = await AddField(_admin, source, "reference", new { refTarget = new { kind = "module", key = target } });
+        await AddField(_admin, detail, "reference", new { refTarget = new { kind = "module", key = header }, relation = "detail" });
+        var (_, detailRefKey, _) = await AddField(_admin, detail, "reference", new { refTarget = new { kind = "module", key = target } });
+        foreach (var m in new[] { target, source, header, detail }) await Activate(_admin, m);
+        var targetTitle = await TitleKey(_admin, target);
+        async Task<JsonElement> Post(string module, Dictionary<string, object> values)
+        {
+            var res = await _admin.PostAsJsonAsync($"{Base}/modules/{module}/records", new { values });
+            res.StatusCode.Should().Be(HttpStatusCode.Created, await res.Content.ReadAsStringAsync());
+            return await JsonOf(res);
+        }
+        var x = (await Post(target, new() { [targetTitle] = "目標甲" })).GetProperty("id").GetInt64();
+        var y = (await Post(target, new() { [targetTitle] = "目標乙" })).GetProperty("id").GetInt64();
+        var src = await Post(source, new() { [await TitleKey(_admin, source)] = "來源" });
+        return (x, y, source, refKey, src.GetProperty("id").GetInt64(), src.GetProperty("rowVersion").GetString()!, header, detail, detailRefKey);
+    }
+
+    /// <summary>
+    /// N3：update_record 加進清單，參照送前導零的長字串：對話框照寫入的正規化規則顯示實際 id（兩個 id 的對話框不同），
+    /// 同意後寫進去的就是對話框顯示的那個。
+    /// </summary>
+    [Fact]
+    public async Task Elicitation_PaddedReference_ShowsActualId_AcceptWritesShownTarget()
+    {
+        SetPolicy(_app, PolicyCatalog.McpHighRiskTools, "update_record,create_record,delete_record,approve,reject");
+        var (x, y, _, refKey, id, rv, _, _, _) = await PaddedRefRig();
+        var (decliner, askedX) = await ElicitingClient(() => Answer("decline"));
+        await using (decliner)
+            Code((await CallRaw(decliner, "update_record", new Dictionary<string, object?>
+            {
+                ["recordId"] = id, ["rowVersion"] = rv, ["values"] = new Dictionary<string, object> { [refKey] = Padded(x) }, ["idempotencyKey"] = NewIdem(),
+            })).StructuredContent!.Value).Should().Be(McpErrorCodes.ConfirmationDeclined);
+        var (accepter, askedY) = await ElicitingClient(() => Answer("accept", true));
+        await using var _a = accepter;
+
+        var r = (await CallRaw(accepter, "update_record", new Dictionary<string, object?>
+        {
+            ["recordId"] = id, ["rowVersion"] = rv, ["values"] = new Dictionary<string, object> { [refKey] = Padded(y) }, ["idempotencyKey"] = NewIdem(),
+        })).StructuredContent!.Value;
+
+        var shownX = askedX.Should().ContainSingle().Subject!.Message;
+        var shownY = askedY.Should().ContainSingle().Subject!.Message;
+        shownX.Should().Contain($"\"{refKey}\": {x}").And.NotContain(new string('0', 50));
+        shownY.Should().Contain($"\"{refKey}\": {y}").And.NotContain(new string('0', 50));
+        Ok(r);
+        Query(_app, db => db.Set<Record>().Single(rec => rec.Id == id).ValuesJson).Should().Contain($"\"{refKey}\":{y}");
+    }
+
+    /// <summary>N3：明細列的 values 也一樣——create_record 帶明細，參照送前導零長字串：對話框顯示實際 id，同意後明細列寫的就是它。</summary>
+    [Fact]
+    public async Task Elicitation_PaddedDetailReference_ShowsActualId_AcceptWritesShownTarget()
+    {
+        SetPolicy(_app, PolicyCatalog.McpHighRiskTools, "update_record,create_record,delete_record,approve,reject");
+        var (_, y, _, _, _, _, header, detail, detailRefKey) = await PaddedRefRig();
+        var (client, asked) = await ElicitingClient(() => Answer("accept", true));
+        await using var _c = client;
+
+        var r = (await CallRaw(client, "create_record", new Dictionary<string, object?>
+        {
+            ["moduleKey"] = header, ["values"] = new Dictionary<string, object> { [await TitleKey(_admin, header)] = "表頭" },
+            ["details"] = new Dictionary<string, object[]>
+            {
+                [detail] = [new { values = new Dictionary<string, object> { [detailRefKey] = Padded(y), [await TitleKey(_admin, detail)] = "明細列" } }],
+            },
+            ["idempotencyKey"] = NewIdem(),
+        })).StructuredContent!.Value;
+
+        asked.Should().ContainSingle().Subject!.Message.Should().Contain($"\"{detailRefKey}\": {y}").And.NotContain(new string('0', 50));
+        Ok(r);
+        var detailId = Query(_app, db => db.Set<Module>().Single(m => m.Key == detail).Id);
+        Query(_app, db => db.Set<Record>().Single(rec => rec.ModuleId == detailId && !rec.DeleteFlag).ValuesJson).Should().Contain($"\"{detailRefKey}\":{y}");
+    }
+
+    /// <summary>
+    /// N3：分辨不了型別（不在 schema 裡的鍵）、又長到要截短的字串：不截短、不發對話框，回 invalid；不建確認碼、記錄不動。
+    /// 描述性的長文字（textarea）照舊截短，見 <see cref="Elicitation_LongTextFirst_TargetAndChangesShown_OrderIndependent"/>。
+    /// </summary>
+    [Fact]
+    public async Task Elicitation_LongValueOfUnknownType_NoDialog_Rejected()
+    {
+        SetPolicy(_app, PolicyCatalog.McpHighRiskTools, "update_record,delete_record,approve,reject");
+        var (_, title, id, rv) = await LongTextRig();
+        var (client, asked) = await ElicitingClient(() => Answer("accept", true));
+        await using var _ = client;
+
+        var r = (await CallRaw(client, "update_record", new Dictionary<string, object?>
+        {
+            ["recordId"] = id, ["rowVersion"] = rv, ["values"] = new Dictionary<string, object> { ["f_unknown"] = Padded(7), [title] = "重要變更" },
+            ["idempotencyKey"] = NewIdem(),
+        })).StructuredContent!.Value;
+
+        Code(r).Should().Be(McpErrorCodes.Invalid, r.GetRawText());
+        asked.Should().BeEmpty();
+        Query(_app, db => db.Set<McpConfirmation>().Count()).Should().Be(0);
+        Query(_app, db => db.Set<Record>().Single(x => x.Id == id).RowVersion).Should().Be(rv);
+    }
+
     /// <summary>變更多到對話框放不下：不發對話框、不建確認碼，回錯誤請 AI 縮小單次操作；記錄不動。</summary>
     [Fact]
     public async Task Elicitation_TooManyChanges_NoDialog_Rejected()

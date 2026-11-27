@@ -19,6 +19,10 @@ public sealed class CreateTaskTool(ISender sender)
     /// <summary>新增類（含子任務、記錄上的任務）：沒有既存目標（審查 R5）。</summary>
     protected override Task<McpWriteTarget> TargetAsync(McpArgs a, CancellationToken ct) => Task.FromResult(McpWriteTarget.None);
 
+    /// <summary>標題與說明是描述性文字（複審 N3）。</summary>
+    protected override Task<IReadOnlySet<string>?> PresentAsync(JsonObject arguments, McpWriteTarget target, CancellationToken ct) =>
+        TextArguments("title", "description");
+
     public override async Task<McpToolOutcome> RunAsync(McpToolCall call, CancellationToken ct)
     {
         var a = McpArgs.Of(call.Arguments);
@@ -118,6 +122,10 @@ public sealed class AddTaskCommentTool(ISender sender)
     : WriteTool(sender, "add_task_comment", McpTexts.AddTaskCommentSchema, McpTexts.AddTaskCommentDescription)
 {
     protected override Task<McpWriteTarget> TargetAsync(McpArgs a, CancellationToken ct) => TaskTargetAsync(a, ct);
+
+    /// <summary>留言內容是描述性文字（複審 N3）。</summary>
+    protected override Task<IReadOnlySet<string>?> PresentAsync(JsonObject arguments, McpWriteTarget target, CancellationToken ct) =>
+        TextArguments("body");
 
     public override async Task<McpToolOutcome> RunAsync(McpToolCall call, CancellationToken ct)
     {

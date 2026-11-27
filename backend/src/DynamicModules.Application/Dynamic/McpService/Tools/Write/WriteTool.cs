@@ -35,12 +35,60 @@ public abstract class WriteTool(ISender sender, string name, string schema, stri
         var target = await TargetAsync(McpArgs.Of(call.Arguments), ct);
         if (target.Failure is { } failure) return McpPreview.Failed(failure);
         // 摘要由伺服器排（審查 R6）：先目標、再全部參數；物件的鍵依 Ordinal 排序，不照 AI 送來的順序
+        var arguments = Canonical(WithoutKey(call.Arguments));
+        var descriptive = arguments is System.Text.Json.Nodes.JsonObject o ? await PresentAsync(o, target, ct) : null;
         return new McpPreview(new
         {
             tool = Descriptor.Name,
             target = target.Kind is null ? null : new { kind = target.Kind, id = target.Id },
-            arguments = Canonical(WithoutKey(call.Arguments)),
-        }, target.Version, target.Kind, target.Id);
+            arguments,
+        }, target.Version, target.Kind, target.Id, Descriptive: descriptive);
+    }
+
+    /// <summary>
+    /// 預演摘要的呈現（複審 N3）：把 <paramref name="arguments"/> 裡有執行意義的值換成正式寫入的正規化形式（就地改），回對話框可以截短的描述性文字位置
+    /// （見 <see cref="McpPreview.Descriptive"/>）。預設沒有描述性文字：長字串一律不發對話框。
+    /// </summary>
+    protected virtual Task<IReadOnlySet<string>?> PresentAsync(System.Text.Json.Nodes.JsonObject arguments, McpWriteTarget target, CancellationToken ct) =>
+        Task.FromResult<IReadOnlySet<string>?>(null);
+
+    /// <summary>描述性文字的頂層參數（任務標題、說明、留言、簽核意見）。</summary>
+    protected static Task<IReadOnlySet<string>?> TextArguments(params string[] names) =>
+        Task.FromResult<IReadOnlySet<string>?>(names.Select(n => "arguments/" + n).ToHashSet(StringComparer.Ordinal));
+
+    /// <summary>
+    /// 記錄寫入的 <c>values</c> 與明細列 <c>details.&lt;明細&gt;[].values</c>：依 describe_module 同一份 schema 判斷欄位型別——文字欄位是描述性的；
+    /// 參照欄位照寫入的規則（<see cref="Domain.FieldTypes.Handlers.ReferenceHandler.Coerce"/>）轉成實際的 id；其他（含 schema 沒有的鍵）不截短。
+    /// schema 讀不到時沒有描述性文字。
+    /// </summary>
+    protected async Task<IReadOnlySet<string>?> RecordValuesAsync(string? moduleKey, System.Text.Json.Nodes.JsonObject arguments, CancellationToken ct)
+    {
+        if (moduleKey is null) return null;
+        var r = await Sender.Send(new GetModuleSchemaRequest(moduleKey), ct);
+        if (!r.IsSuccess || r.Data is not ModuleSchemaResponse schema) return null;
+        var descriptive = new HashSet<string>(StringComparer.Ordinal);
+        Present(arguments["values"] as System.Text.Json.Nodes.JsonObject, schema.Blocks.SelectMany(b => b.Fields), "arguments/values", descriptive);
+        if (arguments["details"] is System.Text.Json.Nodes.JsonObject details)
+            foreach (var d in schema.Details ?? [])
+                if (details[d.ModuleKey] is System.Text.Json.Nodes.JsonArray rows)
+                    foreach (var row in rows)
+                        Present(row?["values"] as System.Text.Json.Nodes.JsonObject, d.Fields, $"arguments/details/{d.ModuleKey}/*/values", descriptive);
+        return descriptive;
+    }
+
+    private static readonly HashSet<FieldType> DescriptiveTypes = [FieldType.Text, FieldType.Textarea];
+
+    private static void Present(System.Text.Json.Nodes.JsonObject? values, IEnumerable<SchemaField> fields, string path, HashSet<string> descriptive)
+    {
+        if (values is null) return;
+        foreach (var f in fields)
+        {
+            if (!values.TryGetPropertyValue(f.Key, out var v) || v is null) continue;
+            if (DescriptiveTypes.Contains(f.Type)) descriptive.Add(path + "/" + f.Key);
+            else if (f.Type == FieldType.Reference)
+                values[f.Key] = System.Text.Json.JsonSerializer.SerializeToNode(
+                    Domain.FieldTypes.Handlers.ReferenceHandler.Coerce(System.Text.Json.JsonSerializer.SerializeToElement(v), f.Config.RefTarget));
+        }
     }
 
     private static System.Text.Json.Nodes.JsonNode? Canonical(System.Text.Json.Nodes.JsonNode? node) => node switch
@@ -65,7 +113,7 @@ public abstract class WriteTool(ISender sender, string name, string schema, stri
         var target = id!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
         var r = await Sender.Send(new GetRecordRequest(id.Value), ct);
         return r is { IsSuccess: true, Data: DynamicRecordResponse record }
-            ? new McpWriteTarget("record:" + record.RowVersion, McpWriteTargets.Record, target)
+            ? new McpWriteTarget("record:" + record.RowVersion, McpWriteTargets.Record, target, ModuleKey: record.ModuleKey)
             : McpWriteTarget.Failed(Fail(r) with { TargetKind = McpWriteTargets.Record, TargetId = target });
     }
 
@@ -131,8 +179,9 @@ public abstract class WriteTool(ISender sender, string name, string schema, stri
 /// <summary>
 /// 寫入工具的目標指紋（審查 R5）：<see cref="Version"/> 存進確認列、確認時在交易內重讀比對。<see cref="None"/> 是新增類工具明確的「沒有既存目標」；
 /// <c>request:</c> 開頭的是請求本身帶版本、handler 依現值比對（找不到可在預演時重讀目標的唯讀請求）。
+/// <see cref="ModuleKey"/> 是記錄目標所屬的模組（預演摘要依它的 schema 呈現，複審 N3）。
 /// </summary>
-public sealed record McpWriteTarget(string Version, string? Kind = null, string? Id = null, McpToolOutcome? Failure = null)
+public sealed record McpWriteTarget(string Version, string? Kind = null, string? Id = null, McpToolOutcome? Failure = null, string? ModuleKey = null)
 {
     public static McpWriteTarget None { get; } = new("none");
     public static McpWriteTarget Failed(McpToolOutcome failure) => new("", Failure: failure);

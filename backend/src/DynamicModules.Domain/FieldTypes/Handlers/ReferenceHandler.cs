@@ -27,10 +27,7 @@ public sealed class ReferenceHandler : IFieldTypeHandler
         var expected = field.Config.RefTarget?.Kind == ReferenceTarget.ModuleKind
             ? JsonValueKind.Number
             : JsonValueKind.String;
-        // 模組目標的記錄 Id 送成字串（"123"）時，能轉成整數就轉、存成數字；轉不了照常回「不存在」
-        if (expected == JsonValueKind.Number && value.ValueKind == JsonValueKind.String
-            && long.TryParse(value.GetString(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
-            value = JsonSerializer.SerializeToElement(parsed);
+        value = Coerce(value, field.Config.RefTarget);
         if (value.ValueKind != expected) return FieldValueResult.Fail(NotFound);
 
         var key = KeyOf(value);
@@ -42,6 +39,16 @@ public sealed class ReferenceHandler : IFieldTypeHandler
             return FieldValueResult.Fail(ReferenceEquals(valid, RejectedByGuard) ? StateMismatch : NotFound);
         return FieldValueResult.Ok(HandlerHelpers.ToElement(value));
     }
+
+    /// <summary>
+    /// 模組目標的記錄 Id 送成字串（"123"、"00123"）時，能轉成整數就轉成數字；轉不了或不是模組目標照原樣（之後由 <see cref="Normalize"/> 回「不存在」）。
+    /// 寫入與 MCP 確認摘要共用這一份（複審 N3：對話框顯示的必須是實際會寫進去的 id）。
+    /// </summary>
+    public static JsonElement Coerce(JsonElement value, ReferenceTarget? target) =>
+        target?.Kind == ReferenceTarget.ModuleKind && value.ValueKind == JsonValueKind.String
+        && long.TryParse(value.GetString(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+            ? JsonSerializer.SerializeToElement(parsed)
+            : value;
 
     /// <summary>number → Int64 字串、string → 本身，其他 null。</summary>
     public static string? KeyOf(JsonElement value) => value.ValueKind switch

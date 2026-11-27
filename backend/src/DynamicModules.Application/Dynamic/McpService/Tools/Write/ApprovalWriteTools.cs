@@ -20,6 +20,10 @@ public sealed class SubmitApprovalTool(ISender sender)
 {
     protected override Task<McpWriteTarget> TargetAsync(McpArgs a, CancellationToken ct) => RecordTargetAsync(a, "recordId", ct);
 
+    /// <summary>簽核意見是描述性文字（複審 N3）。</summary>
+    protected override Task<IReadOnlySet<string>?> PresentAsync(System.Text.Json.Nodes.JsonObject arguments, McpWriteTarget target, CancellationToken ct) =>
+        TextArguments("comment");
+
     public override async Task<McpToolOutcome> RunAsync(McpToolCall call, CancellationToken ct)
     {
         var a = McpArgs.Of(call.Arguments);
@@ -62,6 +66,10 @@ public sealed class WithdrawApprovalTool(ISender sender)
         return Task.FromResult(a.HasErrors ? McpWriteTarget.Failed(a.Invalid())
             : new McpWriteTarget("request:" + rowVersion, McpWriteTargets.ApprovalInstance, id!.Value.ToString(CultureInfo.InvariantCulture)));
     }
+
+    /// <summary>撤回原因是描述性文字（複審 N3）。</summary>
+    protected override Task<IReadOnlySet<string>?> PresentAsync(System.Text.Json.Nodes.JsonObject arguments, McpWriteTarget target, CancellationToken ct) =>
+        TextArguments("comment");
 
     public override async Task<McpToolOutcome> RunAsync(McpToolCall call, CancellationToken ct)
     {

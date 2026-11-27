@@ -190,6 +190,7 @@ public static class MessageText
         McpConfirmationDeclined = nameof(McpConfirmationDeclined), McpElicitationRequired = nameof(McpElicitationRequired),
         McpElicitationMessage = nameof(McpElicitationMessage), McpElicitationConfirm = nameof(McpElicitationConfirm),
         McpElicitationTruncated = nameof(McpElicitationTruncated), McpElicitationTooLarge = nameof(McpElicitationTooLarge),
+        McpElicitationValueTooLong = nameof(McpElicitationValueTooLong),
         McpApprovalUnlistedEffects = nameof(McpApprovalUnlistedEffects), DeletePreviewRestricted = nameof(DeletePreviewRestricted),
         // 產品內備份（備份設計 §11、§5.5）
         BackupInProgress = nameof(BackupInProgress), BackupNotConfigured = nameof(BackupNotConfigured),
@@ -866,6 +867,10 @@ public static class MessageText
             "Note: running this may also trigger automatic effects not listed above, such as tasks, event postings and notifications triggered by the status change",
             "หมายเหตุ: เมื่อดำเนินการแล้วอาจมีผลอัตโนมัติอื่นที่ไม่ได้แสดงไว้ข้างบน เช่น งาน การบันทึกเหตุการณ์ และการแจ้งเตือนที่เกิดจากการเปลี่ยนสถานะ",
             "Lưu ý: sau khi thực hiện có thể còn các tác động tự động chưa liệt kê ở trên, như công việc, ghi nhận sự kiện và thông báo do chuyển trạng thái kích hoạt"),
+        [McpElicitationValueTooLong] = ("有一個不是說明文字的值超過 {0} 字，對話框無法完整顯示，不能用來確認；請改送正確的短值，或在畫面上操作",
+            "A value that is not descriptive text is longer than {0} characters and cannot be shown in full in the dialog, so it cannot be confirmed. Send the correct short value or use the web interface instead",
+            "มีค่าที่ไม่ใช่ข้อความอธิบายยาวเกิน {0} อักขระ กล่องโต้ตอบแสดงได้ไม่ครบ จึงใช้ยืนยันไม่ได้ โปรดส่งค่าสั้นที่ถูกต้อง หรือทำผ่านหน้าเว็บแทน",
+            "Có một giá trị không phải văn bản mô tả dài quá {0} ký tự, hộp thoại không hiển thị đầy đủ nên không thể xác nhận; hãy gửi giá trị ngắn đúng hoặc thao tác trên giao diện web"),
         [McpElicitationTooLarge] = ("要確認的內容太多，對話框最多顯示 {0} 字；請把這次操作拆小再試",
             "There is too much to confirm; the dialog can show at most {0} characters. Split this action into smaller ones and try again",
             "มีเนื้อหาที่ต้องยืนยันมากเกินไป กล่องโต้ตอบแสดงได้สูงสุด {0} อักขระ โปรดแบ่งการดำเนินการนี้ให้เล็กลงแล้วลองใหม่",
