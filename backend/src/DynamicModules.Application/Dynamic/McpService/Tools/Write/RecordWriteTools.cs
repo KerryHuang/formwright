@@ -15,6 +15,9 @@ namespace DynamicModules.Application.Dynamic.McpService.Tools.Write;
 public sealed class CreateRecordTool(ISender sender)
     : WriteTool(sender, "create_record", McpTexts.CreateRecordSchema, McpTexts.CreateRecordDescription)
 {
+    /// <summary>新增類：沒有既存目標（審查 R5）。</summary>
+    protected override Task<McpWriteTarget> TargetAsync(McpArgs a, CancellationToken ct) => Task.FromResult(McpWriteTarget.None);
+
     public override async Task<McpToolOutcome> RunAsync(McpToolCall call, CancellationToken ct)
     {
         var a = McpArgs.Of(call.Arguments);
@@ -40,6 +43,8 @@ public sealed class CreateRecordTool(ISender sender)
 public sealed class UpdateRecordTool(ISender sender)
     : WriteTool(sender, "update_record", McpTexts.UpdateRecordSchema, McpTexts.UpdateRecordDescription)
 {
+    protected override Task<McpWriteTarget> TargetAsync(McpArgs a, CancellationToken ct) => RecordTargetAsync(a, "recordId", ct);
+
     public override async Task<McpToolOutcome> RunAsync(McpToolCall call, CancellationToken ct)
     {
         var a = McpArgs.Of(call.Arguments);

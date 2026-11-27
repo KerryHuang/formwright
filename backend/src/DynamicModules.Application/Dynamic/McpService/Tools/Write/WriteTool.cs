@@ -1,6 +1,10 @@
 using DynamicModules.Application.Common;
+using DynamicModules.Application.Dynamic.McpService.Writes;
+using DynamicModules.Application.Dynamic.RecordService.Data;
+using DynamicModules.Application.Dynamic.RecordService.Queries.GetRecord;
 using DynamicModules.Application.Dynamic.SchemaService.Data;
 using DynamicModules.Application.Dynamic.SchemaService.Queries.GetModuleSchema;
+using DynamicModules.Application.Dynamic.TaskService;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.Mcp;
 using MediatR;
@@ -24,10 +28,50 @@ public abstract class WriteTool(ISender sender, string name, string schema, stri
 
     /// <summary>
     /// 被管理員設成高風險時的預演（mcp2b）：沒有專屬預演的寫入工具，預演就是這次要送的參數（AI 自己送的內容，不含系統資料）；
-    /// 目標版本固定空字串，版本衝突由請求本身的 rowVersion 擋。刪除與簽核覆寫成專屬預演。
+    /// 目標版本是 <see cref="TargetAsync"/> 讀到的目標指紋（審查 R5），確認時在交易內重讀比對，目標有變就要重新預演。刪除與簽核覆寫成專屬預演。
     /// </summary>
-    public virtual Task<McpPreview> PreviewAsync(McpToolCall call, CancellationToken ct) =>
-        Task.FromResult(new McpPreview(new { tool = Descriptor.Name, arguments = WithoutKey(call.Arguments) }, ""));
+    public virtual async Task<McpPreview> PreviewAsync(McpToolCall call, CancellationToken ct)
+    {
+        var target = await TargetAsync(McpArgs.Of(call.Arguments), ct);
+        if (target.Failure is { } failure) return McpPreview.Failed(failure);
+        return new McpPreview(new { tool = Descriptor.Name, arguments = WithoutKey(call.Arguments) }, target.Version, target.Kind, target.Id);
+    }
+
+    /// <summary>
+    /// 這次寫入的既存目標現在的指紋：改記錄是記錄版本，改任務與留言是任務版本加子任務集合；新增類回 <see cref="McpWriteTarget.None"/>。
+    /// 參數不對或讀不到目標（不存在、看不到）回失敗，預演不建確認碼。
+    /// </summary>
+    protected abstract Task<McpWriteTarget> TargetAsync(McpArgs a, CancellationToken ct);
+
+    /// <summary>記錄目標：經 <see cref="GetRecordRequest"/>（同畫面的讀取權限），指紋是記錄版本。</summary>
+    protected async Task<McpWriteTarget> RecordTargetAsync(McpArgs a, string arg, CancellationToken ct)
+    {
+        var id = a.Long(arg, required: true);
+        if (a.HasErrors) return McpWriteTarget.Failed(a.Invalid());
+        var target = id!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var r = await Sender.Send(new GetRecordRequest(id.Value), ct);
+        return r is { IsSuccess: true, Data: DynamicRecordResponse record }
+            ? new McpWriteTarget("record:" + record.RowVersion, McpWriteTargets.Record, target)
+            : McpWriteTarget.Failed(Fail(r) with { TargetKind = McpWriteTargets.Record, TargetId = target });
+    }
+
+    /// <summary>
+    /// 任務目標：經 <see cref="GetTaskRequest"/>，指紋是任務版本加子任務集合（看得到的子任務 id、版本、狀態，與全部子任務的完成／取消／總數）
+    /// 的雜湊——連動會改到子任務，預演後多了子任務或子任務改狀態都要重新預演。
+    /// </summary>
+    protected async Task<McpWriteTarget> TaskTargetAsync(McpArgs a, CancellationToken ct)
+    {
+        var id = a.Long("taskId", required: true);
+        if (a.HasErrors) return McpWriteTarget.Failed(a.Invalid());
+        var target = id!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var r = await Sender.Send(new GetTaskRequest(id.Value), ct);
+        if (r is not { IsSuccess: true, Data: TaskDetailResponse task })
+            return McpWriteTarget.Failed(Fail(r) with { TargetKind = McpWriteTargets.Task, TargetId = target });
+        var children = string.Join(";", task.Subtasks.OrderBy(c => c.Id).Select(c => $"{c.Id}:{c.Version}:{c.Status}"));
+        var progress = task.Progress is { } p ? $"{p.Done}/{p.Cancelled}/{p.Total}" : "-";
+        var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(progress + "|" + children)))[..32];
+        return new McpWriteTarget($"task:{task.Version}|{hash}", McpWriteTargets.Task, target);
+    }
 
     private static System.Text.Json.Nodes.JsonNode? WithoutKey(System.Text.Json.JsonElement args)
     {
@@ -68,4 +112,14 @@ public abstract class WriteTool(ISender sender, string name, string schema, stri
             : Fail(r) with { TargetKind = targetKind, TargetId = targetId };
 
     protected static McpToolOutcome Fail(ServiceResult r) => McpToolOutcome.From(r);
+}
+
+/// <summary>
+/// 寫入工具的目標指紋（審查 R5）：<see cref="Version"/> 存進確認列、確認時在交易內重讀比對。<see cref="None"/> 是新增類工具明確的「沒有既存目標」；
+/// <c>request:</c> 開頭的是請求本身帶版本、handler 依現值比對（找不到可在預演時重讀目標的唯讀請求）。
+/// </summary>
+public sealed record McpWriteTarget(string Version, string? Kind = null, string? Id = null, McpToolOutcome? Failure = null)
+{
+    public static McpWriteTarget None { get; } = new("none");
+    public static McpWriteTarget Failed(McpToolOutcome failure) => new("", Failure: failure);
 }

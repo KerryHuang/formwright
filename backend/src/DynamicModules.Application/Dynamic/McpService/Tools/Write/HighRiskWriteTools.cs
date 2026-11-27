@@ -13,6 +13,9 @@ namespace DynamicModules.Application.Dynamic.McpService.Tools.Write;
 public sealed class DeleteRecordTool(ISender sender)
     : WriteTool(sender, "delete_record", McpTexts.DeleteRecordSchema, McpTexts.DeleteRecordDescription)
 {
+    /// <summary>預演已覆寫成專屬預演，不經基底的目標指紋。</summary>
+    protected override Task<McpWriteTarget> TargetAsync(McpArgs a, CancellationToken ct) => throw new NotSupportedException();
+
     private static (long? Id, string? RowVersion, McpArgs Args) Parse(McpToolCall call)
     {
         var a = McpArgs.Of(call.Arguments);
@@ -46,6 +49,9 @@ public sealed class DeleteRecordTool(ISender sender)
 public abstract class ApprovalActionTool(ISender sender, string name, string schema, string description, string action)
     : WriteTool(sender, name, schema, description)
 {
+    /// <summary>預演已覆寫成專屬預演，不經基底的目標指紋。</summary>
+    protected override Task<McpWriteTarget> TargetAsync(McpArgs a, CancellationToken ct) => throw new NotSupportedException();
+
     protected abstract (long? TaskId, string? RowVersion, string? RejectTo, McpArgs Args) Parse(McpToolCall call);
 
     public override async Task<McpPreview> PreviewAsync(McpToolCall call, CancellationToken ct)

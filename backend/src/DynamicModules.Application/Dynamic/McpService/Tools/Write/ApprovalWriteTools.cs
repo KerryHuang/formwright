@@ -18,6 +18,8 @@ namespace DynamicModules.Application.Dynamic.McpService.Tools.Write;
 public sealed class SubmitApprovalTool(ISender sender)
     : WriteTool(sender, "submit_approval", McpTexts.SubmitApprovalSchema, McpTexts.SubmitApprovalDescription)
 {
+    protected override Task<McpWriteTarget> TargetAsync(McpArgs a, CancellationToken ct) => RecordTargetAsync(a, "recordId", ct);
+
     public override async Task<McpToolOutcome> RunAsync(McpToolCall call, CancellationToken ct)
     {
         var a = McpArgs.Of(call.Arguments);
@@ -50,6 +52,17 @@ public sealed class SubmitApprovalTool(ISender sender)
 public sealed class WithdrawApprovalTool(ISender sender)
     : WriteTool(sender, "withdraw_approval", McpTexts.WithdrawApprovalSchema, McpTexts.WithdrawApprovalDescription)
 {
+    /// <summary>
+    /// 沒有依實例 id 讀簽核的唯讀請求：指紋是請求本身帶的實例版本，<see cref="WithdrawApprovalRequest"/> 的 handler 依現值比對（審查 R5）。
+    /// </summary>
+    protected override Task<McpWriteTarget> TargetAsync(McpArgs a, CancellationToken ct)
+    {
+        var id = a.Long("instanceId", required: true);
+        var rowVersion = a.String("rowVersion", required: true);
+        return Task.FromResult(a.HasErrors ? McpWriteTarget.Failed(a.Invalid())
+            : new McpWriteTarget("request:" + rowVersion, McpWriteTargets.ApprovalInstance, id!.Value.ToString(CultureInfo.InvariantCulture)));
+    }
+
     public override async Task<McpToolOutcome> RunAsync(McpToolCall call, CancellationToken ct)
     {
         var a = McpArgs.Of(call.Arguments);

@@ -217,6 +217,67 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
         AuditOf("mcp.createRecord").Last().RiskLevel.Should().Be(AuditRiskLevel.HighRisk);
     }
 
+    // ───────── 一般寫入加進清單：目標指紋（審查 R5）─────────
+
+    private async Task<long> RestTask(object body, string path = "tasks")
+    {
+        var res = await _admin.PostAsJsonAsync($"{Base}/{path}", body);
+        res.StatusCode.Should().Be(HttpStatusCode.Created, await res.Content.ReadAsStringAsync());
+        return (await JsonOf(res)).GetProperty("id").GetInt64();
+    }
+
+    private TaskItem StoredTask(long id) => Query(_app, db => db.Set<TaskItem>().Single(t => t.Id == id));
+
+    private async Task PatchTask(long id, object body) =>
+        (await _admin.PatchAsync($"{Base}/tasks/{id}", JsonContent.Create(body))).EnsureSuccessStatusCode();
+
+    /// <summary>
+    /// update_task 加進清單：預演「完成並連動完成子任務」後，父任務被改、多了子任務、子任務改狀態，舊確認碼都失效，
+    /// 所有任務維持確認前的狀態。
+    /// </summary>
+    [Theory]
+    [InlineData("parentEdited")]
+    [InlineData("childAdded")]
+    [InlineData("childStatus")]
+    public async Task UpdateTask_AddedToList_TargetChangedAfterPreview_ConfirmationInvalid(string change)
+    {
+        SetPolicy(_app, PolicyCatalog.McpHighRiskTools, "update_task,delete_record,approve,reject");
+        var parent = await RestTask(new { title = "父任務" });
+        var child = await RestTask(new { title = "子任務" }, $"tasks/{parent}/subtasks");
+        var args = new Dictionary<string, object?> { ["taskId"] = parent, ["status"] = "done", ["cascade"] = "complete", ["idempotencyKey"] = NewIdem() };
+        var code = ConfirmCode(await Call("update_task", args));
+        long? added = null;
+        switch (change)
+        {
+            case "parentEdited": await PatchTask(parent, new { description = "預演後改過" }); break;
+            case "childAdded": added = await RestTask(new { title = "預演後才加的子任務" }, $"tasks/{parent}/subtasks"); break;
+            default: await PatchTask(child, new { status = "inProgress" }); break;
+        }
+
+        var res = await Call("update_task", WithCode(args, code));
+
+        Code(res).Should().Be(McpErrorCodes.ConfirmationInvalid, res.GetRawText());
+        // 子任務開始做時父任務照既有規則轉成進行中；要驗的是確認沒有執行（父子都沒完成）
+        StoredTask(parent).Status.Should().NotBe(TaskItemStatus.Done);
+        StoredTask(child).Status.Should().NotBe(TaskItemStatus.Done);
+        if (added is { } a) StoredTask(a).Status.Should().Be(TaskItemStatus.Todo);
+        ConfirmationRow(code).UsedUtc.Should().BeNull();
+    }
+
+    /// <summary>目標沒變：同一份確認照常執行（交易內重算的指紋與預演相同）。</summary>
+    [Fact]
+    public async Task UpdateTask_AddedToList_Unchanged_Executes()
+    {
+        SetPolicy(_app, PolicyCatalog.McpHighRiskTools, "update_task,delete_record,approve,reject");
+        var parent = await RestTask(new { title = "父任務" });
+        var child = await RestTask(new { title = "子任務" }, $"tasks/{parent}/subtasks");
+        var args = new Dictionary<string, object?> { ["taskId"] = parent, ["status"] = "done", ["cascade"] = "complete", ["idempotencyKey"] = NewIdem() };
+
+        Ok(await Call("update_task", WithCode(args, ConfirmCode(await Call("update_task", args)))));
+
+        (StoredTask(parent).Status, StoredTask(child).Status).Should().Be((TaskItemStatus.Done, TaskItemStatus.Done));
+    }
+
     // ───────── approve／reject ─────────
 
     private async Task<(Rig Rig, long RecordId, long InstanceId, string InstanceVersion, McpClient Sales01)> PendingApproval()

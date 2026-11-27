@@ -16,6 +16,9 @@ namespace DynamicModules.Application.Dynamic.McpService.Tools.Write;
 public sealed class CreateTaskTool(ISender sender)
     : WriteTool(sender, "create_task", McpTexts.CreateTaskSchema, McpTexts.CreateTaskDescription)
 {
+    /// <summary>新增類（含子任務、記錄上的任務）：沒有既存目標（審查 R5）。</summary>
+    protected override Task<McpWriteTarget> TargetAsync(McpArgs a, CancellationToken ct) => Task.FromResult(McpWriteTarget.None);
+
     public override async Task<McpToolOutcome> RunAsync(McpToolCall call, CancellationToken ct)
     {
         var a = McpArgs.Of(call.Arguments);
@@ -53,6 +56,9 @@ public sealed class CreateTaskTool(ISender sender)
 public sealed class UpdateTaskTool(ISender sender)
     : WriteTool(sender, "update_task", McpTexts.UpdateTaskSchema, McpTexts.UpdateTaskDescription)
 {
+    /// <summary>任務版本加子任務集合：連動會改到預演後才加的子任務（審查 R5）。</summary>
+    protected override Task<McpWriteTarget> TargetAsync(McpArgs a, CancellationToken ct) => TaskTargetAsync(a, ct);
+
     public override async Task<McpToolOutcome> RunAsync(McpToolCall call, CancellationToken ct)
     {
         var a = McpArgs.Of(call.Arguments);
@@ -111,6 +117,8 @@ public sealed class UpdateTaskTool(ISender sender)
 public sealed class AddTaskCommentTool(ISender sender)
     : WriteTool(sender, "add_task_comment", McpTexts.AddTaskCommentSchema, McpTexts.AddTaskCommentDescription)
 {
+    protected override Task<McpWriteTarget> TargetAsync(McpArgs a, CancellationToken ct) => TaskTargetAsync(a, ct);
+
     public override async Task<McpToolOutcome> RunAsync(McpToolCall call, CancellationToken ct)
     {
         var a = McpArgs.Of(call.Arguments);
