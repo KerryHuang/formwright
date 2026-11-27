@@ -30,6 +30,8 @@ const props = defineProps<{
   /** Server errors keyed `details.{childKey}[{i}]...`, `i` indexing the last submitted payload. */
   detailErrors?: Record<string, string[]>;
   saving?: boolean;
+  /** The page puts its own Save in a fixed bar and submits this form by id (`canSave` is exposed to decide whether to show it). */
+  hideSubmit?: boolean;
 }>();
 const emit = defineEmits<{
   submit: [values: Record<string, unknown>, details: Record<string, DetailRowPayload[]>];
@@ -95,7 +97,6 @@ function gridErrors(childKey: string) {
   for (const [uid, errs] of clientRowErrors.value[childKey] ?? []) out.set(uid, { ...out.get(uid), ...errs });
   return out;
 }
-defineExpose({ uidAt });
 // Declared before useForm so the schema computed can read it; filled right after.
 const formValues = ref<Record<string, unknown>>(snapshot);
 
@@ -173,6 +174,7 @@ const blockLocks = (b: SchemaBlock) => [...new Set(b.fields.filter((f) => !hidde
 const visibleBlocks = computed(() => props.schema.blocks.filter((b) => b.fields.some((f) => !hiddenField(f))));
 const readOnlyForm = computed(() => ruleState.value.readOnlyAll);
 const canSave = computed(() => !readOnlyForm.value && (!workflowLocked.value || canAdvance(workflow.value, storedStatus.value)));
+defineExpose({ uidAt, canSave });
 // Server errors as last received. vee-validate rewrites its own error bag on every validation, so the ones that are
 // not shown inline (record-level, or keyed to a field that is not rendered) are kept here until the next submit.
 const serverBanner = ref<Record<string, string>>({});
@@ -273,6 +275,6 @@ watch(() => props.record, () => {
       :readonly="readOnlyForm || workflowLocked || detailRowsLocked" :errors="gridErrors(d.moduleKey)" :header-values="formValues" :header-fields="fields" @update:model-value="(rows) => (detailRows[d.moduleKey] = rows)"
       @edit-cell="(uid, key) => clearServerCell(d.moduleKey, uid, key)"
     />
-    <q-btn v-if="canSave" type="submit" color="primary" :label="t('dynamic.save')" :loading="saving" />
+    <q-btn v-if="canSave && !hideSubmit" type="submit" color="primary" :label="t('dynamic.save')" :loading="saving" />
   </form>
 </template>

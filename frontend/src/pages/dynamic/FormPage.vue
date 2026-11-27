@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useRecord, useSaveRecord } from 'src/application/dynamic/queries/records-queries';
 import { useModuleSchema } from 'src/application/dynamic/queries/schema-queries';
 import PopupSelect from 'src/components/framework/PopupSelect.vue';
+import RecordHeaderBar, { type HeaderAction } from 'src/presentation/dynamic/components/RecordHeaderBar.vue';
 import DynamicForm from 'src/presentation/dynamic/components/DynamicForm.vue';
 import { isStale, messagesOutside } from 'src/presentation/dynamic/designer/api-error';
 import { parseDetailKey } from 'src/presentation/dynamic/details/detail-rows';
@@ -85,7 +86,20 @@ const failed = computed(() => !forbidden.value && !schemaMissing.value && !recor
 const ready = computed(() => schemaQuery.data.value && (!isEdit.value || recordQuery.data.value));
 // An approval in progress makes the record read-only (PUT answers 409): say so instead of showing a form that cannot be saved.
 const approvalPending = computed(() => isEdit.value && recordQuery.data.value?.approval?.status === 'pending');
-const back = () => router.push(isEdit.value ? `/dynamic/${moduleKey.value}/${recordId.value}` : `/dynamic/${moduleKey.value}`);
+const backPath = computed(() => (isEdit.value ? `/dynamic/${moduleKey.value}/${recordId.value}` : `/dynamic/${moduleKey.value}`));
+const back = () => router.push(backPath.value);
+
+const moduleName = computed(() => resolveI18n(schemaQuery.data.value?.name, locale.value));
+const FORM_ID = 'record-form';
+// The Save button sits in the fixed bar, outside the form: it submits the form by id, so validation and the saving state stay in DynamicForm.
+// `form` is undefined until the form is mounted, and absent while an approval in progress replaces it, so Save shows only when the form could save.
+const headerActions = computed<HeaderAction[]>(() => {
+  const list: HeaderAction[] = [{ key: 'cancel', label: t('dynamic.cancel'), flat: true, bottom: true, testid: 'form-cancel', run: back }];
+  if (!approvalPending.value && form.value?.canSave) {
+    list.push({ key: 'save', label: t('dynamic.save'), color: 'primary', bottom: true, testid: 'form-save', submitForm: FORM_ID, loading: save.isPending.value });
+  }
+  return list;
+});
 
 // A `details.` key counts as shown when it points at a submitted row and a field of that detail (or the row itself).
 function shownOnRow(key: string): boolean {
@@ -142,17 +156,16 @@ async function onSubmit(values: Record<string, unknown>, details: Record<string,
 </script>
 
 <template>
-  <q-page padding>
+  <q-page padding :style="$q.screen.lt.sm ? 'padding-bottom: calc(88px + env(safe-area-inset-bottom))' : undefined">
     <ForbiddenNotice v-if="forbidden" />
     <div v-else-if="schemaMissing" class="text-negative">{{ t('dynamic.moduleNotFound') }}</div>
     <div v-else-if="recordMissing" class="text-negative">{{ t('dynamic.recordNotFound') }}</div>
     <div v-else-if="failed" class="text-negative">{{ t('dynamic.loadFailed') }}</div>
     <template v-else-if="ready">
-      <div class="row items-center q-mb-md">
-        <div class="text-h6" data-testid="module-title">{{ t(isEdit ? 'dynamic.editOf' : 'dynamic.newOf', { module: resolveI18n(schemaQuery.data.value?.name, locale) }) }}</div>
-        <q-space />
-        <q-btn flat :label="t('dynamic.cancel')" @click="back" />
-      </div>
+      <RecordHeaderBar
+        :back-label="moduleName" :back-to="backPath" :back-aria-label="t('dynamic.backTo', { module: moduleName })"
+        :title="t(isEdit ? 'dynamic.editOf' : 'dynamic.newOf', { module: moduleName })" title-testid="module-title" :actions="headerActions"
+      />
       <div v-if="approvalPending" class="row items-center no-wrap text-muted" data-testid="approval-pending-readonly">
         <q-icon name="lock" class="q-mr-sm" />
         <span>{{ t('approval.pendingReadOnly') }}</span>
@@ -163,7 +176,7 @@ async function onSubmit(values: Record<string, unknown>, details: Record<string,
           :error="hostError" required class="q-mb-md" @update:model-value="hostError = undefined"
         />
         <DynamicForm
-          ref="form" :schema="schemaQuery.data.value!" :mode="isEdit ? 'edit' : 'create'" :record="isEdit ? recordQuery.data.value : undefined" :initial="prefill" :references="prefillReferences"
+          id="record-form" ref="form" hide-submit :schema="schemaQuery.data.value!" :mode="isEdit ? 'edit' : 'create'" :record="isEdit ? recordQuery.data.value : undefined" :initial="prefill" :references="prefillReferences"
           :server-errors="serverErrors" :detail-errors="detailErrors" :saving="save.isPending.value" @submit="onSubmit" @row-version="(v) => (uploadedRowVersion = v)"
         />
       </template>

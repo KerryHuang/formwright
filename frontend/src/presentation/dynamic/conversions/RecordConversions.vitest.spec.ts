@@ -23,7 +23,7 @@ async function mountList(closed: boolean) {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:p(.*)*', component: { render: () => null } }] });
   const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
   const w = mount(RecordConversions, {
-    props: { recordId: 5, rowVersion: 'rv1', closed },
+    props: { recordId: 5, closed },
     global: { plugins: [[quasar.Quasar, { components: quasar }], createPinia(), router, i18n, [VueQueryPlugin, { queryClient: new QueryClient() }]] },
   });
   await flushPromises();

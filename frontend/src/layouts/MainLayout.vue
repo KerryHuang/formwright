@@ -33,6 +33,8 @@
         <q-btn flat dense no-caps :label="t('auth.logout')" :loading="logoutMutation.isPending.value" data-testid="logout" @click="logout" />
       </q-toolbar>
       <AppBreadcrumb v-if="theme.effective.style === 'enterprise'" :menu="menu ?? []" />
+      <!-- 單據頁的固定標題列貼在頁首正下方：頁首高度（換行、縮放、麵包屑）一變就更新變數，不寫死 px -->
+      <q-resize-observer @resize="onHeaderResize" />
     </q-header>
 
     <q-drawer v-model="drawerOpen" :show-if-above="!collapseDrawer" :no-swipe-open="collapseDrawer" bordered :width="theme.sidebarWidth" :breakpoint="1024">
@@ -137,6 +139,8 @@ function closeWhenOverlay() { if (overlayMode.value) drawerOpen.value = false; }
 function onEscape(e: KeyboardEvent) { if (e.key === 'Escape' && overlayMode.value && drawerOpen.value) drawerOpen.value = false; }
 onMounted(() => window.addEventListener('keydown', onEscape));
 onBeforeUnmount(() => window.removeEventListener('keydown', onEscape));
+const onHeaderResize = (size: { height: number }) => document.documentElement.style.setProperty('--app-header-h', `${size.height}px`);
+onBeforeUnmount(() => document.documentElement.style.removeProperty('--app-header-h'));
 const router = useRouter();
 // 路由 meta `collapseDrawer`（流程圖設計頁）：選單預設收起、可再打開，滑動不會拉出選單（平板的畫布手勢不被搶）；換到沒有這個 meta 的路由恢復原行為。
 const collapseDrawer = computed(() => router.currentRoute.value.meta.collapseDrawer === true);

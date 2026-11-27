@@ -33,11 +33,11 @@ export function useDeleteConversionMutation() {
 }
 
 /** What can be converted from one record, with remaining quantities; always fresh because converting elsewhere changes it. */
-export function useRecordConversions(id: Ref<number>) {
+export function useRecordConversions(id: Ref<number>, enabled: Ref<boolean> = computed(() => true)) {
   return useQuery({
     queryKey: ['record-conversions', id],
     queryFn: () => dynamicApi.getRecordConversions(id.value),
-    enabled: computed(() => Number.isFinite(id.value)),
+    enabled: computed(() => Number.isFinite(id.value) && enabled.value),
   });
 }
 

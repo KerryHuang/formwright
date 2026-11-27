@@ -57,6 +57,23 @@ describe('MainLayout 頂列的 AI 存取權杖入口', () => {
   });
 });
 
+describe('MainLayout 頁首高度變數', () => {
+  const original = window.innerWidth;
+  beforeEach(() => { vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }); });
+  afterEach(() => { window.innerWidth = original; document.body.innerHTML = ''; document.documentElement.style.removeProperty('--app-header-h'); });
+
+  it('頁首尺寸變動時寫成 --app-header-h，讓固定在頁首下方的標題列跟著移動', async () => {
+    const { w } = await mountAtWidth(1366);
+    const header = w.findComponent(quasar.QHeader);
+    header.findComponent(quasar.QResizeObserver).vm.$emit('resize', { width: 1366, height: 84 });
+    expect(document.documentElement.style.getPropertyValue('--app-header-h')).toBe('84px');
+    header.findComponent(quasar.QResizeObserver).vm.$emit('resize', { width: 390, height: 50 });
+    expect(document.documentElement.style.getPropertyValue('--app-header-h')).toBe('50px');
+    w.unmount();
+    expect(document.documentElement.style.getPropertyValue('--app-header-h')).toBe('');
+  });
+});
+
 describe('MainLayout 響應式選單', () => {
   const original = window.innerWidth;
   beforeEach(() => { vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }); });

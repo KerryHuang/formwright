@@ -4,6 +4,7 @@ import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { useRecordApproval } from 'src/application/dynamic/queries/approval-queries';
+import { useRecordConversions } from 'src/application/dynamic/queries/conversions-queries';
 import { useDeleteRecord, useRecord } from 'src/application/dynamic/queries/records-queries';
 import { useModuleSchema, useRecordScopedSchema } from 'src/application/dynamic/queries/schema-queries';
 import { hasApprovalActions } from 'src/presentation/dynamic/approval/approval-actions';
@@ -11,10 +12,13 @@ import ApprovalHistoryOnly from 'src/presentation/dynamic/approval/ApprovalHisto
 import ApprovalPanel from 'src/presentation/dynamic/approval/ApprovalPanel.vue';
 import ApprovalBadge from 'src/presentation/dynamic/approval/ApprovalBadge.vue';
 import SubmitApprovalDialog from 'src/presentation/dynamic/approval/SubmitApprovalDialog.vue';
-import PrintMenu from 'src/presentation/dynamic/print/PrintMenu.vue';
+import PrintPreviewDialog from 'src/presentation/dynamic/print/PrintPreviewDialog.vue';
+import { usePrintAction } from 'src/presentation/dynamic/print/use-print-action';
+import ConvertDialog from 'src/presentation/dynamic/conversions/ConvertDialog.vue';
 import RecordConversions from 'src/presentation/dynamic/conversions/RecordConversions.vue';
 import RecordEffects from 'src/presentation/dynamic/events/RecordEffects.vue';
 import RecordLedger from 'src/presentation/dynamic/ledger/RecordLedger.vue';
+import RecordHeaderBar, { type HeaderAction } from 'src/presentation/dynamic/components/RecordHeaderBar.vue';
 import DynamicDetail from 'src/presentation/dynamic/components/DynamicDetail.vue';
 import DetailTables from 'src/presentation/dynamic/details/DetailTables.vue';
 import DeleteBlockedDialog from 'src/presentation/dynamic/related/DeleteBlockedDialog.vue';
@@ -23,7 +27,7 @@ import RecordTasks from 'src/presentation/dynamic/tasks/RecordTasks.vue';
 import RelatedTabs from 'src/presentation/dynamic/related/RelatedTabs.vue';
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
 import type { SubmitApprovalResult } from 'src/domain/dynamic/approval-types';
-import type { DeleteBlocked } from 'src/domain/dynamic/types';
+import type { DeleteBlocked, RecordConversion } from 'src/domain/dynamic/types';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import { canAdvance, isReadOnlyState } from 'src/domain/dynamic/workflow';
 import { isStale } from 'src/presentation/dynamic/designer/api-error';
@@ -94,10 +98,51 @@ function onSubmitted(outcome: SubmitApprovalResult['outcome']) {
   const state = submitTo.value === null ? '' : stateLabel(submitTo.value);
   $q.notify({ type: 'positive', message: t(`approval.submit.outcome.${outcome}`, { state }) });
 }
-// On a phone the action bar is fixed to the bottom: leave room so the last block is not covered.
+// On a phone the approval action bar is fixed to the bottom: leave room so the last block is not covered.
+// Then the record's own actions do not open a second bottom bar; they go to a More menu in the top bar instead.
 const identity = useIdentityStore();
-const barPad = computed(() => $q.screen.lt.sm && !schema.value?.readOnly && hasApprovalActions(approvalQuery.data.value?.current ?? null, identity.userId));
+const phone = computed(() => $q.screen.lt.sm);
+const approvalBar = computed(() => phone.value && !schema.value?.readOnly && hasApprovalActions(approvalQuery.data.value?.current ?? null, identity.userId));
 const submitTargets = computed(() => (canSubmit.value ? approvalQuery.data.value?.submitTargets ?? [] : []).filter((to) => stateLabel(to)));
+
+// The convert and print buttons only trigger: their dialogs live here, outside the (phone) menu that unmounts when it closes.
+// Not for a temporary-read grant (no conversions there), and not before the record says which case this is.
+const conversionsQuery = useRecordConversions(recordId, computed(() => !!recordQuery.data.value && !grant.value));
+const convertKey = ref<string | null>(null);
+const convertOpen = computed(() => (conversionsQuery.data.value ?? []).find((c) => c.key === convertKey.value));
+const convertTargetName = (c: RecordConversion) => resolveI18n(c.targetName, locale.value);
+const print = usePrintAction(moduleKey, recordId);
+
+const headerActions = computed<HeaderAction[]>(() => {
+  const list: HeaderAction[] = submitTargets.value.map((to) => ({
+    key: `submit-${to}`, label: t('approval.submitTo', { state: stateLabel(to) }), icon: 'rule', color: 'primary',
+    testid: `submit-approval-${to}`, run: () => { submitTo.value = to; },
+  }));
+  if (!grant.value) {
+    for (const c of (conversionsQuery.data.value ?? []).filter((x) => x.allowed)) {
+      list.push({
+        key: `convert-${c.key}`, label: t('docflow.convert.button', { name: convertTargetName(c) }), icon: 'swap_horiz', outline: true, color: 'primary',
+        testid: `convert-open-${c.key}`, run: () => { convertKey.value = c.key; },
+      });
+    }
+  }
+  if (print.items.value.length) {
+    list.push({
+      key: 'print', label: t('print.print'), icon: 'print', loading: print.busy.value, testid: 'print-menu',
+      children: print.items.value.map((o) => ({
+        key: o.key, label: o.name, menuLabel: t('print.printNamed', { name: o.name }), testid: `print-${o.key}`, run: () => void print.show(o.key, o.name),
+      })),
+    });
+  }
+  if (canEdit.value) list.push({ key: 'edit', label: t('dynamic.edit'), color: 'primary', to: `/dynamic/${moduleKey.value}/${recordId.value}/edit`, bottom: true });
+  if (canDelete.value) list.push({ key: 'delete', label: t('dynamic.delete'), color: 'negative', outline: true, negative: true, run: () => { confirming.value = true; } });
+  // Phone: one main button on the bottom bar: Edit, else the first submit target.
+  const main = list.find((a) => a.key === 'edit') ?? list.find((a) => a.key.startsWith('submit-'));
+  if (main) main.bottom = true;
+  return list;
+});
+const bottomBar = computed(() => phone.value && !approvalBar.value && headerActions.value.length > 0);
+const barPad = computed(() => approvalBar.value || bottomBar.value);
 
 async function onDelete() {
   try {
@@ -132,23 +177,13 @@ async function onDelete() {
     <div v-else-if="recordMissing" class="text-negative">{{ t('dynamic.recordNotFound') }}</div>
     <div v-else-if="failed" class="text-negative">{{ t('dynamic.loadFailed') }}</div>
     <template v-else-if="schema && recordQuery.data.value">
-      <!-- 第一列「← 模組名」同時是目前位置與返回列表；第二列紀錄標題是頁面標題 -->
-      <q-btn
-        flat dense no-caps icon="arrow_back" class="q-mb-xs" :label="moduleName" :aria-label="t('dynamic.backTo', { module: moduleName })"
-        :to="`/dynamic/${moduleKey}`" data-testid="module-title"
-      />
-      <div class="row items-center q-mb-md q-gutter-sm">
-        <div v-if="schema.titleFieldKey || schema.kind === 'extension'" class="text-h6" style="overflow-wrap: anywhere" data-testid="record-title">{{ recordQuery.data.value.title }}</div>
-        <ApprovalBadge v-if="approval" :summary="approval" />
-        <q-space />
-        <q-btn
-          v-for="to in submitTargets" :key="to" color="primary" icon="rule" :label="t('approval.submitTo', { state: stateLabel(to) })"
-          :data-testid="`submit-approval-${to}`" @click="submitTo = to"
-        />
-        <PrintMenu :module-key="moduleKey" :record-id="recordId" />
-        <q-btn v-if="canEdit" color="primary" :label="t('dynamic.edit')" :to="`/dynamic/${moduleKey}/${recordId}/edit`" />
-        <q-btn v-if="canDelete" color="negative" outline :label="t('dynamic.delete')" @click="confirming = true" />
-      </div>
+      <RecordHeaderBar
+        :back-label="moduleName" :back-to="`/dynamic/${moduleKey}`" :back-aria-label="t('dynamic.backTo', { module: moduleName })" back-testid="module-title"
+        :title="schema.titleFieldKey || schema.kind === 'extension' ? recordQuery.data.value.title : undefined"
+        :actions="headerActions" :menu-only="approvalBar"
+      >
+        <template #badge><ApprovalBadge v-if="approval" :summary="approval" /></template>
+      </RecordHeaderBar>
       <div v-if="grant" class="row items-center no-wrap q-mb-sm text-muted" data-testid="approval-grant-banner">
         <q-icon name="visibility" class="q-mr-sm" />
         <span>{{ t('approval.grantBanner') }}</span>
@@ -166,7 +201,7 @@ async function onDelete() {
         <span>{{ t('ledger.frozen') }}</span>
       </div>
       <RecordLedger v-if="schema.ledger && !grant" :record-id="recordId" :module-key="moduleKey" />
-      <RecordConversions v-if="!grant" :record-id="recordId" :row-version="recordQuery.data.value.rowVersion" :closed="schema.readOnly" />
+      <RecordConversions v-if="!grant" :record-id="recordId" :closed="schema.readOnly" />
       <ApprovalPanel
         v-if="approval && approvalQuery.data.value" :approval="approvalQuery.data.value" :schema="schema" :record="recordQuery.data.value" :record-id="recordId" :module-key="moduleKey"
         :readonly="!!schema.readOnly"
@@ -183,6 +218,11 @@ async function onDelete() {
         v-if="submitTo !== null" :model-value="true" :record-id="recordId" :module-key="moduleKey" :to="submitTo" :to-label="stateLabel(submitTo)"
         :record-row-version="recordQuery.data.value.rowVersion" @update:model-value="submitTo = null" @submitted="onSubmitted"
       />
+      <ConvertDialog
+        v-if="convertOpen" :model-value="true" :record-id="recordId" :row-version="recordQuery.data.value.rowVersion" :conversion="convertOpen"
+        @update:model-value="convertKey = null"
+      />
+      <PrintPreviewDialog v-if="print.items.value.length" v-model="print.open.value" :html="print.html.value" :title="print.title.value" />
       <DeleteBlockedDialog v-if="blocked" :model-value="true" :blocked="blocked" @update:model-value="blocked = null" />
       <q-dialog v-model="confirming">
         <q-card>
