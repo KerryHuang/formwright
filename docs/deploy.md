@@ -211,6 +211,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 | Ubuntu 22.04／24.04（x86_64） | `curl -fsSL https://github.com/KerryHuang/formwright/releases/latest/download/install.sh \| sudo bash`；終端輸出網址與設定碼 |
 | Docker compose | 下載 Releases 的 `docker-compose.yml`，`docker compose up -d`；設定碼用 `docker compose logs formwright` 找 |
 
+- **預發版**（tag 有後綴，例 `v0.1.0-rc.1`）：Release 標成 prerelease，`releases/latest` 不會指向它；Ubuntu 改用 `curl -fsSL https://github.com/KerryHuang/formwright/releases/download/<tag>/install.sh | sudo bash`，Windows 與 Docker 到該版的 Release 頁下載。映像只推版號 tag，不更新 `latest`。
 - **SmartScreen**：Windows 安裝檔沒有簽章，執行時會出現「Windows 已保護您的電腦」。按「其他資訊」→「仍要執行」。
 - **設定碼**：精靈第一步要輸入的 12 碼英數字（例 `K7QM-3HZP-W2XA`），只能用一次。Windows 在安裝程式最後一頁；Ubuntu 在安裝指令的輸出（`FORMWRIGHT_SETUP_CODE=` 那一行）；Docker 在容器 log。
 - **雙因素**：依系統預設，管理員第一次登入後會先被要求設定雙因素驗證，要準備好驗證器 App。

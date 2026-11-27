@@ -183,9 +183,12 @@ jobs:
           # sha256sum 文字格式「<hash>  <檔名>」，檔名不含路徑，install.sh 以檔名精確比對
           sha256sum formwright-*-linux-x64.tar.gz Formwright-Setup-*.exe install.sh docker-compose.yml > SHA256SUMS
           cat SHA256SUMS
+          # 預發版（x.y.z 後面有後綴）標成 prerelease，不成為「Latest release」，releases/latest/download 仍指向正式版
+          pre=()
+          [[ "${GITHUB_REF_NAME#v}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || pre=(--prerelease)
           gh release create "$GITHUB_REF_NAME" \
             formwright-*-linux-x64.tar.gz Formwright-Setup-*.exe install.sh docker-compose.yml SHA256SUMS \
-            --repo "$GITHUB_REPOSITORY" --title "Formwright ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag
+            --repo "$GITHUB_REPOSITORY" --title "Formwright ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag "${pre[@]}"
 
   # Release 建好、版號映像也推好之後才提升 latest（不重建，只加 tag）；
   # 跨 tag 序列化，且不用舊版蓋掉較新的 latest。
