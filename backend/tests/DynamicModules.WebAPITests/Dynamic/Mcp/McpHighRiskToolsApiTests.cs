@@ -304,13 +304,13 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
 
     // ───────── elicitation（§6.3.1） ─────────
 
-    private async Task<(McpClient Client, List<ElicitRequestParams?> Asked)> ElicitingClient(Func<ElicitResult> answer)
+    private async Task<(McpClient Client, List<ElicitRequestParams?> Asked)> ElicitingClient(Func<ElicitResult> answer, string? token = null)
     {
         var asked = new List<ElicitRequestParams?>();
         var http = _app.CreateClient();
         var transport = new HttpClientTransport(new HttpClientTransportOptions
         {
-            Endpoint = new Uri(http.BaseAddress!, "/mcp"), AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = $"Bearer {_adminToken}" },
+            Endpoint = new Uri(http.BaseAddress!, "/mcp"), AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = $"Bearer {token ?? _adminToken}" },
         }, http);
         var client = await McpClient.CreateAsync(transport, new McpClientOptions
         {
@@ -374,6 +374,23 @@ public class McpHighRiskToolsApiTests : IAsyncLifetime
         (row.DeclinedUtc is null, row.VoidedUtc is null, row.UsedUtc is null).Should().Be((false, false, true));
         var last = AuditOf("mcp.deleteRecord").Last();
         (last.ConfirmationOutcome, last.Result, last.ConfirmationId).Should().Be((AuditConfirmationOutcome.Declined, AuditResult.Denied, row.Id));
+    }
+
+    /// <summary>對話框訊息是給人看的：關卡名稱照原文顯示，不跳脫成 \uXXXX（實機發現）。</summary>
+    [Fact]
+    public async Task Elicitation_Approve_MessageReadable()
+    {
+        var (_, _, instanceId, rv, sales) = await PendingApproval();
+        await sales.DisposeAsync();
+        var (client, asked) = await ElicitingClient(() => Answer("accept", true), IssueToken(_app, "sales01", WriteScopes).Raw);
+        await using var _ = client;
+
+        Ok((await CallRaw(client, "approve", new { taskId = TaskOf(instanceId, "sales01"), rowVersion = rv, idempotencyKey = NewIdem() }))
+            .StructuredContent!.Value);
+
+        var message = asked.Should().ContainSingle().Subject!.Message;
+        message.Should().Contain("業務").And.NotContain("\\u");
+        InstanceStatus(instanceId).Should().Be(ApprovalInstanceStatus.Approved);
     }
 
     /// <summary>elicitation 發出的碼改用 confirmationCode 送：一律 confirmation_invalid（§6.3.1 第 4 點）。</summary>

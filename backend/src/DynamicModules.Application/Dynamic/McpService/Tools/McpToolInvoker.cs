@@ -1,3 +1,4 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using DynamicModules.Application.Common;
@@ -361,7 +362,9 @@ public sealed class McpToolInvoker(
     /// <summary>對話框說明的預演摘要上限（技術限制，對話框不是捲動長文的地方）。</summary>
     private const int ElicitationPreviewMax = 3000;
 
-    private static readonly JsonSerializerOptions ElicitationJson = new(McpResultFormatter.Json) { WriteIndented = true };
+    // 對話框是給人看的純文字，不是 HTML：非 ASCII 照原文輸出（預設編碼器會跳脫成 \uXXXX，實機看不懂）
+    private static readonly JsonSerializerOptions ElicitationJson =
+        new(McpResultFormatter.Json) { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     /// <summary>從高風險工具的參數拿掉 <c>confirmationCode</c>；不是字串的碼當成空碼（一定不符）。</summary>
     private static (JsonElement Args, string? Code) SplitConfirmation(JsonElement args)
