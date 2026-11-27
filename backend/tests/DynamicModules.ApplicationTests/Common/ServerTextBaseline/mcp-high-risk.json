@@ -46,5 +46,11 @@
     "en-US": "Deleting this record also affects data you cannot see here, so the full impact cannot be listed. Please delete it in the web interface instead",
     "th": "การลบระเบียนนี้จะกระทบข้อมูลที่คุณมองไม่เห็นจากที่นี่ จึงแสดงผลกระทบทั้งหมดไม่ได้ โปรดลบผ่านหน้าเว็บแทน",
     "vi": "Xóa bản ghi này sẽ ảnh hưởng đến dữ liệu bạn không xem được ở đây nên không thể liệt kê đầy đủ ảnh hưởng; vui lòng xóa trên giao diện web"
+  },
+  "McpElicitationValueTooLong": {
+    "zh-TW": "有一個不是說明文字的值超過 {0} 字，對話框無法完整顯示，不能用來確認；請改送正確的短值，或在畫面上操作",
+    "en-US": "A value that is not descriptive text is longer than {0} characters and cannot be shown in full in the dialog, so it cannot be confirmed. Send the correct short value or use the web interface instead",
+    "th": "มีค่าที่ไม่ใช่ข้อความอธิบายยาวเกิน {0} อักขระ กล่องโต้ตอบแสดงได้ไม่ครบ จึงใช้ยืนยันไม่ได้ โปรดส่งค่าสั้นที่ถูกต้อง หรือทำผ่านหน้าเว็บแทน",
+    "vi": "Có một giá trị không phải văn bản mô tả dài quá {0} ký tự, hộp thoại không hiển thị đầy đủ nên không thể xác nhận; hãy gửi giá trị ngắn đúng hoặc thao tác trên giao diện web"
   }
 }
