@@ -11,4 +11,9 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.11" />
   </ItemGroup>
 
+  <!-- 出廠外觀預設：唯一來源是 repo 根目錄的 shared/，前端也讀同一份（Docker 漏 COPY shared/ 時編譯就失敗）。 -->
+  <ItemGroup>
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\..\shared\theme\factory-theme.json" LogicalName="factory-theme.json" />
+  </ItemGroup>
+
 </Project>

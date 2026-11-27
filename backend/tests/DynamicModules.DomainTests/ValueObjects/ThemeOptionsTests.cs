@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DynamicModules.Domain.ValueObjects;
 using FluentAssertions;
 
@@ -29,4 +30,16 @@ public class ThemeOptionsTests
     [Fact]
     public void FactoryStyle_IsSignature() =>
         ThemeOptions.FactoryStyle.Should().Be("signature");
+
+    [Fact]
+    public void FactoryDefaults_ComeFromSharedJson()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "shared", "theme", "factory-theme.json"))) dir = dir.Parent;
+        dir.Should().NotBeNull("repo 根目錄要有 shared/theme/factory-theme.json");
+        using var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(dir!.FullName, "shared", "theme", "factory-theme.json")));
+
+        ThemeOptions.FactoryMode.Should().Be(json.RootElement.GetProperty("mode").GetString());
+        ThemeOptions.FactoryStyle.Should().Be(json.RootElement.GetProperty("style").GetString());
+    }
 }
