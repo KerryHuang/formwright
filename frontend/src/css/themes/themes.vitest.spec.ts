@@ -236,6 +236,17 @@ describe('主題 token', () => {
     }
   });
 
+  it.each(combinations)('%s %s 唯讀欄位灰底（文字色疊在頁面底色上）：看得出差異，欄位文字與標籤對比仍至少 4.5', (style, mode) => {
+    const alpha = Number(read('quasar-bridge.css').match(/q-field--readonly[^{]*\{\s*background:\s*color-mix\(in srgb, var\(--t-text\) (\d+)%, transparent\)/)![1]) / 100;
+    for (const p of palettesOf(style, mode)) {
+      const fill = mix(p['--t-text'], p['--t-bg'], alpha);
+      expect(contrast(fill, p['--t-bg']), `${style} 灰底和頁面底色`).toBeGreaterThan(1.05);
+      for (const fg of ['--t-text', '--t-muted']) {
+        expect(contrast(p[fg], fill), `${style} ${fg} 在灰底上`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
   it('顏色一律寫十六進位字面值', () => {
     for (const s of STYLES) {
       for (const mode of ['light', 'dark'] as const) {
