@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { mount } from '@vue/test-utils';
 import * as quasar from 'quasar';
 import { describe, expect, it, vi } from 'vitest';
@@ -208,5 +210,32 @@ describe('report-format', () => {
       await none.find('[data-testid="detail-row-0"]').trigger('click');
       expect(none.emitted('openTask')).toBeUndefined();
     });
+  });
+});
+
+// 走查 W1（kr3 r2）：390 寬時欄位多的報表撐出整頁橫捲。表格要在自己的容器內橫捲，上方說明行可換行，元件本身不撐寬父層
+describe('ReportResultView 窄螢幕不撐寬整頁', () => {
+  const SOURCE = readFileSync(resolve(process.cwd(), 'src/presentation/reports/ReportResultView.vue'), 'utf8');
+  const style = SOURCE.slice(SOURCE.indexOf('<style'));
+  const rule = (selector: string) => style.match(new RegExp(`\\${selector}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+
+  it('wraps the group table and the detail table in their own horizontal scroll container', () => {
+    const grouped = mountView(OK);
+    expect(has(grouped, 'report-group-table').element.parentElement?.classList.contains('report-table-scroll')).toBe(true);
+    const detail = mountView({ ...OK, groups: null, total: null, detailRows: [['甲']], columns: [{ key: 'main:1:', label: '客戶', role: 'field', valueType: 'text' }] });
+    expect(has(detail, 'report-detail-table').element.parentElement?.classList.contains('report-table-scroll')).toBe(true);
+  });
+
+  it('marks the root and the meta line so they cannot widen the page', () => {
+    const w = mountView(OK);
+    expect(has(w, 'report-result').classes()).toContain('report-result');
+    expect(has(w, 'applied-range').element.parentElement?.classList.contains('report-result-meta')).toBe(true);
+  });
+
+  it('styles: table container scrolls inside, root may shrink, meta line wraps', () => {
+    expect(rule('.report-table-scroll')).toMatch(/overflow-x:\s*auto/);
+    expect(rule('.report-table-scroll')).toMatch(/max-width:\s*100%/);
+    expect(rule('.report-result')).toMatch(/min-width:\s*0/);
+    expect(rule('.report-result-meta')).toMatch(/overflow-wrap:\s*anywhere/);
   });
 });

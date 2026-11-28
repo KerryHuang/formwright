@@ -43,12 +43,12 @@ const countText = (n: number | null | undefined) => (n ?? 0).toLocaleString(loca
 </script>
 
 <template>
-  <div class="column q-gutter-y-sm" data-testid="report-result">
+  <div class="column q-gutter-y-sm report-result" data-testid="report-result">
     <div v-if="result.state !== 'ok' && result.state !== 'empty'" class="text-negative" :data-testid="`state-${result.state}`">
       {{ stateText }}
     </div>
     <template v-else>
-      <div class="text-caption text-muted">
+      <div class="text-caption text-muted report-result-meta">
         <span v-if="range" data-testid="applied-range">{{ t('reports.appliedRange', { from: range.from, to: range.to }) }}</span>
         <span v-if="result.rowMeaning" class="q-ml-sm" data-testid="row-meaning">{{ t('reports.rowMeaning', { text: result.rowMeaning }) }}</span>
         <span v-if="result.basisIsFrozen" class="q-ml-sm" data-testid="basis-date">{{ t('reports.basisDate', { date: result.basisDate }) }}</span>
@@ -71,50 +71,54 @@ const countText = (n: number | null | undefined) => (n ?? 0).toLocaleString(loca
             <span v-for="m in measureCols" :key="m.key">{{ t('reports.total') }} {{ m.label }}: {{ fmt(result.total[m.key], m) }}</span>
           </div>
         </template>
-        <q-markup-table v-else-if="showGroupTable" flat bordered dense data-testid="report-group-table">
-          <thead>
-            <tr>
-              <th v-for="c in [...groupCols, ...measureCols]" :key="c.key" class="text-left">{{ c.label }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="(g, i) in groups" :key="i" :class="{ 'row-clickable': drillable }" :data-testid="`group-row-${i}`"
-              @click="drillable && emit('drill', g.groupKeys)"
-            >
-              <td v-for="(c, ci) in groupCols" :key="c.key">{{ g.groupLabels[ci] }}</td>
-              <td v-for="m in measureCols" :key="m.key">{{ fmt(g.values[m.key], m) }}</td>
-            </tr>
-            <tr v-if="result.total" class="text-weight-bold" data-testid="total-row">
-              <td :colspan="Math.max(groupCols.length, 1)">{{ t('reports.total') }}</td>
-              <td v-for="m in measureCols" :key="m.key">{{ fmt(result.total[m.key], m) }}</td>
-            </tr>
-          </tbody>
-        </q-markup-table>
+        <div v-else-if="showGroupTable" class="report-table-scroll">
+          <q-markup-table flat bordered dense data-testid="report-group-table">
+            <thead>
+              <tr>
+                <th v-for="c in [...groupCols, ...measureCols]" :key="c.key" class="text-left">{{ c.label }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="(g, i) in groups" :key="i" :class="{ 'row-clickable': drillable }" :data-testid="`group-row-${i}`"
+                @click="drillable && emit('drill', g.groupKeys)"
+              >
+                <td v-for="(c, ci) in groupCols" :key="c.key">{{ g.groupLabels[ci] }}</td>
+                <td v-for="m in measureCols" :key="m.key">{{ fmt(g.values[m.key], m) }}</td>
+              </tr>
+              <tr v-if="result.total" class="text-weight-bold" data-testid="total-row">
+                <td :colspan="Math.max(groupCols.length, 1)">{{ t('reports.total') }}</td>
+                <td v-for="m in measureCols" :key="m.key">{{ fmt(result.total[m.key], m) }}</td>
+              </tr>
+            </tbody>
+          </q-markup-table>
+        </div>
         <div v-if="result.detailTruncated" class="text-warning" data-testid="detail-truncated">
           {{ t('reports.detailTruncated', { shown: countText(result.detailRows?.length), total: countText(result.detailTotal) }) }}
         </div>
-        <q-markup-table v-if="hasDetail" flat bordered dense data-testid="report-detail-table">
-          <thead>
-            <tr>
-              <th v-for="c in fieldCols" :key="c.key" class="text-left">{{ c.label }}</th>
-              <th v-if="hasTaskLinks" class="task-link-col" aria-hidden="true" />
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="(row, ri) in result.detailRows" :key="ri" :class="{ 'row-clickable': taskIdAt(ri) !== null }" :data-testid="`detail-row-${ri}`"
-              :tabindex="taskIdAt(ri) !== null ? 0 : undefined" :role="taskIdAt(ri) !== null ? 'button' : undefined"
-              @click="taskIdAt(ri) !== null && emit('openTask', taskIdAt(ri)!)"
-              @keydown.enter.prevent="taskIdAt(ri) !== null && emit('openTask', taskIdAt(ri)!)"
-            >
-              <td v-for="(c, ci) in fieldCols" :key="c.key">{{ fmt(row[ci], c) }}</td>
-              <td v-if="hasTaskLinks" class="task-link-col text-right">
-                <q-icon v-if="taskIdAt(ri) !== null" name="chevron_right" color="muted" aria-hidden="true" data-testid="task-chevron" />
-              </td>
-            </tr>
-          </tbody>
-        </q-markup-table>
+        <div v-if="hasDetail" class="report-table-scroll">
+          <q-markup-table flat bordered dense data-testid="report-detail-table">
+            <thead>
+              <tr>
+                <th v-for="c in fieldCols" :key="c.key" class="text-left">{{ c.label }}</th>
+                <th v-if="hasTaskLinks" class="task-link-col" aria-hidden="true" />
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="(row, ri) in result.detailRows" :key="ri" :class="{ 'row-clickable': taskIdAt(ri) !== null }" :data-testid="`detail-row-${ri}`"
+                :tabindex="taskIdAt(ri) !== null ? 0 : undefined" :role="taskIdAt(ri) !== null ? 'button' : undefined"
+                @click="taskIdAt(ri) !== null && emit('openTask', taskIdAt(ri)!)"
+                @keydown.enter.prevent="taskIdAt(ri) !== null && emit('openTask', taskIdAt(ri)!)"
+              >
+                <td v-for="(c, ci) in fieldCols" :key="c.key">{{ fmt(row[ci], c) }}</td>
+                <td v-if="hasTaskLinks" class="task-link-col text-right">
+                  <q-icon v-if="taskIdAt(ri) !== null" name="chevron_right" color="muted" aria-hidden="true" data-testid="task-chevron" />
+                </td>
+              </tr>
+            </tbody>
+          </q-markup-table>
+        </div>
         <div v-if="hasDetail && !showIndicator && measureCols.length && result.total" class="row q-gutter-md text-weight-bold" data-testid="detail-total">
           <span v-for="m in measureCols" :key="m.key">{{ t('reports.total') }} {{ m.label }}: {{ fmt(result.total[m.key], m) }}</span>
         </div>
@@ -123,3 +127,10 @@ const countText = (n: number | null | undefined) => (n ?? 0).toLocaleString(loca
     </template>
   </div>
 </template>
+
+<style scoped>
+/* 走查 W1（kr3 r2）：欄位多的報表在窄螢幕不撐寬整頁——表格在自己的容器內橫捲，說明行可換行，元件本身可縮 */
+.report-result { min-width: 0; }
+.report-result-meta { overflow-wrap: anywhere; }
+.report-table-scroll { overflow-x: auto; max-width: 100%; }
+</style>
