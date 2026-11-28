@@ -10,7 +10,7 @@ namespace DynamicModules.Application.Dynamic.AccountService.Queries.GetAuthOptio
 
 public class GetAuthOptionsHandler(
     AuthSettings settings, IAccountRepository accounts, IDemoDataRunner demo, CachedSystemPolicy policies, LocaleRegistry registry,
-    PasswordReset.PasswordResetAvailability passwordReset)
+    PasswordReset.PasswordResetAvailability passwordReset, IPermissionRepository permissions, RequestLocale requestLocale)
     : IRequestHandler<GetAuthOptionsRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(GetAuthOptionsRequest request, CancellationToken ct)
@@ -29,8 +29,14 @@ public class GetAuthOptionsHandler(
             return ServiceResult.Success(new AuthOptionsResponse(false, false, [], defaultLocale, enabled, locales, reset, minLength, rememberDays));
 
         var list = await accounts.ListDemoLoginAccountsAsync(ct);
+        // 只在 Demo 一鍵登入開啟時才走到這裡；群組名只取清單上這些示範帳號的
+        var groupNames = (await permissions.ListGroupsAsync(ct)).ToDictionary(g => g.Id, g => g.NameI18n.Resolve(requestLocale.Current));
+        var memberships = (await permissions.ListMembershipsAsync(ct)).ToLookup(m => m.UserId, m => m.GroupId);
+        List<string> GroupsOf(string userId) =>
+            [.. memberships[userId].Where(groupNames.ContainsKey).Select(id => groupNames[id]).Order(StringComparer.Ordinal)];
         return ServiceResult.Success(new AuthOptionsResponse(
             true, demo.Current.State == DemoRunState.Running,
-            [.. list.Select(a => new DemoAccountResponse(a.UserId, a.DisplayName))], defaultLocale, enabled, locales, reset, minLength, rememberDays));
+            [.. list.Select(a => new DemoAccountResponse(a.UserId, a.DisplayName, GroupsOf(a.UserId)))],
+            defaultLocale, enabled, locales, reset, minLength, rememberDays));
     }
 }

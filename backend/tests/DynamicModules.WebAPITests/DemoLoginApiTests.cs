@@ -136,6 +136,34 @@ public class DemoLoginApiTests
         accounts.Should().NotContain(a => a.Item1 == "retired01" || a.Item1 == "alice");
     }
 
+    /// <summary>登入頁用群組名說明每個示範帳號（導覽首頁設計 §8）：目前請求語系的名稱、依名稱排序，沒有群組是空陣列。</summary>
+    [Fact]
+    public async Task Options_Enabled_EachDemoAccountCarriesItsGroupNames()
+    {
+        using var app = new LoginApp();
+        app.Db(db =>
+        {
+            db.Set<AppUser>().Add(new AppUser { UserId = "loner01", DisplayName = "沒群組", IsDemoAccount = true });
+            db.SaveChanges();
+        });
+        async Task<Dictionary<string, List<string?>>> Groups(string? locale)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get, $"{Auth}/options");
+            if (locale is not null) req.Headers.Add("X-Locale", locale);
+            var body = await Json(await app.CreateClient().SendAsync(req));
+            return body.GetProperty("demoAccounts").EnumerateArray().ToDictionary(a => a.GetProperty("userId").GetString()!,
+                a => a.GetProperty("groups").EnumerateArray().Select(g => g.GetString()).ToList());
+        }
+
+        var zh = await Groups(null);
+        var en = await Groups("en-US");
+
+        zh["sales01"].Should().BeEquivalentTo(["業務", "進銷存查詢組"], o => o.WithStrictOrdering());
+        zh["sales03"].Should().Equal("業務");
+        zh["loner01"].Should().BeEmpty();
+        en["sales01"].Should().Equal("Inventory viewer", "Sales");
+    }
+
     [Fact]
     public async Task DemoLogin_UnknownAccount_LogsFixedMessageNeverTheInput()
     {

@@ -4,7 +4,7 @@
  "x-translation": "th、vi 標籤為機器翻譯，待母語者校對",
  "manifest": {
   "id": "mes",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "name": {
    "zh-TW": "MES 生產製造",
    "en-US": "Manufacturing MES",
@@ -90,13 +90,13 @@
    "code": "order",
    "key": "mes-order",
    "name": {
-    "zh-TW": "訂單（MES）",
-    "en-US": "Sales order (MES)",
-    "th": "ใบสั่งขาย (MES)",
-    "vi": "Đơn hàng bán (MES)"
+    "zh-TW": "訂單",
+    "en-US": "Orders",
+    "th": "คำสั่งซื้อ",
+    "vi": "Đơn hàng"
    },
    "icon": "receipt_long",
-   "section": { "zh-TW": "業務", "en-US": "Sales operations", "th": "งานขาย", "vi": "Kinh doanh" },
+   "section": { "zh-TW": "銷售", "en-US": "Sales", "th": "การขาย", "vi": "Bán hàng" },
    "kind": "standalone",
    "hostEntityKey": null,
    "titleField": "no",
@@ -794,13 +794,13 @@
    "code": "quote",
    "key": "mes-quote",
    "name": {
-    "zh-TW": "報價單（MES）",
-    "en-US": "Quotes (MES)",
-    "th": "ใบเสนอราคา (MES)",
-    "vi": "Báo giá (MES)"
+    "zh-TW": "報價單",
+    "en-US": "Quotes",
+    "th": "ใบเสนอราคา",
+    "vi": "Báo giá"
    },
    "icon": "request_quote",
-   "section": { "zh-TW": "業務", "en-US": "Sales operations", "th": "งานขาย", "vi": "Kinh doanh" },
+   "section": { "zh-TW": "銷售", "en-US": "Sales", "th": "การขาย", "vi": "Bán hàng" },
    "kind": "standalone",
    "hostEntityKey": null,
    "titleField": "no",
@@ -4215,7 +4215,7 @@
     "vi": "Sự cố chất lượng"
    },
    "icon": "report_problem",
-   "section": { "zh-TW": "品質", "en-US": "Quality", "th": "คุณภาพ", "vi": "Chất lượng" },
+   "section": { "zh-TW": "品管", "en-US": "Quality", "th": "คุณภาพ", "vi": "Chất lượng" },
    "kind": "standalone",
    "hostEntityKey": null,
    "titleField": "no",

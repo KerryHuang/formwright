@@ -160,15 +160,32 @@ public class MesAppTests : IDisposable
     }
 
     [Fact]
-    public async Task OpenFromEmptySystem_QuoteAndOrderNamesCarryTheMesSuffix_SoTheyDifferFromCrm()
+    public async Task OpenFromEmptySystem_QuoteAndOrderNamesHaveNoSuffix_MenuDistinguishesByAppName()
     {
         await OpenMes();
         string Name(string code, string lang) => _opened.GetProperty("modules").EnumerateArray()
             .Single(m => m.GetProperty("code").GetString() == code).GetProperty("name").GetProperty(lang).GetString()!;
-        Name("quote", "zh-TW").Should().Be("報價單（MES）");
-        Name("order", "zh-TW").Should().Be("訂單（MES）");
-        Name("quote", "en-US").Should().Be("Quotes (MES)");
-        Name("order", "en-US").Should().Be("Sales order (MES)");
+        Name("quote", "zh-TW").Should().Be("報價單");
+        Name("order", "zh-TW").Should().Be("訂單");
+        Name("quote", "en-US").Should().Be("Quotes");
+        Name("order", "en-US").Should().Be("Orders");
+    }
+
+    /// <summary>MES 的分組併入通用的「銷售」「品管」（導覽首頁設計 §3）；選單帶積木包名稱，同名模組才分得出來（§2.1）。</summary>
+    [Fact]
+    public async Task Menu_SectionsAreMergedAndCarryTheAppName()
+    {
+        await OpenMes();
+
+        var menu = (await JsonOf(await _admin.GetAsync($"{Base}/menu"))).EnumerateArray().ToList();
+        JsonElement Item(string key) => menu.Single(m => m.GetProperty("key").GetString() == key);
+
+        Item("mes-quote").GetProperty("section").GetProperty("zh-TW").GetString().Should().Be("銷售");
+        Item("mes-order").GetProperty("section").GetProperty("en-US").GetString().Should().Be("Sales");
+        Item("mes-quality").GetProperty("section").GetProperty("zh-TW").GetString().Should().Be("品管");
+        menu.Select(m => m.GetProperty("section").GetProperty("zh-TW").GetString()).Should().NotContain("業務").And.NotContain("品質");
+        Item("mes-quote").GetProperty("appName").GetProperty("zh-TW").GetString().Should().Be("MES 生產製造");
+        Item("mes-quote").GetProperty("appName").GetProperty("en-US").GetString().Should().Be("Manufacturing MES");
     }
 
     // ---- 報工：累計上限、末道、完工量 ----

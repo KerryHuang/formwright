@@ -85,6 +85,18 @@ public class SchemaApiTests : IClassFixture<TestApp>
         keys.Should().NotContain(draft);
     }
 
+    /// <summary>自己設計的模組不屬於任何積木包：不帶 appName（導覽首頁設計 §2.1）。</summary>
+    [Fact]
+    public async Task GetMenu_CustomModule_HasNoAppName()
+    {
+        var active = await ActiveModule();
+
+        var menu = await JsonOf(await _admin.GetAsync($"{Base}/menu"));
+
+        menu.EnumerateArray().Single(m => m.GetProperty("key").GetString() == active)
+            .TryGetProperty("appName", out _).Should().BeFalse();
+    }
+
     private static async Task<HttpResponseMessage> GetSchemaAs(HttpClient c, string key, string? ifNoneMatch = null)
     {
         var req = new HttpRequestMessage(HttpMethod.Get, $"{Base}/modules/{key}/schema");
