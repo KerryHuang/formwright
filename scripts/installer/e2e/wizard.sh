@@ -157,6 +157,9 @@ create_module_and_record() { # <base>
 cmd_full() { # <base> <code> <backup-dir>
   local base="$1" code="$2" backup="$3" c
   rm -f "$STATE"
+  # 設定碼是啟動時最早印的一行，那時 Kestrel 可能還沒開始接受連線（#149）
+  step "等 /api/setup/status 200（最多 60 秒）"
+  wait_status "$base/api/setup/status" 200 60 || fail "/api/setup/status 沒有回 200"
   step "GET / 是 HTML"
   c=$(http GET "$base/" -D "$BODY.h"); expect "GET /" 200 "$c"
   grep -qi '^content-type: *text/html' "$BODY.h" || fail "GET / 不是 HTML"
