@@ -179,7 +179,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 4. 把 `<Backup__Root>/attachments/` 整個複製到附件根目錄。多出來的檔案是別份備份的，之後可以用「清孤兒附件」清掉。
 5. 啟動。
    - 原本的金鑰目錄還在（同一台主機、只是資料庫壞了）：保留金鑰目錄，不必重新登入、也不必重填密碼。
-   - 金鑰目錄也沒了（換主機、整顆磁碟壞）：所有人要重新登入，系統管理員要到「寄信設定」重填密碼。
+   - 金鑰目錄也沒了（換主機、整顆磁碟壞）：所有人要重新登入，系統管理員要到「寄信設定」重填密碼，啟用過雙因素的人要用復原碼登入後重新綁定。安裝版換主機的完整流程（含選用的金鑰另存）見[換主機或資料遺失](#換主機或資料遺失)。
 
 ### 從備份還原（PostgreSQL）
 
@@ -284,7 +284,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
    覆蓋之前也核對附件清單（這項檢查是演練之後加的，沒有在 Windows 跑過）：`@(Get-Content "$set\attachments.txt").Count`（行數）要等於 `manifest.json` 的 `attachments.count`，`(Get-FileHash "$set\attachments.txt" -Algorithm SHA256).Hash` 要等於 `attachments.listSha256`（大小寫不拘）；任一不符就停，不要還原這一份。這只檢查清單本身，不代表附件池裡的檔案齊全。
 
 4. `Copy-Item "$set\database.sqlite" C:\ProgramData\Formwright\data\formwright.db -Force`，再刪掉 `formwright.db-wal`、`formwright.db-shm`。這樣是**覆蓋既有檔**，保留原檔的權限；不要用會保留來源權限的工具（`robocopy /SEC`、`xcopy /O`），否則資料目錄的權限會和預期不同，下次升級被拒絕。
-5. 附件：先看所選備份的 `manifest.json` 裡 `attachments.count`（附件數）：是 0 就沒有附件要補，略過這一步；大於 0 就把 `C:\ProgramData\Formwright\backup\attachments\` 的內容複製到 `C:\ProgramData\Formwright\data\attachments\`（多出來的檔案可用「清孤兒附件」清掉）。大於 0 卻找不到 `backup\attachments` 資料夾，表示搬備份時漏帶了共用附件池，請先把同一備份根目錄的 `attachments\` 找回來；**不要用資料夾有沒有來判斷有沒有附件**。manifest 讀不到 `attachments.count` 時同樣先停下來。這一步在覆蓋資料庫之後，所以附件補不齊、決定放棄還原時，請用步驟 2 另存的副本把資料庫放回去。
+5. 附件：先看所選備份的 `manifest.json` 裡 `attachments.count`（附件數）：是 0 就沒有附件要補，略過這一步；大於 0 就把 `C:\ProgramData\Formwright\backup\attachments\` 的內容複製到 `C:\ProgramData\Formwright\data\attachments\`：`robocopy C:\ProgramData\Formwright\backup\attachments C:\ProgramData\Formwright\data\attachments /E /R:1 /W:1`（結束碼 0 到 7 是成功；不要加 `/SEC`、`/COPYALL`；多出來的檔案可用「清孤兒附件」清掉）。大於 0 卻找不到 `backup\attachments` 資料夾，表示搬備份時漏帶了共用附件池，請先把同一備份根目錄的 `attachments\` 找回來；**不要用資料夾有沒有來判斷有沒有附件**。manifest 讀不到 `attachments.count` 時同樣先停下來。這一步在覆蓋資料庫之後，所以附件補不齊、決定放棄還原時，請用步驟 2 另存的副本把資料庫放回去。
 6. `Start-Service Formwright`，用瀏覽器或 `Invoke-RestMethod http://127.0.0.1:<埠>/api/version` 確認有回應（埠見 `C:\ProgramData\Formwright\formwright.json` 的 `Server:Port`，預設 8080）。
 7. **不要用檔案總管進 `C:\ProgramData\Formwright` 按「繼續」**：Windows 會替你的帳號加一條明確授權。管理員帳號的授權不擋升級（見上面「資料目錄權限」），但其他帳號的授權會。
 
@@ -357,7 +357,7 @@ sudo sh -c 'set -e
 
 **Docker compose**（2026-11-27 在 Windows 11＋Docker Desktop 照停服務、跑還原腳本、啟動這個順序實跑成功，備份沒有附件。**有附件、Linux 主機未真機演練。** 同日在同一台機器的 Windows PowerShell 5.1 照本段逐字再跑一次：`restore.sh` 用記事本預設的格式存（UTF-8 無 BOM、CRLF 換行），列備份、看 manifest、停服務、還原（資料庫 SHA 與備份相符）、取回原資料（印 `OK`，SHA 與 `pre-restore` 相符）、啟動（不回設定精靈）都成功。附件清單的逐筆核對只在 macOS 的 Docker 上（linux/amd64 模擬）用模擬附件驗過）：下面的指令都在**放 `docker-compose.yml` 的資料夾**執行，Windows 用 PowerShell（不要用命令提示字元）。資料 volume 掛在容器的 `/app/data`，備份 volume 掛在 `/backup`（備份在 `/backup/sets/<名稱>/`）；容器內以 root 執行，不必另外改檔案擁有者。指令用 `docker compose run` 開一個暫時容器，volume 與映像沿用 compose 檔，不必另拉映像、也不必查 volume 名稱。不用 `docker run … sh -c '…'` 把整段腳本寫在指令列：Windows PowerShell 5.1 會吃掉引號內的雙引號，腳本會以 `Syntax error: Unterminated quoted string` 失敗，所以腳本存成檔案再執行。有用 `FORMWRIGHT_IMAGE` 指定映像的話，執行這些指令時要帶同樣的設定。Linux 帳號沒有 Docker 權限時，每個 `docker` 指令前面加 `sudo`。
 
-**本段適用同一套安裝、資料 volume 還在的情況**（例如資料改壞、資料庫損壞、想回到某一天的備份）。換電腦或 volume 不見了，目前沒有逐步流程：下面的腳本在沒有現有資料庫時會中止；產品備份也不含登入金鑰（影響見[從備份還原（SQLite）](#從備份還原sqlite)第 5 步的金鑰說明），設定檔也不在備份裡，請聯絡維護者。
+**本段適用同一套安裝、資料 volume 還在的情況**（例如資料改壞、資料庫損壞、想回到某一天的備份）。換電腦或 volume 不見了，先照[換主機或資料遺失](#換主機或資料遺失)建好新安裝、放回備份根目錄，再回來做這一段（下面的腳本在沒有現有資料庫時會中止）。
 
 1. 列出備份、看要還原那份的 `manifest.json`（`appVersion` 不比已安裝版本新）。輸出前面的 `Container … Creating`、`Created` 是暫時容器的訊息：
 
@@ -474,6 +474,54 @@ docker compose run --rm --no-deps -v "${PWD}/pre-restore:/save:ro" --entrypoint 
 3. 再執行舊版安裝檔（Ubuntu 用舊版 tag 的 `install.sh`；Docker 換回舊版映像再 `docker compose up -d`，只 `start` 不會換映像）。Windows 與 Ubuntu 的安裝程式會先停服務、用目前已裝的新版程式對已還原的舊資料做一次備份（`--backup-now`；這一步新版程式會不會順便把資料往前升沒有查證），再換程式。
 
 ⚠️ 這個順序與降版相容性都只讀了程式碼，**沒有在真機演練**，已知限制。
+
+### 換主機或資料遺失
+
+（2026-11-28 以 0.1.0-rc.2 照本節逐步演練，三種安裝方式都成功：舊安裝建一筆含附件的記錄並備份 → 照下面的指令把備份根目錄與金鑰複製出來 → 刪掉安裝與全部資料（Windows 解除安裝並刪資料、Ubuntu `purge`、Docker `down -v`）→ 全新安裝、走精靈 → 還原。結果：記錄與附件都在、附件內容雜湊相符、備份位置正常。帶金鑰還原時，舊的雙因素驗證碼可以登入；不帶金鑰（只在 Docker 演練）時舊碼被拒、復原碼可以登入。Windows 還原後再執行一次同版安裝程式（升級路徑），權限檢查通過、結束碼 0。Windows 在 Windows 11 真機，Ubuntu 在 WSL2 Ubuntu 以 root 執行，Docker 在 macOS 的 Docker Desktop（linux/amd64 模擬）。沒有演練：Ubuntu 實體機與一般 sudo 帳號、Linux 主機上的 Docker、`Auth__ResetAdminPassword` 救援、寄信密碼重填。）
+
+適用於換電腦、硬碟壞掉、重灌系統，或 Docker 的資料 volume 不見了。**前提是手上有一份放在這台主機以外的備份根目錄**：備份只放在同一台主機（預設位置就是）時，主機壞了備份也一起沒了，沒有東西可以還原。所以平時就要做下面的「把備份複製到主機以外」。
+
+#### 平時：把備份複製到主機以外
+
+定期（建議每天或每週）把**整個備份根目錄**複製到另一台電腦、NAS 或外接硬碟。只帶 `sets/` 不夠：附件的實體放在共用的 `attachments/`，根目錄的 `.formwright-backup-location` 標記檔也要一起帶（少了它，還原後不會再自動備份，見下面第 4 步）。`<保存處>` 換成你的目的地資料夾：
+
+- **Windows**（系統管理員 PowerShell）：`robocopy C:\ProgramData\Formwright\backup <保存處> /E /R:1 /W:1`。只複製新增或變更的檔案；結束碼 0 到 7 都是成功，8 以上是失敗。預設不複製權限，目的地的檔案用目的地資料夾的權限。
+- **Ubuntu**：`sudo rsync -a /var/lib/formwright/backup/ <保存處>/`（兩邊路徑結尾都要有 `/`）。`<保存處>` 會留著擁有者 `formwright` 與 0700，一般帳號讀不到，這是刻意的。
+- **Docker compose**（在放 `docker-compose.yml` 的資料夾執行）：Windows PowerShell 用 `docker compose run --rm --no-deps -v "<保存處>:/out" --entrypoint sh formwright -c "cp -a /backup/. /out/"`，Linux、macOS 同一行。`<保存處>` 要寫完整路徑（例如 `D:\formwright-backup`、`/mnt/usb/formwright-backup`）。
+
+要自動化就用 Windows 的「工作排程器」或 Linux 的 cron 排上面的指令。備份裡有完整的業務資料，保存處請比照正式資料控管存取權限。
+
+#### 選用：另外保存登入金鑰
+
+產品備份**刻意不含**登入金鑰（資料目錄的 `keys`），理由見[從備份還原（SQLite）](#從備份還原sqlite)。沒有原本的金鑰也能還原，代價是還原後：所有人要重新登入；系統管理員要到「寄信設定」重填寄信密碼；**所有人的雙因素驗證都要重新綁定**（用一組復原碼登入，再到「帳號安全」按「重新綁定」，見[使用手冊](manual.md)）。人數多、又不想讓每個人重綁，就另外保存金鑰：
+
+> ⚠️ **金鑰絕對不要和備份放在同一個地方**（同一個隨身碟、同一個 NAS 資料夾、同一個雲端硬碟）。拿到備份加金鑰的人，可以解開寄信密碼、偽造任何人的登入。建議放進密碼管理器的附件，或交給另一位保管人保存在另一個媒體上。
+
+- 金鑰目錄：Windows `C:\ProgramData\Formwright\data\keys`、Ubuntu `/var/lib/formwright/data/keys`、Docker 在資料 volume 的 `/app/data/keys`。裡面是 `key-<編號>.xml` 檔。
+- 取出：Windows `Copy-Item C:\ProgramData\Formwright\data\keys\*.xml <金鑰保存處>`；Ubuntu `sudo cp -p /var/lib/formwright/data/keys/*.xml <金鑰保存處>/`；Docker `docker compose run --rm --no-deps -v "<金鑰保存處>:/out" --entrypoint sh formwright -c "cp -a /app/data/keys/. /out/"`。
+- 系統大約每 90 天自動多產生一個新的金鑰檔，舊的不會刪。**金鑰目錄多了新檔就要重新保存**（保留舊檔、加上新檔）；只有舊金鑰時，新金鑰加密過的東西（之後才綁定的雙因素、之後才改的寄信密碼、所有登入）一樣解不開。
+
+#### 在新主機上還原
+
+1. 在新主機安裝**同一版或較新版**的 Formwright（看保存的備份裡要還原那份 `manifest.json` 的 `appVersion`，新版可以開舊備份，反過來不行）。Docker 用同一版的 `docker-compose.yml`。
+2. 打開網頁走完設定精靈。管理員密碼先隨便設一個：還原後會回到舊資料庫裡的帳號與密碼。備份位置照新主機的情況填（建議沿用預設位置，之後再照上面的做法複製到主機以外）。
+3. 停服務：Windows `Stop-Service Formwright`；Ubuntu `sudo systemctl stop formwright`；Docker `docker compose stop formwright`，再用 `docker compose ps -a` 確認是 `Exited`。
+4. 把保存處的**整個備份根目錄**複製進新主機的備份位置，**蓋過**精靈建立的 `.formwright-backup-location` 標記檔。標記檔的識別碼要和舊資料庫記的一致，否則還原後「維運監控」的備份檢查會顯示備份位置不一致、不再自動備份。精靈完成後新主機已做的那一份備份會留在 `sets/` 裡，不影響還原，不想留可以手動刪掉。
+   - **Windows**（系統管理員 PowerShell）：`robocopy <保存處> C:\ProgramData\Formwright\backup /E /R:1 /W:1`（不要加 `/SEC`、`/COPYALL`，否則會帶入保存處的權限，下次升級被拒絕）。
+   - **Ubuntu**：`sudo rsync -a <保存處>/ /var/lib/formwright/backup/`，再 `sudo chown -R formwright:formwright /var/lib/formwright/backup`（保存處在別台機器或隨身碟時，擁有者可能不是 `formwright`）。
+   - **Docker**：`docker compose run --rm --no-deps -v "<保存處>:/off:ro" --entrypoint sh formwright -c "cp -a /off/. /backup/"`。
+5. 照上面[安裝版的還原](#安裝版的還原)該平台的步驟，從「選一份備份」開始做到「還原完成」為止（服務已經停了；另存現有資料那步另存的是精靈剛建的空資料庫，照做即可）。**先不要啟動。**
+6. （選用）放回另外保存的金鑰：把保存的 `key-*.xml` 複製進新主機的金鑰目錄。新主機精靈建立的金鑰檔留著，不用刪。
+   - **Windows**：`Copy-Item <金鑰保存處>\key-*.xml C:\ProgramData\Formwright\data\keys\`
+   - **Ubuntu**：`sudo cp <金鑰保存處>/key-*.xml /var/lib/formwright/data/keys/`，再 `sudo chown formwright:formwright /var/lib/formwright/data/keys/*.xml` 與 `sudo chmod 600 /var/lib/formwright/data/keys/*.xml`
+   - **Docker**：`docker compose run --rm --no-deps -v "<金鑰保存處>:/k:ro" --entrypoint sh formwright -c "cp /k/key-*.xml /app/data/keys/"`
+7. 啟動：Windows `Start-Service Formwright`；Ubuntu `sudo systemctl start formwright`；Docker `docker compose start formwright`。開網頁，用**舊的**管理員帳號密碼登入，確認資料與附件。
+8. 沒有放回金鑰時，登入要輸入雙因素驗證碼的帳號，驗證器 App 的碼會被拒絕，改點「改用復原碼」登入，再到「帳號安全」重新綁定；寄信設定要重填密碼。手機和復原碼都不見的使用者，請系統管理員在「使用者」頁「重設雙因素」。唯一的系統管理員連復原碼也沒有時，用[`Auth__ResetAdminPassword`](#環境變數) 救援：安裝版在設定檔 `formwright.json`（位置見[預設位置](#預設位置)）最外層加 `"Auth": { "ResetAdminPassword": "<至少 8 碼的暫時密碼>" }`，重啟服務，用 `admin` 與暫時密碼登入、改密碼、重新綁定雙因素後，把這段刪掉再重啟（這個救援方式在安裝版沒有演練過）。
+
+還原後看得到、但不用處理的現象：
+
+- 備份歷程裡，被還原的那一份顯示「中斷」。備份的資料庫快照是在那份備份執行當中拍的，還原後系統會在幾分鐘內把它標成中斷；它在 `sets/` 裡的檔案是完整的，照樣可以再用來還原。
+- 備份完成後不到 30 分鐘就還原時，還原後的第一份備份會顯示「進行中」並等待，最多等到快照後 30 分鐘才開始（快照裡帶著那一份備份當時持有的附件鎖）。隔天以後才還原就不會遇到。
 
 ### 移除
 
