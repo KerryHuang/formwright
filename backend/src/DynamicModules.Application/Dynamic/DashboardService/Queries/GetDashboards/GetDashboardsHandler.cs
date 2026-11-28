@@ -27,6 +27,6 @@ public class GetDashboardsHandler(IDashboardRepository dashboards, IReportReposi
                 personal.TryGetValue(d.Id, out var p) && p.BaseVersion < d.Version)).ToList(),
             mine.Select(d => new MyDashboardItem(d.Id, d.NameI18n)).ToList(),
             visible.Where(r => r.OwnerUserId != viewer.UserId).OrderBy(r => r.Id)
-                .Select(r => new SharedReportItem(r.Id, r.NameI18n, names.GetValueOrDefault(r.OwnerUserId, r.OwnerUserId))).ToList()));
+                .Select(r => new SharedReportItem(r.Id, r.NameI18n, r.OwnerUserId is null ? "" : names.GetValueOrDefault(r.OwnerUserId, r.OwnerUserId))).ToList()));
     }
 }

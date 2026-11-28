@@ -67,6 +67,8 @@ public partial class ReportRunner
             label = EqLabel(cond, bound, display) is { } v
                 ? messages.Get(lc, ReportText.ConditionalEq, label, FieldLabel(cond.Field), v)
                 : messages.Get(lc, ReportText.Conditional, label);
+        // 自訂名稱（kr3）優先；型別照量值種類判斷，不受名稱影響
+        if (m.Label is { } custom && custom.Resolve(lc) is { Length: > 0 } named) label = named;
         return new ReportColumn(m.Id, label, "measure", type);
     }
 

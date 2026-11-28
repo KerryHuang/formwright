@@ -71,7 +71,7 @@ public sealed record DrillResult : ReportResult
 public static class ReportMapper
 {
     public static ReportItem ToItem(this Report r, ReportViewer viewer, IReadOnlyDictionary<string, string> names) =>
-        new(r.Id, r.NameI18n, names.GetValueOrDefault(r.OwnerUserId, r.OwnerUserId), r.OwnerUserId == viewer.UserId,
+        new(r.Id, r.NameI18n, r.OwnerUserId is null ? "" : names.GetValueOrDefault(r.OwnerUserId, r.OwnerUserId), r.OwnerUserId == viewer.UserId,
             r.Shares.Select(s => s.GroupId).Order().ToList(), MainKeyOf(r));
 
     /// <param name="definition">依觀看者遮蔽後的定義（<see cref="ReportMasking.Mask"/>）。</param>

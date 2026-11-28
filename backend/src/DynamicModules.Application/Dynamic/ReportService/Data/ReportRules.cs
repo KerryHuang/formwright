@@ -55,6 +55,17 @@ public static class ReportRules
     public static string? CheckName(RequiredTextGuard guard, I18nText? name, I18nText? stored) =>
         I18nNameRules.CheckRequired(guard, name, stored, "名稱", MaxNameLength, NameTooLong);
 
+    /// <summary>
+    /// 量值名稱（kr3）：格式同報表名稱（語系鍵、拒收 null 值、每語上限 <see cref="MaxNameLength"/>），至少一種語系有字；
+    /// 不檢查必填語系，缺的語系沿退回鏈顯示。
+    /// </summary>
+    private static string? CheckMeasureLabel(string id, I18nText label)
+    {
+        if (I18nNameRules.FormatError(label) is { } format) return $"量值 {id} 的名稱：{format}";
+        if (!label.Values.Values.Any(v => !string.IsNullOrWhiteSpace(v))) return $"量值 {id} 的名稱至少要有一種語系的文字";
+        return I18nNameRules.TooLong(label, MaxNameLength) ? $"量值 {id} 的名稱最多 {MaxNameLength} 個字" : null;
+    }
+
     /// <summary>日期區間：種類合法，N 給了就必須 1 到 maxDays（政策 report.maxRangeDays，出廠 3650）。覆寫用的區間（run、drill）也走這裡。</summary>
     public static string? CheckRange(ReportDateRange? r, int maxDays)
     {
@@ -116,6 +127,7 @@ public static class ReportRules
             else if (m.Kind is "ratio" or "countIf" && m.Condition is null) errors.Add($"量值 {m.Id} 需要條件");
             else if (m.Kind == "countChild" && d.Child is null) errors.Add($"量值 {m.Id} 需要合併子模組");
             else if (m.Field?.Source == "main" && m.Condition?.Field.Source == "child") errors.Add($"量值 {m.Id} 的條件不能用子模組欄位");
+            if (m.Label is not null && CheckMeasureLabel(m.Id, m.Label) is { } labelError) errors.Add(labelError);
         }
 
         foreach (var g in d.Groups)
