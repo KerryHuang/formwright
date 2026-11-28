@@ -11,7 +11,8 @@ import DynamicForm from 'src/presentation/dynamic/components/DynamicForm.vue';
 import { isStale, messagesOutside } from 'src/presentation/dynamic/designer/api-error';
 import { parseDetailKey } from 'src/presentation/dynamic/details/detail-rows';
 import type { DetailRowPayload, ReferenceInfo } from 'src/domain/dynamic/types';
-import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
+import RecordUnavailable from 'src/presentation/dynamic/components/RecordUnavailable.vue';
+import { unavailableView, type UnavailableKind } from 'src/presentation/dynamic/unavailable';
 import { newIdempotencyKey } from 'src/services/api/idempotency';
 import { isForbidden, type ApiError } from 'src/services/api/http';
 import { joinList } from 'src/i18n/translate';
@@ -90,6 +91,21 @@ const backPath = computed(() => (isEdit.value ? `/dynamic/${moduleKey.value}/${r
 const back = () => router.push(backPath.value);
 
 const moduleName = computed(() => resolveI18n(schemaQuery.data.value?.name, locale.value));
+// Why the page cannot show the form (the order below is the display priority); undefined = nothing is wrong.
+const problem = computed<UnavailableKind | undefined>(() => {
+  if (lacksPermission.value) return isEdit.value ? 'editForbidden' : 'addForbidden';
+  if (forbidden.value) return 'forbidden';
+  if (schemaMissing.value) return 'moduleMissing';
+  if (recordMissing.value) return 'recordMissing';
+  return failed.value ? 'failed' : undefined;
+});
+// "Record not found" names the module: stay blank until the schema has answered, either way.
+const unavailable = computed(() => (!problem.value || (problem.value === 'recordMissing' && !schemaQuery.data.value && !schemaQuery.error.value) ? undefined
+  : unavailableView(problem.value, { t, moduleKey: moduleKey.value, moduleName: moduleName.value, schemaRead: !!schemaQuery.data.value?.permissions })));
+function retry() {
+  if (schemaQuery.error.value) void schemaQuery.refetch();
+  if (isEdit.value && recordQuery.error.value) void recordQuery.refetch();
+}
 const FORM_ID = 'record-form';
 // The Save button sits in the fixed bar, outside the form: it submits the form by id, so validation and the saving state stay in DynamicForm.
 // `form` is undefined until the form is mounted, and absent while an approval in progress replaces it, so Save shows only when the form could save.
@@ -157,10 +173,9 @@ async function onSubmit(values: Record<string, unknown>, details: Record<string,
 
 <template>
   <q-page padding :style="$q.screen.lt.sm ? 'padding-bottom: calc(88px + env(safe-area-inset-bottom))' : undefined">
-    <ForbiddenNotice v-if="forbidden" />
-    <div v-else-if="schemaMissing" class="text-negative">{{ t('dynamic.moduleNotFound') }}</div>
-    <div v-else-if="recordMissing" class="text-negative">{{ t('dynamic.recordNotFound') }}</div>
-    <div v-else-if="failed" class="text-negative">{{ t('dynamic.loadFailed') }}</div>
+    <template v-if="problem">
+      <RecordUnavailable v-if="unavailable" v-bind="unavailable" :retry="problem === 'failed' ? retry : undefined" />
+    </template>
     <template v-else-if="ready">
       <RecordHeaderBar
         :back-label="moduleName" :back-to="backPath" :back-aria-label="t('dynamic.backTo', { module: moduleName })"

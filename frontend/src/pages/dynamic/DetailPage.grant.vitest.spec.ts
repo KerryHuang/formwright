@@ -92,7 +92,7 @@ describe('DetailPage temporary read', () => {
     });
     expect(api.getModuleSchema).toHaveBeenCalledWith('m', 5);
     expect(w.text()).toContain('old');
-    expect(has(w, 'forbidden')).toBe(false);
+    expect(has(w, 'record-unavailable')).toBe(false);
     expect(has(w, 'approval-grant-banner')).toBe(true);
     expect(has(w, 'action-approve')).toBe(true);
     (w.find('[data-testid="action-approve"]').element as HTMLElement).click();
@@ -168,7 +168,7 @@ describe('DetailPage temporary read', () => {
     });
     expect(has(w, 'approval-history-only')).toBe(true);
     expect(w.find('[data-testid="approval-history-back"]').attributes('href')).toBe('/approvals');
-    expect(has(w, 'forbidden')).toBe(false);
+    expect(has(w, 'record-unavailable')).toBe(false);
     expect(has(w, 'approval-panel')).toBe(true);
     expect(has(w, 'action-approve')).toBe(false);
   });
@@ -194,7 +194,7 @@ describe('DetailPage temporary read', () => {
     expect(api.approveTask).toHaveBeenCalledTimes(1);
     expect(has(w, 'approval-history-only')).toBe(true);
     expect(has(w, 'approval-grant-banner')).toBe(false);
-    expect(has(w, 'forbidden')).toBe(false);
+    expect(has(w, 'record-unavailable')).toBe(false);
   });
 
   it('task closed by someone else: stale approval data is not shown as history', async () => {
@@ -208,7 +208,7 @@ describe('DetailPage temporary read', () => {
     api.getRecordApproval.mockImplementation(() => gone(404));
     await qc.invalidateQueries();
     await settle();
-    expect(has(w, 'forbidden')).toBe(true);
+    expect(has(w, 'record-unavailable')).toBe(true);
     expect(has(w, 'approval-history-only')).toBe(false);
   });
 
@@ -218,7 +218,7 @@ describe('DetailPage temporary read', () => {
       api.getRecord.mockImplementation(() => gone(403));
       api.getRecordApproval.mockImplementation(() => gone(404));
     });
-    expect(has(w, 'forbidden')).toBe(true);
+    expect(has(w, 'record-unavailable')).toBe(true);
     expect(has(w, 'approval-history-only')).toBe(false);
   });
 
@@ -312,6 +312,6 @@ describe('DetailPage temporary read', () => {
       api.getRecord.mockImplementation(() => gone(403));
       api.getRecordApproval.mockImplementation(() => gone(403));
     });
-    expect(has(w, 'forbidden')).toBe(true);
+    expect(has(w, 'record-unavailable')).toBe(true);
   });
 });

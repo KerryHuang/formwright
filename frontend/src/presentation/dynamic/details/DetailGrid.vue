@@ -7,6 +7,7 @@ import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import type { DynamicRecord, LightItem, SchemaDetail, SchemaField } from 'src/domain/dynamic/types';
 import { fieldTypeRegistry } from 'src/presentation/dynamic/field-type-registry';
 import { referenceView } from 'src/presentation/dynamic/reference-display';
+import { isNumericField } from 'src/presentation/dynamic/numeric-field';
 import { isWritable } from 'src/presentation/dynamic/rule-state';
 import { dynamicApi } from 'src/services/api/dynamic-api';
 import { newRowState, rowRuleState, type DetailRowState } from './detail-rows';
@@ -25,7 +26,9 @@ const emit = defineEmits<{ 'update:modelValue': [rows: DetailRowState[]]; 'edit-
 const { t, locale } = useI18n();
 
 const fields = computed(() => props.detail.fields.filter((f) => f.key !== props.detail.parentFieldKey));
-const columns = computed(() => fields.value.map((f) => ({ name: f.key, label: `${resolveI18n(f.label, locale.value)}${f.config.required ? ' *' : ''}` })));
+const columns = computed(() => fields.value.map((f) => ({
+  name: f.key, label: `${resolveI18n(f.label, locale.value)}${f.config.required ? ' *' : ''}`, ...(isNumericField(f) && { align: 'right' as const }),
+})));
 const visibleRows = computed(() => props.modelValue.filter((r) => !r.deleted));
 const states = computed(() => new Map(visibleRows.value.map((r) => [r.uid, rowRuleState(props.detail, r)])));
 const stateOf = (r: DetailRowState) => states.value.get(r.uid)!;

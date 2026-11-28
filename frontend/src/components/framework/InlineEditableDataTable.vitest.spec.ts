@@ -143,3 +143,19 @@ describe('InlineEditableDataTable', () => {
     expect((w.get('[data-testid="row-card-toggle"]').element as HTMLElement).style.minHeight).toBe('44px');
   });
 });
+
+describe('InlineEditableDataTable 欄位對齊', () => {
+  it("align: 'right' 的欄位表頭與儲存格靠右，其他靠左", () => {
+    const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
+    const w = mount(InlineEditableDataTable, {
+      props: { columns: [{ name: 'name', label: '品名' }, { name: 'qty', label: '數量', align: 'right' }], rows: [{ id: 'a' }], rowKey: (r: unknown) => (r as { id: string }).id },
+      global: { plugins: [[quasar.Quasar, { components: quasar }], i18n] },
+    });
+    const [name, qty] = w.findAll('thead th');
+    expect(name!.classes()).toContain('text-left');
+    expect(qty!.classes()).toEqual(['text-right']);
+    const [first, second] = w.findAll('tbody tr:first-child td');
+    expect(first!.classes()).not.toContain('text-right');
+    expect(second!.classes()).toContain('text-right');
+  });
+});

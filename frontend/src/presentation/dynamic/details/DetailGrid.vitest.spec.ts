@@ -263,3 +263,11 @@ describe('DetailGrid on a phone', () => {
     w.unmount();
   });
 });
+
+describe('DetailGrid 數字欄', () => {
+  it('編輯模式下數字欄的表頭與儲存格靠右，文字欄不動', () => {
+    const w = mountGrid({ modelValue: [existing(1, { f_1: '螺絲', f_2: 3 })] });
+    expect(w.findAll('thead th').map((th) => th.classes().includes('text-right'))).toEqual([false, true, false]);
+    expect(w.findAll('tbody tr:first-child td').map((td) => td.classes().includes('text-right'))).toEqual([false, true, false]);
+  });
+});

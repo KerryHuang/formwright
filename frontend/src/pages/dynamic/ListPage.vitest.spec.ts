@@ -352,46 +352,51 @@ describe('ListPage', () => {
     await flushPromises();
     expect(w.find('tbody tr').text()).toContain('EQ-0001 CNC 車床 A');
   });
-  it('workflow status column carries a state dot (shown by the command style only): initial = draft, read-only = done, else active', async () => {
-    const status: SchemaField = { ...field(5, '狀態'), key: 'status', type: 'enum' };
+  it('workflow status column shows a chip coloured by the option; other enum columns stay text', async () => {
+    const options = (list: [string, string, string?][]) => list.map(([value, label, color], i) => ({ id: i + 1, value, label: { 'zh-TW': label }, sequence: i, active: true, color }));
+    const status: SchemaField = { ...field(5, '狀態'), key: 'status', type: 'enum', options: options([['ok', '已確認', 'blue'], ['no', '已取消', '#c10015'], ['plain', '草稿']]) };
+    const source: SchemaField = { ...field(6, '來源'), key: 'src', type: 'enum', options: options([['tel', '電話', 'red']]) };
     schemaPatch = {
-      blocks: [{ id: 1, label: { 'zh-TW': '區' }, collapsed: false, columns: 2, fields: [field(1, '標題'), status] }],
-      workflow: {
-        statusFieldKey: 'status', initialState: 'draft',
-        states: [{ value: 'draft', readOnly: false }, { value: 'review', readOnly: false }, { value: 'done', readOnly: true }],
-        transitions: [],
-      },
+      blocks: [{ id: 1, label: { 'zh-TW': '區' }, collapsed: false, columns: 2, fields: [field(1, '標題'), status, source] }],
+      workflow: { statusFieldKey: 'status', initialState: 'plain', states: [], transitions: [] },
     };
-    const w = await mountPage([view({ isDefault: true, columns: [5] })]);
+    const w = await mountPage([view({ isDefault: true, columns: [5, 6] })]);
     api.getPagedRecords.mockResolvedValue({
-      items: ['draft', 'review', 'done'].map((v, i) => ({ ...row, id: i + 1, values: { status: v } })),
-      totalCount: 3, currentPage: 1, pagesSize: 20,
+      items: ['ok', 'no', 'plain', null].map((v, i) => ({ ...row, id: i + 1, values: { status: v, src: 'tel' } })),
+      totalCount: 4, currentPage: 1, pagesSize: 20,
     });
     w.findComponent(FilterPanel).vm.$emit('update:modelValue', undefined);
     await w.findComponent(quasar.QTable).vm.$emit('update:pagination', { page: 1, rowsPerPage: 20, sortBy: 'status', descending: false });
     await flushPromises();
-    const dots = w.findAll('tbody .status-dot').map((d) => d.classes());
-    expect(dots[0]).toContain('status-dot--draft');
-    expect(dots[1]).toContain('status-dot--active');
-    expect(dots[2]).toContain('status-dot--done');
-    expect(w.find('tbody .status-dot').attributes('aria-hidden')).toBe('true');
+    const chips = w.findAll('tbody [data-testid="status-chip"]');
+    expect(chips.map((c) => c.text())).toEqual(['已確認', '已取消', '草稿']);
+    expect(chips[0]!.classes()).toContain('text-blue');
+    expect((chips[1]!.element as HTMLElement).style.color).toBe('rgb(193, 0, 21)');
+    expect(chips[2]!.classes()).toEqual(['status-chip']);
   });
 
-  it('no workflow, no dot; autonumber and numeric columns get cell-code, text columns do not', async () => {
+  it('numeric columns are right aligned and carry cell-code; text, date and autonumber stay left', async () => {
     const code: SchemaField = { ...field(6, '單號'), key: 'no', type: 'autonumber' };
     const amount: SchemaField = { ...field(7, '金額'), key: 'amt', type: 'currency' };
-    schemaPatch = { blocks: [{ id: 1, label: { 'zh-TW': '區' }, collapsed: false, columns: 2, fields: [field(1, '標題'), field(2, '甲'), code, amount] }] };
-    const w = await mountPage([view({ isDefault: true, columns: [2, 6, 7] })]);
-    api.getPagedRecords.mockResolvedValue({ items: [{ ...row, values: { f_2: 'x', no: 'A-1', amt: 10 } }], totalCount: 1, currentPage: 1, pagesSize: 20 });
+    const total: SchemaField = { ...field(8, '合計'), key: 'sum', type: 'formula', config: { ...field(8, '').config, resultType: 'number' } };
+    const due: SchemaField = { ...field(9, '到期'), key: 'due', type: 'formula', config: { ...field(9, '').config, resultType: 'date' } };
+    schemaPatch = { blocks: [{ id: 1, label: { 'zh-TW': '區' }, collapsed: false, columns: 2, fields: [field(1, '標題'), field(2, '甲'), code, amount, total, due] }] };
+    const w = await mountPage([view({ isDefault: true, columns: [2, 6, 7, 8, 9] })]);
+    api.getPagedRecords.mockResolvedValue({ items: [{ ...row, values: { f_2: 'x', no: 'A-1', amt: 10, sum: 77, due: '2026-01-02' } }], totalCount: 1, currentPage: 1, pagesSize: 20 });
     w.findComponent(FilterPanel).vm.$emit('update:modelValue', undefined);
     await w.findComponent(quasar.QTable).vm.$emit('update:pagination', { page: 1, rowsPerPage: 20, sortBy: 'f_2', descending: false });
     await flushPromises();
-    expect(w.find('.status-dot').exists()).toBe(false);
+    expect(w.find('[data-testid="status-chip"]').exists()).toBe(false);
     const tds = w.findAll('tbody tr:first-child td');
     const byText = (t: string) => tds.find((td) => td.text().includes(t))!;
     expect(byText('A-1').classes()).toContain('cell-code');
     expect(byText('10').classes()).toContain('cell-code');
     expect(byText('x').classes()).not.toContain('cell-code');
+    for (const t of ['10', '77']) expect(byText(t).classes()).toContain('text-right');
+    for (const t of ['x', 'A-1', '2026-01-02']) expect(byText(t).classes()).toContain('text-left');
+    const header = (label: string) => w.findAll('thead th').find((th) => th.text().includes(label))!;
+    for (const label of ['金額', '合計']) expect(header(label).classes()).toContain('text-right');
+    for (const label of ['甲', '單號', '到期']) expect(header(label).classes()).toContain('text-left');
   });
 
   describe('approval system filter (approval design 13.4.1)', () => {
@@ -526,7 +531,7 @@ describe('ListPage on a phone', () => {
     const header = card.get('[data-testid="record-card-header"]');
     expect(header.text()).toContain('列一');
     expect(header.get('[data-testid="record-card-status"]').text()).toBeTruthy();
-    expect(header.find('.status-dot.status-dot--done').exists()).toBe(true);
+    expect(header.get('[data-testid="status-chip"]').text()).toBe(header.get('[data-testid="record-card-status"]').text());
     const body = card.get('[data-testid="record-card-fields"]');
     expect(body.text()).toContain('甲');
     expect(body.text()).toContain('甲值');

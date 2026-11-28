@@ -497,6 +497,57 @@ textarea:focus-visible {
   font-size: 11px;
 }
 
+/* 動態表單的唯讀欄位（計算型、設定、規則、狀態鎖、簽核鎖）：灰底（頁面底色）加實線外框，和「沒填」分得開。
+   只限動態表單，其他頁面照 Quasar 預設。查找欄內部用唯讀輸入框擋鍵盤，可編輯時要長得和一般輸入框一樣。 */
+.dynamic-form .q-field--readonly:not(.popup-select--editable) .q-field__control {
+  background: var(--t-bg);
+}
+
+.dynamic-form .q-field--outlined.q-field--readonly .q-field__control:before,
+.popup-select--editable.q-field--outlined.q-field--readonly .q-field__control:before {
+  border-style: solid;
+}
+
+/* 數字：詳情欄位值用等寬數字；明細表格靠右欄裡的輸入框跟著靠右 */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+[data-style] .q-table td.text-right .q-field__native {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 流程狀態章：顏色（選項色名的 class、色碼的行內樣式，沒設就是中性灰）只給圓點、邊框與淡色底，文字用一般文字色才夠對比 */
+.status-chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 1px 10px;
+  border: 1px solid currentcolor;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentcolor 14%, transparent);
+  color: var(--t-muted);
+  line-height: 1.5;
+  vertical-align: middle;
+}
+
+.status-chip__dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentcolor;
+}
+
+.status-chip__label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--t-text);
+}
+
 /* 條件列沒有欄位驗證訊息，不為它保留底部空間（每個欄位省 14px） */
 .condition-editor .q-field__bottom {
   display: none;
@@ -690,11 +741,6 @@ textarea:focus-visible {
   [data-style] .q-menu {
     background: color-mix(in srgb, var(--t-panel) var(--t-panel-opacity), transparent);
   }
-}
-
-/* 工作流程狀態欄的小圓點：預設不顯示，只有指令台在螢幕上顯示（下方） */
-.status-dot {
-  display: none;
 }
 
 /* 以下是新風格專屬的玻璃、色塊與徽章：只在螢幕上生效，列印一律回到一般外觀（見 print.css） */
@@ -917,22 +963,5 @@ textarea:focus-visible {
 
   [data-style='command'] .q-badge.bg-muted {
     color: var(--t-muted);
-  }
-
-  [data-style='command'] .status-dot {
-    display: inline-block;
-    width: 7px;
-    height: 7px;
-    margin-right: 5px;
-    border-radius: 50%;
-    background: var(--t-muted);
-  }
-
-  [data-style='command'] .status-dot--done {
-    background: var(--t-positive);
-  }
-
-  [data-style='command'] .status-dot--active {
-    background: var(--t-warning);
   }
 }

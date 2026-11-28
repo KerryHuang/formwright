@@ -140,7 +140,7 @@ function btnProps(a: HeaderAction) {
 /* Phone: one row, the title gives way with an ellipsis instead of wrapping. */
 .record-header-bar.is-phone { flex-wrap: nowrap; }
 .is-phone .record-header-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.record-header-badge { margin: -8px 0 16px; }
+.record-header-badge { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -8px 0 16px; }
 .record-header-actions {
   display: flex;
   flex: 0 0 auto;

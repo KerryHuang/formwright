@@ -64,19 +64,88 @@ describe('FormPage', () => {
     expect(w.find('[data-testid="module-title"]').text()).toBe(pattern.replace('{module}', '模組'));
   });
 
+  const unavailable = zhTW.dynamic.unavailable;
+  const named = (text: string) => text.replace('{module}', '模組');
+
   it('FormPage shows forbidden in edit mode without edit', async () => {
     const w = await mountPage(schema({ ...all, edit: false }), '/dynamic/m/5/edit');
-    expect(w.find('[data-testid="forbidden"]').exists()).toBe(true);
+    expect(w.get('[data-testid="record-unavailable"]').text()).toContain(named(unavailable.editForbiddenTitle));
+    expect(w.get('[data-testid="record-unavailable-back"]').attributes('href')).toBe('/dynamic/m');
     expect(w.find('form').exists()).toBe(false);
   });
 
   it('FormPage shows forbidden in create mode without add, but not when only edit is missing', async () => {
     const noAdd = await mountPage(schema({ ...all, add: false }), '/dynamic/m/new');
-    expect(noAdd.find('[data-testid="forbidden"]').exists()).toBe(true);
+    expect(noAdd.get('[data-testid="record-unavailable"]').text()).toContain(named(unavailable.addForbiddenTitle));
+    expect(noAdd.get('[data-testid="record-unavailable-back"]').text()).toContain(named(unavailable.backToList));
     expect(noAdd.find('form').exists()).toBe(false);
     const noEdit = await mountPage(schema({ ...all, edit: false }), '/dynamic/m/new');
-    expect(noEdit.find('[data-testid="forbidden"]').exists()).toBe(false);
+    expect(noEdit.find('[data-testid="record-unavailable"]').exists()).toBe(false);
     expect(noEdit.find('form').exists()).toBe(true);
+  });
+
+  it('編輯頁單據不存在：和詳情頁一樣', async () => {
+    api.getRecord.mockRejectedValueOnce({ status: 404 });
+    const w = await mountPage(schema(all), '/dynamic/m/5/edit', null as never);
+    expect(w.get('[data-testid="record-unavailable"]').text()).toContain(named(unavailable.recordMissingTitle));
+    expect(w.get('[data-testid="record-unavailable-back"]').text()).toContain(named(unavailable.backToList));
+    expect(w.find('form').exists()).toBe(false);
+  });
+
+  it('編輯頁單據 403：沒有權限查看（不是缺編輯權限）', async () => {
+    api.getRecord.mockRejectedValueOnce({ status: 403 });
+    const w = await mountPage(schema(all), '/dynamic/m/5/edit', null as never);
+    expect(w.get('[data-testid="record-unavailable"]').text()).toContain(named(unavailable.forbiddenTitle));
+  });
+
+  it('新增頁模組不存在：回到首頁', async () => {
+    api.getModuleSchema.mockRejectedValueOnce({ status: 404 });
+    const w = await mountPage(null as never, '/dynamic/m/new');
+    expect(w.get('[data-testid="record-unavailable"]').text()).toContain(unavailable.moduleMissingTitle);
+    expect(w.get('[data-testid="record-unavailable-back"]').attributes('href')).toBe('/');
+  });
+
+  it('編輯頁單據 500：重新載入重送單據查詢，成功後出現表單', async () => {
+    api.getRecord.mockRejectedValueOnce({ status: 500 });
+    const w = await mountPage(schema(all), '/dynamic/m/5/edit');
+    expect(w.get('[data-testid="record-unavailable"]').text()).toContain(named(unavailable.failedTitle));
+    await w.get('[data-testid="record-unavailable-retry"]').trigger('click');
+    await flushPromises();
+    expect(api.getRecord).toHaveBeenCalledTimes(2);
+    expect(api.getModuleSchema).toHaveBeenCalledTimes(1);
+    expect(w.find('form').exists()).toBe(true);
+  });
+
+  it('新增頁 schema 500：重新載入只重抓 schema', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // schema 查詢遇 500 會自己重試幾次才放棄
+    for (let i = 0; i < 4; i++) api.getModuleSchema.mockRejectedValueOnce({ status: 500 });
+    const w = await mountPage(schema(all), '/dynamic/m/new');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(w.get('[data-testid="record-unavailable"]').text()).toContain(unavailable.failedTitleUnknown);
+    await w.get('[data-testid="record-unavailable-retry"]').trigger('click');
+    await flushPromises();
+    expect(api.getModuleSchema).toHaveBeenCalledTimes(5);
+    expect(api.getRecord).not.toHaveBeenCalled();
+    expect(w.find('form').exists()).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it('自動編號、公式、加總欄位下方顯示提示；一般唯讀欄位沒有；明細格子沒有', async () => {
+    const typed = (id: number, type: SchemaField['type']): SchemaField => ({ ...field(id, type), type });
+    const detail: SchemaDetail = {
+      moduleKey: 'line', name: { 'zh-TW': '明細' }, parentFieldId: 9, parentFieldKey: 'f_9', titleFieldKey: 'f_10', rules: [],
+      fields: [typed(10, 'formula'), typed(11, 'autonumber')],
+    };
+    const fields = [field(1, '標題'), typed(2, 'autonumber'), typed(3, 'formula'), typed(4, 'rollup'), field(5, '唯讀', true)];
+    const rec = { ...record, details: { line: [{ ...record, id: 7, moduleKey: 'line', values: { f_10: 1, f_11: 'A' } }] } };
+    const w = await mountPage({ ...schema(all, fields), details: [detail] }, '/dynamic/m/5/edit', rec as never);
+    const hints = zhTW.dynamic.computedHint;
+    expect(w.findAll('.q-field__bottom').map((b) => b.text()).filter(Boolean)).toEqual([hints.autonumber, hints.formula, hints.rollup]);
+    expect(w.findAll('.q-field--readonly').length).toBeGreaterThanOrEqual(6);
+    expect(w.find('form').classes()).toContain('dynamic-form');
+    const grid = w.findComponent(DetailGrid);
+    for (const text of Object.values(hints)) expect(grid.text()).not.toContain(text);
   });
 
   it('pending record shows read-only notice without the form', async () => {

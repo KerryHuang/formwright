@@ -14,6 +14,9 @@ import type { ApprovalListFilter } from 'src/domain/dynamic/approval-types';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import type { ConditionNode, DynamicRecord, FieldType, I18nText, ListView, PagedResponse, ViewSort } from 'src/domain/dynamic/types';
 import { referenceView } from 'src/presentation/dynamic/reference-display';
+import { isNumericField } from 'src/presentation/dynamic/numeric-field';
+import { statusChipOf } from 'src/presentation/dynamic/status-chip';
+import StatusChip from 'src/presentation/dynamic/components/StatusChip.vue';
 import { fieldTypeRegistry } from 'src/presentation/dynamic/field-type-registry';
 import ColumnChooser from 'src/presentation/dynamic/list/ColumnChooser.vue';
 import ExportMenu from 'src/presentation/dynamic/list/ExportMenu.vue';
@@ -130,15 +133,6 @@ function notifyViewError(e: unknown) {
 /** 編號與數值欄加 cell-code：指令台風格用等寬字對齊，其他風格不受影響。 */
 const CODE_TYPES = new Set<FieldType>(['autonumber', 'integer', 'decimal', 'currency', 'percent', 'rollup', 'formula']);
 
-/** 工作流程狀態欄的小圓點（指令台風格才顯示）：起始狀態＝草稿、唯讀狀態＝完成、其餘＝進行中。 */
-function stateDot(row: DynamicRecord): string {
-  const w = schema.value?.workflow;
-  const v = w ? row.values[w.statusFieldKey] : undefined;
-  if (!w || v === undefined || v === null) return '';
-  if (w.states.find((x) => x.value === v)?.readOnly) return 'status-dot--done';
-  return v === w.initialState ? 'status-dot--draft' : 'status-dot--active';
-}
-
 const columns = computed<QTableColumn<DynamicRecord>[]>(() => {
   const s = schema.value;
   if (!s) return [];
@@ -153,11 +147,11 @@ const columns = computed<QTableColumn<DynamicRecord>[]>(() => {
     }] : []),
     ...(s.titleFieldKey ? [{
       name: title?.key ?? 'title', label: s.hasTitleTemplate ? t('dynamic.titleColumn') : resolveI18n(title?.label, locale.value),
-      align: 'left' as const, sortable: title?.config.isSortable,
+      align: title && isNumericField(title) ? 'right' as const : 'left' as const, sortable: title?.config.isSortable,
       field: (r: DynamicRecord) => r.title, classes: title && CODE_TYPES.has(title.type) ? 'cell-code' : undefined,
     }] : []),
     ...listed.map<QTableColumn<DynamicRecord>>((f) => ({
-      name: f.key, label: resolveI18n(f.label, locale.value), align: 'left', sortable: f.config.isSortable,
+      name: f.key, label: resolveI18n(f.label, locale.value), align: isNumericField(f) ? 'right' : 'left', sortable: f.config.isSortable,
       classes: CODE_TYPES.has(f.type) ? 'cell-code' : undefined,
       field: (r) => (f.type === 'reference' && referenceView(r, f, t)?.text) || fieldTypeRegistry[f.type].format(r.values[f.key], f, locale.value),
     })),
@@ -175,12 +169,8 @@ const cardColumns = (cols: CardColumn[]) => {
   const inHeader = new Set(['title', s?.titleFieldKey, s?.workflow?.statusFieldKey]);
   return cols.filter((c) => !inHeader.has(c.name) && c.value !== '');
 };
-/** 狀態欄不在目前顯示的欄裡也要出現在卡片上，所以直接從記錄值格式化。 */
-function statusText(row: DynamicRecord): string {
-  const key = schema.value?.workflow?.statusFieldKey;
-  const f = key ? allFields.value.find((x) => x.key === key) : undefined;
-  return f ? fieldTypeRegistry[f.type].format(row.values[f.key], f, locale.value) : '';
-}
+/** 狀態欄不在目前顯示的欄裡也要出現在卡片上，所以直接從記錄值取。 */
+const statusChip = (row: DynamicRecord) => statusChipOf(schema.value, row.values, locale.value);
 
 /** q-table shows a sort arrow only when exactly one column is sorted. */
 const tableSort = computed(() => {
@@ -308,7 +298,7 @@ const openRecord = (row: DynamicRecord) => router.push(`/dynamic/${moduleKey.val
         @row-click="(_e, row) => openRecord(row)"
       >
         <template v-if="schema.workflow" #[`body-cell-${schema.workflow.statusFieldKey}`]="cell">
-          <q-td :props="cell"><span class="status-dot" :class="stateDot(cell.row)" aria-hidden="true" />{{ cell.value }}</q-td>
+          <q-td :props="cell"><StatusChip v-if="statusChip(cell.row)" v-bind="statusChip(cell.row)!" /></q-td>
         </template>
         <template #no-data="{ message }">
           <!-- 只有目前條件的查詢成功回來才說沒有資料；載入中、失敗（含 400）、暫時沿用前次結果時照舊顯示表格的文字 -->
@@ -332,8 +322,8 @@ const openRecord = (row: DynamicRecord) => router.push(`/dynamic/${moduleKey.val
               <q-card-section class="row items-start no-wrap q-gutter-x-sm q-py-sm" data-testid="record-card-header">
                 <div class="col text-subtitle2" style="min-width: 0; overflow-wrap: anywhere" data-testid="record-card-title">{{ row.title }}</div>
                 <!-- 狀態文字可能很長：限寬、可縮小、可斷行，不把卡片撐出畫面 -->
-                <div v-if="statusText(row)" style="max-width: 50%; min-width: 0; overflow-wrap: anywhere" data-testid="record-card-status">
-                  <span class="status-dot" :class="stateDot(row)" aria-hidden="true" />{{ statusText(row) }}
+                <div v-if="statusChip(row)" style="max-width: 50%; min-width: 0; overflow-wrap: anywhere" data-testid="record-card-status">
+                  <StatusChip v-bind="statusChip(row)!" />
                 </div>
               </q-card-section>
               <q-list dense data-testid="record-card-fields">

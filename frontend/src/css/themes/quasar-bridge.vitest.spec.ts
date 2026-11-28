@@ -309,3 +309,32 @@ describe('print.css', () => {
     expect(autoRules(coarse).join('}')).toMatch(/height:\s*auto/);
   });
 });
+
+describe('單據頁呈現（唯讀欄位、數字）', () => {
+  it('表單裡的唯讀欄位：灰底走 --t-bg、外框實線；可編輯的查找欄不上灰底', () => {
+    const fill = bodiesOf(bridge, '.dynamic-form .q-field--readonly:not(.popup-select--editable) .q-field__control').join(';');
+    expect(fill).toMatch(/background:\s*var\(--t-bg\)/);
+    const line = bodiesOf(bridge, '.dynamic-form .q-field--outlined.q-field--readonly .q-field__control:before').join(';');
+    expect(line).toMatch(/border-style:\s*solid/);
+  });
+
+  it('可編輯的查找欄外框是實線', () => {
+    const line = bodiesOf(bridge, '.popup-select--editable.q-field--outlined.q-field--readonly .q-field__control:before').join(';');
+    expect(line).toMatch(/border-style:\s*solid/);
+  });
+
+  it('不全域改 Quasar 的唯讀樣式', () => {
+    for (const m of bridge.matchAll(/([^{}]+)\{[^{}]*\}/g)) {
+      for (const sel of m[1]!.split(',').map((s) => s.trim()).filter((s) => s.includes('q-field--readonly'))) {
+        expect(sel).toMatch(/\.dynamic-form|\.popup-select--editable/);
+      }
+    }
+  });
+
+  it('數字：.num 與表格靠右儲存格裡的輸入框', () => {
+    expect(bodiesOf(bridge, '.num').join(';')).toMatch(/font-variant-numeric:\s*tabular-nums/);
+    const input = bodiesOf(bridge, '[data-style] .q-table td.text-right .q-field__native').join(';');
+    expect(input).toMatch(/text-align:\s*right/);
+    expect(input).toMatch(/font-variant-numeric:\s*tabular-nums/);
+  });
+});

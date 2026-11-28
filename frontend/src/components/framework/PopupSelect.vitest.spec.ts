@@ -143,3 +143,21 @@ describe('PopupSelect', () => {
     w.unmount();
   });
 });
+
+describe('PopupSelect 外框', () => {
+  const classes = (props: Record<string, unknown>) => {
+    const w = mountSelect(props);
+    const list = w.get('.q-field').classes();
+    w.unmount();
+    return list;
+  };
+
+  it('可編輯時標記 popup-select--editable（外框實線、不上灰底）', () => {
+    expect(classes({})).toContain('popup-select--editable');
+    expect(classes({ readonly: false })).toContain('popup-select--editable');
+  });
+
+  it('真的唯讀時不標記，走唯讀欄位的樣式', () => {
+    expect(classes({ readonly: true })).not.toContain('popup-select--editable');
+  });
+});

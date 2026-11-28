@@ -5,12 +5,15 @@ import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import type { DynamicRecord, SchemaDetail } from 'src/domain/dynamic/types';
 import { fieldTypeRegistry } from 'src/presentation/dynamic/field-type-registry';
 import { referenceView } from 'src/presentation/dynamic/reference-display';
+import { isNumericField } from 'src/presentation/dynamic/numeric-field';
 
 defineProps<{ details: SchemaDetail[]; rows: Record<string, DynamicRecord[]> }>();
 const { locale, t } = useI18n();
 
 const fieldsOf = (d: SchemaDetail) => d.fields.filter((f) => f.key !== d.parentFieldKey);
-const columnsOf = (d: SchemaDetail) => fieldsOf(d).map((f) => ({ name: f.key, label: resolveI18n(f.label, locale.value) }));
+const columnsOf = (d: SchemaDetail) => fieldsOf(d).map((f) => ({
+  name: f.key, label: resolveI18n(f.label, locale.value), ...(isNumericField(f) && { align: 'right' as const }),
+}));
 </script>
 
 <template>

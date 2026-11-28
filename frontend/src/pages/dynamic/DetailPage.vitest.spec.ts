@@ -13,7 +13,7 @@ import DetailPage from './DetailPage.vue';
 import { textWithoutHistory } from 'src/test-utils/page-text';
 
 vi.mock('src/services/api/dynamic-api', () => ({
-  dynamicApi: { getModuleSchema: vi.fn(), getRecord: vi.fn(), deleteRecord: vi.fn(), related: vi.fn(), recordHistory: vi.fn(), getRecordTasks: vi.fn() },
+  dynamicApi: { getModuleSchema: vi.fn(), getRecord: vi.fn(), deleteRecord: vi.fn(), related: vi.fn(), recordHistory: vi.fn(), getRecordTasks: vi.fn(), getRecordApproval: vi.fn() },
 }));
 const api = vi.mocked(dynamicApi);
 
@@ -226,5 +226,162 @@ describe('DetailPage', () => {
     expect(html).toContain('螺絲');
     expect(html.indexOf('data-testid="f_2"')).toBeLessThan(html.indexOf('訂單明細'));
     expect(html.indexOf('訂單明細')).toBeLessThan(html.indexOf('data-testid="related-tabs"'));
+  });
+});
+
+describe('DetailPage 找不到、無權限、載入失敗', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  });
+  const reject = (status: number) => () => Promise.reject({ status });
+  const u = zhTW.dynamic.unavailable;
+  const named = (text: string) => text.replace('{module}', '模組');
+  const back = (w: Awaited<ReturnType<typeof mountPage>>) => w.get('[data-testid="record-unavailable-back"]');
+  const box = (w: Awaited<ReturnType<typeof mountPage>>) => w.get('[data-testid="record-unavailable"]');
+
+  async function mountFailing(set: () => void) {
+    setActivePinia(createPinia());
+    api.getRecordApproval.mockImplementation(reject(404));
+    set();
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/dynamic/:moduleKey/:id', component: DetailPage }, { path: '/:p(.*)*', component: { render: () => null } }] });
+    await router.push('/dynamic/m/5');
+    const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
+    const Host = { render: () => h(quasar.QLayout, null, () => h(quasar.QPageContainer, null, () => h(DetailPage))) };
+    const w = mount(Host, {
+      global: {
+        plugins: [[quasar.Quasar, { components: quasar, directives: quasar, plugins: { Notify: quasar.Notify } }], router, i18n,
+          [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]],
+      },
+    });
+    await flushPromises();
+    return w;
+  }
+  const withSchema = (recordStatus: number) => mountFailing(() => {
+    api.getModuleSchema.mockResolvedValue(schema({}));
+    api.getRecord.mockImplementation(reject(recordStatus));
+  });
+
+  it('單據不存在：說明原因、回到模組列表、沒有紅字', async () => {
+    const w = await withSchema(404);
+    expect(box(w).text()).toContain(named(u.recordMissingTitle));
+    expect(box(w).text()).toContain(u.recordMissingReason);
+    expect(back(w).text()).toContain(named(u.backToList));
+    expect(back(w).attributes('href')).toBe('/dynamic/m');
+    expect(w.find('[data-testid="record-unavailable-retry"]').exists()).toBe(false);
+    expect(w.html()).not.toContain('text-negative');
+  });
+
+  it('單據屬於別的模組：一樣是找不到', async () => {
+    const w = await mountFailing(() => {
+      api.getModuleSchema.mockResolvedValue(schema({}));
+      api.getRecord.mockResolvedValue({ ...record, moduleKey: 'other' });
+    });
+    expect(box(w).text()).toContain(named(u.recordMissingTitle));
+  });
+
+  it('模組不存在：回到首頁', async () => {
+    const w = await mountFailing(() => {
+      api.getModuleSchema.mockImplementation(reject(404));
+      api.getRecord.mockImplementation(reject(404));
+    });
+    expect(box(w).text()).toContain(u.moduleMissingTitle);
+    expect(box(w).text()).toContain(u.moduleMissingReason);
+    expect(back(w).text()).toContain(u.backHome);
+    expect(back(w).attributes('href')).toBe('/');
+  });
+
+  it('單據 403（schema 正常）：無權限、回到列表', async () => {
+    const w = await withSchema(403);
+    expect(box(w).text()).toContain(named(u.forbiddenTitle));
+    expect(box(w).text()).toContain(u.forbiddenReason);
+    expect(back(w).text()).toContain(named(u.backToList));
+    expect(w.find('[data-testid="record-unavailable-retry"]').exists()).toBe(false);
+  });
+
+  it('schema 403：模組名未知、回到首頁', async () => {
+    const w = await mountFailing(() => {
+      api.getModuleSchema.mockImplementation(reject(403));
+      api.getRecord.mockImplementation(reject(403));
+    });
+    expect(box(w).get('.text-h6').text()).toBe(u.forbiddenTitleUnknown);
+    expect(back(w).text()).toContain(u.backHome);
+    expect(back(w).attributes('href')).toBe('/');
+  });
+
+  it('單據 500：重新載入會重送單據查詢，成功後顯示單據；schema 不重抓', async () => {
+    const w = await withSchema(500);
+    expect(box(w).text()).toContain(named(u.failedTitle));
+    expect(box(w).text()).toContain(u.failedReason);
+    expect(back(w).text()).toContain(named(u.backToList));
+    expect(api.getRecord).toHaveBeenCalledTimes(1);
+    api.getRecord.mockResolvedValue(record);
+    api.related.mockResolvedValue([] as never);
+    api.recordHistory.mockResolvedValue({ items: [], totalCount: 0, currentPage: 1, pagesSize: 20 });
+    await w.get('[data-testid="record-unavailable-retry"]').trigger('click');
+    await flushPromises();
+    expect(api.getRecord).toHaveBeenCalledTimes(2);
+    expect(api.getModuleSchema).toHaveBeenCalledTimes(1);
+    expect(w.find('[data-testid="record-unavailable"]').exists()).toBe(false);
+    expect(w.text()).toContain('記錄五');
+  });
+
+  it('schema 與單據都 500：模組名未知、回首頁，重新載入兩個都重抓', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const w = await mountFailing(() => {
+      api.getModuleSchema.mockImplementation(reject(500));
+      api.getRecord.mockImplementation(reject(500));
+    });
+    await vi.advanceTimersByTimeAsync(10_000); // schema 查詢遇 500 會自己重試幾次才放棄
+    expect(box(w).get('.text-h6').text()).toBe(u.failedTitleUnknown);
+    expect(back(w).attributes('href')).toBe('/');
+    const before = { schema: api.getModuleSchema.mock.calls.length, record: api.getRecord.mock.calls.length };
+    await w.get('[data-testid="record-unavailable-retry"]').trigger('click');
+    await flushPromises();
+    expect(api.getModuleSchema.mock.calls.length).toBe(before.schema + 1);
+    expect(api.getRecord.mock.calls.length).toBe(before.record + 1);
+    vi.useRealTimers();
+  });
+});
+
+describe('DetailPage 狀態章與數字', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  });
+  const option = (id: number, label: string, color?: string) => ({ id, value: `opt_${id}`, label: { 'zh-TW': label }, sequence: id, active: true, color });
+  const status: SchemaField = { ...field(3, '狀態'), type: 'enum', options: [option(1, '已確認', 'blue')] };
+  const source: SchemaField = { ...field(4, '來源'), type: 'enum', options: [option(2, '電話', 'red')] };
+  const amount: SchemaField = { ...field(5, '金額'), type: 'decimal' };
+  const blocks = [{ id: 1, label: { 'zh-TW': '區' }, collapsed: false, columns: 2, fields: [field(1, '標題'), status, source, amount] }];
+  const workflow = { statusFieldKey: 'f_3', initialState: 'opt_1', states: [{ value: 'opt_1', readOnly: false }], transitions: [] };
+  const rec = { ...record, values: { f_1: '記錄五', f_3: 'opt_1', f_4: 'opt_2', f_5: 10 } };
+
+  it('狀態欄值與標題列都是章；一般下拉欄位維持文字；數字值掛 num', async () => {
+    const w = await mountPage(schema({ blocks, workflow }), rec);
+    const value = w.get('[data-testid="f_3"] [data-testid="status-chip"]');
+    expect(value.text()).toBe('已確認');
+    expect(value.classes()).toContain('text-blue');
+    expect(w.get('[data-testid="record-header-bar"] [data-testid="status-chip"]').text()).toBe('已確認');
+    expect(w.find('[data-testid="f_4"] [data-testid="status-chip"]').exists()).toBe(false);
+    expect(w.get('[data-testid="f_4"]').text()).toBe('電話');
+    expect(w.get('[data-testid="f_5"]').classes()).toContain('num');
+    expect(w.get('[data-testid="f_4"]').classes()).not.toContain('num');
+  });
+
+  it('沒有狀態流程的模組不出現章', async () => {
+    const w = await mountPage(schema({ blocks }), rec);
+    expect(w.find('[data-testid="status-chip"]').exists()).toBe(false);
+  });
+
+  it('狀態欄是空值就沒有章', async () => {
+    const w = await mountPage(schema({ blocks, workflow }), { ...rec, values: { ...rec.values, f_3: null } });
+    expect(w.find('[data-testid="status-chip"]').exists()).toBe(false);
+  });
+
+  it('狀態欄被規則隱藏時，標題列也不顯示章', async () => {
+    const hide = { kind: 'visibility' as const, condition: { field: 5, op: 'gt' as const, value: 100 }, targets: ['field:3'], options: [] };
+    const w = await mountPage(schema({ blocks, workflow, rules: [hide] }), rec);
+    expect(w.find('[data-testid="status-chip"]').exists()).toBe(false);
   });
 });

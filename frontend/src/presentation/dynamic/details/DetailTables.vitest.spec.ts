@@ -95,3 +95,11 @@ describe('DetailTables', () => {
     }
   });
 });
+
+describe('DetailTables 數字欄', () => {
+  it('數字欄的表頭與儲存格靠右', async () => {
+    const w = await mountTables([detail('訂單明細')], { line: [row(1, { f_1: '螺絲', f_2: 3 })] });
+    expect(w.findAll('thead th').map((th) => th.classes().includes('text-right'))).toEqual([false, true, false]);
+    expect(w.findAll('tbody tr:first-child td').map((td) => td.classes().includes('text-right'))).toEqual([false, true, false]);
+  });
+});

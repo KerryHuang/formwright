@@ -8,6 +8,9 @@ import { fieldTypeRegistry } from 'src/presentation/dynamic/field-type-registry'
 import { fieldColClass, isFullWidth } from 'src/presentation/dynamic/form-layout';
 import { referenceView } from 'src/presentation/dynamic/reference-display';
 import { ruleStateOf } from 'src/presentation/dynamic/rule-state';
+import { isNumericField } from 'src/presentation/dynamic/numeric-field';
+import { statusChipOf } from 'src/presentation/dynamic/status-chip';
+import StatusChip from './StatusChip.vue';
 
 const props = defineProps<{ schema: ModuleSchema; record: DynamicRecord }>();
 const { locale, t } = useI18n();
@@ -18,6 +21,7 @@ const hidden = computed(() => ruleStateOf(props.schema, props.record.values, pro
 const visibleBlocks = computed(() => props.schema.blocks
   .map((b) => ({ ...b, fields: b.fields.filter((f) => !hidden.value.has(f.id)) }))
   .filter((b) => b.fields.length > 0));
+const statusChip = computed(() => statusChipOf(props.schema, props.record.values, locale.value));
 /** Fields the approval has locked (the server lists only what this reader can see). */
 const lockedKeys = computed(() => new Set(props.record.approvalLock?.fieldKeys ?? []));
 /** Names of the closed apps whose (frozen) fields this block shows. */
@@ -50,7 +54,7 @@ const blockLocks = (fields: SchemaField[]) => [...new Set(fields.map((f) => f.lo
               </span>
             </span>
           </q-item-section>
-          <q-item-section :data-testid="f.key" style="overflow-wrap: anywhere; min-width: 0">
+          <q-item-section :data-testid="f.key" :class="{ num: isNumericField(f) }" style="overflow-wrap: anywhere; min-width: 0">
             <template v-if="refOf(f)">
               <router-link v-if="refOf(f)!.to" :to="refOf(f)!.to!">{{ refOf(f)!.text }}</router-link>
               <template v-else>{{ refOf(f)!.text }}</template>
@@ -59,6 +63,8 @@ const blockLocks = (fields: SchemaField[]) => [...new Set(fields.map((f) => f.lo
               v-else-if="f.type === 'attachment'" :model-value="(record.values[f.key] as AttachmentFile[] | undefined)"
               :label="resolveI18n(f.label, locale)" :field-id="f.id" :record-id="record.id" readonly
             />
+            <!-- The wrapper keeps the chip at its own width: the section is a column that would stretch it -->
+            <div v-else-if="f.key === schema.workflow?.statusFieldKey && statusChip"><StatusChip v-bind="statusChip" /></div>
             <template v-else>{{ fieldTypeRegistry[f.type].format(record.values[f.key], f, locale) }}</template>
           </q-item-section>
         </q-item>

@@ -4,7 +4,8 @@ import { useI18n } from 'vue-i18n';
 
 // POC thin wrapper; replaced by the framework component of the same name when merged.
 const props = defineProps<{
-  columns: { name: string; label: string }[]; rows: T[]; rowKey: (row: T) => string; readonly?: boolean;
+  /** align: 'right' 只作用在表格模式（數字欄），手機卡片不改對齊。 */
+  columns: { name: string; label: string; align?: 'right' }[]; rows: T[]; rowKey: (row: T) => string; readonly?: boolean;
   /** 手機卡片用：有錯誤的列一律展開，錯誤才不會藏在收合的卡片裡。 */
   hasError?: (row: T) => boolean;
   /** 手機卡片用：這一列不顯示的欄位，連欄名一起略過（表格模式照舊留空格）。 */
@@ -82,13 +83,13 @@ watch(() => props.rows.map(props.rowKey), (keys, before) => {
     <q-markup-table v-else flat bordered dense separator="cell" wrap-cells>
       <thead>
         <tr>
-          <th v-for="c in columns" :key="c.name" class="text-left">{{ c.label }}</th>
+          <th v-for="c in columns" :key="c.name" :class="c.align === 'right' ? 'text-right' : 'text-left'">{{ c.label }}</th>
           <th v-if="$slots['row-actions']" />
         </tr>
       </thead>
       <tbody>
         <tr v-for="(row, index) in rows" :key="rowKey(row)">
-          <td v-for="c in columns" :key="c.name"><slot :name="`cell-${c.name}`" :row="row" :index="index" /></td>
+          <td v-for="c in columns" :key="c.name" :class="{ 'text-right': c.align === 'right' }"><slot :name="`cell-${c.name}`" :row="row" :index="index" /></td>
           <td v-if="$slots['row-actions']"><slot name="row-actions" :row="row" :index="index" /></td>
         </tr>
         <tr v-if="!rows.length">

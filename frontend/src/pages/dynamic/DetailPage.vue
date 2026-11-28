@@ -21,11 +21,15 @@ import RecordLedger from 'src/presentation/dynamic/ledger/RecordLedger.vue';
 import RecordHeaderBar, { type HeaderAction } from 'src/presentation/dynamic/components/RecordHeaderBar.vue';
 import DynamicDetail from 'src/presentation/dynamic/components/DynamicDetail.vue';
 import DetailTables from 'src/presentation/dynamic/details/DetailTables.vue';
+import RecordUnavailable from 'src/presentation/dynamic/components/RecordUnavailable.vue';
+import StatusChip from 'src/presentation/dynamic/components/StatusChip.vue';
+import { statusChipOf } from 'src/presentation/dynamic/status-chip';
+import { ruleStateOf } from 'src/presentation/dynamic/rule-state';
+import { unavailableView, type UnavailableKind } from 'src/presentation/dynamic/unavailable';
 import DeleteBlockedDialog from 'src/presentation/dynamic/related/DeleteBlockedDialog.vue';
 import RecordHistory from 'src/presentation/dynamic/history/RecordHistory.vue';
 import RecordTasks from 'src/presentation/dynamic/tasks/RecordTasks.vue';
 import RelatedTabs from 'src/presentation/dynamic/related/RelatedTabs.vue';
-import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
 import type { SubmitApprovalResult } from 'src/domain/dynamic/approval-types';
 import type { DeleteBlocked, RecordConversion } from 'src/domain/dynamic/types';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
@@ -74,6 +78,21 @@ const forbidden = computed(() => isForbidden(schemaError.value) || isForbidden(r
 const failed = computed(() => !forbidden.value && !schemaMissing.value && !recordMissing.value
   && (!!schemaError.value || !!recordQuery.error.value));
 
+// Why the page cannot show the record (the order below is the display priority); undefined = nothing is wrong.
+const problem = computed<UnavailableKind | undefined>(() => {
+  if (forbidden.value) return 'forbidden';
+  if (schemaMissing.value) return 'moduleMissing';
+  if (recordMissing.value) return 'recordMissing';
+  return failed.value ? 'failed' : undefined;
+});
+// "Record not found" names the module: stay blank until the schema has answered, either way.
+const unavailable = computed(() => (!problem.value || (problem.value === 'recordMissing' && !schema.value && !schemaError.value) ? undefined
+  : unavailableView(problem.value, { t, moduleKey: moduleKey.value, moduleName: moduleName.value, schemaRead: !!schema.value?.permissions })));
+function retry() {
+  if (schemaError.value) void (viaGrant.value ? grantSchemaQuery : schemaQuery).refetch();
+  if (recordQuery.error.value) void recordQuery.refetch();
+}
+
 // A read-only workflow state locks the record: no delete, and edit only while the user can still move the status.
 // A record an event has already posted is locked the same way (only the status may change: that is the cancel flow).
 const workflow = computed(() => schema.value?.workflow);
@@ -93,6 +112,14 @@ const canSubmit = computed(() => !grant.value && !!approval.value?.canSubmit && 
 const approvalQuery = useRecordApproval(recordId, () => !!approval.value || recordGone.value);
 const statusField = computed(() => schema.value?.blocks.flatMap((b) => b.fields).find((f) => f.key === workflow.value?.statusFieldKey));
 const stateLabel = (optionId: number) => resolveI18n(statusField.value?.options.find((o) => o.value === `opt_${optionId}`)?.label, locale.value);
+// The status chip next to the title, so the state stays in sight while scrolling; a rule-hidden status field shows none.
+const statusChip = computed(() => {
+  const s = schema.value;
+  const values = recordQuery.data.value?.values;
+  const field = statusField.value;
+  if (!s || !values || !field || ruleStateOf(s, values, values).hidden.has(field.id)) return undefined;
+  return statusChipOf(s, values, locale.value);
+});
 const submitTo = ref<number | null>(null);
 function onSubmitted(outcome: SubmitApprovalResult['outcome']) {
   const state = submitTo.value === null ? '' : stateLabel(submitTo.value);
@@ -174,17 +201,19 @@ async function onDelete() {
   <q-page padding :style="barPad ? 'padding-bottom: calc(88px + env(safe-area-inset-bottom))' : undefined">
     <template v-if="historyPending" />
     <ApprovalHistoryOnly v-else-if="historyOnly" :approval="approvalQuery.data.value!" :record-id="recordId" :module-key="moduleKey" />
-    <ForbiddenNotice v-else-if="forbidden" />
-    <div v-else-if="schemaMissing" class="text-negative">{{ t('dynamic.moduleNotFound') }}</div>
-    <div v-else-if="recordMissing" class="text-negative">{{ t('dynamic.recordNotFound') }}</div>
-    <div v-else-if="failed" class="text-negative">{{ t('dynamic.loadFailed') }}</div>
+    <template v-else-if="problem">
+      <RecordUnavailable v-if="unavailable" v-bind="unavailable" :retry="problem === 'failed' ? retry : undefined" />
+    </template>
     <template v-else-if="schema && recordQuery.data.value">
       <RecordHeaderBar
         :back-label="moduleName" :back-to="`/dynamic/${moduleKey}`" :back-aria-label="t('dynamic.backTo', { module: moduleName })" back-testid="module-title"
         :title="schema.titleFieldKey || schema.kind === 'extension' ? recordQuery.data.value.title : undefined"
         :actions="headerActions" :menu-only="approvalBar"
       >
-        <template #badge><ApprovalBadge v-if="approval" :summary="approval" /></template>
+        <template #badge>
+          <ApprovalBadge v-if="approval" :summary="approval" />
+          <StatusChip v-if="statusChip" v-bind="statusChip" />
+        </template>
       </RecordHeaderBar>
       <div v-if="grant" class="row items-center no-wrap q-mb-sm text-muted" data-testid="approval-grant-banner">
         <q-icon name="visibility" class="q-mr-sm" />

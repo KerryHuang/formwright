@@ -103,7 +103,7 @@ const isPicked = (item: LightItem) => (props.multiple ? picked.value : current.v
 <template>
   <q-input
     :model-value="display" :label="required ? `${label} *` : label" :error="!!error" :error-message="error"
-    readonly outlined dense :class="{ 'cursor-pointer': !readonly }" :aria-labelledby="ariaLabelledby" data-testid="popup-input" @click="show"
+    readonly outlined dense :class="{ 'cursor-pointer popup-select--editable': !readonly }" :aria-labelledby="ariaLabelledby" data-testid="popup-input" @click="show"
   >
     <template #append>
       <q-icon v-if="!readonly" name="search" />

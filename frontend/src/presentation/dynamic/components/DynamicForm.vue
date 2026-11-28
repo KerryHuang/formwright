@@ -237,7 +237,7 @@ watch(() => props.record, () => {
 </script>
 
 <template>
-  <form class="q-gutter-md" @submit.prevent="onSubmit">
+  <form class="dynamic-form q-gutter-md" @submit.prevent="onSubmit">
     <div v-if="readOnlyForm" class="text-warning" data-testid="record-readonly">{{ t('dynamic.recordReadOnly') }}</div>
     <div v-if="frozen" class="text-warning" data-testid="frozen-readonly">{{ t('ledger.frozen') }}</div>
     <div v-else-if="workflowLocked" class="text-warning" data-testid="workflow-readonly">{{ t('docflow.readOnlyState') }}</div>
