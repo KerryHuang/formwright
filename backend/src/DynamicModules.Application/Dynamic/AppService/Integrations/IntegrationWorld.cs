@@ -41,7 +41,7 @@ internal sealed class IntegrationWorld
         {
             var bindings = await apps.GetBindingsAsync(app.Id, ct);
             if (bindings.Fields.Count == 0)
-                return $"應用程式 {app.Key} 是在整合功能之前開啟的，缺少欄位對照，請重建";
+                return $"積木包 {app.Key} 是在整合功能之前開啟的，缺少欄位對照，請重建";
             foreach (var member in app.Modules.Where(m => only is null || only.Contains(m.Code)))
             {
                 var module = await modules.GetByIdAsync(member.ModuleId, includeChildren: true, ct);

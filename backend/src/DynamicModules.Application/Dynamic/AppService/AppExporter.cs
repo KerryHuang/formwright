@@ -102,7 +102,7 @@ public sealed partial class AppExporter(
                 foreach (var f in m.Blocks.SelectMany(b => b.Fields).Where(f => orphans.Any(o => o.FieldId == f.Id)))
                 {
                     excludedFields.Add(f.Id);
-                    warnings.Add($"{m.NameI18n.Resolve(requestLocale.Current)}的「{f.LabelI18n.Resolve(requestLocale.Current)}」是已刪除應用程式留下的停用欄位，未匯出，資料仍保留在資料庫");
+                    warnings.Add($"{m.NameI18n.Resolve(requestLocale.Current)}的「{f.LabelI18n.Resolve(requestLocale.Current)}」是已刪除積木包留下的停用欄位，未匯出，資料仍保留在資料庫");
                 }
             }
         }
@@ -346,7 +346,7 @@ public sealed partial class AppExporter(
         var fields = view.Module.Blocks.SelectMany(b => b.Fields).Where(f => ownCodes.Contains(f.Code)).ToList();
         foreach (var f in view.Source.Blocks.SelectMany(b => b.Fields)
                      .Where(f => view.OwnFields.ContainsKey(f.Id) && fields.All(x => x.Code != view.OwnFields[f.Id])))
-            warnings.Add($"貢獻欄位「{f.LabelI18n.Resolve(requestLocale.Current)}」引用了停用、未匯出或別的應用程式的欄位，未匯出");
+            warnings.Add($"貢獻欄位「{f.LabelI18n.Resolve(requestLocale.Current)}」引用了停用、未匯出或別的積木包的欄位，未匯出");
         var (blockId, blockCode) = view.OwnBlocks.Count > 0 ? (view.OwnBlocks.First().Key, view.OwnBlocks.First().Value) : (0L, "main");
         var block = view.Source.Blocks.FirstOrDefault(b => b.Id == blockId);
         var groups = grants.Select(g => g.GroupId).ToHashSet();
@@ -372,7 +372,7 @@ public sealed partial class AppExporter(
             var scope = g.Min(x => x.Scope);
             var code = groupCode(g.Key);
             if (g.Select(x => x.Scope).Distinct().Count() > 1)
-                warnings.Add($"{where}的群組「{code}」各動作的資料範圍不同，套件一個群組只能有一個範圍，匯出時取最窄的");
+                warnings.Add($"{where}的群組「{code}」各動作的資料範圍不同，積木包一個群組只能有一個範圍，匯出時取最窄的");
             result.Add(new TemplatePermission(code, new PermissionService.Data.PrivilegesDto(
                 actions.Contains(PermissionAction.Read), actions.Contains(PermissionAction.Add), actions.Contains(PermissionAction.Edit),
                 actions.Contains(PermissionAction.Delete), actions.Contains(PermissionAction.PrintExport), actions.Contains(PermissionAction.Pricing),
@@ -525,7 +525,7 @@ public sealed partial class AppExporter(
                 var converted = AppPrintCodec.ToPackage(t.Body, module, key => keyToCode.GetValueOrDefault(key), names.Field);
                 if (converted.Body is null)
                 {
-                    warnings.Add($"列印範本「{module}.{t.Key}」引用了套件外的明細模組，未匯出");
+                    warnings.Add($"列印範本「{module}.{t.Key}」引用了積木包外的明細模組，未匯出");
                     continue;
                 }
                 foreach (var field in converted.Dropped.Distinct())

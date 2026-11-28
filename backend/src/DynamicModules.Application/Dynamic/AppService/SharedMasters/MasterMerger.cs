@@ -45,7 +45,7 @@ public sealed class MasterMerger(
     private static void Collided(List<string> warnings, string what, string label, string code, string used)
     {
         if (code != used)
-            warnings.Add($"{what}「{label}」的代號 {code} 和應用程式貢獻的代號相同，改用 {used}；引用原代號的套件開啟時會對不上（unbound）");
+            warnings.Add($"{what}「{label}」的代號 {code} 和積木包貢獻的代號相同，改用 {used}；引用原代號的積木包開啟時會對不上（unbound）");
     }
 
     // ---- 定義層 ----

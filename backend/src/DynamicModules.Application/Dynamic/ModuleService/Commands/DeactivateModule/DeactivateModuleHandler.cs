@@ -11,7 +11,7 @@ public class DeactivateModuleHandler(
     IModuleRepository modules, IProgramRepository programs, IUnitOfWork uow, ICurrentUser user, IBusinessTime time)
     : IRequestHandler<DeactivateModuleRequest, ServiceResult>
 {
-    private const string ClosedMessage = "請由應用程式重新開啟或關閉";
+    private const string ClosedMessage = "請由積木包重新開啟或關閉";
 
     public async Task<ServiceResult> Handle(DeactivateModuleRequest request, CancellationToken ct)
     {

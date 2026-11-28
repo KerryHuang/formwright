@@ -139,12 +139,12 @@ public class AppTemplateKindTests : IDisposable
 
         var again = await OpenTpl();
         again.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await again.Content.ReadAsStringAsync()).Should().Contain("應用程式已開啟").And.NotContain("目前是關閉狀態");
+        (await again.Content.ReadAsStringAsync()).Should().Contain("積木包已開啟").And.NotContain("目前是關閉狀態");
 
         (await _admin.PostAsJsonAsync($"{Base}/apps/tpl-a/close", new { cascade = false })).EnsureSuccessStatusCode();
         var closed = await OpenTpl();
         closed.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await closed.Content.ReadAsStringAsync()).Should().Contain("應用程式已開啟但目前是關閉狀態，請改用重新開啟");
+        (await closed.Content.ReadAsStringAsync()).Should().Contain("積木包已開啟但目前是關閉狀態，請改用重新開啟");
     }
 
     private static bool HasCjk(string s) => Regex.IsMatch(s, "[一-鿿]");
@@ -183,12 +183,12 @@ public class AppTemplateKindTests : IDisposable
         (await ImportAsync(AppTestPackagesTemplate.App("app-d"))).StatusCode.Should().Be(HttpStatusCode.Created);
         var toTpl = await ImportAsync(AppTestPackagesTemplate.Template("app-d", "2.0.0"));
         toTpl.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await Body(toTpl)).Should().Contain("套件 app-d 已經是應用程式，再匯入不能改成範本");
+        (await Body(toTpl)).Should().Contain("積木包 app-d 已經是一般積木包，再匯入不能改成範本積木包");
 
         (await ImportAsync(AppTestPackagesTemplate.Template("tpl-r"))).StatusCode.Should().Be(HttpStatusCode.Created);
         var toApp = await ImportAsync(AppTestPackagesTemplate.App("tpl-r") .Replace("\"1.0.0\"", "\"2.0.0\""));
         toApp.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await Body(toApp)).Should().Contain("套件 tpl-r 已經是範本，再匯入不能改成應用程式");
+        (await Body(toApp)).Should().Contain("積木包 tpl-r 已經是範本積木包，再匯入不能改成一般積木包");
     }
 
     [Fact]
@@ -202,12 +202,12 @@ public class AppTemplateKindTests : IDisposable
         (await ImportAsync(AppTestPackagesTemplate.App("app-d"))).StatusCode.Should().Be(HttpStatusCode.Created);
         var toTpl = await ImportAsync(AppTestPackagesTemplate.Template("app-d", "2.0.0"), "en-US");
         toTpl.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await Body(toTpl)).Should().Contain("Package app-d is already an app and cannot be re-imported as a template").And.NotMatchRegex("[一-鿿]");
+        (await Body(toTpl)).Should().Contain("Block pack app-d is already a regular block pack and cannot be re-imported as a template pack").And.NotMatchRegex("[一-鿿]");
 
         (await ImportAsync(AppTestPackagesTemplate.Template("tpl-r"))).StatusCode.Should().Be(HttpStatusCode.Created);
         var toApp = await ImportAsync(AppTestPackagesTemplate.App("tpl-r").Replace("\"1.0.0\"", "\"2.0.0\""), "en-US");
         toApp.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await Body(toApp)).Should().Contain("Package tpl-r is already a template and cannot be re-imported as an app").And.NotMatchRegex("[一-鿿]");
+        (await Body(toApp)).Should().Contain("Block pack tpl-r is already a template pack and cannot be re-imported as a regular block pack").And.NotMatchRegex("[一-鿿]");
 
         await ImportTplAAsync();
         var newer = await ImportAsync(AppTestPackagesTemplate.TplA.Replace("\"1.0.0\"", "\"1.1.0\""), "en-US");
@@ -258,7 +258,7 @@ public class AppTemplateKindTests : IDisposable
         (await OpenTpl()).StatusCode.Should().Be(HttpStatusCode.Created);
         StatusOf("partner-lite").Should().Be(AppStatus.Open);
 
-        (await CloseWarnings("tpl-a")).Should().Contain(w => w!.Contains("共用主檔「往來對象（測試）」已沒有開啟中的應用程式使用，一起關閉"));
+        (await CloseWarnings("tpl-a")).Should().Contain(w => w!.Contains("共用主檔「往來對象（測試）」已沒有開啟中的積木包使用，一起關閉"));
         StatusOf("partner-lite").Should().Be(AppStatus.Closed);
 
         (await _admin.PostAsync($"{Base}/apps/tpl-a/reopen", null)).StatusCode.Should().Be(HttpStatusCode.OK);
@@ -384,7 +384,7 @@ public class AppTemplateKindTests : IDisposable
         var done = await DeleteApp("tpl-a", preview.GetProperty("purgedTotal").GetInt32());
         done.StatusCode.Should().Be(HttpStatusCode.OK, await Body(done));
         JsonDocument.Parse(await Body(done)).RootElement.GetProperty("warnings").EnumerateArray().Select(w => w.GetString())
-            .Should().Contain(w => w!.Contains("共用主檔「往來對象（測試）」已沒有應用程式使用"));
+            .Should().Contain(w => w!.Contains("共用主檔「往來對象（測試）」已沒有積木包使用"));
         StatusOf("partner-lite").Should().Be(AppStatus.Closed);
     }
 
@@ -404,7 +404,7 @@ public class AppTemplateKindTests : IDisposable
         var done = await DeleteApp("tpl-a", preview.GetProperty("purgedTotal").GetInt32());
         done.StatusCode.Should().Be(HttpStatusCode.OK, await Body(done));
         JsonDocument.Parse(await Body(done)).RootElement.GetProperty("warnings").EnumerateArray().Select(w => w.GetString())
-            .Should().NotContain(w => w!.Contains("已沒有應用程式使用"));
+            .Should().NotContain(w => w!.Contains("已沒有積木包使用"));
         StatusOf("partner-lite").Should().Be(AppStatus.Open);
     }
 
@@ -414,7 +414,7 @@ public class AppTemplateKindTests : IDisposable
         var json = AppTestPackagesTemplate.Template("quality-inspection", "2.0.0");
         var res = await ImportAsync(json);
         res.StatusCode.Should().Be(HttpStatusCode.Conflict, await Body(res));
-        (await Body(res)).Should().Contain("套件代碼已存在");
+        (await Body(res)).Should().Contain("積木包代碼已存在");
 
         var list = JsonDocument.Parse(await _admin.GetStringAsync($"{Base}/apps/packages")).RootElement.EnumerateArray().ToList();
         var entry = list.Single(x => Prop(x, "id") == "quality-inspection");
@@ -427,7 +427,7 @@ public class AppTemplateKindTests : IDisposable
     {
         var res = await ImportAsync(AppTestPackagesTemplate.Template("event-registration", "2.0.0"));
         res.StatusCode.Should().Be(HttpStatusCode.Conflict, await Body(res));
-        (await Body(res)).Should().Contain("套件代碼已存在");
+        (await Body(res)).Should().Contain("積木包代碼已存在");
 
         var list = JsonDocument.Parse(await _admin.GetStringAsync($"{Base}/apps/packages")).RootElement.EnumerateArray().ToList();
         var entry = list.Single(x => Prop(x, "id") == "event-registration");

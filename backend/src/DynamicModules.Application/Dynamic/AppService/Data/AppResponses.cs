@@ -102,13 +102,13 @@ public record GroupMapEntry(string Mode, long? GroupId);
 
 public static class AppMessages
 {
-    public const string NotFound = "應用程式不存在";
-    public const string PackageNotFound = "套件不存在";
-    public const string AlreadyOpen = "應用程式已開啟";
-    public const string AlreadyClosedHint = "應用程式已開啟但目前是關閉狀態，請改用重新開啟";
-    public const string MasterManaged = "這是共用主檔，由使用它的應用程式管理，不能直接開啟、關閉或重新開啟";
+    public const string NotFound = "積木包不存在";
+    public const string PackageNotFound = "積木包不存在";
+    public const string AlreadyOpen = "積木包已開啟";
+    public const string AlreadyClosedHint = "積木包已開啟但目前是關閉狀態，請改用重新開啟";
+    public const string MasterManaged = "這是共用主檔，由使用它的積木包管理，不能直接開啟、關閉或重新開啟";
     public const string MasterNotAvailable = "masterNotAvailable";
-    public const string MasterInUse = "共用主檔還有應用程式在使用，不能刪除";
+    public const string MasterInUse = "共用主檔還有積木包在使用，不能刪除";
     public const string UpgradeUpToDate = "已是最新";
     public const string UpgradeNoCandidate = "沒有可用的新版";
     public const string UpgradeDowngrade = "新版的版號比目前的小，不支援降版";
@@ -130,7 +130,7 @@ public static class AppMessages
     public static string FlowGroupSubstituted(string flow, string group) => $"簽核流程「{flow}」的群組「{group}」沒有對應，已由備援簽核人頂替";
     public static string FlowNotifyGroupSkipped(string flow, string group) => $"簽核流程「{flow}」的通知群組「{group}」沒有對應，不會通知這個群組";
     public static string UpgradeTitleFieldMissing(string title) => $"標題用到的欄位不存在：{title}，請一起勾選它";
-    public static string ImportVersionNotNewer(string id, string version) => $"套件代碼已存在：{id}（目前版號 {version}）";
+    public static string ImportVersionNotNewer(string id, string version) => $"積木包代碼已存在：{id}（目前版號 {version}）";
 
     public static string FlowCodeTaken(string code) => $"approvalFlows.{code}: 流程代碼已被使用";
 
@@ -143,8 +143,8 @@ public static class AppMessages
     public static string ExportFlowError(string flow, string detail) => $"簽核流程「{flow}」{detail}";
     public static string ExportFlowStageAt(string node) => $"節點「{node}」";
     public const string ExportFlowFallbackAt = "的備援簽核人";
-    public static string ExportFlowUsers(string where) => $"{where}指定了具體使用者，帳號屬於這個資料庫，套件不收";
-    public static string ExportFlowUnmatched(string where) => $"{where}有開啟套件時略過的群組，請先在設計器移除或補上群組";
+    public static string ExportFlowUsers(string where) => $"{where}指定了具體使用者，帳號屬於這個資料庫，積木包不收";
+    public static string ExportFlowUnmatched(string where) => $"{where}有開啟積木包時略過的群組，請先在設計器移除或補上群組";
     public const string ExportFlowFieldMissing = "引用了停用或未匯出的欄位";
     public const string ExportFlowStateMissing = "引用了停用或未匯出的狀態";
     public static string ExportFlowOptionMissing(string field, string option) => $"引用了停用或未匯出的選項（欄位 {field} 的 {option}）";

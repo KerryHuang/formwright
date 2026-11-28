@@ -288,7 +288,7 @@ public class TaskWriteTests : TaskTestBase
         var r = await Patch(seeded.Id, """{"title":"x"}""");
 
         r.IsConflict.Should().BeTrue();
-        r.Message.Should().Be("應用程式已關閉，資料唯讀");
+        r.Message.Should().Be("積木包已關閉，資料唯讀");
     }
 
     [Fact]
@@ -323,7 +323,7 @@ public class TaskWriteTests : TaskTestBase
         var r = await Send(new CreateRecordTaskRequest(rec, new TaskInput("x", null, null, null)));
 
         r.IsConflict.Should().BeTrue();
-        r.Message.Should().Be("應用程式已關閉，資料唯讀");
+        r.Message.Should().Be("積木包已關閉，資料唯讀");
         (await Db.Context.Set<TaskItem>().CountAsync()).Should().Be(0);
     }
 }

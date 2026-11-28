@@ -696,7 +696,7 @@ public class AppFormat8Tests : IDisposable
         var res = await ExportRawAsync();
         res.StatusCode.Should().Be(HttpStatusCode.Conflict);
         var body = await res.Content.ReadAsStringAsync();
-        body.Should().Contain("簽核流程「採購單（大額）」節點「採購主管」指定了具體使用者，帳號屬於這個資料庫，套件不收");
+        body.Should().Contain("簽核流程「採購單（大額）」節點「採購主管」指定了具體使用者，帳號屬於這個資料庫，積木包不收");
     }
 
     [Fact]
@@ -753,7 +753,7 @@ public class AppFormat8Tests : IDisposable
         var res = await ExportRawAsync();
         res.StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await res.Content.ReadAsStringAsync()).Should()
-            .Contain("簽核流程「採購單（大額）」節點「董事會」有開啟套件時略過的群組，請先在設計器移除或補上群組");
+            .Contain("簽核流程「採購單（大額）」節點「董事會」有開啟積木包時略過的群組，請先在設計器移除或補上群組");
     }
 
     [Fact]

@@ -39,9 +39,9 @@ public class CloseAppHandler(
         var warnings = new List<string>();
         var dependents = await dependencies.DependentsOfAsync(app, ct, forClose: true);
         if (dependents.Apps.Count > 0 && !request.Cascade)
-            return ServiceResult.ConflictWith("有其他應用程式依賴它，請先關閉它們，或選擇連帶關閉",
+            return ServiceResult.ConflictWith("有其他積木包依賴它，請先關閉它們，或選擇連帶關閉",
                 new { dependents = dependents.Apps.Select(a => a.Key).ToList() });
-        warnings.AddRange(dependents.UnaffiliatedReferrers.Select(k => $"自建模組「{k}」有欄位參照這個應用程式，關閉後它無法新增指向這裡的資料"));
+        warnings.AddRange(dependents.UnaffiliatedReferrers.Select(k => $"自建模組「{k}」有欄位參照這個積木包，關閉後它無法新增指向這裡的資料"));
 
         var toClose = request.Cascade ? await dependencies.CascadeOrderAsync(app, ct) : [app];
         foreach (var target in toClose)
@@ -60,7 +60,7 @@ public class CloseAppHandler(
         await uow.CommitAsync(ct);
         // 共用主檔跟著使用者：沒有 Open 的使用者就一起關閉；關閉的應用程式授予的寫入動作從主檔模組收回（§6、§7）
         foreach (var master in await lifecycle.RecomputeAsync(ct))
-            warnings.Add($"共用主檔「{master.NameI18n.Resolve(requestLocale.Current)}」已沒有開啟中的應用程式使用，一起關閉（資料唯讀保留）");
+            warnings.Add($"共用主檔「{master.NameI18n.Resolve(requestLocale.Current)}」已沒有開啟中的積木包使用，一起關閉（資料唯讀保留）");
         warnings.AddRange(await integrations.ReconcileAsync(ct));
         return ServiceResult.Success(new CloseAppResponse(await builder.BuildAsync(app, true, null, ct),
             toClose.Select(a => a.Key).ToList(), warnings));
@@ -92,7 +92,7 @@ public class ReopenAppHandler(
 
         var requirement = await dependencies.CheckRequirementsAsync(app.Requires, ct);
         if (requirement.Missing.Count > 0)
-            return ServiceResult.ConflictWith("它依賴的應用程式或模組還沒有開啟", new { missingDependencies = requirement.Missing });
+            return ServiceResult.ConflictWith("它依賴的積木包或模組還沒有開啟", new { missingDependencies = requirement.Missing });
 
         foreach (var member in app.Modules)
         {

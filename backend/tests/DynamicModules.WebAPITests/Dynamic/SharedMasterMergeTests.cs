@@ -371,7 +371,7 @@ public class SharedMasterMergeTests : IDisposable
         MainFields(bp).Add(Field("grade", "enum", "等級", null, ("gold", "金牌")));
 
         var first = await _rig.ImportMergeOkAsync(bp.ToJsonString());
-        first.Should().Contain(w => w.Contains("主檔套件格式"));
+        first.Should().Contain(w => w.Contains("主檔積木包格式"));
         await _rig.ImportMergeOkAsync(bp.ToJsonString());
     }
 

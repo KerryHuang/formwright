@@ -223,7 +223,7 @@ public class TaskCommentTests : TaskTestBase
         var r = await Comment(task.Id, "hi");
 
         r.IsConflict.Should().BeTrue();
-        r.Message.Should().Be("應用程式已關閉，資料唯讀");
+        r.Message.Should().Be("積木包已關閉，資料唯讀");
         (await Send(new WithdrawTaskCommentRequest(task.Id, comment.Id))).IsConflict.Should().BeTrue();
         (await Comments(task.Id)).Single().CanWithdraw.Should().BeFalse();
     }

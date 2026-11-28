@@ -54,7 +54,7 @@ public class ModuleSectionPackageTests
         var root = JsonSerializer.SerializeToNode(Partner, TemplateJson.Options)!;
         root["modules"]![0]!["section"] = 3;
 
-        AppJson.Parse(root.ToJsonString()).Errors.Should().ContainSingle().Which.Should().Contain("套件格式錯誤");
+        AppJson.Parse(root.ToJsonString()).Errors.Should().ContainSingle().Which.Should().Contain("積木包格式錯誤");
     }
 
     [Fact]

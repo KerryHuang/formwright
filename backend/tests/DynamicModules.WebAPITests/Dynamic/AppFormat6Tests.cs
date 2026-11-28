@@ -338,7 +338,7 @@ public class AppFormat6Tests
     public void Contribution_FieldsCannotBeRequired()
     {
         AloneErrors(Crm("\"config\": { \"isFilterable\": true },", "\"config\": { \"isFilterable\": true, \"required\": true },"))
-            .Should().Contain("contributions[0].fields[industry]: 貢獻欄位不得必填（別的應用程式建立主檔記錄時不該被擋住）");
+            .Should().Contain("contributions[0].fields[industry]: 貢獻欄位不得必填（別的積木包建立主檔記錄時不該被擋住）");
     }
 
     [Theory]
@@ -358,14 +358,14 @@ public class AppFormat6Tests
         AloneErrors(Crm("\"onDelete\": \"setNull\"", "\"onDelete\": \"cascade\""))
             .Should().Contain(e => e.StartsWith("contributions[0].fields[fromLead].onDelete: 貢獻的參照欄位不能是 cascade"));
         AloneErrors(Crm("\"onDelete\": \"setNull\"", "\"onDelete\": \"restrict\""))
-            .Should().Contain("contributions[0].fields[fromLead].onDelete: 指向本套件模組的貢獻參照欄位必須是 setNull");
+            .Should().Contain("contributions[0].fields[fromLead].onDelete: 指向本積木包模組的貢獻參照欄位必須是 setNull");
     }
 
     [Fact]
     public void Contribution_ReferenceToAnotherApp_IsRejected()
     {
         var json = Crm("\"refTarget\": { \"kind\": \"module\", \"key\": \"lead\" }", "\"refTarget\": { \"kind\": \"module\", \"key\": \"customer\", \"app\": \"crm-lite\" }");
-        AloneErrors(json).Should().Contain(e => e.StartsWith("contributions[0].fields[fromLead]: 貢獻的參照欄位只能指向本套件的模組或 requires.masters 的主檔模組"));
+        AloneErrors(json).Should().Contain(e => e.StartsWith("contributions[0].fields[fromLead]: 貢獻的參照欄位只能指向本積木包的模組或 requires.masters 的主檔模組"));
     }
 
     [Fact]

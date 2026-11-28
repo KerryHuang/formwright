@@ -138,7 +138,7 @@ public class SharedMasterExportTests : IDisposable
         fields.Keys.Should().Equal("no", "name", "role", "phone", "headcount", "taxId", gradeCode);
         Active(fields["taxId"]).Should().BeFalse();
         Arr(fields[gradeCode], "options").Should().ContainSingle();
-        warnings.Should().ContainSingle(w => w.Contains("產業") && w.Contains("已刪除應用程式留下的停用欄位"), string.Join("\n", warnings));
+        warnings.Should().ContainSingle(w => w.Contains("產業") && w.Contains("已刪除積木包留下的停用欄位"), string.Join("\n", warnings));
 
         var steward = Arr(module, "permissions").Should().ContainSingle().Subject;
         Arr(bp, "groups").Select(g => Str(g, "code")).Should().Equal(Str(steward, "group"));

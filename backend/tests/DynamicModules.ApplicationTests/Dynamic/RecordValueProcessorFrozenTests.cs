@@ -47,7 +47,7 @@ public class RecordValueProcessorFrozenTests
     {
         var act = () => RecordValueProcessor.Process(Mod(), V(("f_2", "\"新\"")), V(("f_2", "\"舊\"")), NoUsers, Registry, Perms(), Ctx,
             systemKeys: new HashSet<string> { "f_2" });
-        act.Should().Throw<FrozenFieldException>().WithMessage("*已關閉的應用程式「客戶關係」*");
+        act.Should().Throw<FrozenFieldException>().WithMessage("*已關閉的積木包「客戶關係」*");
     }
 
     [Fact]

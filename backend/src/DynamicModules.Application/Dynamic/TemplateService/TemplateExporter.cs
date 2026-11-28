@@ -206,7 +206,7 @@ public sealed partial class TemplateExporter(IModuleRepository modules, IPermiss
             {
                 if (_templateOf?.Invoke(target.Key) is { } templateId && _messages is not null)
                     return _messages.Get(_lc, Common.MessageText.ExportRefToTemplate, Label(f), templateId);
-                return $"「{Label(f)}」指向不屬於任何應用程式的模組，未匯出";
+                return $"「{Label(f)}」指向不屬於任何積木包的模組，未匯出";
             }
             if (f.Config.Formula is { } formula
                 && FormulaReference().Matches(formula).Any(x => !Exported.Contains(long.Parse(x.Groups[1].Value))))
@@ -265,7 +265,7 @@ public sealed partial class TemplateExporter(IModuleRepository modules, IPermiss
                 else
                 {
                     node.Remove("fill");
-                    Warnings.Add($"「{Label(f)}」的帶值引用了停用、未匯出或套件外的欄位，未匯出這個設定");
+                    Warnings.Add($"「{Label(f)}」的帶值引用了停用、未匯出或積木包外的欄位，未匯出這個設定");
                 }
             }
             if (f.Config.RefGuard is { } guard)
@@ -274,7 +274,7 @@ public sealed partial class TemplateExporter(IModuleRepository modules, IPermiss
                 var codes = guard.OptionIds.Select(id => OptionCodeOrNull(id) ?? _external?.Option(guard.FieldId, id)).ToList();
                 if (Symbol(guard.FieldId) is { } guarded && codes.All(c => c is not null))
                     node["refGuard"] = new JsonObject { ["field"] = guarded, ["in"] = new JsonArray(codes.Select(c => (JsonNode?)JsonValue.Create(c)).ToArray()) };
-                else Warnings.Add($"「{Label(f)}」的目標狀態守衛引用了停用、未匯出或套件外的欄位或選項，未匯出這個設定，匯入後不再限制目標狀態");
+                else Warnings.Add($"「{Label(f)}」的目標狀態守衛引用了停用、未匯出或積木包外的欄位或選項，未匯出這個設定，匯入後不再限制目標狀態");
             }
             if (f.Config.ParentDefaultFieldId is { } parent)
             {

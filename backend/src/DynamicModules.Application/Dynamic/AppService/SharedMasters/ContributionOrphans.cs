@@ -39,7 +39,7 @@ public sealed class ContributionOrphans(ISharedMasterRepository shared, IAppRepo
                     // 之後再刪一次時同名的選項孤兒才不會撞 (FormerAppKey, Kind, Name)（審查必修 7）
                     stale.Add(orphan);
                     stale.AddRange(orphans.Where(o => o.Kind == OrphanKind.Option && o.OptionId is { } oid && existing.Options.Any(x => x.Id == oid)));
-                    warnings.Add($"「{existing.LabelI18n.Resolve(requestLocale.Current)}」的型別和套件不同，沒有接回；舊欄位保留為停用，新欄位沿用代號 {f.Code}");
+                    warnings.Add($"「{existing.LabelI18n.Resolve(requestLocale.Current)}」的型別和積木包不同，沒有接回；舊欄位保留為停用，新欄位沿用代號 {f.Code}");
                     continue;
                 }
                 consumed.Add(orphan);

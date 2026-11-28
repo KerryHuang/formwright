@@ -19,7 +19,7 @@ public static class AppTaskRuleCodec
         string Field(long id)
         {
             var name = n.Field(id);
-            if (name is null) errors.Add("引用了套件外或已停用的欄位");
+            if (name is null) errors.Add("引用了積木包外或已停用的欄位");
             return name ?? "";
         }
         JsonElement? When(string? json) =>
@@ -33,7 +33,7 @@ public static class AppTaskRuleCodec
             if (value is { ValueKind: JsonValueKind.String } v && AppPackageValidator.OptionCodeOf(v.GetString()) is { } raw)
             {
                 var code = long.TryParse(raw, out var optionId) ? n.Option(fieldId, optionId) : null;
-                if (code is null) errors.Add("觸發值引用了套件外或已停用的選項");
+                if (code is null) errors.Add("觸發值引用了積木包外或已停用的選項");
                 value = JsonSerializer.SerializeToElement($"opt_{code}");
             }
             trigger = new AppTaskTrigger(r.Trigger.On, Field(fieldId), value);

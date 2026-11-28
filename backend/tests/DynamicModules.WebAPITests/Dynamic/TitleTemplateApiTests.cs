@@ -400,9 +400,9 @@ public class TitleTemplateApiTests(TestApp app) : IClassFixture<TestApp>
         SetStatus(e.M.Key, DynamicModules.Domain.Entities.Dynamic.ModuleStatus.Closed);
         try
         {
-            await ShouldBeConflict(await PutTitle(e.M.Key, e.M.NameId, $"{{{e.M.NameId}}}"), "應用程式已關閉");
-            await ShouldBeConflict(await PutTitle(e.M.Key, e.M.NameId, null), "應用程式已關閉");
-            await ShouldBeConflict(await RenameOption(e.Upper, "副機型"), "應用程式已關閉");
+            await ShouldBeConflict(await PutTitle(e.M.Key, e.M.NameId, $"{{{e.M.NameId}}}"), "積木包已關閉");
+            await ShouldBeConflict(await PutTitle(e.M.Key, e.M.NameId, null), "積木包已關閉");
+            await ShouldBeConflict(await RenameOption(e.Upper, "副機型"), "積木包已關閉");
         }
         finally { SetStatus(e.M.Key, DynamicModules.Domain.Entities.Dynamic.ModuleStatus.Active); }
         await TemplateAndTitlesUnchanged(e, "EQ-01 甲號車床（主機型）");

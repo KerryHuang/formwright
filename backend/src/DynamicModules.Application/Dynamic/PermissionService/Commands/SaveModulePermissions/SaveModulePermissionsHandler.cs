@@ -80,7 +80,7 @@ public class SaveModulePermissionsHandler(
         for (var i = 0; i < (body.FieldGrants?.Count ?? 0); i++)
         {
             var fg = body.FieldGrants![i];
-            if (!restricted.Contains(fg.FieldId)) Err($"fieldGrants[{i}].fieldId", "只有限定可見的欄位（其他應用程式貢獻的欄位）能設定可見群組");
+            if (!restricted.Contains(fg.FieldId)) Err($"fieldGrants[{i}].fieldId", "只有限定可見的欄位（其他積木包貢獻的欄位）能設定可見群組");
             else if (!seenGrants.Add(fg.FieldId)) Err($"fieldGrants[{i}].fieldId", "設定重複");
             for (var j = 0; j < fg.GroupIds.Count; j++)
                 if (!groupIds.Contains(fg.GroupIds[j])) Err($"fieldGrants[{i}].groupIds[{j}]", "群組不存在");

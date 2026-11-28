@@ -57,7 +57,7 @@ public class SharedMasterFreezeTests : IDisposable
     private static async Task ShouldBeFrozenAsync(HttpResponseMessage res)
     {
         res.StatusCode.Should().Be(HttpStatusCode.Conflict, await res.Content.ReadAsStringAsync());
-        (await res.Content.ReadAsStringAsync()).Should().Contain("已關閉的應用程式").And.Contain("客戶關係");
+        (await res.Content.ReadAsStringAsync()).Should().Contain("已關閉的積木包").And.Contain("客戶關係");
     }
 
     [Fact]

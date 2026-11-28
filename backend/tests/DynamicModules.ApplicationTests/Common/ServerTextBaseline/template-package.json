@@ -38,20 +38,20 @@
   "AppImportTemplateDepended": {
     "zh-TW": "{0} 已被 {1} 列為相依或整合對象，不能以範本匯入",
     "en-US": "{0} is required or integrated by {1} and cannot be imported as a template",
-    "th": "{0} ถูก {1} กำหนดเป็นแพ็กเกจที่ต้องใช้หรือคู่ค้าการเชื่อมต่อ จึงนำเข้าเป็นเทมเพลตไม่ได้",
+    "th": "{0} ถูก {1} กำหนดเป็นชุดบล็อกที่ต้องใช้หรือคู่ค้าการเชื่อมต่อ จึงนำเข้าเป็นเทมเพลตไม่ได้",
     "vi": "{0} đã được {1} khai báo là phụ thuộc hoặc đối tượng tích hợp, không thể nhập dưới dạng mẫu"
   },
   "AppImportKindToTemplate": {
-    "zh-TW": "套件 {0} 已經是應用程式，再匯入不能改成範本",
-    "en-US": "Package {0} is already an app and cannot be re-imported as a template",
-    "th": "แพ็กเกจ {0} เป็นแอปพลิเคชันอยู่แล้ว นำเข้าซ้ำเป็นเทมเพลตไม่ได้",
-    "vi": "Gói {0} đã là ứng dụng, không thể nhập lại thành mẫu"
+    "zh-TW": "積木包 {0} 已經是一般積木包，再匯入不能改成範本積木包",
+    "en-US": "Block pack {0} is already a regular block pack and cannot be re-imported as a template pack",
+    "th": "ชุดบล็อก {0} เป็นชุดบล็อกทั่วไปอยู่แล้ว นำเข้าซ้ำเป็นชุดบล็อกแม่แบบไม่ได้",
+    "vi": "Gói khối {0} đã là gói khối thường, không thể nhập lại thành gói khối mẫu"
   },
   "AppImportKindToApp": {
-    "zh-TW": "套件 {0} 已經是範本，再匯入不能改成應用程式",
-    "en-US": "Package {0} is already a template and cannot be re-imported as an app",
-    "th": "แพ็กเกจ {0} เป็นเทมเพลตอยู่แล้ว นำเข้าซ้ำเป็นแอปพลิเคชันไม่ได้",
-    "vi": "Gói {0} đã là mẫu, không thể nhập lại thành ứng dụng"
+    "zh-TW": "積木包 {0} 已經是範本積木包，再匯入不能改成一般積木包",
+    "en-US": "Block pack {0} is already a template pack and cannot be re-imported as a regular block pack",
+    "th": "ชุดบล็อก {0} เป็นชุดบล็อกแม่แบบอยู่แล้ว นำเข้าซ้ำเป็นชุดบล็อกทั่วไปไม่ได้",
+    "vi": "Gói khối {0} đã là gói khối mẫu, không thể nhập lại thành gói khối thường"
   },
   "AppTemplateNoUpgrade": {
     "zh-TW": "範本開啟後屬於你，不提供更新",

@@ -1,15 +1,15 @@
 {
   "AppClosedNoRewrite": {
-    "zh-TW": "應用程式已關閉，這項變更會改寫既有資料，請先重新開啟應用程式",
-    "en-US": "The app is closed. This change would rewrite existing data. Reopen the app first",
-    "th": "แอปพลิเคชันถูกปิด การเปลี่ยนแปลงนี้จะเขียนทับข้อมูลเดิม โปรดเปิดแอปพลิเคชันอีกครั้งก่อน",
-    "vi": "Ứng dụng đã đóng. Thay đổi này sẽ ghi đè dữ liệu hiện có, vui lòng mở lại ứng dụng trước"
+    "zh-TW": "積木包已關閉，這項變更會改寫既有資料，請先重新開啟積木包",
+    "en-US": "The block pack is closed. This change would rewrite existing data. Reopen the block pack first",
+    "th": "ชุดบล็อกถูกปิด การเปลี่ยนแปลงนี้จะเขียนทับข้อมูลเดิม โปรดเปิดชุดบล็อกอีกครั้งก่อน",
+    "vi": "Gói khối đã đóng. Thay đổi này sẽ ghi đè dữ liệu hiện có, vui lòng mở lại gói khối trước"
   },
   "AppClosedReadOnly": {
-    "zh-TW": "應用程式已關閉，資料唯讀",
-    "en-US": "The app is closed and its data is read-only",
-    "th": "แอปพลิเคชันถูกปิด ข้อมูลเป็นแบบอ่านอย่างเดียว",
-    "vi": "Ứng dụng đã đóng, dữ liệu chỉ đọc"
+    "zh-TW": "積木包已關閉，資料唯讀",
+    "en-US": "The block pack is closed and its data is read-only",
+    "th": "ชุดบล็อกถูกปิด ข้อมูลเป็นแบบอ่านอย่างเดียว",
+    "vi": "Gói khối đã đóng, dữ liệu chỉ đọc"
   },
   "ApprovalAddSignLimit": {
     "zh-TW": "這張單最多加簽 {0} 個關卡",
@@ -570,10 +570,10 @@
     "vi": "Bạn không có quyền thực hiện thao tác này"
   },
   "FrozenField": {
-    "zh-TW": "欄位「{0}」屬於已關閉的應用程式「{1}」，不能修改",
-    "en-US": "The field \"{0}\" belongs to the closed app \"{1}\" and cannot be edited",
-    "th": "ฟิลด์ \"{0}\" อยู่ในแอปพลิเคชัน \"{1}\" ที่ปิดแล้ว จึงแก้ไขไม่ได้",
-    "vi": "Trường \"{0}\" thuộc ứng dụng đã đóng \"{1}\" nên không thể sửa"
+    "zh-TW": "欄位「{0}」屬於已關閉的積木包「{1}」，不能修改",
+    "en-US": "The field \"{0}\" belongs to the closed block pack \"{1}\" and cannot be edited",
+    "th": "ฟิลด์ \"{0}\" อยู่ในชุดบล็อก \"{1}\" ที่ปิดแล้ว จึงแก้ไขไม่ได้",
+    "vi": "Trường \"{0}\" thuộc gói khối đã đóng \"{1}\" nên không thể sửa"
   },
   "FrozenFieldHidden": {
     "zh-TW": "這筆資料有無法修改的欄位",

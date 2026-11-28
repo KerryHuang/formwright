@@ -58,7 +58,7 @@ public class IntegrationGuardStage(
                 case IntegrationTarget.Suspended when reverse:
                     return ServiceResult.Conflict(Unlinked(name));
                 case IntegrationTarget.Held:
-                    return ServiceResult.Conflict($"整合「{name}」要求夥伴 {partners.Missing} 開著才能操作；請先重新開啟夥伴應用程式");
+                    return ServiceResult.Conflict($"整合「{name}」要求夥伴 {partners.Missing} 開著才能操作；請先重新開啟夥伴積木包");
                 case IntegrationTarget.Run:
                     if (await reconciler.CheckIntegrityAsync(owner, row, decl, appList, ct) is { } problem)
                         return ServiceResult.Conflict(Blocked(name, problem));
@@ -69,7 +69,7 @@ public class IntegrationGuardStage(
     }
 
     private static string Unlinked(string name) =>
-        $"整合「{name}」目前沒有運作，這筆記錄已經連動過，取消會讓兩邊對不上；請先讓整合恢復運作（重新開啟夥伴應用程式或啟用整合）再操作";
+        $"整合「{name}」目前沒有運作，這筆記錄已經連動過，取消會讓兩邊對不上；請先讓整合恢復運作（重新開啟夥伴積木包或啟用整合）再操作";
 
     private static string Blocked(string name, string? reason) =>
         $"整合「{name}」目前被阻擋（{reason}），為避免連動被略過，這個操作暫時不能做；請管理員修復整合";

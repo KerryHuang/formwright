@@ -33,7 +33,7 @@ public sealed class DemoPreflight(AppCatalog catalog, IModuleRepository modules,
         foreach (var name in DemoDashboards.Names)
             if (await dashboards.AssignedNameExistsAsync(name, ct)) conflicts.Add($"儀表板「{name}」已存在");
         foreach (var id in DemoCatalog.AppIds)
-            if (await apps.GetByKeyAsync(id, ct) is not null) conflicts.Add($"應用程式 {id} 已開啟");
+            if (await apps.GetByKeyAsync(id, ct) is not null) conflicts.Add($"積木包 {id} 已開啟");
         conflicts.AddRange(await people.ConflictsAsync(ct));
         return conflicts;
     }

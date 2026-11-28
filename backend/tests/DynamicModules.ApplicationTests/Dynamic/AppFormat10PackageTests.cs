@@ -274,7 +274,7 @@ public class AppFormat10PackageTests
         var p = Package(10);
         FieldOf(p, "idNo")["excludeFromAi"] = "yes";
 
-        Parse(p).Errors.Should().ContainSingle().Which.Should().Contain("套件格式錯誤");
+        Parse(p).Errors.Should().ContainSingle().Which.Should().Contain("積木包格式錯誤");
     }
 
     // ---- 範本格式 1、2（§8.1、§9 第 5 點） ----

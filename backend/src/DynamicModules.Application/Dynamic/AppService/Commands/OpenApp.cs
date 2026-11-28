@@ -83,7 +83,7 @@ public class AppOpener(
         var preview = plan.Preview;
         if (preview.Errors.Count > 0)
             return ServiceResult.Invalid(new Dictionary<string, string[]> { ["package"] = [.. preview.Errors] });
-        if (!preview.CanOpen) return ServiceResult.ConflictWith("無法開啟應用程式", preview);
+        if (!preview.CanOpen) return ServiceResult.ConflictWith("無法開啟積木包", preview);
 
         var package = plan.Source!.Package;
         var warnings = new List<string>(preview.Warnings);

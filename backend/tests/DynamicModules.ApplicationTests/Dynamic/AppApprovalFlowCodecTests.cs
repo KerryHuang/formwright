@@ -267,7 +267,7 @@ public class AppApprovalFlowCodecTests
         var nodes = input.Definition.Nodes!.Select(n => n.Id == "tell" ? n with { Recipients = [new NotifyRecipientDef("users", UserIds: ["buyer01"])] } : n).ToList();
         var (flow, errors) = Export(input with { Definition = input.Definition with { Nodes = nodes } });
         flow.Should().BeNull();
-        errors.Should().Equal("簽核流程「採購單（大額）」節點「知會」指定了具體使用者，帳號屬於這個資料庫，套件不收");
+        errors.Should().Equal("簽核流程「採購單（大額）」節點「知會」指定了具體使用者，帳號屬於這個資料庫，積木包不收");
     }
 
     [Fact]
@@ -406,10 +406,10 @@ public class AppApprovalFlowCodecTests
         var stage = input with { Definition = input.Definition with { Nodes = nodes } };
         var (flow, errors) = Export(stage);
         flow.Should().BeNull();
-        errors.Should().Equal("簽核流程「採購單（大額）」節點「lead」指定了具體使用者，帳號屬於這個資料庫，套件不收");
+        errors.Should().Equal("簽核流程「採購單（大額）」節點「lead」指定了具體使用者，帳號屬於這個資料庫，積木包不收");
 
         var fallback = input with { Definition = input.Definition with { FallbackApprovers = users } };
-        Export(fallback).Errors.Should().Equal("簽核流程「採購單（大額）」的備援簽核人指定了具體使用者，帳號屬於這個資料庫，套件不收");
+        Export(fallback).Errors.Should().Equal("簽核流程「採購單（大額）」的備援簽核人指定了具體使用者，帳號屬於這個資料庫，積木包不收");
     }
 
     [Fact]
@@ -434,8 +434,8 @@ public class AppApprovalFlowCodecTests
         var (flow, errors) = Export(input!);
         flow.Should().BeNull();
         errors.Should().Equal(
-            "簽核流程「採購單（大額）」節點「board」有開啟套件時略過的群組，請先在設計器移除或補上群組",
-            "簽核流程「採購單（大額）」節點「owner」有開啟套件時略過的群組，請先在設計器移除或補上群組");
+            "簽核流程「採購單（大額）」節點「board」有開啟積木包時略過的群組，請先在設計器移除或補上群組",
+            "簽核流程「採購單（大額）」節點「owner」有開啟積木包時略過的群組，請先在設計器移除或補上群組");
     }
 
     [Fact]

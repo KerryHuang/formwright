@@ -116,7 +116,7 @@ public class SharedMasterDeleteTests : IDisposable
 
         var deleted = await DeleteOkAsync("crmx");
         deleted.GetProperty("warnings").EnumerateArray().Select(w => w.GetString()).Should()
-            .Equal(["共用主檔「聯絡人」已沒有應用程式使用，仍有 0 筆資料，已保留"], "往來對象還有進銷存在用，聯絡人只有 crmx 用");
+            .Equal(["共用主檔「聯絡人」已沒有積木包使用，仍有 0 筆資料，已保留"], "往來對象還有進銷存在用，聯絡人只有 crmx 用");
 
         FieldExists(fromLead).Should().BeFalse("參照自己模組的貢獻欄位一起清除");
         FieldExists(score).Should().BeFalse("沒有值的貢獻欄位直接刪");

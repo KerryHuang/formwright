@@ -30,10 +30,10 @@
     "vi": "Trang tính \"{0}\" vượt quá {1} dòng"
   },
   "LocaleTemplateDesignTooMany": {
-    "zh-TW": "設計資料超過 {0} 列，請選應用程式或模組縮小範圍",
-    "en-US": "Design data exceeds {0} rows. Choose an app or module to narrow the scope",
-    "th": "ข้อมูลการออกแบบเกิน {0} แถว โปรดเลือกแอปหรือโมดูลเพื่อจำกัดขอบเขต",
-    "vi": "Dữ liệu thiết kế vượt quá {0} dòng, vui lòng chọn ứng dụng hoặc mô-đun để thu hẹp phạm vi"
+    "zh-TW": "設計資料超過 {0} 列，請選積木包或模組縮小範圍",
+    "en-US": "Design data exceeds {0} rows. Choose a block pack or module to narrow the scope",
+    "th": "ข้อมูลการออกแบบเกิน {0} แถว โปรดเลือกชุดบล็อกหรือโมดูลเพื่อจำกัดขอบเขต",
+    "vi": "Dữ liệu thiết kế vượt quá {0} dòng, vui lòng chọn gói khối hoặc mô-đun để thu hẹp phạm vi"
   },
   "LocaleTemplateDesignNewLocale": {
     "zh-TW": "設計資料只能匯出已安裝的語系",
@@ -42,10 +42,10 @@
     "vi": "Chỉ có thể xuất dữ liệu thiết kế cho ngôn ngữ đã cài đặt"
   },
   "LocaleTemplateDesignScopeInvalid": {
-    "zh-TW": "找不到應用程式或模組「{0}」",
-    "en-US": "The app or module \"{0}\" was not found",
-    "th": "ไม่พบแอปหรือโมดูล \"{0}\"",
-    "vi": "Không tìm thấy ứng dụng hoặc mô-đun \"{0}\""
+    "zh-TW": "找不到積木包或模組「{0}」",
+    "en-US": "The block pack or module \"{0}\" was not found",
+    "th": "ไม่พบชุดบล็อกหรือโมดูล \"{0}\"",
+    "vi": "Không tìm thấy gói khối hoặc mô-đun \"{0}\""
   },
   "LocaleTemplateFormatInvalid": {
     "zh-TW": "格式只能是 json 或 xlsx",

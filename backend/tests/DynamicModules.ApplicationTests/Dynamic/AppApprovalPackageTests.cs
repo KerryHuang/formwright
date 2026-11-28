@@ -155,7 +155,7 @@ public class AppApprovalPackageTests
     public void Format11_Parse_NeedsNewerVersion()
     {
         AppJson.Parse(Package(GraphFlow, formatVersion: 11)).Errors.Should().ContainSingle()
-            .Which.Should().Be("這個套件需要較新版本的 Formwright");
+            .Which.Should().Be("這個積木包需要較新版本的 Formwright");
     }
 
     // ---- 格式 9：流程圖（流程圖設計 §13 第 5 點） ----
@@ -303,7 +303,7 @@ public class AppApprovalPackageTests
     public void UserIdsProperty_ParseRejected()
     {
         var json = Package(With(MidFlow, "\"source\": \"manager\", \"level\": 1", "\"source\": \"users\", \"userIds\": [\"buyer01\"]"));
-        AppJson.Parse(json).Errors.Should().ContainSingle().Which.Should().StartWith("套件格式錯誤");
+        AppJson.Parse(json).Errors.Should().ContainSingle().Which.Should().StartWith("積木包格式錯誤");
     }
 
     [Fact]

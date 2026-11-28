@@ -4,7 +4,7 @@
   "manifest": {
     "id": "partner",
     "kind": "master",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "name": {
       "zh-TW": "往來對象",
       "en-US": "Business partners",
@@ -12,7 +12,7 @@
       "vi": "Đối tác"
     },
     "description": {
-      "zh-TW": "客戶與供應商共用的公司資料，各應用程式在自己的區塊加欄位",
+      "zh-TW": "客戶與供應商共用的公司資料，各積木包在自己的區塊加欄位",
       "en-US": "Companies shared as customers and suppliers; each app adds its own fields in its own section",
       "th": "ข้อมูลบริษัทที่ใช้ร่วมกันทั้งลูกค้าและผู้ขาย แต่ละแอปเพิ่มฟิลด์ในส่วนของตัวเอง",
       "vi": "Dữ liệu công ty dùng chung cho khách hàng và nhà cung cấp; mỗi ứng dụng thêm trường trong phần riêng"

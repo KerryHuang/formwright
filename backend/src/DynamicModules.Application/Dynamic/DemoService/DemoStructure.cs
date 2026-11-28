@@ -76,7 +76,7 @@ public sealed class DemoStructure(
             var app = appId == DemoCatalog.CrmAppId
                 ? await appOpener.OpenTextAsync(DemoOldCrm.Derive(catalog.OriginalOf(appId)!), body, ct)
                 : await appOpener.OpenAsync(appId, body, ct);
-            if (!app.Result.IsSuccess) return (null, Fail($"開啟應用程式 {appId}", app.Result));
+            if (!app.Result.IsSuccess) return (null, Fail($"開啟積木包 {appId}", app.Result));
             opened[appId] = app.Ids!;
         }
 

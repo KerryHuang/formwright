@@ -274,8 +274,12 @@ public class ClosedModuleTests : IDisposable
         var w = await MakeWorld();
         SetStatus(w.Target, ModuleStatus.Closed);
 
-        (await _admin.PostAsync($"{Base}/modules/{w.Target}/activate", null)).StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await _admin.PostAsync($"{Base}/modules/{w.Target}/deactivate", null)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        foreach (var action in new[] { "activate", "deactivate" })
+        {
+            var res = await _admin.PostAsync($"{Base}/modules/{w.Target}/{action}", null);
+            res.StatusCode.Should().Be(HttpStatusCode.Conflict);
+            (await res.Content.ReadAsStringAsync()).Should().Contain("請由積木包重新開啟或關閉");
+        }
         (await _admin.DeleteAsync($"{Base}/modules/{w.Target}?purged=0")).StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 

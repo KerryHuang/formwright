@@ -43,7 +43,7 @@ public static class AppJson
 
     public static AppParseResult Parse(byte[] content)
     {
-        if (content.Length > MaxBytes) return Fail($"套件檔案不能超過 {MaxBytes / 1024 / 1024} MiB");
+        if (content.Length > MaxBytes) return Fail($"積木包檔案不能超過 {MaxBytes / 1024 / 1024} MiB");
 
         var bytes = content.AsSpan();
         if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) bytes = bytes[3..];
@@ -54,7 +54,7 @@ public static class AppJson
         }
         catch (DecoderFallbackException)
         {
-            return Fail("套件必須是 UTF-8 編碼");
+            return Fail("積木包必須是 UTF-8 編碼");
         }
 
         var bytesForReader = Encoding.UTF8.GetBytes(text);
@@ -67,9 +67,9 @@ public static class AppJson
         }
         catch (JsonException e)
         {
-            return Fail($"套件不是有效的 JSON：{e.Message}");
+            return Fail($"積木包不是有效的 JSON：{e.Message}");
         }
-        if (root is not JsonObject obj) return Fail("套件必須是 JSON 物件");
+        if (root is not JsonObject obj) return Fail("積木包必須是 JSON 物件");
 
         if (obj["formatVersion"] is not JsonValue fv || !fv.TryGetValue<int>(out var version))
             return Fail("缺少 formatVersion（整數）");
@@ -77,13 +77,13 @@ public static class AppJson
         // 範本檔（沒有 format 屬性）：格式 1 一律是範本；範本格式 2 起和套件格式同號，以有沒有 format 區分（名稱多語設計 §8.1）。
         // 比目前認得的範本格式新的，報「需要較新版本」，不走套件讀取器報誤導的「缺少 format」（i3c 審查 🟢4）
         var isTemplate = version == 1 || (version >= 2 && obj["format"] is null && obj["key"] is not null);
-        if (isTemplate && version > TemplatePackage.CurrentFormatVersion) return Fail("這個套件需要較新版本的 Formwright");
+        if (isTemplate && version > TemplatePackage.CurrentFormatVersion) return Fail("這個積木包需要較新版本的 Formwright");
         if (isTemplate)
         {
             var (template, error) = TemplateJson.Parse(text);
             return template is null ? Fail(error ?? "範本格式錯誤") : new AppParseResult(1, null, template, []);
         }
-        if (version > AppPackageData.CurrentFormatVersion) return Fail("這個套件需要較新版本的 Formwright");
+        if (version > AppPackageData.CurrentFormatVersion) return Fail("這個積木包需要較新版本的 Formwright");
         if (version < AppPackageData.MinFormatVersion) return Fail($"不支援的 formatVersion：{version}");
 
         DropExtensionProperties(obj);
@@ -100,11 +100,11 @@ public static class AppJson
         try
         {
             var package = obj.Deserialize<AppPackageData>(StrictOptions);
-            return package is null ? Fail("套件內容是空的") : new AppParseResult(version, package, null, []);
+            return package is null ? Fail("積木包內容是空的") : new AppParseResult(version, package, null, []);
         }
         catch (JsonException e)
         {
-            return Fail($"套件格式錯誤：{e.Message}");
+            return Fail($"積木包格式錯誤：{e.Message}");
         }
     }
 
@@ -146,7 +146,7 @@ public static class AppJson
         }
         catch (JsonException e)
         {
-            return $"套件不是有效的 JSON：{e.Message}";
+            return $"積木包不是有效的 JSON：{e.Message}";
         }
         return null;
     }

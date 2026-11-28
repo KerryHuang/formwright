@@ -67,7 +67,7 @@ public class ClosedDefinitionTests : IDisposable
     private static async Task ShouldBeConflict(HttpResponseMessage res)
     {
         res.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await res.Content.ReadAsStringAsync()).Should().Contain("應用程式已關閉");
+        (await res.Content.ReadAsStringAsync()).Should().Contain("積木包已關閉");
     }
 
     // ── 換標題欄位 ──

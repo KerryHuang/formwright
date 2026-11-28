@@ -7,9 +7,9 @@
   },
   "AppUpgradeUpToDate": {
     "zh-TW": "已是最新",
-    "en-US": "This app is already up to date",
-    "th": "แอปพลิเคชันนี้เป็นเวอร์ชันล่าสุดแล้ว",
-    "vi": "Ứng dụng đã là phiên bản mới nhất"
+    "en-US": "This block pack is already up to date",
+    "th": "ชุดบล็อกนี้เป็นเวอร์ชันล่าสุดแล้ว",
+    "vi": "Gói khối đã là phiên bản mới nhất"
   },
   "AppUpgradeNoCandidate": {
     "zh-TW": "沒有可用的新版",

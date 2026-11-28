@@ -17,8 +17,8 @@ public static class ContributionFieldRules
         FieldType.Enum, FieldType.Boolean, FieldType.User, FieldType.Reference, FieldType.Formula
     };
 
-    public const string TargetNotAllowed = "貢獻的參照欄位只能指向本套件的模組或 requires.masters 的主檔模組";
-    public const string OwnModuleMustSetNull = "指向本套件模組的貢獻參照欄位必須是 setNull";
+    public const string TargetNotAllowed = "貢獻的參照欄位只能指向本積木包的模組或 requires.masters 的主檔模組";
+    public const string OwnModuleMustSetNull = "指向本積木包模組的貢獻參照欄位必須是 setNull";
 
     public static string FormulaOutOfScope(string code) => $"公式引用了 {code}，貢獻的公式只能引用主檔的基本欄位與本貢獻的欄位";
 
@@ -29,10 +29,10 @@ public static class ContributionFieldRules
     {
         if (!AllowedTypes.Contains(type))
             yield return (".type", $"貢獻欄位不能是 {type.ToString().ToLowerInvariant()}（不收自動編號、複選、附件、彙總）");
-        if (required) yield return ("", "貢獻欄位不得必填（別的應用程式建立主檔記錄時不該被擋住）");
+        if (required) yield return ("", "貢獻欄位不得必填（別的積木包建立主檔記錄時不該被擋住）");
         if (detail) yield return ("", "貢獻欄位不能是明細的表頭參照");
         if (type == FieldType.Reference && cascade)
-            yield return (".onDelete", "貢獻的參照欄位不能是 cascade（主檔記錄不能因為別的應用程式刪資料而消失）");
+            yield return (".onDelete", "貢獻的參照欄位不能是 cascade（主檔記錄不能因為別的積木包刪資料而消失）");
     }
 
     /// <summary>指向自己模組的要 setNull：刪除自己的記錄時清掉追溯值，不然轉換過一次之後那筆記錄就刪不掉（§4.3）。</summary>

@@ -87,7 +87,7 @@ public class ImportAppPackageHandler(
             current = await packages.FindAsync(id, ct);
             var app = await apps.GetByKeyAsync(id, ct);
             if (!package.Manifest.IsMaster || current is null || !current.Package.Manifest.IsMaster || app is { Kind: not AppKind.Master })
-                return ServiceResult.Conflict("套件代碼已存在");
+                return ServiceResult.Conflict("積木包代碼已存在");
         }
 
         // requires（含 requires.masters）不得循環：把新套件加進「所有已知套件加上已開啟應用程式的 requires」的圖
@@ -152,7 +152,7 @@ public class ImportAppPackageHandler(
                 return Invalid(dbLimitErrors.Select(e => $"合併後的主檔：{e}"));
             var dbErrors = AppPackageValidator.Validate(fromDb, others).Errors;
             if (dbErrors.Count == 0) merged = fromDb;
-            else warnings = [.. warnings, $"資料庫裡的主檔不合乎主檔套件格式（{dbErrors[0]}），存下的是檔案層的合併結果，之後的匯出可能與資料庫不同"];
+            else warnings = [.. warnings, $"資料庫裡的主檔不合乎主檔積木包格式（{dbErrors[0]}），存下的是檔案層的合併結果，之後的匯出可能與資料庫不同"];
         }
 
         var json = JsonSerializer.Serialize(merged, TemplateJson.Options);

@@ -193,12 +193,12 @@ public class SharedMasterDesignerTests : IDisposable
 
         var add = await PostField(_rig.Admin, crm, "text", "新欄位");
         add.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await add.Content.ReadAsStringAsync()).Should().Contain("已刪除的應用程式").And.Contain("基本區塊");
+        (await add.Content.ReadAsStringAsync()).Should().Contain("已刪除的積木包").And.Contain("基本區塊");
         (await PostOption(_rig.Admin, industry, "服務")).StatusCode.Should().Be(HttpStatusCode.Conflict, "孤兒欄位不能加選項");
         var phone = _rig.FieldId("bp", "partner.phone");
         var into = await MoveAsync(_rig.Admin, phone, crm);
         into.StatusCode.Should().Be(HttpStatusCode.Conflict, "不能拖進孤兒區塊");
-        (await into.Content.ReadAsStringAsync()).Should().Contain("已刪除的應用程式");
+        (await into.Content.ReadAsStringAsync()).Should().Contain("已刪除的積木包");
         (await MoveAsync(_rig.Admin, industry, BlockOf("bp", "partner.main"))).StatusCode.Should().Be(HttpStatusCode.Conflict, "孤兒欄位不能拖出");
         _rig.Db(db => db.Set<Field>().Count(f => f.BlockId == crm)).Should().Be(1);
     }
