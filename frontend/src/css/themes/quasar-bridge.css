@@ -502,7 +502,7 @@ textarea:focus-visible {
    灰底是文字色的淡色疊加：表單直接放在頁面上，用頁面底色會和周圍同色。比例再高，清爽淺色的欄位標籤對比會低於 4.5。
    只限動態表單，其他頁面照 Quasar 預設。查找欄內部用唯讀輸入框擋鍵盤，可編輯時要長得和一般輸入框一樣。 */
 .dynamic-form .q-field--readonly:not(.popup-select--editable) .q-field__control {
-  background: color-mix(in srgb, var(--t-text) 4%, transparent);
+  background: color-mix(in srgb, var(--t-text) 4%, var(--t-bg));
 }
 
 .dynamic-form .q-field--outlined.q-field--readonly .q-field__control:before,

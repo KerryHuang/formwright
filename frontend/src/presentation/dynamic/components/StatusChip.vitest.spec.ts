@@ -56,7 +56,7 @@ describe('StatusChip', () => {
     mounted.forEach((w) => w.unmount());
     plain.remove();
     style.remove();
-    // Quasar 的 grey 與 grey-5 是同一個色盤值，其餘各不相同
+    // Quasar 的 grey 與 grey-6 是同一個色盤值，其餘各不相同
     expect(new Set(colors.slice(1)).size).toBe(4);
     expect(colors.join()).not.toContain('var(');
     expect(plainColor).toContain('--t-muted');

@@ -313,7 +313,7 @@ describe('print.css', () => {
 describe('單據頁呈現（唯讀欄位、數字）', () => {
   it('表單裡的唯讀欄位：灰底是文字色淡色疊加（直接放在頁面上也看得出）、外框實線；可編輯的查找欄不上灰底', () => {
     const fill = bodiesOf(bridge, '.dynamic-form .q-field--readonly:not(.popup-select--editable) .q-field__control').join(';');
-    expect(fill).toMatch(/background:\s*color-mix\(in srgb, var\(--t-text\) \d+%, transparent\)/);
+    expect(fill).toMatch(/background:\s*color-mix\(in srgb, var\(--t-text\) \d+%, var\(--t-bg\)\)/);
     const line = bodiesOf(bridge, '.dynamic-form .q-field--outlined.q-field--readonly .q-field__control:before').join(';');
     expect(line).toMatch(/border-style:\s*solid/);
   });
