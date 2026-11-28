@@ -126,6 +126,30 @@ public class TaskReportRunnerTests : TaskTestBase
         r.Columns.Single(c => c.Key == "ok").Label.Should().Be("完成狀況＝準時完成 筆數");
     }
 
+    /// <summary>量值名稱（kr3）：有名稱就照語系顯示，缺的語系沿退回鏈補；沒有名稱的欄名維持自動欄名。</summary>
+    [Fact]
+    public async Task MeasureLabel_OverridesAutoName_ByLocale()
+    {
+        await Done("sales01", 1, 3);
+        var onTime = Fl(F.Completion, "eq", Opt(F.CompletionOnTime));
+        var label = new Domain.ValueObjects.I18nText([KeyValuePair.Create("zh-TW", "準時件數"), KeyValuePair.Create("en-US", "On time")]);
+        var d = TaskDef([M("n", "countMain"), new ReportMeasure("ok", "countIf", null, onTime, label)]);
+
+        async Task<ReportResult> RunIn(string locale)
+        {
+            using var scope = NewScope();
+            return await scope.ServiceProvider.GetRequiredService<ReportRunner>().RunAsync(d, new ReportRunOptions(null, null, locale), default);
+        }
+
+        var zh = await RunIn("zh-TW");
+        zh.Columns.Single(c => c.Key == "ok").Label.Should().Be("準時件數");
+        var unlabeled = await Run(TaskDef([M("n", "countMain"), M("ok", "countIf", cond: onTime)]));
+        zh.Columns.Single(c => c.Key == "n").Label.Should().Be(unlabeled.Columns.Single(c => c.Key == "n").Label, "沒有名稱的量值不受影響");
+        unlabeled.Columns.Single(c => c.Key == "ok").Label.Should().Be("完成狀況＝準時完成 筆數");
+        (await RunIn("en-US")).Columns.Single(c => c.Key == "ok").Label.Should().Be("On time");
+        (await RunIn("th")).Columns.Single(c => c.Key == "ok").Label.Should().Be("準時件數", "th 缺值時退回繁中");
+    }
+
     [Fact]
     public async Task WorkloadShape_GroupsByAssignee_WithUnassigned()
     {

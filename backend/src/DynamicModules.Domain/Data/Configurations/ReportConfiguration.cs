@@ -8,9 +8,12 @@ public class ReportConfiguration : IEntityTypeConfiguration<Report>
 {
     public void Configure(EntityTypeBuilder<Report> b)
     {
-        b.ToTable("Dynamic_Report");
+        // 沒有擁有者的列一定是內建報表（看板設計 §8.3）
+        b.ToTable("Dynamic_Report", t => t.HasCheckConstraint("CK_Report_OwnerOrBuiltIn", "\"OwnerUserId\" IS NOT NULL OR \"BuiltInCode\" IS NOT NULL"));
         b.HasKey(x => x.Id);
-        b.Property(x => x.OwnerUserId).HasMaxLength(50).IsRequired();
+        b.Property(x => x.OwnerUserId).HasMaxLength(50);
+        b.Property(x => x.BuiltInCode).HasMaxLength(64);
+        b.HasIndex(x => x.BuiltInCode).IsUnique().HasFilter("\"BuiltInCode\" IS NOT NULL");
         b.Property(x => x.NameI18n).HasJsonConversion();
         b.Property(x => x.DefinitionJson).IsRequired();
         b.Property(x => x.RowVersion).HasMaxLength(36).IsRequired().IsConcurrencyToken();

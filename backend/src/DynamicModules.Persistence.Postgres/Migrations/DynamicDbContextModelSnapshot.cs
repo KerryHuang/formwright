@@ -3806,6 +3806,11 @@ namespace DynamicModules.Persistence.Postgres.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<string>("BuiltInCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("text")
+                        .UseCollation("C");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp without time zone");
 
@@ -3834,7 +3839,6 @@ namespace DynamicModules.Persistence.Postgres.Migrations
                         .UseCollation("C");
 
                     b.Property<string>("OwnerUserId")
-                        .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("text")
                         .UseCollation("C");
@@ -3848,9 +3852,16 @@ namespace DynamicModules.Persistence.Postgres.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BuiltInCode")
+                        .IsUnique()
+                        .HasFilter("\"BuiltInCode\" IS NOT NULL");
+
                     b.HasIndex("OwnerUserId");
 
-                    b.ToTable("Dynamic_Report", (string)null);
+                    b.ToTable("Dynamic_Report", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Report_OwnerOrBuiltIn", "\"OwnerUserId\" IS NOT NULL OR \"BuiltInCode\" IS NOT NULL");
+                        });
                 });
 
             modelBuilder.Entity("DynamicModules.Domain.Entities.Dynamic.ReportShare", b =>

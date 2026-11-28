@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DynamicModules.Domain.ValueObjects;
 
 namespace DynamicModules.Domain.Reports;
 
@@ -32,7 +33,12 @@ public record ReportFieldRef(string Source, long FieldId, long? ViaFieldId);
 
 public record ReportGroup(ReportFieldRef Field, string? Bucket);
 
-public record ReportMeasure(string Id, string Kind, ReportFieldRef? Field, ReportFilter? Condition);
+/// <summary>
+/// Label 是量值的自訂名稱（kr3，看板設計 §18 第 10 點）：有值時欄名依語系取它，否則用自動欄名；null 時不輸出，舊定義的 JSON 逐字不變。
+/// 內建報表帶名稱，另存的副本照抄；設計器只保留不提供編輯，改了量值種類、欄位或條件就清掉（kr3 Q3）。
+/// </summary>
+public record ReportMeasure(string Id, string Kind, ReportFieldRef? Field, ReportFilter? Condition,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] I18nText? Label = null);
 
 public record ReportFilter(ReportFieldRef Field, string Op, JsonElement? Value);
 

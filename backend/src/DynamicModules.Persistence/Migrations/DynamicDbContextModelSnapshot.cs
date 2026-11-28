@@ -3371,6 +3371,10 @@ namespace DynamicModules.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("BuiltInCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("TEXT");
 
@@ -3395,7 +3399,6 @@ namespace DynamicModules.Persistence.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("OwnerUserId")
-                        .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("TEXT");
 
@@ -3407,9 +3410,16 @@ namespace DynamicModules.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BuiltInCode")
+                        .IsUnique()
+                        .HasFilter("\"BuiltInCode\" IS NOT NULL");
+
                     b.HasIndex("OwnerUserId");
 
-                    b.ToTable("Dynamic_Report", (string)null);
+                    b.ToTable("Dynamic_Report", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Report_OwnerOrBuiltIn", "\"OwnerUserId\" IS NOT NULL OR \"BuiltInCode\" IS NOT NULL");
+                        });
                 });
 
             modelBuilder.Entity("DynamicModules.Domain.Entities.Dynamic.ReportShare", b =>

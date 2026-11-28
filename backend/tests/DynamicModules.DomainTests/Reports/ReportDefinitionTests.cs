@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DynamicModules.Domain.Reports;
+using DynamicModules.Domain.ValueObjects;
 using FluentAssertions;
 
 namespace DynamicModules.DomainTests.Reports;
@@ -66,5 +67,28 @@ public class ReportDefinitionTests
         var json = ReportDefinition.Serialize(def);
         json.Should().Contain("\"dataset\":\"tasks\"");
         ReportDefinition.Parse(json).Dataset.Should().Be("tasks");
+    }
+
+    /// <summary>量值名稱（kr3，看板設計 §18 第 10 點）：沒有名稱的定義逐字不變，舊 JSON 不用 migration。</summary>
+    [Fact]
+    public void Measure_WithoutLabel_SerializesUnchanged()
+    {
+        const string json = """{"version":1,"mainModuleKey":"orders","child":null,"columns":[],"groups":[],"measures":[{"id":"m1","kind":"countMain","field":null,"condition":null}],"filters":[],"primaryDateField":null,"dateRange":null,"sort":[],"viz":"table"}""";
+        var def = ReportDefinition.Parse(json);
+        def.Measures[0].Label.Should().BeNull();
+        ReportDefinition.Serialize(def).Should().Be(json).And.NotContain("label");
+    }
+
+    [Fact]
+    public void Measure_WithLabel_RoundTrips()
+    {
+        var label = new I18nText([KeyValuePair.Create("zh-TW", "準時率"), KeyValuePair.Create("en-US", "On-time rate")]);
+        var def = new ReportDefinition(1, "", null, [], [], [new ReportMeasure("rate", "countMain", null, null, label)], [], null, null, [], "table", "tasks");
+
+        var json = ReportDefinition.Serialize(def);
+        json.Should().Contain("\"label\":{\"zh-TW\":");
+        var back = ReportDefinition.Parse(json).Measures[0].Label!;
+        back.Resolve("en-US").Should().Be("On-time rate");
+        back.Resolve("zh-TW").Should().Be("準時率");
     }
 }
