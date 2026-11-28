@@ -98,6 +98,8 @@ public static class MessageText
         ReportMeasureLabelTooManyLocales = nameof(ReportMeasureLabelTooManyLocales), ReportMeasureLabelBadLocale = nameof(ReportMeasureLabelBadLocale),
         ReportMeasureLabelNullValue = nameof(ReportMeasureLabelNullValue), ReportMeasureLabelEmpty = nameof(ReportMeasureLabelEmpty),
         ReportMeasureLabelTooLong = nameof(ReportMeasureLabelTooLong),
+        // 匯出補繁中會超過語系數上限（kr3 複審 R3）
+        ExportReportNameTooManyLocales = nameof(ExportReportNameTooManyLocales), ExportMeasureLabelTooManyLocales = nameof(ExportMeasureLabelTooManyLocales),
         // 模組選單分區（名稱多語設計 §9 第 4 點；模組設計器其餘驗證訊息仍是字面值）
         ModuleSectionZhRequired = nameof(ModuleSectionZhRequired),
         // 甘特設定的驗證錯誤（鍵同 Domain 的 TaskGanttConfigErrors）
@@ -539,6 +541,14 @@ public static class MessageText
             "ชื่อของค่าวัด {0} ต้องมีข้อความอย่างน้อยหนึ่งภาษา", "Tên của chỉ số {0} cần có văn bản ở ít nhất một ngôn ngữ"),
         [ReportMeasureLabelTooLong] = ("量值 {0} 的名稱最多 {1} 個字", "The name of measure {0} can be at most {1} characters",
             "ชื่อของค่าวัด {0} ยาวได้สูงสุด {1} ตัวอักษร", "Tên của chỉ số {0} dài tối đa {1} ký tự"),
+        [ExportReportNameTooManyLocales] = ("報表「{0}」的名稱已有 {1} 個語系但沒有繁中，匯出要補上繁中會超過 {1} 個語系的上限，請先補上繁中或刪掉一個語系",
+            "The name of report \"{0}\" already has {1} languages but no Traditional Chinese. Exporting must add Traditional Chinese, which would exceed the limit of {1} languages. Add Traditional Chinese or remove a language first",
+            "ชื่อของรายงาน \"{0}\" มีครบ {1} ภาษาแล้วแต่ไม่มีภาษาจีนตัวเต็ม การส่งออกต้องเพิ่มภาษาจีนตัวเต็มซึ่งจะเกินขีดจำกัด {1} ภาษา โปรดเพิ่มภาษาจีนตัวเต็มหรือลบภาษาหนึ่งออกก่อน",
+            "Tên của báo cáo \"{0}\" đã có {1} ngôn ngữ nhưng chưa có tiếng Trung phồn thể. Khi xuất phải thêm tiếng Trung phồn thể và sẽ vượt giới hạn {1} ngôn ngữ. Hãy thêm tiếng Trung phồn thể hoặc xóa bớt một ngôn ngữ trước"),
+        [ExportMeasureLabelTooManyLocales] = ("報表「{0}」的量值 {1} 的名稱已有 {2} 個語系但沒有繁中，匯出要補上繁中會超過 {2} 個語系的上限，請先補上繁中或刪掉一個語系",
+            "The name of measure {1} in report \"{0}\" already has {2} languages but no Traditional Chinese. Exporting must add Traditional Chinese, which would exceed the limit of {2} languages. Add Traditional Chinese or remove a language first",
+            "ชื่อของค่าวัด {1} ในรายงาน \"{0}\" มีครบ {2} ภาษาแล้วแต่ไม่มีภาษาจีนตัวเต็ม การส่งออกต้องเพิ่มภาษาจีนตัวเต็มซึ่งจะเกินขีดจำกัด {2} ภาษา โปรดเพิ่มภาษาจีนตัวเต็มหรือลบภาษาหนึ่งออกก่อน",
+            "Tên của chỉ số {1} trong báo cáo \"{0}\" đã có {2} ngôn ngữ nhưng chưa có tiếng Trung phồn thể. Khi xuất phải thêm tiếng Trung phồn thể và sẽ vượt giới hạn {2} ngôn ngữ. Hãy thêm tiếng Trung phồn thể hoặc xóa bớt một ngôn ngữ trước"),
         [ModuleSectionZhRequired] = ("選單分區有其他語系時必須有繁體中文", "The menu section must have Traditional Chinese when other languages are filled in",
             "เมื่อกรอกส่วนเมนูในภาษาอื่น ต้องมีภาษาจีนตัวเต็มด้วย", "Khi nhập phần menu bằng ngôn ngữ khác, phải có tiếng Trung phồn thể"),
         [TaskGanttNameRequired] = ("甘特圖名稱必填", "Gantt chart name is required", "ต้องระบุชื่อแผนภูมิแกนต์", "Tên biểu đồ Gantt là bắt buộc"),

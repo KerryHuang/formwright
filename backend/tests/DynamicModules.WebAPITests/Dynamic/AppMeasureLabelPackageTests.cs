@@ -102,6 +102,80 @@ public sealed class AppMeasureLabelPackageTests : IDisposable
         StoredLabel(other)!["en-US"]!.GetValue<string>().Should().Be("Count");
     }
 
+    /// <summary>n 個格式正確、互不相同、都不是繁中的語系代碼（xa、xb…）。</summary>
+    private static Dictionary<string, string> Locales(int n, string text) =>
+        Enumerable.Range(0, n).ToDictionary(i => $"x{(char)('a' + i / 26)}{(char)('a' + i % 26)}", _ => text);
+
+    private async Task<string> ExportRejectedAsync()
+    {
+        var res = await _rig.Admin.GetAsync($"{Base}/apps/{AppId}/export");
+        var body = await res.Content.ReadAsStringAsync();
+        res.StatusCode.Should().Be(HttpStatusCode.Conflict, body);
+        return body;
+    }
+
+    /// <summary>量值名稱已有上限個語系又缺繁中：補了就超過上限、匯不回去，整份明確拒絕並指出報表與量值（kr3 複審 R3）。</summary>
+    [Fact]
+    public async Task Export_MeasureLabelAtMaxLocalesWithoutZhTw_IsRejected_R3()
+    {
+        await _rig.ImportAsync(Package().ToJsonString());
+        await _rig.OpenOkAsync(AppId, new { groupMap = new { } });
+        await LabelAsync(Locales(30, "Count"));
+
+        var body = await ExportRejectedAsync();
+        body.Should().Contain("狀態分布").And.Contain("量值 n").And.Contain("30");
+        StoredLabel(_rig)!.AsObject().Count.Should().Be(30, "不得默默刪掉原有語系");
+    }
+
+    [Fact]
+    public async Task Export_MeasureLabelBelowMaxWithoutZhTw_FillsToMax_AndReopens_R3()
+    {
+        await _rig.ImportAsync(Package().ToJsonString());
+        await _rig.OpenOkAsync(AppId, new { groupMap = new { } });
+        await LabelAsync(Locales(29, "Count"));
+
+        var (exported, _) = await _rig.ExportAsync(AppId);
+        var label = exported.GetProperty("reports")[0].GetProperty("definition").GetProperty("measures")[0].GetProperty("label");
+        label.EnumerateObject().Count().Should().Be(30);
+        label.GetProperty("zh-TW").GetString().Should().Be("Count");
+
+        using var other = new SharedMasterRig();
+        await other.ImportAsync(exported.GetRawText());
+        await other.OpenOkAsync(AppId, new { groupMap = new { } });
+    }
+
+    [Fact]
+    public async Task Export_MeasureLabelAtMaxWithZhTw_Succeeds_R3()
+    {
+        await _rig.ImportAsync(Package().ToJsonString());
+        await _rig.OpenOkAsync(AppId, new { groupMap = new { } });
+        var label = Locales(29, "Count");
+        label["zh-TW"] = "件數";
+        await LabelAsync(label);
+
+        var (exported, _) = await _rig.ExportAsync(AppId);
+        exported.GetProperty("reports")[0].GetProperty("definition").GetProperty("measures")[0].GetProperty("label")
+            .EnumerateObject().Count().Should().Be(30);
+    }
+
+    /// <summary>報表名稱走同一條補繁中路徑（必填語系不含繁中時才存得進沒有繁中的名稱），同樣拒絕（kr3 複審 R3）。</summary>
+    [Fact]
+    public async Task Export_ReportNameAtMaxLocalesWithoutZhTw_IsRejected_R3()
+    {
+        await _rig.ImportAsync(Package().ToJsonString());
+        await _rig.OpenOkAsync(AppId, new { groupMap = new { } });
+        (await _rig.Admin.PutAsJsonAsync($"{Base}/system/policies/locale.requiredText", new { value = new[] { "vi" } })).EnsureSuccessStatusCode();
+        var id = ReportId(_rig);
+        var current = await JsonOf(await _rig.Admin.GetAsync($"{Base}/reports/{id}"));
+        var name = Locales(29, "Phân bố trạng thái");
+        name["vi"] = "Phân bố trạng thái";
+        var put = await _rig.Admin.PutAsJsonAsync($"{Base}/reports/{id}", new { name, definition = current.GetProperty("definition") });
+        put.StatusCode.Should().Be(HttpStatusCode.OK, await put.Content.ReadAsStringAsync());
+
+        var body = await ExportRejectedAsync();
+        body.Should().Contain("Phân bố trạng thái").And.Contain("30");
+    }
+
     [Fact]
     public async Task Export_WithoutMeasureLabel_WritesNoLabel()
     {

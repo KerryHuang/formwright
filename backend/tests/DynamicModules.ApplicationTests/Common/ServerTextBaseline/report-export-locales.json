@@ -1,0 +1,14 @@
+{
+  "ExportReportNameTooManyLocales": {
+    "zh-TW": "報表「{0}」的名稱已有 {1} 個語系但沒有繁中，匯出要補上繁中會超過 {1} 個語系的上限，請先補上繁中或刪掉一個語系",
+    "en-US": "The name of report \"{0}\" already has {1} languages but no Traditional Chinese. Exporting must add Traditional Chinese, which would exceed the limit of {1} languages. Add Traditional Chinese or remove a language first",
+    "th": "ชื่อของรายงาน \"{0}\" มีครบ {1} ภาษาแล้วแต่ไม่มีภาษาจีนตัวเต็ม การส่งออกต้องเพิ่มภาษาจีนตัวเต็มซึ่งจะเกินขีดจำกัด {1} ภาษา โปรดเพิ่มภาษาจีนตัวเต็มหรือลบภาษาหนึ่งออกก่อน",
+    "vi": "Tên của báo cáo \"{0}\" đã có {1} ngôn ngữ nhưng chưa có tiếng Trung phồn thể. Khi xuất phải thêm tiếng Trung phồn thể và sẽ vượt giới hạn {1} ngôn ngữ. Hãy thêm tiếng Trung phồn thể hoặc xóa bớt một ngôn ngữ trước"
+  },
+  "ExportMeasureLabelTooManyLocales": {
+    "zh-TW": "報表「{0}」的量值 {1} 的名稱已有 {2} 個語系但沒有繁中，匯出要補上繁中會超過 {2} 個語系的上限，請先補上繁中或刪掉一個語系",
+    "en-US": "The name of measure {1} in report \"{0}\" already has {2} languages but no Traditional Chinese. Exporting must add Traditional Chinese, which would exceed the limit of {2} languages. Add Traditional Chinese or remove a language first",
+    "th": "ชื่อของค่าวัด {1} ในรายงาน \"{0}\" มีครบ {2} ภาษาแล้วแต่ไม่มีภาษาจีนตัวเต็ม การส่งออกต้องเพิ่มภาษาจีนตัวเต็มซึ่งจะเกินขีดจำกัด {2} ภาษา โปรดเพิ่มภาษาจีนตัวเต็มหรือลบภาษาหนึ่งออกก่อน",
+    "vi": "Tên của chỉ số {1} trong báo cáo \"{0}\" đã có {2} ngôn ngữ nhưng chưa có tiếng Trung phồn thể. Khi xuất phải thêm tiếng Trung phồn thể và sẽ vượt giới hạn {2} ngôn ngữ. Hãy thêm tiếng Trung phồn thể hoặc xóa bớt một ngôn ngữ trước"
+  }
+}

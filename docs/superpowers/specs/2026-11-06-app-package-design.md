@@ -250,7 +250,7 @@
 | `ReportFieldRef { Source, FieldId, ViaFieldId }` | `{ source, field, via }`：`field`、`via` 都是限定欄位名；沿參照帶出標題時 `field` 為 null |
 | 篩選與量值條件的值 | 選項值寫 `opt_<選項代號>`（同規則條件） |
 | `ReportSort.Key`（量值 id，或 `ReportCalculator.KeyOf` 的 `{source}:{fieldId}:{viaFieldId}`） | 量值 id 原樣；欄位鍵寫 `{source}:{field}:{via}`，欄位與 via 是限定欄位名，空的留空字串 |
-| `ReportMeasure.Label`（量值名稱，kr3） | `measures[].label`：字串（＝只有繁中）或多語物件，規則同報表名稱（繁中必填、每語 1 到 100 字）；**格式 11 起**，格式 10 以下帶了整份拒絕（「formatVersion 11 才支援量值名稱」）。沒有名稱不寫。匯出時名稱缺繁中，比照報表名稱補繁中（kr3 審查 R1） |
+| `ReportMeasure.Label`（量值名稱，kr3） | `measures[].label`：字串（＝只有繁中）或多語物件，規則同報表名稱（繁中必填、每語 1 到 100 字）；**格式 11 起**，格式 10 以下帶了整份拒絕（「formatVersion 11 才支援量值名稱」）。沒有名稱不寫。匯出時名稱缺繁中，比照報表名稱補繁中（kr3 審查 R1）；報表名稱或量值名稱已有上限個語系（`I18nNameRules.MaxLocales`，30）又缺繁中時，補了就超過上限、匯不回去，整份拒絕匯出（409），訊息指出報表與量值，不刪原有語系（kr3 複審 R3）。比對模式（升級預覽的現況）不補繁中，也不做這項檢查 |
 
 升級套用既有報表時（kr3 審查 R1、複審 R2）：沒勾到 `definition` 就不重寫資料庫裡的定義。勾了 `definition` 時，量值名稱分兩種來源：
 

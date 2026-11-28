@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using DynamicModules.Application.Common;
 using DynamicModules.Application.Dynamic.AppService.Data;
 using DynamicModules.Application.Dynamic.AppService.Integrations;
 using DynamicModules.Application.Dynamic.TemplateService;
@@ -19,7 +20,8 @@ public sealed partial class AppExporter(
     TemplateExporter templates, IModuleRepository modules, IAppRepository apps, IPermissionRepository permissions,
     IConversionRepository conversions, IReportRepository reports, IPrintTemplateRepository printTemplates,
     IEventRepository events, ICheckRepository checks, ILedgerRepository ledgers, ISharedMasterRepository shared,
-    AppPackageSource packages, ITaskRuleRepository taskRules, IApprovalFlowRepository approvalFlows, DynamicModules.Application.Common.RequestLocale requestLocale)
+    AppPackageSource packages, ITaskRuleRepository taskRules, IApprovalFlowRepository approvalFlows, DynamicModules.Application.Common.RequestLocale requestLocale,
+    DynamicModules.Application.Common.Localization.IMessageCatalog messages)
 {
     [GeneratedRegex("[^a-zA-Z0-9_]")]
     private static partial Regex NotCode();
@@ -206,7 +208,8 @@ public sealed partial class AppExporter(
         var masterTargets = views.ToDictionary(v => v.Source.Id, v => v.Symbol);
         var workflows = ExportWorkflows(members, codeOfModule, names, GroupCode, warnings);
         var conversionList = await ExportConversionsAsync(members, codeOfModule, masterTargets, names, warnings, ct);
-        var reportList = await ExportReportsAsync(app, names, GroupCode, warnings, compare, ct);
+        var reportErrors = new List<string>();
+        var reportList = await ExportReportsAsync(app, names, GroupCode, warnings, reportErrors, compare, ct);
         var printList = await ExportPrintTemplatesAsync(members, codeOfModule, keyToCode, names, warnings, ct);
         var ledgerList = await ExportLedgersAsync(members, codeOfModule, names, warnings, ct);
         var eventList = await ExportEventsAsync(members, keyToCode, names, warnings, excludedEvents, ct);
@@ -245,7 +248,7 @@ public sealed partial class AppExporter(
             groups, moduleList, fieldAccess, optionScopes, reportList, null, workflows, conversionList, eventList, printList,
             checkList, ledgerList, IntegrationDeclarations.Parse(app.IntegrationsJson), contributions, taskRuleList, approvalList);
         // groups 在上面各步驟用到才加進 codeOfGroup，最後才組出來
-        return new Exported(package, warnings, approvalErrors) { GroupIds = codeOfGroup.ToDictionary(g => g.Value, g => g.Key) };
+        return new Exported(package, warnings, [.. approvalErrors, .. reportErrors]) { GroupIds = codeOfGroup.ToDictionary(g => g.Value, g => g.Key) };
     }
 
     /// <summary>
@@ -607,7 +610,7 @@ public sealed partial class AppExporter(
     }
 
     private async Task<List<AppPackageReport>> ExportReportsAsync(
-        App app, AppReportCodec.Names names, Func<long, string> groupCode, List<string> warnings, bool compare, CancellationToken ct)
+        App app, AppReportCodec.Names names, Func<long, string> groupCode, List<string> warnings, List<string> errors, bool compare, CancellationToken ct)
     {
         // 比對模式（升級預覽的現況）照資料庫原樣，不補繁中：補了會把其他語系的字當成客戶改過的繁中（i3c 複審 N2）
         var result = new List<AppPackageReport>();
@@ -621,11 +624,20 @@ public sealed partial class AppExporter(
                 warnings.Add($"報表「{report.NameI18n.Resolve(I18nText.FallbackLocale)}」的定義無法讀取，未匯出");
                 continue;
             }
-            var (converted, errors) = AppReportCodec.ToPackage(definition, names);
+            var (converted, codecErrors) = AppReportCodec.ToPackage(definition, names);
             if (converted is null)
             {
-                warnings.Add($"報表「{report.NameI18n.Resolve(I18nText.FallbackLocale)}」未匯出（{string.Join("；", errors)}）");
+                warnings.Add($"報表「{report.NameI18n.Resolve(I18nText.FallbackLocale)}」未匯出（{string.Join("；", codecErrors)}）");
                 continue;
+            }
+            if (!compare)
+            {
+                // 補了繁中會超過語系數上限、匯不回去：整份拒絕並指出報表與量值，不默默刪原有語系（kr3 複審 R3）
+                var shown = report.NameI18n.Resolve(requestLocale.Current);
+                if (FillOverflows(report.NameI18n))
+                    errors.Add(messages.Get(requestLocale.Current, MessageText.ExportReportNameTooManyLocales, shown, I18nNameRules.MaxLocales));
+                foreach (var m in converted.Measures.Where(m => m.Label is { } l && FillOverflows(l)))
+                    errors.Add(messages.Get(requestLocale.Current, MessageText.ExportMeasureLabelTooManyLocales, shown, m.Id, I18nNameRules.MaxLocales));
             }
             // 量值名稱同報表名稱：匯出補繁中、比對模式照原樣（格式 11，kr3 審查 R1）
             if (!compare)
@@ -646,5 +658,12 @@ public sealed partial class AppExporter(
         var fill = compact.Resolve(I18nText.FallbackLocale);
         compact.Set(I18nText.FallbackLocale, fill.Length > 0 ? fill : compact.Values.Values.First());
         return compact;
+    }
+
+    /// <summary><see cref="PackageName"/> 補上繁中後會超過 <see cref="I18nNameRules.MaxLocales"/> 個語系（套件的格式規則，超過就匯不回去）。</summary>
+    internal static bool FillOverflows(I18nText name)
+    {
+        var compact = name.Compacted();
+        return !compact.HasText(I18nText.FallbackLocale) && compact.Values.Count >= I18nNameRules.MaxLocales;
     }
 }
