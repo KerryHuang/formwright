@@ -94,6 +94,10 @@ public static class MessageText
         // 內建報表（看板設計 §8.3）：不能改、刪、分享
         BuiltInReportReadOnly = nameof(BuiltInReportReadOnly), BuiltInReportNoDelete = nameof(BuiltInReportNoDelete),
         BuiltInReportNoShare = nameof(BuiltInReportNoShare),
+        // 報表量值名稱的驗證（kr3 審查 Y1；報表其餘結構驗證訊息仍是字面值）
+        ReportMeasureLabelTooManyLocales = nameof(ReportMeasureLabelTooManyLocales), ReportMeasureLabelBadLocale = nameof(ReportMeasureLabelBadLocale),
+        ReportMeasureLabelNullValue = nameof(ReportMeasureLabelNullValue), ReportMeasureLabelEmpty = nameof(ReportMeasureLabelEmpty),
+        ReportMeasureLabelTooLong = nameof(ReportMeasureLabelTooLong),
         // 模組選單分區（名稱多語設計 §9 第 4 點；模組設計器其餘驗證訊息仍是字面值）
         ModuleSectionZhRequired = nameof(ModuleSectionZhRequired),
         // 甘特設定的驗證錯誤（鍵同 Domain 的 TaskGanttConfigErrors）
@@ -525,6 +529,16 @@ public static class MessageText
         [BuiltInReportNoDelete] = ("內建報表不能刪除", "Built-in reports cannot be deleted", "ลบรายงานในตัวไม่ได้", "Không thể xóa báo cáo có sẵn"),
         [BuiltInReportNoShare] = ("內建報表人人都看得到，不需分享", "Everyone can see built-in reports, so they don't need to be shared",
             "ทุกคนเห็นรายงานในตัวอยู่แล้ว ไม่ต้องแชร์", "Mọi người đều xem được báo cáo có sẵn, không cần chia sẻ"),
+        [ReportMeasureLabelTooManyLocales] = ("量值 {0} 的名稱最多 {1} 個語系", "The name of measure {0} can have at most {1} languages",
+            "ชื่อของค่าวัด {0} มีได้สูงสุด {1} ภาษา", "Tên của chỉ số {0} có tối đa {1} ngôn ngữ"),
+        [ReportMeasureLabelBadLocale] = ("量值 {0} 的名稱：不支援的語系 {1}", "The name of measure {0} uses an unsupported language: {1}",
+            "ชื่อของค่าวัด {0} ใช้ภาษาที่ไม่รองรับ: {1}", "Tên của chỉ số {0} dùng ngôn ngữ không được hỗ trợ: {1}"),
+        [ReportMeasureLabelNullValue] = ("量值 {0} 的名稱：語系 {1} 的文字不能是空值", "The name of measure {0}: the text for {1} cannot be null",
+            "ชื่อของค่าวัด {0}: ข้อความภาษา {1} ต้องไม่เป็นค่าว่าง (null)", "Tên của chỉ số {0}: văn bản cho {1} không được là null"),
+        [ReportMeasureLabelEmpty] = ("量值 {0} 的名稱至少要有一種語系的文字", "The name of measure {0} needs text in at least one language",
+            "ชื่อของค่าวัด {0} ต้องมีข้อความอย่างน้อยหนึ่งภาษา", "Tên của chỉ số {0} cần có văn bản ở ít nhất một ngôn ngữ"),
+        [ReportMeasureLabelTooLong] = ("量值 {0} 的名稱最多 {1} 個字", "The name of measure {0} can be at most {1} characters",
+            "ชื่อของค่าวัด {0} ยาวได้สูงสุด {1} ตัวอักษร", "Tên của chỉ số {0} dài tối đa {1} ký tự"),
         [ModuleSectionZhRequired] = ("選單分區有其他語系時必須有繁體中文", "The menu section must have Traditional Chinese when other languages are filled in",
             "เมื่อกรอกส่วนเมนูในภาษาอื่น ต้องมีภาษาจีนตัวเต็มด้วย", "Khi nhập phần menu bằng ngôn ngữ khác, phải có tiếng Trung phồn thể"),
         [TaskGanttNameRequired] = ("甘特圖名稱必填", "Gantt chart name is required", "ต้องระบุชื่อแผนภูมิแกนต์", "Tên biểu đồ Gantt là bắt buộc"),

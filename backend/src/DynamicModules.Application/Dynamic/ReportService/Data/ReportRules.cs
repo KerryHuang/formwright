@@ -57,13 +57,15 @@ public static class ReportRules
 
     /// <summary>
     /// 量值名稱（kr3）：格式同報表名稱（語系鍵、拒收 null 值、每語上限 <see cref="MaxNameLength"/>），至少一種語系有字；
-    /// 不檢查必填語系，缺的語系沿退回鏈顯示。
+    /// 不檢查必填語系，缺的語系沿退回鏈顯示。訊息是 <see cref="MessageText"/> 的鍵加參數（kr3 審查 Y1）。
     /// </summary>
-    private static string? CheckMeasureLabel(string id, I18nText label)
+    private static MessageRef? CheckMeasureLabel(string id, I18nText label)
     {
-        if (I18nNameRules.FormatError(label) is { } format) return $"量值 {id} 的名稱：{format}";
-        if (!label.Values.Values.Any(v => !string.IsNullOrWhiteSpace(v))) return $"量值 {id} 的名稱至少要有一種語系的文字";
-        return I18nNameRules.TooLong(label, MaxNameLength) ? $"量值 {id} 的名稱最多 {MaxNameLength} 個字" : null;
+        if (label.Values.Count > I18nNameRules.MaxLocales) return MessageRef.Of(MessageText.ReportMeasureLabelTooManyLocales, id, I18nNameRules.MaxLocales);
+        if (I18nText.InvalidLocale(label.Values.Keys) is { } invalid) return MessageRef.Of(MessageText.ReportMeasureLabelBadLocale, id, invalid);
+        if (label.Values.FirstOrDefault(kv => kv.Value is null) is { Key: { } nullKey }) return MessageRef.Of(MessageText.ReportMeasureLabelNullValue, id, nullKey);
+        if (!label.Values.Values.Any(v => !string.IsNullOrWhiteSpace(v))) return MessageRef.Of(MessageText.ReportMeasureLabelEmpty, id);
+        return I18nNameRules.TooLong(label, MaxNameLength) ? MessageRef.Of(MessageText.ReportMeasureLabelTooLong, id, MaxNameLength) : null;
     }
 
     /// <summary>日期區間：種類合法，N 給了就必須 1 到 maxDays（政策 report.maxRangeDays，出廠 3650）。覆寫用的區間（run、drill）也走這裡。</summary>
@@ -88,56 +90,57 @@ public static class ReportRules
     private static bool IsIgnoredCondition(ReportMeasure? m) => m is { Condition: not null, Kind: "min" or "max" or "countMain" or "countChild" };
 
     /// <summary>結構檢查：版本、清單與引用不可缺、量值 Id 唯一、量值與分組的組合合法。通過後才能載入模組做後續檢查。</summary>
-    public static List<string> CheckShape(ReportDefinition d, int maxDays)
+    public static List<MessageRef> CheckShape(ReportDefinition d, int maxDays)
     {
-        var errors = new List<string>();
-        if (d.Version != ReportDefinition.CurrentVersion) errors.Add($"定義版本必須是 {ReportDefinition.CurrentVersion}");
+        var errors = new List<MessageRef>();
+        void Add(string literal) => errors.Add(MessageRef.Literal(literal));
+        if (d.Version != ReportDefinition.CurrentVersion) Add($"定義版本必須是 {ReportDefinition.CurrentVersion}");
         var task = ReportDatasets.IsTask(d.Dataset);
-        if (!task && !ReportDatasets.IsModule(d.Dataset)) errors.Add("資料來源只能是 module、tasks、taskEvents");
+        if (!task && !ReportDatasets.IsModule(d.Dataset)) Add("資料來源只能是 module、tasks、taskEvents");
         // 任務資料來源沒有主模組：不能合併子模組、不能帶出欄位（看板設計 §7.1）
-        if (task && !string.IsNullOrWhiteSpace(d.MainModuleKey)) errors.Add("任務資料來源不能指定主模組");
-        if (task && d.Child is not null) errors.Add("任務資料來源不能合併子模組");
-        if (!task && string.IsNullOrWhiteSpace(d.MainModuleKey)) errors.Add("主模組必填");
-        if (d.Viz is null || !Vizs.Contains(d.Viz)) errors.Add("圖表種類不合法");
+        if (task && !string.IsNullOrWhiteSpace(d.MainModuleKey)) Add("任務資料來源不能指定主模組");
+        if (task && d.Child is not null) Add("任務資料來源不能合併子模組");
+        if (!task && string.IsNullOrWhiteSpace(d.MainModuleKey)) Add("主模組必填");
+        if (d.Viz is null || !Vizs.Contains(d.Viz)) Add("圖表種類不合法");
         if (d.Columns is null || d.Groups is null || d.Measures is null || d.Filters is null || d.Sort is null)
         {
-            errors.Add("欄位、分組、量值、條件、排序清單都必須提供");
+            Add("欄位、分組、量值、條件、排序清單都必須提供");
             return errors;
         }
         if (d.Columns.Any(c => c is null) || d.Groups.Any(g => g?.Field is null) || d.Measures.Any(m => m is null)
             || d.Filters.Any(f => f?.Field is null || f.Op is null) || d.Sort.Any(s => s?.Key is null)
             || d.Measures.Any(m => m.Id is null || m.Kind is null || (m.Condition is not null && (m.Condition.Field is null || m.Condition.Op is null))))
         {
-            errors.Add("清單內容不可有空項目");
+            Add("清單內容不可有空項目");
             return errors;
         }
-        if (d.Child is not null && string.IsNullOrWhiteSpace(d.Child.ModuleKey)) errors.Add("子模組必填");
+        if (d.Child is not null && string.IsNullOrWhiteSpace(d.Child.ModuleKey)) Add("子模組必填");
         if (ReportRunner.AllRefs(d).Concat(d.PrimaryDateField is null ? [] : [d.PrimaryDateField])
             .Any(r => r.Source is not ("main" or "child") || (r.Source == "child" && d.Child is null)))
-            errors.Add("欄位來源必須是主模組，或已合併子模組時的子模組");
-        if (task && ReportRunner.AllRefs(d).Any(r => r.ViaFieldId is not null)) errors.Add("任務資料來源不能帶出欄位");
-        if (d.Columns.Count == 0 && d.Measures.Count == 0) errors.Add("至少要選一個欄位或量值");
+            Add("欄位來源必須是主模組，或已合併子模組時的子模組");
+        if (task && ReportRunner.AllRefs(d).Any(r => r.ViaFieldId is not null)) Add("任務資料來源不能帶出欄位");
+        if (d.Columns.Count == 0 && d.Measures.Count == 0) Add("至少要選一個欄位或量值");
 
         if (d.Measures.Select(m => m.Id).Distinct().Count() != d.Measures.Count || d.Measures.Any(m => m.Id.Length == 0))
-            errors.Add("量值 Id 不可空白或重複");
+            Add("量值 Id 不可空白或重複");
         foreach (var m in d.Measures)
         {
-            if (!Kinds.Contains(m.Kind)) errors.Add($"量值 {m.Id} 的種類不合法");
-            else if (m.Kind is "sum" or "avg" or "median" or "min" or "max" && m.Field is null) errors.Add($"量值 {m.Id} 需要欄位");
-            else if (m.Kind is "ratio" or "countIf" && m.Condition is null) errors.Add($"量值 {m.Id} 需要條件");
-            else if (m.Kind == "countChild" && d.Child is null) errors.Add($"量值 {m.Id} 需要合併子模組");
-            else if (m.Field?.Source == "main" && m.Condition?.Field.Source == "child") errors.Add($"量值 {m.Id} 的條件不能用子模組欄位");
+            if (!Kinds.Contains(m.Kind)) Add($"量值 {m.Id} 的種類不合法");
+            else if (m.Kind is "sum" or "avg" or "median" or "min" or "max" && m.Field is null) Add($"量值 {m.Id} 需要欄位");
+            else if (m.Kind is "ratio" or "countIf" && m.Condition is null) Add($"量值 {m.Id} 需要條件");
+            else if (m.Kind == "countChild" && d.Child is null) Add($"量值 {m.Id} 需要合併子模組");
+            else if (m.Field?.Source == "main" && m.Condition?.Field.Source == "child") Add($"量值 {m.Id} 的條件不能用子模組欄位");
             if (m.Label is not null && CheckMeasureLabel(m.Id, m.Label) is { } labelError) errors.Add(labelError);
         }
 
         foreach (var g in d.Groups)
-            if (g.Bucket is not null && !Buckets.Contains(g.Bucket)) errors.Add("分桶只能是 day、week、month、quarter、year");
+            if (g.Bucket is not null && !Buckets.Contains(g.Bucket)) Add("分桶只能是 day、week、month、quarter、year");
         // 分桶以欄位為單位記錄；同一欄位只要用過分桶就只能出現一次，否則兩個分組會互相覆蓋
         if (d.Groups.GroupBy(g => ReportCalculator.KeyOf(g.Field)).Any(g => g.Count() > 1 && g.Any(x => x.Bucket is not null)))
-            errors.Add("同一欄位不可用兩種分桶分組");
+            Add("同一欄位不可用兩種分桶分組");
 
-        if (CheckRange(d.DateRange, maxDays) is { } rangeError) errors.Add(rangeError);
-        if (d.DateRange is not null && d.PrimaryDateField is null) errors.Add("設定日期區間需要選主要日期欄位");
+        if (CheckRange(d.DateRange, maxDays) is { } rangeError) Add(rangeError);
+        if (d.DateRange is not null && d.PrimaryDateField is null) Add("設定日期區間需要選主要日期欄位");
         return errors;
     }
 

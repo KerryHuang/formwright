@@ -1,0 +1,32 @@
+{
+  "ReportMeasureLabelTooManyLocales": {
+    "zh-TW": "量值 {0} 的名稱最多 {1} 個語系",
+    "en-US": "The name of measure {0} can have at most {1} languages",
+    "th": "ชื่อของค่าวัด {0} มีได้สูงสุด {1} ภาษา",
+    "vi": "Tên của chỉ số {0} có tối đa {1} ngôn ngữ"
+  },
+  "ReportMeasureLabelBadLocale": {
+    "zh-TW": "量值 {0} 的名稱：不支援的語系 {1}",
+    "en-US": "The name of measure {0} uses an unsupported language: {1}",
+    "th": "ชื่อของค่าวัด {0} ใช้ภาษาที่ไม่รองรับ: {1}",
+    "vi": "Tên của chỉ số {0} dùng ngôn ngữ không được hỗ trợ: {1}"
+  },
+  "ReportMeasureLabelNullValue": {
+    "zh-TW": "量值 {0} 的名稱：語系 {1} 的文字不能是空值",
+    "en-US": "The name of measure {0}: the text for {1} cannot be null",
+    "th": "ชื่อของค่าวัด {0}: ข้อความภาษา {1} ต้องไม่เป็นค่าว่าง (null)",
+    "vi": "Tên của chỉ số {0}: văn bản cho {1} không được là null"
+  },
+  "ReportMeasureLabelEmpty": {
+    "zh-TW": "量值 {0} 的名稱至少要有一種語系的文字",
+    "en-US": "The name of measure {0} needs text in at least one language",
+    "th": "ชื่อของค่าวัด {0} ต้องมีข้อความอย่างน้อยหนึ่งภาษา",
+    "vi": "Tên của chỉ số {0} cần có văn bản ở ít nhất một ngôn ngữ"
+  },
+  "ReportMeasureLabelTooLong": {
+    "zh-TW": "量值 {0} 的名稱最多 {1} 個字",
+    "en-US": "The name of measure {0} can be at most {1} characters",
+    "th": "ชื่อของค่าวัด {0} ยาวได้สูงสุด {1} ตัวอักษร",
+    "vi": "Tên của chỉ số {0} dài tối đa {1} ký tự"
+  }
+}

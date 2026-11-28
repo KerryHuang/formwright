@@ -27,8 +27,8 @@ public class ReportDefinitionValidator(
         bool checkName, I18nText? name, I18nText? stored, ReportDefinition definition, CancellationToken ct)
     {
         definition = ReportRules.DropIgnoredConditions(definition);
-        var errors = new Dictionary<string, string[]>();
-        if (checkName && ReportRules.CheckName(requiredText, name, stored) is { } nameError) errors["name"] = [nameError];
+        var errors = new Dictionary<string, MessageRef[]>();
+        if (checkName && ReportRules.CheckName(requiredText, name, stored) is { } nameError) errors["name"] = [MessageRef.Literal(nameError)];
         var maxDays = (await limitReader.GetAsync(ct)).MaxRangeDays;
         var shape = ReportRules.CheckShape(definition, maxDays);
         if (shape.Count > 0) errors["definition"] = shape.ToArray();

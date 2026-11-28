@@ -21,14 +21,27 @@ public class ReportMeasureLabelTests
         ReportRules.CheckShape(Def(Text(("en-US", "Total"))), 3650).Should().BeEmpty("缺繁中時顯示退回其他語系，不擋");
     }
 
+    private static List<string> Errors(I18nText label, string locale = "zh-TW") =>
+        ReportRules.CheckShape(Def(label), 3650).Select(e => e.Resolve(locale)).ToList();
+
     [Fact]
     public void BadLocale_NullValue_Blank_TooLong_Rejected()
     {
-        ReportRules.CheckShape(Def(Text(("xx_bad", "a"))), 3650).Should().ContainSingle(e => e.Contains("量值 n 的名稱") && e.Contains("不支援的語系"));
-        ReportRules.CheckShape(Def(Text(("zh-TW", null))), 3650).Should().ContainSingle(e => e.Contains("量值 n 的名稱") && e.Contains("空值"));
-        ReportRules.CheckShape(Def(Text(("zh-TW", "  "))), 3650).Should().ContainSingle(e => e == "量值 n 的名稱至少要有一種語系的文字");
-        ReportRules.CheckShape(Def(Text(("zh-TW", new string('字', ReportRules.MaxNameLength + 1)))), 3650)
-            .Should().ContainSingle(e => e == $"量值 n 的名稱最多 {ReportRules.MaxNameLength} 個字");
+        Errors(Text(("xx_bad", "a"))).Should().Equal("量值 n 的名稱：不支援的語系 xx_bad");
+        Errors(Text(("zh-TW", null))).Should().Equal("量值 n 的名稱：語系 zh-TW 的文字不能是空值");
+        Errors(Text(("zh-TW", "  "))).Should().Equal("量值 n 的名稱至少要有一種語系的文字");
+        Errors(Text(("zh-TW", new string('字', ReportRules.MaxNameLength + 1)))).Should().Equal($"量值 n 的名稱最多 {ReportRules.MaxNameLength} 個字");
         ReportRules.CheckShape(Def(Text(("zh-TW", new string('字', ReportRules.MaxNameLength)))), 3650).Should().BeEmpty();
+    }
+
+    /// <summary>kr3 審查 Y1：量值名稱的錯誤是訊息鍵加參數，依請求語系翻譯（量值 Id、語系、上限帶進句子）。</summary>
+    [Fact]
+    public void Errors_AreMessageKeys_TranslatedByLocale()
+    {
+        var tooLong = ReportRules.CheckShape(Def(Text(("zh-TW", new string('字', ReportRules.MaxNameLength + 1)))), 3650).Single();
+        tooLong.Key.Should().NotBeNull("走 IMessageCatalog，不是字面值");
+        tooLong.Resolve("en-US").Should().Be($"The name of measure n can be at most {ReportRules.MaxNameLength} characters");
+        Errors(Text(("zh-TW", "  ")), "en-US").Should().Equal("The name of measure n needs text in at least one language");
+        Errors(Text(("xx_bad", "a")), "vi").Should().ContainSingle().Which.Should().Contain("xx_bad").And.NotContain("量值");
     }
 }
