@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ModuleCatalog, ReportDefinition } from 'src/domain/dynamic/report-types';
 import {
-  addMeasure, advanceBlocker, canAdvance, canSave, emptyState, fromDefinition, hasContent, LAST_RANGE_KINDS, operatorsOf, removeColumn, removeGroup, removeMeasure, setChild, setMainModule, setPrimaryDate, setSource, toDefinition, unavailableRefs,
+  addMeasure, advanceBlocker, canAdvance, canSave, clearStaleLabels, emptyState, fromDefinition, hasContent, LAST_RANGE_KINDS, measureConditionKeys, operatorsOf, removeColumn, removeGroup, removeMeasure, setChild, setMainModule, setPrimaryDate, setSource, toDefinition, unavailableRefs,
 } from './designer-state';
 
 const F = (id: number, label: string, o: Partial<ModuleCatalog['fields'][number]> = {}) => ({
@@ -22,6 +22,23 @@ const DEF: ReportDefinition = {
 };
 
 describe('designer-state', () => {
+  // kr3：量值名稱（內建報表另存的副本帶著）存回去不能丟；只保留、不提供編輯，條件改了就清掉（Q3）
+  it('keeps measure labels on save, and drops a label once its condition changes', () => {
+    const labeled: ReportDefinition = {
+      ...DEF, measures: [
+        { id: 'm1', kind: 'sum', field: MAIN(2), condition: null, label: { 'zh-TW': '金額合計', 'en-US': 'Amount' } },
+        { id: 'm2', kind: 'countIf', field: null, condition: { field: MAIN(3), op: 'eq', value: '2026-11-01' }, label: { 'zh-TW': '當天筆數' } },
+      ],
+    };
+    const s = fromDefinition(labeled);
+    expect(toDefinition(s).measures.map((m) => m.label)).toEqual([{ 'zh-TW': '金額合計', 'en-US': 'Amount' }, { 'zh-TW': '當天筆數' }]);
+    const before = measureConditionKeys(s);
+    s.measures[1]!.condition!.value = '2026-11-02';
+    clearStaleLabels(s, before);
+    expect(toDefinition(s).measures.map((m) => m.label)).toEqual([{ 'zh-TW': '金額合計', 'en-US': 'Amount' }, undefined]);
+    expect('label' in toDefinition(fromDefinition(DEF)).measures[0]!).toBe(false);
+  });
+
   it('toDefinition/fromDefinition round trip', () => {
     expect(toDefinition(fromDefinition(DEF, { 'zh-TW': '月報' }))).toEqual(DEF);
   });

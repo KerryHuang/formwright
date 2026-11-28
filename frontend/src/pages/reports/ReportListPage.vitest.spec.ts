@@ -62,10 +62,43 @@ describe('ReportListPage', () => {
     expect(q('report-row-1')!.querySelector('td')!.textContent!.trim()).toBe(expected);
   });
 
+  // kr3：內建報表在上方自成一區（名稱與說明），擁有者顯示「系統」，不出現在「我的報表」
+  it('lists built-in reports in their own section above my reports', async () => {
+    api.getReports.mockResolvedValue([
+      {
+        id: 10, name: { 'zh-TW': '各負責人負載', 'en-US': 'Workload by assignee' }, ownerName: '', isOwner: false, sharedGroupIds: [], mainModuleKey: '',
+        builtIn: true, builtInCode: 'task-workload', description: { 'zh-TW': '每列是一位負責人目前未完成的任務。' },
+      },
+      { id: 1, name: { 'zh-TW': '我的月報' }, ownerName: '我', isOwner: true, sharedGroupIds: [], mainModuleKey: 'orders', builtIn: false },
+    ]);
+    await mountPage();
+    const section = q('builtin-reports')!;
+    expect(section.textContent).toContain('內建報表');
+    expect(q('builtin-report-10')!.textContent).toContain('各負責人負載');
+    expect(q('builtin-report-10')!.textContent).toContain('每列是一位負責人目前未完成的任務。');
+    expect(q('builtin-report-10')!.textContent).toContain('系統');
+    expect(q('report-row-10')).toBeNull();
+    expect(q('report-row-1')!.textContent).toContain('我的月報');
+    q('builtin-report-10')!.click();
+    await flushPromises();
+    expect(router.currentRoute.value.path).toBe('/reports/10');
+  });
+
+  it('shows the built-in name in English', async () => {
+    api.getReports.mockResolvedValue([
+      { id: 10, name: { 'zh-TW': '各負責人負載', 'en-US': 'Workload by assignee' }, ownerName: '', isOwner: false, sharedGroupIds: [], mainModuleKey: '', builtIn: true, builtInCode: 'task-workload' },
+    ]);
+    await mountPage('en-US');
+    expect(q('builtin-reports')!.textContent).toContain('Built-in reports');
+    expect(q('builtin-report-10')!.textContent).toContain('Workload by assignee');
+    expect(document.body.textContent).toContain('No reports yet');
+  });
+
   it('shows the empty text when there are no reports', async () => {
     api.getReports.mockResolvedValue([]);
     await mountPage();
     expect(document.body.textContent).toContain('還沒有報表');
+    expect(q('builtin-reports')).toBeNull();
   });
 
   it('403 shows the forbidden notice', async () => {
