@@ -6,7 +6,7 @@ using DynamicModules.Domain.ValueObjects;
 
 namespace DynamicModules.Application.Dynamic.AppService.Data;
 
-// 應用程式套件格式（formatVersion 2 到 10）。modules 直接重用範本的 TemplateModule；
+// 應用程式套件格式（formatVersion 2 到 11）。modules 直接重用範本的 TemplateModule；
 // 保留的 section（dashboards）目前只能是空陣列，讀進來的值不解讀，非空一律整份拒絕（fail-closed，見 AppPackageValidator）。
 
 public record AppPackageData(
@@ -28,8 +28,9 @@ public record AppPackageData(
     /// 8：approvalFlows、轉移的 approval、狀態的 editable 可用（7 以下的檔案這些必須是空的／不存在）。
     /// 9：approvalFlows 改用流程圖（shape graph 加 nodes、edges）；stages 只在 8 出現，讀進來時轉成 graph（流程圖設計 §13 第 5 點）。
     /// 10：語系鍵改只驗語系代碼格式（i4f）、reports[].name 可寫多語物件、欄位可帶 excludeFromAi（名稱多語設計 §8；9 以下不放寬）。
+    /// 11：報表量值可帶 label（量值名稱，看板設計 §8.3、kr3 審查 R1；10 以下帶了整份拒絕）。
     /// </summary>
-    public const int CurrentFormatVersion = 10;
+    public const int CurrentFormatVersion = 11;
     public const int MinFormatVersion = 2;
 
     public List<AppGroup> Groups { get; init; } = Groups ?? [];
@@ -188,7 +189,10 @@ public record AppReportFieldRef(string Source, string? Field, string? Via);
 
 public record AppReportGroup(AppReportFieldRef Field, string? Bucket);
 
-public record AppReportMeasure(string Id, string Kind, AppReportFieldRef? Field, AppReportFilter? Condition);
+/// <summary>Label 是量值名稱（同 ReportMeasure.Label，格式 11 起）：字串（＝只有繁中）或多語物件；沒有就不寫。</summary>
+public record AppReportMeasure(
+    string Id, string Kind, AppReportFieldRef? Field, AppReportFilter? Condition,
+    [property: JsonConverter(typeof(SectionTextJsonConverter)), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] I18nText? Label = null);
 
 public record AppReportFilter(AppReportFieldRef Field, string Op, JsonElement? Value);
 

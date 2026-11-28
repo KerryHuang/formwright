@@ -57,10 +57,11 @@ public class AppFormat10PackageTests
     }
 
     [Fact]
-    public void CurrentFormatVersion_Is10()
+    public void CurrentFormatVersion_Is11_LocaleCodesFrom10()
     {
-        AppPackageData.CurrentFormatVersion.Should().Be(10);
+        AppPackageData.CurrentFormatVersion.Should().Be(11, "格式 11：量值名稱（kr3 審查 R1）");
         AppPackageValidator.LocaleCodeFormatVersion.Should().Be(10);
+        AppPackageValidator.MeasureLabelFormatVersion.Should().Be(11);
     }
 
     // ---- reports[].name ----
@@ -340,7 +341,7 @@ public class AppFormat10PackageTests
     }
 
     [Fact]
-    public void AppJson_TemplateFormat2File_IsReadAsATemplate_AndUpgradesToFormat10()
+    public void AppJson_TemplateFormat2File_IsReadAsATemplate_AndUpgradesToCurrentFormat()
     {
         var parsed = AppJson.Parse(TemplateNode(2).ToJsonString());
         parsed.Errors.Should().BeEmpty();
@@ -349,7 +350,7 @@ public class AppFormat10PackageTests
 
         var (upgraded, errors) = AppPackageUpgrader.FromTemplate(parsed.V1, []);
         errors.Should().BeEmpty();
-        upgraded!.FormatVersion.Should().Be(10);
+        upgraded!.FormatVersion.Should().Be(AppPackageData.CurrentFormatVersion);
         AppPackageValidator.Validate(upgraded).Errors.Should().BeEmpty();
     }
 

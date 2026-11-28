@@ -580,6 +580,79 @@ public class AppUpgradeApplyCaseTests : IDisposable
         Query((db, _) => db.Set<ReportShare>().Count(s => s.ReportId == reportId)).Should().Be(2);
     }
 
+    // ---- 量值名稱（kr3 審查 R1） ----
+
+    private long ReportIdOf(string code) =>
+        Query((db, _) => db.Set<App>().Include(a => a.Reports).Single(a => a.Key == Key).Reports.Single(r => r.Code == code).ReportId);
+
+    private string DefinitionJsonOf(long reportId) => Query((db, _) => db.Set<Report>().AsNoTracking().Single(r => r.Id == reportId).DefinitionJson);
+
+    /// <summary>報表擁有者（admin）在量值 n 加上名稱：既有 PUT /reports/{id}。</summary>
+    private async Task LabelMeasureAsync(long reportId)
+    {
+        var current = await JsonOf(await _admin.GetAsync($"{Base}/reports/{reportId}"));
+        var definition = JsonNode.Parse(current.GetProperty("definition").GetRawText())!;
+        definition["measures"]![0]!["label"] = new JsonObject { ["zh-TW"] = "客戶數", ["en-US"] = "Customers" };
+        var put = await _admin.PutAsJsonAsync($"{Base}/reports/{reportId}", new { name = current.GetProperty("name"), definition });
+        put.StatusCode.Should().Be(HttpStatusCode.OK, await put.Content.ReadAsStringAsync());
+    }
+
+    private static string? MeasureLabel(string definitionJson, string locale) =>
+        JsonNode.Parse(definitionJson)!["measures"]![0]!["label"]?[locale]?.GetValue<string>();
+
+    /// <summary>R1：新版只改報表名稱，套用後定義原樣不動（量值名稱還在）。</summary>
+    [Fact]
+    public async Task ExistingReport_NameOnlyUpgrade_KeepsDefinitionAndMeasureLabel_R1()
+    {
+        await OpenAsync();
+        await NewVersionAsync(p => p["reports"] = new JsonArray(Report("byStatus", CountMain, "sales")));
+        await ApplyOkAsync(Token(await PreviewAsync()), "report:byStatus");
+        var reportId = ReportIdOf("byStatus");
+        await LabelMeasureAsync(reportId);
+        var before = DefinitionJsonOf(reportId);
+
+        var p2 = V1();
+        p2["manifest"]!["version"] = "1.2.0";
+        var report = Report("byStatus", CountMain, "sales");
+        report["name"] = "客戶狀態";
+        p2["reports"] = new JsonArray(report);
+        (await Import(p2)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var preview = await PreviewAsync();
+        var props = Item(preview, "report:byStatus").GetProperty("properties").EnumerateArray()
+            .ToDictionary(x => x.GetProperty("name").GetString()!, x => x.GetProperty("result").GetString());
+        props["name"].Should().Be("newOnly");
+        props.GetValueOrDefault("definition", "customerOnly").Should().Be("customerOnly", "量值名稱是客戶改的，新版沒動定義");
+        await ApplyOkAsync(Token(preview), "report:byStatus");
+
+        Query((db, _) => db.Set<Report>().AsNoTracking().Single(r => r.Id == reportId).NameI18n.Resolve("zh-TW")).Should().Be("客戶狀態");
+        DefinitionJsonOf(reportId).Should().Be(before, "沒有套用定義變更就不重寫定義");
+        MeasureLabel(before, "en-US").Should().Be("Customers");
+    }
+
+    /// <summary>R1：新版改了報表定義（圖表種類），套用後沒變的量值保留客戶加的名稱。</summary>
+    [Fact]
+    public async Task ExistingReport_DefinitionUpgrade_KeepsLabelOfUnchangedMeasure_R1()
+    {
+        await OpenAsync();
+        await NewVersionAsync(p => p["reports"] = new JsonArray(Report("byStatus", CountMain, "sales")));
+        await ApplyOkAsync(Token(await PreviewAsync()), "report:byStatus");
+        var reportId = ReportIdOf("byStatus");
+        await LabelMeasureAsync(reportId);
+
+        var p2 = V1();
+        p2["manifest"]!["version"] = "1.2.0";
+        var report = Report("byStatus", CountMain, "sales");
+        report["definition"]!["viz"] = "donut";
+        p2["reports"] = new JsonArray(report);
+        (await Import(p2)).StatusCode.Should().Be(HttpStatusCode.OK);
+        await ApplyOkAsync(Token(await PreviewAsync()), "report:byStatus");
+
+        var after = DefinitionJsonOf(reportId);
+        JsonNode.Parse(after)!["viz"]!.GetValue<string>().Should().Be("donut", "新版定義有套用");
+        MeasureLabel(after, "zh-TW").Should().Be("客戶數", "量值 n 沒變，名稱保留");
+        MeasureLabel(after, "en-US").Should().Be("Customers");
+    }
+
     /// <summary>M4：客戶把必填欄位改成非必填（customerOnly），新版只改標籤：可以套用，不算影響既有資料，套用後仍非必填。</summary>
     [Fact]
     public async Task CustomerRelaxedRequired_OtherChange_IsApplicable_M4()

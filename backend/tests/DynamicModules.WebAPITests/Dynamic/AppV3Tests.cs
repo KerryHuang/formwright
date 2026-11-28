@@ -167,7 +167,7 @@ public class AppV3Tests : IDisposable
     {
         await ImportAndOpen(_admin, AppTestPackagesV3.Sales(), "sales-flow");
         var exported = await ExportOk("sales-flow");
-        exported.GetProperty("formatVersion").GetInt32().Should().Be(10);
+        exported.GetProperty("formatVersion").GetInt32().Should().Be(11, "匯出寫目前格式（格式 11：量值名稱）");
         exported.GetProperty("workflows").GetArrayLength().Should().Be(1);
         exported.GetProperty("conversions").GetArrayLength().Should().Be(1);
         exported.GetProperty("reports").GetArrayLength().Should().Be(1);

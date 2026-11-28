@@ -18,7 +18,7 @@
   ],
   "properties": {
     "format": { "const": "formwright-app" },
-    "formatVersion": { "enum": [2, 3, 4, 5, 6, 7, 8, 9, 10] },
+    "formatVersion": { "enum": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
     "manifest": { "$ref": "#/$defs/manifest" },
     "groups": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/group" } },
     "modules": { "type": "array", "minItems": 1, "maxItems": 30, "items": {
@@ -66,7 +66,7 @@
       "additionalProperties": { "type": "string", "maxLength": 100 }
     },
     "report": {
-      "description": "報表。name 是字串（＝只有繁中）或多語物件；格式 10 才收繁中以外的語系（伺服器檢查）。definition 的形狀由伺服器驗證。",
+      "description": "報表。name 是字串（＝只有繁中）或多語物件；格式 10 才收繁中以外的語系（伺服器檢查）。definition 的形狀由伺服器驗證；格式 11 起 definition.measures[].label 可寫量值名稱（字串或多語物件，要有繁中、每語 100 字）。",
       "type": "object",
       "required": ["code", "name", "definition"],
       "additionalProperties": false,

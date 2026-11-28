@@ -605,7 +605,7 @@ public class MesInventoryIntegrationTests : IDisposable
     public async Task Export_KeepsTheIntegrationApart_NotMixedIntoTheOwnersModulesEventsOrChecks()
     {
         var package = await ExportedMes();
-        package["formatVersion"]!.GetValue<int>().Should().Be(10);
+        package["formatVersion"]!.GetValue<int>().Should().Be(11, "匯出寫目前格式（格式 11：量值名稱）");
         var integration = package["integrations"]!.AsArray().Single()!;
         integration["code"]!.GetValue<string>().Should().Be("stockOut");
         integration["with"]![0]!["id"]!.GetValue<string>().Should().Be("inventory");

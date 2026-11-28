@@ -234,7 +234,7 @@ public class SharedMasterMergeTests : IDisposable
 
         var (exported, _) = await _rig.ExportAsync("bp");
         var bp = Node(exported.GetRawText());
-        bp["formatVersion"]!.GetValue<int>().Should().Be(10);
+        bp["formatVersion"]!.GetValue<int>().Should().Be(11, "匯出寫目前格式（格式 11：量值名稱）");
         FieldNode(bp, "phone")["excludeFromAi"]!.GetValue<bool>().Should().BeTrue("匯出帶出旗標");
         FieldNode(bp, "phone").Remove("excludeFromAi");
         FieldNode(bp, "role")["excludeFromAi"] = true;

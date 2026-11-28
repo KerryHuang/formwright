@@ -87,7 +87,7 @@ public static partial class AppReportCodec
             d.Version, main ?? "", child,
             d.Columns.Select(Ref).OfType<ReportFieldRef>().ToList(),
             d.Groups.Select(g => Ref(g.Field) is { } r ? new ReportGroup(r, g.Bucket) : null).OfType<ReportGroup>().ToList(),
-            d.Measures.Select(m => new ReportMeasure(m.Id, m.Kind, Ref(m.Field), Filter(m.Condition))).ToList(),
+            d.Measures.Select(m => new ReportMeasure(m.Id, m.Kind, Ref(m.Field), Filter(m.Condition), m.Label)).ToList(),
             d.Filters.Select(Filter).OfType<ReportFilter>().ToList(),
             Ref(d.PrimaryDateField), d.DateRange,
             d.Sort.Select(s => new ReportSort(SortKey(s.Key, d, Field), s.Desc)).ToList(), d.Viz);
@@ -167,7 +167,7 @@ public static partial class AppReportCodec
             d.Child is { } c ? new AppReportChild(Module(c.ModuleKey), Field(c.LinkFieldId) ?? "") : null,
             (d.Columns ?? []).Select(Ref).OfType<AppReportFieldRef>().ToList(),
             (d.Groups ?? []).Select(g => Ref(g.Field) is { } r ? new AppReportGroup(r, g.Bucket) : null).OfType<AppReportGroup>().ToList(),
-            (d.Measures ?? []).Select(m => new AppReportMeasure(m.Id, m.Kind, Ref(m.Field), Filter(m.Condition))).ToList(),
+            (d.Measures ?? []).Select(m => new AppReportMeasure(m.Id, m.Kind, Ref(m.Field), Filter(m.Condition), m.Label)).ToList(),
             (d.Filters ?? []).Select(Filter).OfType<AppReportFilter>().ToList(),
             Ref(d.PrimaryDateField), d.DateRange,
             (d.Sort ?? []).Select(s => new AppReportSort(ExportSortKey(s.Key, d, Field), s.Desc)).ToList(), d.Viz);

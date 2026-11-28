@@ -250,6 +250,9 @@
 | `ReportFieldRef { Source, FieldId, ViaFieldId }` | `{ source, field, via }`：`field`、`via` 都是限定欄位名；沿參照帶出標題時 `field` 為 null |
 | 篩選與量值條件的值 | 選項值寫 `opt_<選項代號>`（同規則條件） |
 | `ReportSort.Key`（量值 id，或 `ReportCalculator.KeyOf` 的 `{source}:{fieldId}:{viaFieldId}`） | 量值 id 原樣；欄位鍵寫 `{source}:{field}:{via}`，欄位與 via 是限定欄位名，空的留空字串 |
+| `ReportMeasure.Label`（量值名稱，kr3） | `measures[].label`：字串（＝只有繁中）或多語物件，規則同報表名稱（繁中必填、每語 1 到 100 字）；**格式 11 起**，格式 10 以下帶了整份拒絕（「formatVersion 11 才支援量值名稱」）。沒有名稱不寫。匯出時名稱缺繁中，比照報表名稱補繁中（kr3 審查 R1） |
+
+升級套用既有報表時（kr3 審查 R1）：沒勾到 `definition` 就不重寫資料庫裡的定義；勾了 `definition` 時，新版沒寫名稱、種類／欄位／條件和現況相同的量值保留客戶自己的量值名稱。
 
 報表的欄位引用**只能指向本套件的模組**（含沿參照帶出的目標欄位）。理由見 §7.4。開啟時由 `AppReportCodec` 把代號換回 id，再送 `CreateReportRequest`，所以現有的報表定義驗證照樣會跑。報表的擁有者是執行開啟的管理員。
 

@@ -216,6 +216,14 @@ public static partial class AppPackageValidator
             foreach (var g in r.ShareWith)
                 if (!groupCodes.Contains(g)) errors.Add($"{at}.shareWith: 群組 {g} 沒有在 groups 宣告");
             if (r.Definition is null) { errors.Add($"{at}.definition: 缺少報表定義"); continue; }
+            // 量值名稱（格式 11 起）：舊讀取器不認得 label，格式 10 以下帶了整份拒絕；文字規則同報表名稱（要有繁中、100 字）
+            for (var j = 0; j < r.Definition.Measures.Count; j++)
+            {
+                if (r.Definition.Measures[j]?.Label is not { } label) continue;
+                var lat = $"{at}.definition.measures[{j}].label";
+                if (p.FormatVersion < MeasureLabelFormatVersion) errors.Add($"{lat}: formatVersion {MeasureLabelFormatVersion} 才支援量值名稱");
+                else CheckText(label, lat, errors, p.FormatVersion, ReportRules.MaxNameLength);
+            }
             foreach (var e in AppReportCodec.ToDefinition(r.Definition, lookups).Errors) errors.Add($"{at}.definition: {e}");
             foreach (var e in masterErrors.Distinct()) errors.Add($"{at}.definition: {e}");
             masterErrors.Clear();

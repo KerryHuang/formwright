@@ -1,5 +1,6 @@
 using System.Text;
 using DynamicModules.Application.Dynamic.AppService;
+using DynamicModules.Application.Dynamic.AppService.Data;
 using DynamicModules.Application.Dynamic.TemplateService;
 using FluentAssertions;
 
@@ -39,9 +40,9 @@ public class AppPackageFormatTests
     // ---- 檔案層 ----
 
     [Fact]
-    public void File_UnknownFormatVersion11_IsRejectedWithUpgradeHint()
+    public void File_FutureFormatVersion_IsRejectedWithUpgradeHint()
     {
-        var json = AppTestPackages.Crm.Replace("\"formatVersion\": 2", "\"formatVersion\": 11");
+        var json = AppTestPackages.Crm.Replace("\"formatVersion\": 2", $"\"formatVersion\": {AppPackageData.CurrentFormatVersion + 1}");
         ParseErrors(Encoding.UTF8.GetBytes(json)).Should().ContainSingle().Which.Should().Contain("較新版本");
     }
 

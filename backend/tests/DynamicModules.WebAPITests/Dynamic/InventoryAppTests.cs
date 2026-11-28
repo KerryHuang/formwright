@@ -343,7 +343,7 @@ public class InventoryAppTests : IDisposable
         var res = await _admin.GetAsync($"{Apps}/inventory/export");
         res.StatusCode.Should().Be(HttpStatusCode.OK, await res.Content.ReadAsStringAsync());
         var exported = await JsonOf(res);
-        exported.GetProperty("formatVersion").GetInt32().Should().Be(10);
+        exported.GetProperty("formatVersion").GetInt32().Should().Be(11, "匯出寫目前格式（格式 11：量值名稱）");
         exported.GetProperty("events").GetArrayLength().Should().Be(6);
         exported.GetProperty("checks").GetArrayLength().Should().Be(1);
         exported.GetProperty("ledgers").GetArrayLength().Should().Be(1);

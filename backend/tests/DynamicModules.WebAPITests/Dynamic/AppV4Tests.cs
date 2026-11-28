@@ -131,7 +131,7 @@ public class AppV4Tests : IDisposable
     {
         await ImportAndOpen(_admin, AppTestPackagesV4.Flow(), "ledger-flow");
         var exported = await ExportOk("ledger-flow");
-        exported.GetProperty("formatVersion").GetInt32().Should().Be(10);
+        exported.GetProperty("formatVersion").GetInt32().Should().Be(11, "匯出寫目前格式（格式 11：量值名稱）");
         exported.GetProperty("events").GetArrayLength().Should().Be(1);
         exported.GetProperty("checks").GetArrayLength().Should().Be(1);
         exported.GetProperty("ledgers").GetArrayLength().Should().Be(1);

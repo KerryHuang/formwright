@@ -168,7 +168,7 @@ public sealed class AppFormat10ApiTests : IDisposable
         await _rig.OpenOkAsync(AppId, Body);
 
         var (exported, _) = await _rig.ExportAsync(AppId);
-        exported.GetProperty("formatVersion").GetInt32().Should().Be(10);
+        exported.GetProperty("formatVersion").GetInt32().Should().Be(11, "匯出寫目前格式（格式 11：量值名稱）");
         exported.GetProperty("reports")[0].GetProperty("name").ValueKind.Should().Be(JsonValueKind.String, "只有繁中寫字串（P8）");
         var fields = exported.GetProperty("modules")[0].GetProperty("blocks").EnumerateArray().SelectMany(b => b.GetProperty("fields").EnumerateArray()).ToList();
         fields.Single(f => f.GetProperty("code").GetString() == "idNo").GetProperty("excludeFromAi").GetBoolean().Should().BeTrue();

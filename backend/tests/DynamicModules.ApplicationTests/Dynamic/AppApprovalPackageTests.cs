@@ -1,4 +1,5 @@
 using DynamicModules.Application.Dynamic.AppService;
+using DynamicModules.Application.Dynamic.AppService.Data;
 using DynamicModules.Application.Dynamic.ApprovalService;
 using DynamicModules.Domain.Approvals;
 using DynamicModules.Domain.Policies;
@@ -152,9 +153,9 @@ public class AppApprovalPackageTests
     }
 
     [Fact]
-    public void Format11_Parse_NeedsNewerVersion()
+    public void FutureFormat_Parse_NeedsNewerVersion()
     {
-        AppJson.Parse(Package(GraphFlow, formatVersion: 11)).Errors.Should().ContainSingle()
+        AppJson.Parse(Package(GraphFlow, formatVersion: AppPackageData.CurrentFormatVersion + 1)).Errors.Should().ContainSingle()
             .Which.Should().Be("這個套件需要較新版本的 Formwright");
     }
 

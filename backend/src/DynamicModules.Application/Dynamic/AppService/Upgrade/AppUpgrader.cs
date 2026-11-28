@@ -888,6 +888,7 @@ public sealed class AppUpgrader(
             var current = ctx.Current.Reports.FirstOrDefault(r => r.Code == code);
             var props = Applied(item);
             var report = current is null ? incoming : Merge(current, incoming, props);
+            if (current is not null && props.Contains("definition")) report = report with { Definition = KeepMeasureLabels(current.Definition, report.Definition) };
             var (definition, errors) = AppReportCodec.ToDefinition(report.Definition, lookups);
             if (definition is null) return ServiceResult.Invalid(new Dictionary<string, string[]> { [$"{item.Id}.definition"] = [.. errors] });
             long reportId;
@@ -914,6 +915,21 @@ public sealed class AppUpgrader(
     }
 
     /// <summary>
+    /// 套用新版定義時，新版沒寫名稱、其餘（種類、欄位、條件）和現況相同的量值，保留現況的量值名稱（kr3 審查 R1）：
+    /// 客戶自己補的量值名稱不因套件改了別處（例如圖表種類）而消失；新版有寫名稱就用新版的。
+    /// </summary>
+    internal static AppReportDefinition KeepMeasureLabels(AppReportDefinition current, AppReportDefinition incoming)
+    {
+        static string Shape(AppReportMeasure m) => JsonSerializer.Serialize(m with { Label = null }, TemplateJson.Options);
+        var labels = current.Measures.Where(m => m?.Label is not null).GroupBy(m => m.Id).ToDictionary(g => g.Key, g => g.First());
+        return incoming with
+        {
+            Measures = incoming.Measures.Select(m =>
+                m is { Label: null } && labels.TryGetValue(m.Id, out var c) && Shape(c) == Shape(m) ? m with { Label = c.Label } : m).ToList(),
+        };
+    }
+
+    /// <summary>
     /// 既有報表：直接寫實體，不經 UpdateReport／SetReportShares（兩者只讓擁有者改）。套用者是系統管理員，不必是擁有者；
     /// 定義照樣走報表驗證，擁有者不變（§9.4、審查 M3）。
     /// </summary>
@@ -928,7 +944,8 @@ public sealed class AppUpgrader(
             var (valid, failure) = await reportValidator.ValidateAsync(name, entity.NameI18n, definition, ct);
             if (valid is null) return Fail(failure!, itemId);
             entity.NameI18n = name.Compacted();
-            entity.DefinitionJson = ReportDefinition.Serialize(valid);
+            // 沒套用定義變更就不重寫定義（kr3 審查 R1）：經套件轉換重建可能丟掉套件格式沒有的設定
+            if (props.Contains("definition")) entity.DefinitionJson = ReportDefinition.Serialize(valid);
         }
         if (props.Contains("shareWith"))
         {

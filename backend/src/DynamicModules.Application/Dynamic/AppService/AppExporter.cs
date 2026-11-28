@@ -627,6 +627,9 @@ public sealed partial class AppExporter(
                 warnings.Add($"報表「{report.NameI18n.Resolve(I18nText.FallbackLocale)}」未匯出（{string.Join("；", errors)}）");
                 continue;
             }
+            // 量值名稱同報表名稱：匯出補繁中、比對模式照原樣（格式 11，kr3 審查 R1）
+            if (!compare)
+                converted = converted with { Measures = converted.Measures.Select(m => m.Label is { } l ? m with { Label = PackageName(l) } : m).ToList() };
             result.Add(new AppPackageReport(link.Code, compare ? report.NameI18n.Compacted() : PackageName(report.NameI18n), report.Shares.Select(s => groupCode(s.GroupId)).ToList(), converted));
         }
         return result;
