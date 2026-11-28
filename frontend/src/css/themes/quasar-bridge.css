@@ -246,6 +246,15 @@
   color: var(--t-muted);
 }
 
+/* 邊欄底色和頁面不同，小字（同名模組的積木包名）改用邊欄的次要色；選取中的項目跟著選取前景色 */
+[data-style] .q-drawer .q-item__label--caption {
+  color: var(--t-sidebar-muted);
+}
+
+[data-style] .q-drawer .q-router-link--active .q-item__label--caption {
+  color: var(--t-selected-fg);
+}
+
 [data-style] .q-field--outlined .q-field__control:before {
   border-color: var(--t-border);
 }
