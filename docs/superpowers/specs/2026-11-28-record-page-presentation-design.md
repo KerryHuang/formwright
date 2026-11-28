@@ -1,5 +1,5 @@
 # 單據頁呈現：找不到頁、數字對齊、狀態章、唯讀欄位（ux1 #136）
-> 實作前檢查：✅ 2026-11-28（內容 76d276bf）
+> 實作前檢查：✅ 2026-11-28（內容 49e7ff71）
 
 來源：2026-11-27 全站 UI／UX 審查 P07、P12、P14；票 #136。受眾：一般（小企業老闆與行政）。
 
@@ -71,7 +71,7 @@ DetailPage 與 FormPage 原本的四行 `text-negative`（`ForbiddenNotice`、`m
 | `formula` | 由公式計算 |
 | `rollup` | 由明細彙總 |
 
-- 灰底用文字色的淡色疊加 `color-mix(in srgb, var(--t-text) 4%, transparent)`（4% 是清爽風格淺色下 `--t-muted` 標籤仍有 4.5:1 的上限，`themes.vitest.spec.ts` 守著），不寫死色碼；不用 `--t-bg`：表單直接放在頁面上（不在 `--t-panel` 卡片裡），`--t-bg` 和周圍同色，走查時淺色、深色都看不出灰底。樣式寫在 `quasar-bridge.css`；`frontend/src/css/themes/no-hardcoded-colors.vitest.spec.ts` 要照樣通過。
+- 灰底用文字色的淡色疊加 `color-mix(in srgb, var(--t-text) 4%, var(--t-bg))`（疊在不透明的頁面底色上，玻璃風格的漸層不會透出；4% 是清爽風格淺色下 `--t-muted` 標籤仍有 4.5:1 的上限，`themes.vitest.spec.ts` 守著），不寫死色碼；不用 `--t-bg`：表單直接放在頁面上（不在 `--t-panel` 卡片裡），`--t-bg` 和周圍同色，走查時淺色、深色都看不出灰底。樣式寫在 `quasar-bridge.css`；`frontend/src/css/themes/no-hardcoded-colors.vitest.spec.ts` 要照樣通過。
 - 明細子表編輯模式（DetailGrid 的儲存格）同樣灰底，但**不顯示提示**（每列重複一次太擠）。
 
 ### 4.2 其他唯讀欄位
