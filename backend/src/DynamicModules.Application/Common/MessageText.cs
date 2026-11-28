@@ -91,6 +91,9 @@ public static class MessageText
         TaskGanttConfigNotObject = nameof(TaskGanttConfigNotObject),
         // 任務檢視另存的名稱後綴（名稱多語設計 §7.3 Q3，每個語系各加自己語言的後綴）
         TaskViewCopySuffix = nameof(TaskViewCopySuffix),
+        // 內建報表（看板設計 §8.3）：不能改、刪、分享
+        BuiltInReportReadOnly = nameof(BuiltInReportReadOnly), BuiltInReportNoDelete = nameof(BuiltInReportNoDelete),
+        BuiltInReportNoShare = nameof(BuiltInReportNoShare),
         // 模組選單分區（名稱多語設計 §9 第 4 點；模組設計器其餘驗證訊息仍是字面值）
         ModuleSectionZhRequired = nameof(ModuleSectionZhRequired),
         // 甘特設定的驗證錯誤（鍵同 Domain 的 TaskGanttConfigErrors）
@@ -517,6 +520,11 @@ public static class MessageText
         [TaskViewKindInvalid] = ("檢視種類必須是 board 或 gantt", "View kind must be board or gantt",
             "ประเภทมุมมองต้องเป็น board หรือ gantt", "Loại chế độ xem phải là board hoặc gantt"),
         [TaskViewCopySuffix] = ("（副本）", " (copy)", " (สำเนา)", " (bản sao)"),
+        [BuiltInReportReadOnly] = ("內建報表不能修改，請另存一份", "Built-in reports cannot be changed. Save a copy instead",
+            "แก้ไขรายงานในตัวไม่ได้ โปรดบันทึกเป็นสำเนา", "Không thể sửa báo cáo có sẵn, hãy lưu một bản sao"),
+        [BuiltInReportNoDelete] = ("內建報表不能刪除", "Built-in reports cannot be deleted", "ลบรายงานในตัวไม่ได้", "Không thể xóa báo cáo có sẵn"),
+        [BuiltInReportNoShare] = ("內建報表人人都看得到，不需分享", "Everyone can see built-in reports, so they don't need to be shared",
+            "ทุกคนเห็นรายงานในตัวอยู่แล้ว ไม่ต้องแชร์", "Mọi người đều xem được báo cáo có sẵn, không cần chia sẻ"),
         [ModuleSectionZhRequired] = ("選單分區有其他語系時必須有繁體中文", "The menu section must have Traditional Chinese when other languages are filled in",
             "เมื่อกรอกส่วนเมนูในภาษาอื่น ต้องมีภาษาจีนตัวเต็มด้วย", "Khi nhập phần menu bằng ngôn ngữ khác, phải có tiếng Trung phồn thể"),
         [TaskGanttNameRequired] = ("甘特圖名稱必填", "Gantt chart name is required", "ต้องระบุชื่อแผนภูมิแกนต์", "Tên biểu đồ Gantt là bắt buộc"),

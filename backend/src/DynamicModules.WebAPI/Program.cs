@@ -350,6 +350,8 @@ static async Task<bool> InitializeDatabaseAsync(WebApplication app, string? data
     // 全系統政策快照（營運時區等）在索引回填與 Demo 資料之前載入；讀不到時沿用部署出廠值，不擋啟動
     await app.Services.GetRequiredService<CachedSystemPolicy>().EnsureFreshAsync(CancellationToken.None);
     await SeedData.EnsureSeededAsync(db);
+    // 內建任務報表依程式目錄寫入或更新（看板設計 §8.3）；營運時區在上面的政策快照載入後才準
+    await BuiltInReportSync.RunAsync(db, app.Services.GetRequiredService<IBusinessTime>().Now);
     // 設定精靈留下的一次性檔案（D-08）：admin 密碼雜湊與網站名稱，兩步都成功才刪
     var setupPayload = DynamicModules.WebAPI.Setup.SetupPayload.Read(installDataDirectory);
     var systemPolicy = app.Services.GetRequiredService<CachedSystemPolicy>();

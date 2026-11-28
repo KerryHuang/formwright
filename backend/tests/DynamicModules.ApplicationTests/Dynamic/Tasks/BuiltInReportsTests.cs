@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using DynamicModules.Application.Common.Time;
+using DynamicModules.Application.Dynamic.DemoService;
 using DynamicModules.Application.Dynamic.ModuleService.Data;
 using DynamicModules.Application.Dynamic.ReportService;
 using DynamicModules.Application.Dynamic.ReportService.Data;
@@ -27,6 +28,13 @@ public class BuiltInReportCatalogTests
         BuiltInReports.Find("task-trend")!.Code.Should().Be("task-trend");
         BuiltInReports.Find("nope").Should().BeNull();
         BuiltInReports.Find(null).Should().BeNull();
+    }
+
+    /// <summary>Demo 產生前的撞名檢查（DemoPreflight）比對報表繁中名：內建報表永遠在庫裡，名稱不能和 Demo 報表重疊。</summary>
+    [Fact]
+    public void Names_DoNotCollideWithDemoReports()
+    {
+        BuiltInReports.All.Select(r => r.Name.Resolve("zh-TW")).Should().NotIntersectWith(DemoReports.Names);
     }
 
     [Fact]

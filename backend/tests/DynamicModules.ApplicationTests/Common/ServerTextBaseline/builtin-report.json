@@ -1,0 +1,20 @@
+{
+  "BuiltInReportReadOnly": {
+    "zh-TW": "內建報表不能修改，請另存一份",
+    "en-US": "Built-in reports cannot be changed. Save a copy instead",
+    "th": "แก้ไขรายงานในตัวไม่ได้ โปรดบันทึกเป็นสำเนา",
+    "vi": "Không thể sửa báo cáo có sẵn, hãy lưu một bản sao"
+  },
+  "BuiltInReportNoDelete": {
+    "zh-TW": "內建報表不能刪除",
+    "en-US": "Built-in reports cannot be deleted",
+    "th": "ลบรายงานในตัวไม่ได้",
+    "vi": "Không thể xóa báo cáo có sẵn"
+  },
+  "BuiltInReportNoShare": {
+    "zh-TW": "內建報表人人都看得到，不需分享",
+    "en-US": "Everyone can see built-in reports, so they don't need to be shared",
+    "th": "ทุกคนเห็นรายงานในตัวอยู่แล้ว ไม่ต้องแชร์",
+    "vi": "Mọi người đều xem được báo cáo có sẵn, không cần chia sẻ"
+  }
+}

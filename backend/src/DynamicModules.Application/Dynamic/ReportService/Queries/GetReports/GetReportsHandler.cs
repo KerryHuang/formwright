@@ -5,7 +5,7 @@ using MediatR;
 
 namespace DynamicModules.Application.Dynamic.ReportService.Queries.GetReports;
 
-/// <summary>我的與分享給我的；系統管理員另含所有有分享的報表。</summary>
+/// <summary>內建報表（依目錄順序排最前）、我的與分享給我的；系統管理員另含所有有分享的報表。</summary>
 public class GetReportsHandler(IReportRepository reports, ReportAccess access) : IRequestHandler<GetReportsRequest, ServiceResult>
 {
     public async Task<ServiceResult> Handle(GetReportsRequest request, CancellationToken ct)
@@ -15,6 +15,6 @@ public class GetReportsHandler(IReportRepository reports, ReportAccess access) :
         if (viewer.IsAdmin)
             visible.AddRange((await reports.ListSharedAsync(ct)).Where(r => visible.All(v => v.Id != r.Id)));
         var names = await access.UserNamesAsync(ct);
-        return ServiceResult.Success(visible.OrderBy(r => r.Id).Select(r => r.ToItem(viewer, names)).ToList());
+        return ServiceResult.Success(visible.OrderBy(r => BuiltInReports.OrderOf(r.BuiltInCode)).ThenBy(r => r.Id).Select(r => r.ToItem(viewer, names)).ToList());
     }
 }

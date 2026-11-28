@@ -13,7 +13,7 @@ public class ReportRepository(DynamicDbContext db) : IReportRepository
 
     public Task<List<Report>> ListVisibleAsync(string userId, IReadOnlyCollection<long> groupIds, CancellationToken ct) =>
         db.Set<Report>().AsNoTracking().Include(r => r.Shares)
-            .Where(r => r.OwnerUserId == userId || r.Shares.Any(s => groupIds.Contains(s.GroupId)))
+            .Where(r => r.BuiltInCode != null || r.OwnerUserId == userId || r.Shares.Any(s => groupIds.Contains(s.GroupId)))
             .OrderBy(r => r.Id)
             .ToListAsync(ct);
 

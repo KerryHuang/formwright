@@ -14,6 +14,7 @@ public class SetReportSharesHandler(IAccountRepository accounts, IUnitOfWork uow
     {
         var (report, viewer) = await access.FindAsync(request.Id, ct);
         if (report is null) return ServiceResult.NotFound(ReportRules.ReportNotFound);
+        if (report.BuiltInCode is not null) return ServiceResult.Forbidden(MessageRef.Of(MessageText.BuiltInReportNoShare));
         if (report.OwnerUserId != viewer.UserId) return ServiceResult.Forbidden();
 
         var groupIds = request.GroupIds.Distinct().ToList();

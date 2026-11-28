@@ -21,9 +21,12 @@ public class ReportAccess(IReportRepository reports, IPermissionRepository permi
     public async Task<IReadOnlyDictionary<string, string>> UserNamesAsync(CancellationToken ct) =>
         (await permissions.ListUsersAsync(ct)).ToDictionary(u => u.UserId, u => u.DisplayName);
 
-    /// <summary>擁有者、分享給我的群組；系統管理員另可看所有有分享的報表（避免離職者留下的共用報表沒人能管）。</summary>
+    /// <summary>
+    /// 擁有者、分享給我的群組；系統管理員另可看所有有分享的報表（避免離職者留下的共用報表沒人能管）。
+    /// 內建報表所有登入者都看得到（看板設計 §8.3），內容照各人權限計算。
+    /// </summary>
     public static bool CanView(Report r, ReportViewer v) =>
-        r.OwnerUserId == v.UserId || r.Shares.Any(s => v.GroupIds.Contains(s.GroupId)) || (v.IsAdmin && r.Shares.Count > 0);
+        r.BuiltInCode is not null || r.OwnerUserId == v.UserId || r.Shares.Any(s => v.GroupIds.Contains(s.GroupId)) || (v.IsAdmin && r.Shares.Count > 0);
 
     /// <summary>追蹤中的報表；看不到一律回 null（呼叫端回 404）。</summary>
     public async Task<(Report? Report, ReportViewer Viewer)> FindAsync(long id, CancellationToken ct)

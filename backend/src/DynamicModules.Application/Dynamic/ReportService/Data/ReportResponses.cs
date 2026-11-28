@@ -50,8 +50,12 @@ public record ReportColumn(string Key, string Label, string Role, string ValueTy
 /// <summary>實際套用的日期區間（含頭含尾）與它的來源設定。</summary>
 public record ReportAppliedRange(DateOnly From, DateOnly To, string Kind, int? N);
 
-/// <summary>報表清單一筆；SharedGroupIds 對非擁有者也照實回傳。</summary>
-public record ReportItem(long Id, I18nText Name, string OwnerName, bool IsOwner, List<long> SharedGroupIds, string MainModuleKey);
+/// <summary>
+/// 報表清單一筆；SharedGroupIds 對非擁有者也照實回傳。內建報表（看板設計 §8.3）BuiltIn 為 true、BuiltInCode 是目錄代碼、
+/// OwnerName 是空字串（「系統」由前端顯示）、Description 是目錄的四語說明；一般報表這三項為 false／null／null。
+/// </summary>
+public record ReportItem(long Id, I18nText Name, string OwnerName, bool IsOwner, List<long> SharedGroupIds, string MainModuleKey,
+    bool BuiltIn = false, string? BuiltInCode = null, I18nText? Description = null);
 
 /// <summary>分享對話框的群組選項。</summary>
 public record ReportShareTarget(long Id, I18nText Name);
@@ -59,7 +63,7 @@ public record ReportShareTarget(long Id, I18nText Name);
 /// <summary>單張報表；Definition 是儲存的定義原樣（被分享者唯讀）。CanExport 與匯出同一套判斷：涉及的模組都有 PrintExport。</summary>
 public record ReportDetail(
     long Id, I18nText Name, string OwnerName, bool IsOwner, List<long> SharedGroupIds, string MainModuleKey, JsonElement Definition,
-    bool CanExport);
+    bool CanExport, bool BuiltIn = false, string? BuiltInCode = null, I18nText? Description = null);
 
 /// <summary>下鑽結果：同 <see cref="ReportResult"/>，明細最多到下鑽上限（政策 report.drillLimit）列，超過時 Truncated 為 true。</summary>
 public sealed record DrillResult : ReportResult
@@ -72,13 +76,15 @@ public static class ReportMapper
 {
     public static ReportItem ToItem(this Report r, ReportViewer viewer, IReadOnlyDictionary<string, string> names) =>
         new(r.Id, r.NameI18n, r.OwnerUserId is null ? "" : names.GetValueOrDefault(r.OwnerUserId, r.OwnerUserId), r.OwnerUserId == viewer.UserId,
-            r.Shares.Select(s => s.GroupId).Order().ToList(), MainKeyOf(r));
+            r.Shares.Select(s => s.GroupId).Order().ToList(), MainKeyOf(r),
+            r.BuiltInCode is not null, r.BuiltInCode, BuiltInReports.Find(r.BuiltInCode)?.Description);
 
     /// <param name="definition">依觀看者遮蔽後的定義（<see cref="ReportMasking.Mask"/>）。</param>
     public static ReportDetail ToDetail(this Report r, ReportViewer viewer, IReadOnlyDictionary<string, string> names, JsonElement definition, bool canExport)
     {
         var item = r.ToItem(viewer, names);
-        return new(item.Id, item.Name, item.OwnerName, item.IsOwner, item.SharedGroupIds, item.MainModuleKey, definition, canExport);
+        return new(item.Id, item.Name, item.OwnerName, item.IsOwner, item.SharedGroupIds, item.MainModuleKey, definition, canExport,
+            item.BuiltIn, item.BuiltInCode, item.Description);
     }
 
     private static string MainKeyOf(Report r)
