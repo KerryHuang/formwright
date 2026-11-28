@@ -101,12 +101,13 @@
   color: var(--t-muted) !important;
 }
 
-/* Quasar 元件內部自己帶的灰字（例如表格分頁按鈕的 text-grey-8），深色下對比不足 */
-.text-grey,
-.text-grey-5,
-.text-grey-6,
-.text-grey-7,
-.text-grey-8 {
+/* Quasar 元件內部自己帶的灰字（例如表格分頁按鈕的 text-grey-8），深色下對比不足。
+   狀態章除外：那裡的色名是選項設定的顏色（只畫圓點、邊框與淡色底，不當字色），要保留各自的色盤值 */
+.text-grey:not(.status-chip),
+.text-grey-5:not(.status-chip),
+.text-grey-6:not(.status-chip),
+.text-grey-7:not(.status-chip),
+.text-grey-8:not(.status-chip) {
   color: var(--t-muted) !important;
 }
 

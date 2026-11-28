@@ -99,9 +99,9 @@ const problem = computed<UnavailableKind | undefined>(() => {
   if (recordMissing.value) return 'recordMissing';
   return failed.value ? 'failed' : undefined;
 });
-// "Record not found" names the module: stay blank until the schema has answered, either way.
-const unavailable = computed(() => (!problem.value || (problem.value === 'recordMissing' && !schemaQuery.data.value && !schemaQuery.error.value) ? undefined
-  : unavailableView(problem.value, { t, moduleKey: moduleKey.value, moduleName: moduleName.value, schemaRead: !!schemaQuery.data.value?.permissions })));
+// Without the module name (schema pending or failed) the view uses generic wording and goes home; it follows the schema when it answers.
+const unavailable = computed(() => problem.value
+  && unavailableView(problem.value, { t, moduleKey: moduleKey.value, moduleName: moduleName.value, schemaRead: !!schemaQuery.data.value?.permissions }));
 function retry() {
   if (schemaQuery.error.value) void schemaQuery.refetch();
   if (isEdit.value && recordQuery.error.value) void recordQuery.refetch();
@@ -173,9 +173,7 @@ async function onSubmit(values: Record<string, unknown>, details: Record<string,
 
 <template>
   <q-page padding :style="$q.screen.lt.sm ? 'padding-bottom: calc(88px + env(safe-area-inset-bottom))' : undefined">
-    <template v-if="problem">
-      <RecordUnavailable v-if="unavailable" v-bind="unavailable" :retry="problem === 'failed' ? retry : undefined" />
-    </template>
+    <RecordUnavailable v-if="unavailable" v-bind="unavailable" :retry="problem === 'failed' ? retry : undefined" />
     <template v-else-if="ready">
       <RecordHeaderBar
         :back-label="moduleName" :back-to="backPath" :back-aria-label="t('dynamic.backTo', { module: moduleName })"

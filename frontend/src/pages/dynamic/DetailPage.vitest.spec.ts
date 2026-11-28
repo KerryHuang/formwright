@@ -280,6 +280,23 @@ describe('DetailPage 找不到、無權限、載入失敗', () => {
     expect(box(w).text()).toContain(named(u.recordMissingTitle));
   });
 
+  it('單據 404、schema 還沒回來：先給通用文案與回首頁，schema 回來後換成模組名與回列表', async () => {
+    let answer!: (s: ModuleSchema) => void;
+    const w = await mountFailing(() => {
+      api.getModuleSchema.mockImplementation(() => new Promise<ModuleSchema>((resolve) => { answer = resolve; }));
+      api.getRecord.mockImplementation(reject(404));
+    });
+    expect(box(w).get('.text-h6').text()).toBe(u.recordMissingTitle.replace('{module}', u.fallbackModule));
+    expect(box(w).text()).toContain(u.recordMissingReason);
+    expect(back(w).text()).toContain(u.backHome);
+    expect(back(w).attributes('href')).toBe('/');
+    answer(schema({}));
+    await flushPromises();
+    expect(box(w).get('.text-h6').text()).toBe(named(u.recordMissingTitle));
+    expect(back(w).text()).toContain(named(u.backToList));
+    expect(back(w).attributes('href')).toBe('/dynamic/m');
+  });
+
   it('模組不存在：回到首頁', async () => {
     const w = await mountFailing(() => {
       api.getModuleSchema.mockImplementation(reject(404));

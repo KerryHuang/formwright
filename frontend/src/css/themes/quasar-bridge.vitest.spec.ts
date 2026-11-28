@@ -113,7 +113,7 @@ describe('quasar-bridge.css', () => {
   });
 
   it('Quasar 內部的灰字 class 改用 muted', () => {
-    expect(bodiesOf(bridge, '.text-grey-8').join(';')).toMatch(/color:\s*var\(--t-muted\)\s*!important/);
+    expect(bodiesOf(bridge, '.text-grey-8:not(.status-chip)').join(';')).toMatch(/color:\s*var\(--t-muted\)\s*!important/);
   });
 
   it('頂列上的麵包屑不用主色，改繼承頂列前景色', () => {

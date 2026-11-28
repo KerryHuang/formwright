@@ -41,6 +41,27 @@ describe('StatusChip', () => {
     expect(bodyOf('.status-chip__dot')).toMatch(/background:\s*currentcolor/i);
   });
 
+  it('灰階色名保留各自的色盤值：載入 Quasar 色盤與 bridge 後，不同灰階算出來不同色', () => {
+    const quasarCss = readFileSync(resolve(process.cwd(), 'node_modules/quasar/dist/quasar.css'), 'utf8');
+    const palette = quasarCss.match(/^\.text-grey(-\d+)? \{[^}]*\}/gm)!.join('\n');
+    const style = document.head.appendChild(document.createElement('style'));
+    style.textContent = `${palette}\n${bridge}`;
+    const greys = ['grey', 'grey-5', 'grey-6', 'grey-7', 'grey-8'];
+    const mounted = greys.map((c) => mount(StatusChip, { props: { label: c, color: c }, attachTo: document.body }));
+    const colors = mounted.map((w) => getComputedStyle(root(w).element).color);
+    // 章以外的灰字（Quasar 元件內部）仍改用 muted
+    const plain = document.body.appendChild(document.createElement('span'));
+    plain.className = 'text-grey-8';
+    const plainColor = getComputedStyle(plain).color;
+    mounted.forEach((w) => w.unmount());
+    plain.remove();
+    style.remove();
+    // Quasar 的 grey 與 grey-5 是同一個色盤值，其餘各不相同
+    expect(new Set(colors.slice(1)).size).toBe(4);
+    expect(colors.join()).not.toContain('var(');
+    expect(plainColor).toContain('--t-muted');
+  });
+
   it('章不可點', () => {
     const w = chip('red');
     expect(w.find('button, a, [tabindex]').exists()).toBe(false);

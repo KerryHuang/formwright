@@ -92,6 +92,23 @@ describe('FormPage', () => {
     expect(w.find('form').exists()).toBe(false);
   });
 
+  it('編輯頁單據 404、schema 還沒回來：先給通用文案與回首頁，schema 回來後換成模組名與回列表', async () => {
+    let answer!: (s: ModuleSchema) => void;
+    api.getModuleSchema.mockReturnValueOnce(new Promise<ModuleSchema>((resolve) => { answer = resolve; }));
+    api.getRecord.mockRejectedValueOnce({ status: 404 });
+    const w = await mountPage(schema(all), '/dynamic/m/5/edit');
+    const title = () => w.get('[data-testid="record-unavailable"] .text-h6').text();
+    const back = () => w.get('[data-testid="record-unavailable-back"]');
+    expect(title()).toBe(unavailable.recordMissingTitle.replace('{module}', unavailable.fallbackModule));
+    expect(back().text()).toContain(unavailable.backHome);
+    expect(back().attributes('href')).toBe('/');
+    answer(schema(all));
+    await flushPromises();
+    expect(title()).toBe(named(unavailable.recordMissingTitle));
+    expect(back().text()).toContain(named(unavailable.backToList));
+    expect(back().attributes('href')).toBe('/dynamic/m');
+  });
+
   it('編輯頁單據 403：沒有權限查看（不是缺編輯權限）', async () => {
     api.getRecord.mockRejectedValueOnce({ status: 403 });
     const w = await mountPage(schema(all), '/dynamic/m/5/edit', null as never);

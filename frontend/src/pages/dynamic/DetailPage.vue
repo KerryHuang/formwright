@@ -85,9 +85,9 @@ const problem = computed<UnavailableKind | undefined>(() => {
   if (recordMissing.value) return 'recordMissing';
   return failed.value ? 'failed' : undefined;
 });
-// "Record not found" names the module: stay blank until the schema has answered, either way.
-const unavailable = computed(() => (!problem.value || (problem.value === 'recordMissing' && !schema.value && !schemaError.value) ? undefined
-  : unavailableView(problem.value, { t, moduleKey: moduleKey.value, moduleName: moduleName.value, schemaRead: !!schema.value?.permissions })));
+// Without the module name (schema pending or failed) the view uses generic wording and goes home; it follows the schema when it answers.
+const unavailable = computed(() => problem.value
+  && unavailableView(problem.value, { t, moduleKey: moduleKey.value, moduleName: moduleName.value, schemaRead: !!schema.value?.permissions }));
 function retry() {
   if (schemaError.value) void (viaGrant.value ? grantSchemaQuery : schemaQuery).refetch();
   if (recordQuery.error.value) void recordQuery.refetch();
@@ -201,9 +201,7 @@ async function onDelete() {
   <q-page padding :style="barPad ? 'padding-bottom: calc(88px + env(safe-area-inset-bottom))' : undefined">
     <template v-if="historyPending" />
     <ApprovalHistoryOnly v-else-if="historyOnly" :approval="approvalQuery.data.value!" :record-id="recordId" :module-key="moduleKey" />
-    <template v-else-if="problem">
-      <RecordUnavailable v-if="unavailable" v-bind="unavailable" :retry="problem === 'failed' ? retry : undefined" />
-    </template>
+    <RecordUnavailable v-else-if="unavailable" v-bind="unavailable" :retry="problem === 'failed' ? retry : undefined" />
     <template v-else-if="schema && recordQuery.data.value">
       <RecordHeaderBar
         :back-label="moduleName" :back-to="`/dynamic/${moduleKey}`" :back-aria-label="t('dynamic.backTo', { module: moduleName })" back-testid="module-title"
