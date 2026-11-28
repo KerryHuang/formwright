@@ -116,7 +116,7 @@ GitHub Deployments：Render 的部署寫入環境 `demo`（附 Demo 網址）；
 | `Setup__Pending` | 設定模式旗標：精靈完成前為 `true`，站台只開精靈；由安裝程式寫入設定檔，精靈完成後自動移除 |
 | `Server__Port` | 站台聽的連接埠，安裝版預設 8080 |
 
-`Auth__InitialAdminPassword` 只在資料庫還沒有可用的管理員時有效，之後改它不會覆寫既有密碼。`Auth__ResetAdminPassword` 至少 8 碼，會重設 `admin` 的密碼、啟用、解鎖、要求改密碼並讓所有 session 失效；它也會清掉 `admin` 的雙因素驗證（金鑰、復原碼），救回後要把它移除，否則每次重啟都會再重設，維運監控也會一直開「緊急救援設定還沒移除」事件。`Demo__LoginEnabled` 絕不能在正式站開啟，它不驗密碼。Swagger 只在 Development 環境開放。
+`Auth__InitialAdminPassword` 只在資料庫還沒有可用的管理員時有效，之後改它不會覆寫既有密碼。`Auth__ResetAdminPassword` 的長度要符合資料庫裡的「密碼最短長度」政策（出廠 8 碼，可設 8 到 128），會重設 `admin` 的密碼、啟用、解鎖、要求改密碼並讓所有 session 失效；它也會清掉 `admin` 的雙因素驗證（金鑰、復原碼），救回後要把它移除，否則每次重啟都會再重設，維運監控也會一直開「緊急救援設定還沒移除」事件。`Demo__LoginEnabled` 絕不能在正式站開啟，它不驗密碼。Swagger 只在 Development 環境開放。
 
 `Sqlite__MmapSizeMb` 是大型部署的效能設定，用在資料庫檔案達數 GB、查詢以索引篩選為主的站台：負載測試中索引型查詢單人快 30% 至 45%（[儲存層負載報告](superpowers/specs/2026-11-06-storage-load-report.md) §5）。對映大小要接近資料庫檔案的大小才有效果（只開 256 MB 對 3 GB 的資料庫看不出差別），數值大於檔案時只會用到檔案那麼多；代價是占用位址空間，頁面快取由作業系統管理，實體記憶體不足的主機請維持關閉。設定逐連線生效，改值後要重啟站台；0、負數與非數字都視為關閉。只有 SQLite 會套用。
 
@@ -485,6 +485,8 @@ docker compose run --rm --no-deps -v "${PWD}/pre-restore:/save:ro" --entrypoint 
 
 定期（建議每天或每週）把**整個備份根目錄**複製到另一台電腦、NAS 或外接硬碟。只帶 `sets/` 不夠：附件的實體放在共用的 `attachments/`，根目錄的 `.formwright-backup-location` 標記檔也要一起帶（少了它，還原後不會再自動備份，見下面第 4 步）。`<保存處>` 換成你的目的地資料夾：
 
+下面的 Windows、Ubuntu 指令用的是預設備份位置；精靈第 6 步改過備份位置（例如另一顆磁碟或 NAS）的，把來源換成設定檔 `formwright.json` 裡 `Backup:Root` 的路徑（設定檔位置見[預設位置](#預設位置)），否則會複製到空的或過期的預設資料夾。Docker 的備份位置固定是 `/backup`。複製完打開保存處的 `sets/`，確認最新一份的資料夾名稱（開頭是 UTC 日期時間，例如 `20261128T153108Z-…`）是最近的日期。
+
 - **Windows**（系統管理員 PowerShell）：`robocopy C:\ProgramData\Formwright\backup <保存處> /E /R:1 /W:1`。只複製新增或變更的檔案；結束碼 0 到 7 都是成功，8 以上是失敗。預設不複製權限，目的地的檔案用目的地資料夾的權限。
 - **Ubuntu**：`sudo rsync -a /var/lib/formwright/backup/ <保存處>/`（兩邊路徑結尾都要有 `/`）。`<保存處>` 會留著擁有者 `formwright` 與 0700，一般帳號讀不到，這是刻意的。
 - **Docker compose**（在放 `docker-compose.yml` 的資料夾執行）：Windows PowerShell 用 `docker compose run --rm --no-deps -v "<保存處>:/out" --entrypoint sh formwright -c "cp -a /backup/. /out/"`，Linux、macOS 同一行。`<保存處>` 要寫完整路徑（例如 `D:\formwright-backup`、`/mnt/usb/formwright-backup`）。
@@ -498,13 +500,13 @@ docker compose run --rm --no-deps -v "${PWD}/pre-restore:/save:ro" --entrypoint 
 > ⚠️ **金鑰絕對不要和備份放在同一個地方**（同一個隨身碟、同一個 NAS 資料夾、同一個雲端硬碟）。拿到備份加金鑰的人，可以解開寄信密碼、偽造任何人的登入。建議放進密碼管理器的附件，或交給另一位保管人保存在另一個媒體上。
 
 - 金鑰目錄：Windows `C:\ProgramData\Formwright\data\keys`、Ubuntu `/var/lib/formwright/data/keys`、Docker 在資料 volume 的 `/app/data/keys`。裡面是 `key-<編號>.xml` 檔。
-- 取出：Windows `Copy-Item C:\ProgramData\Formwright\data\keys\*.xml <金鑰保存處>`；Ubuntu `sudo cp -p /var/lib/formwright/data/keys/*.xml <金鑰保存處>/`；Docker `docker compose run --rm --no-deps -v "<金鑰保存處>:/out" --entrypoint sh formwright -c "cp -a /app/data/keys/. /out/"`。
+- 取出：Windows `Copy-Item C:\ProgramData\Formwright\data\keys\*.xml <金鑰保存處>`；Ubuntu `sudo sh -c 'cp -p /var/lib/formwright/data/keys/*.xml <金鑰保存處>/'`（整段包在 `sudo sh -c` 裡：資料目錄只有服務帳號與 root 進得去，`*.xml` 要由 root 的 shell 展開）；Docker `docker compose run --rm --no-deps -v "<金鑰保存處>:/out" --entrypoint sh formwright -c "cp -a /app/data/keys/. /out/"`。
 - 系統大約每 90 天自動多產生一個新的金鑰檔，舊的不會刪。**金鑰目錄多了新檔就要重新保存**（保留舊檔、加上新檔）；只有舊金鑰時，新金鑰加密過的東西（之後才綁定的雙因素、之後才改的寄信密碼、所有登入）一樣解不開。
 
 #### 在新主機上還原
 
 1. 在新主機安裝**同一版或較新版**的 Formwright（看保存的備份裡要還原那份 `manifest.json` 的 `appVersion`，新版可以開舊備份，反過來不行）。Docker 用同一版的 `docker-compose.yml`。
-2. 打開網頁走完設定精靈。管理員密碼先隨便設一個：還原後會回到舊資料庫裡的帳號與密碼。備份位置照新主機的情況填（建議沿用預設位置，之後再照上面的做法複製到主機以外）。
+2. 打開網頁走完設定精靈。管理員密碼先隨便設一個：還原後會回到舊資料庫裡的帳號與密碼。備份位置**保持預設**：下面第 4、5 步的指令以預設位置為準。一定要改到別處的話，第 4 步的目的地與第 5 步還原段裡的備份路徑都要換成新填的位置。還原完成後再照上面的做法定期複製到主機以外。
 3. 停服務：Windows `Stop-Service Formwright`；Ubuntu `sudo systemctl stop formwright`；Docker `docker compose stop formwright`，再用 `docker compose ps -a` 確認是 `Exited`。
 4. 把保存處的**整個備份根目錄**複製進新主機的備份位置，**蓋過**精靈建立的 `.formwright-backup-location` 標記檔。標記檔的識別碼要和舊資料庫記的一致，否則還原後「維運監控」的備份檢查會顯示備份位置不一致、不再自動備份。精靈完成後新主機已做的那一份備份會留在 `sets/` 裡，不影響還原，不想留可以手動刪掉。
    - **Windows**（系統管理員 PowerShell）：`robocopy <保存處> C:\ProgramData\Formwright\backup /E /R:1 /W:1`（不要加 `/SEC`、`/COPYALL`，否則會帶入保存處的權限，下次升級被拒絕）。
@@ -513,10 +515,10 @@ docker compose run --rm --no-deps -v "${PWD}/pre-restore:/save:ro" --entrypoint 
 5. 照上面[安裝版的還原](#安裝版的還原)該平台的步驟，從「選一份備份」開始做到「還原完成」為止（服務已經停了；另存現有資料那步另存的是精靈剛建的空資料庫，照做即可）。**先不要啟動。**
 6. （選用）放回另外保存的金鑰：把保存的 `key-*.xml` 複製進新主機的金鑰目錄。新主機精靈建立的金鑰檔留著，不用刪。
    - **Windows**：`Copy-Item <金鑰保存處>\key-*.xml C:\ProgramData\Formwright\data\keys\`
-   - **Ubuntu**：`sudo cp <金鑰保存處>/key-*.xml /var/lib/formwright/data/keys/`，再 `sudo chown formwright:formwright /var/lib/formwright/data/keys/*.xml` 與 `sudo chmod 600 /var/lib/formwright/data/keys/*.xml`
+   - **Ubuntu**：`sudo sh -c 'set -e; cp <金鑰保存處>/key-*.xml /var/lib/formwright/data/keys/; chown formwright:formwright /var/lib/formwright/data/keys/*.xml; chmod 600 /var/lib/formwright/data/keys/*.xml'`（同上，萬用字元要在 root 的 shell 裡展開；任一步失敗就停，不要啟動）
    - **Docker**：`docker compose run --rm --no-deps -v "<金鑰保存處>:/k:ro" --entrypoint sh formwright -c "cp /k/key-*.xml /app/data/keys/"`
 7. 啟動：Windows `Start-Service Formwright`；Ubuntu `sudo systemctl start formwright`；Docker `docker compose start formwright`。開網頁，用**舊的**管理員帳號密碼登入，確認資料與附件。
-8. 沒有放回金鑰時，登入要輸入雙因素驗證碼的帳號，驗證器 App 的碼會被拒絕，改點「改用復原碼」登入，再到「帳號安全」重新綁定；寄信設定要重填密碼。手機和復原碼都不見的使用者，請系統管理員在「使用者」頁「重設雙因素」。唯一的系統管理員連復原碼也沒有時，用[`Auth__ResetAdminPassword`](#環境變數) 救援：安裝版在設定檔 `formwright.json`（位置見[預設位置](#預設位置)）最外層加 `"Auth": { "ResetAdminPassword": "<至少 8 碼的暫時密碼>" }`，重啟服務，用 `admin` 與暫時密碼登入、改密碼、重新綁定雙因素後，把這段刪掉再重啟（這個救援方式在安裝版沒有演練過）。
+8. 沒有放回金鑰時，登入要輸入雙因素驗證碼的帳號，驗證器 App 的碼會被拒絕，改點「改用復原碼」登入，再到「帳號安全」重新綁定；寄信設定要重填密碼。手機和復原碼都不見的使用者，請系統管理員在「使用者」頁「重設雙因素」。唯一的系統管理員連復原碼也沒有時，用[`Auth__ResetAdminPassword`](#環境變數) 救援：安裝版在設定檔 `formwright.json`（位置見[預設位置](#預設位置)）最外層加 `"Auth": { "ResetAdminPassword": "<暫時密碼>" }`（長度要符合舊系統的「密碼最短長度」政策，出廠 8 碼；不知道舊系統設多少時用 128 碼的隨機密碼（政策上限就是 128）；長度不足時服務會啟動失敗，log 會寫原因），重啟服務，用 `admin` 與暫時密碼登入、改密碼、重新綁定雙因素後，把這段刪掉再重啟（這個救援方式在安裝版沒有演練過）。
 
 還原後看得到、但不用處理的現象：
 
