@@ -653,6 +653,115 @@ public class AppUpgradeApplyCaseTests : IDisposable
         MeasureLabel(after, "en-US").Should().Be("Customers");
     }
 
+    // ---- 量值名稱的來源（kr3 複審 R2、Y4）：套件原有的名稱跟著新版走，客戶自己加的才保留 ----
+
+    private const string CountIfFilled = """{ "id": "n", "kind": "countIf", "field": null, "condition": { "field": { "source": "main", "field": "customer.status", "via": null }, "op": "isNotEmpty", "value": null } }""";
+
+    /// <summary>格式 11 的新版：報表帶指定的量值（可含 label）與圖表種類。</summary>
+    private async Task ReleaseAsync(string version, string measure, string viz = "bar")
+    {
+        var p = V1();
+        p["formatVersion"] = 11;
+        p["manifest"]!["version"] = version;
+        var report = Report("byStatus", measure, "sales");
+        report["definition"]!["viz"] = viz;
+        p["reports"] = new JsonArray(report);
+        (await Import(p)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    private static Dictionary<string, string?> PropsOf(JsonElement preview, string id) =>
+        preview.GetProperty("items").EnumerateArray().Where(i => i.GetProperty("id").GetString() == id)
+            .SelectMany(i => i.GetProperty("properties").EnumerateArray())
+            .ToDictionary(x => x.GetProperty("name").GetString()!, x => x.GetProperty("result").GetString());
+
+    /// <summary>R2：套件原本就帶的名稱、客戶沒動（基準＝現況），新版拿掉名稱 → 預覽 newOnly、套用後名稱消失、再預覽沒有假的客戶修改。</summary>
+    [Fact]
+    public async Task PackageLabel_RemovedInNewVersion_RemovalApplies_R2()
+    {
+        await OpenAsync();
+        await ReleaseAsync("1.1.0", CountMain.Replace("\"condition\": null", "\"condition\": null, \"label\": { \"zh-TW\": \"件數\", \"en-US\": \"Count\" }"));
+        await ApplyOkAsync(Token(await PreviewAsync()), "report:byStatus");
+        var reportId = ReportIdOf("byStatus");
+        MeasureLabel(DefinitionJsonOf(reportId), "zh-TW").Should().Be("件數", "前提：套件的名稱寫進去了");
+
+        await ReleaseAsync("1.2.0", CountMain);
+        var preview = await PreviewAsync();
+        PropsOf(preview, "report:byStatus")["definition"].Should().Be("newOnly");
+        await ApplyOkAsync(Token(preview), "report:byStatus");
+
+        MeasureLabel(DefinitionJsonOf(reportId), "zh-TW").Should().BeNull("新版拿掉的套件名稱要真的拿掉");
+        await ReleaseAsync("1.3.0", CountMain);
+        PropsOf(await PreviewAsync(), "report:byStatus").GetValueOrDefault("definition").Should().NotBe("customerOnly", "基準與現況一致，沒有假的客戶修改");
+    }
+
+    /// <summary>Y4：客戶改寫了套件原有的名稱，新版只改圖表種類 → 保留客戶的名稱。</summary>
+    [Fact]
+    public async Task PackageLabel_RewrittenByCustomer_KeptWhenNewVersionChangesViz_Y4()
+    {
+        await OpenAsync();
+        await ReleaseAsync("1.1.0", CountMain.Replace("\"condition\": null", "\"condition\": null, \"label\": \"件數\""));
+        await ApplyOkAsync(Token(await PreviewAsync()), "report:byStatus");
+        var reportId = ReportIdOf("byStatus");
+        await LabelMeasureAsync(reportId);
+
+        await ReleaseAsync("1.2.0", CountMain, viz: "donut");
+        await ApplyOkAsync(Token(await PreviewAsync()), "report:byStatus");
+
+        MeasureLabel(DefinitionJsonOf(reportId), "zh-TW").Should().Be("客戶數", "客戶改寫過，相對基準不同");
+    }
+
+    /// <summary>Y4：同一個量值 Id 但新版改了條件 → 不保留客戶的名稱（名稱可能已不符合新的意思）。</summary>
+    [Fact]
+    public async Task CustomerLabel_SameIdButConditionChanged_NotKept_Y4()
+    {
+        await OpenAsync();
+        await ReleaseAsync("1.1.0", CountIfFilled);
+        await ApplyOkAsync(Token(await PreviewAsync()), "report:byStatus");
+        var reportId = ReportIdOf("byStatus");
+        await LabelMeasureAsync(reportId);
+
+        await ReleaseAsync("1.2.0", CountIfFilled.Replace("isNotEmpty", "isEmpty"));
+        await ApplyOkAsync(Token(await PreviewAsync()), "report:byStatus");
+
+        JsonNode.Parse(DefinitionJsonOf(reportId))!["measures"]![0]!["condition"]!["op"]!.GetValue<string>().Should().Be("isEmpty");
+        MeasureLabel(DefinitionJsonOf(reportId), "zh-TW").Should().BeNull();
+    }
+
+    /// <summary>Y4：形狀相同但新版換了量值 Id → 不跨 Id 保留。</summary>
+    [Fact]
+    public async Task CustomerLabel_SameShapeButIdChanged_NotKept_Y4()
+    {
+        await OpenAsync();
+        await ReleaseAsync("1.1.0", CountMain);
+        await ApplyOkAsync(Token(await PreviewAsync()), "report:byStatus");
+        var reportId = ReportIdOf("byStatus");
+        await LabelMeasureAsync(reportId);
+
+        await ReleaseAsync("1.2.0", CountMain.Replace("\"id\": \"n\"", "\"id\": \"total\""));
+        await ApplyOkAsync(Token(await PreviewAsync()), "report:byStatus");
+
+        var measure = JsonNode.Parse(DefinitionJsonOf(reportId))!["measures"]![0]!;
+        measure["id"]!.GetValue<string>().Should().Be("total");
+        measure["label"].Should().BeNull();
+    }
+
+    /// <summary>Y4：新版明確給了名稱 → 用新版的，不保留客戶的。</summary>
+    [Fact]
+    public async Task CustomerLabel_NewVersionProvidesLabel_NewWins_Y4()
+    {
+        await OpenAsync();
+        await ReleaseAsync("1.1.0", CountMain);
+        await ApplyOkAsync(Token(await PreviewAsync()), "report:byStatus");
+        var reportId = ReportIdOf("byStatus");
+        await LabelMeasureAsync(reportId);
+
+        await ReleaseAsync("1.2.0", CountMain.Replace("\"condition\": null", "\"condition\": null, \"label\": \"件數\""));
+        await ApplyOkAsync(Token(await PreviewAsync()), "report:byStatus");
+
+        MeasureLabel(DefinitionJsonOf(reportId), "zh-TW").Should().Be("件數");
+        MeasureLabel(DefinitionJsonOf(reportId), "en-US").Should().BeNull("整份用新版的名稱");
+    }
+
     /// <summary>M4：客戶把必填欄位改成非必填（customerOnly），新版只改標籤：可以套用，不算影響既有資料，套用後仍非必填。</summary>
     [Fact]
     public async Task CustomerRelaxedRequired_OtherChange_IsApplicable_M4()

@@ -888,7 +888,8 @@ public sealed class AppUpgrader(
             var current = ctx.Current.Reports.FirstOrDefault(r => r.Code == code);
             var props = Applied(item);
             var report = current is null ? incoming : Merge(current, incoming, props);
-            if (current is not null && props.Contains("definition")) report = report with { Definition = KeepMeasureLabels(current.Definition, report.Definition) };
+            if (current is not null && props.Contains("definition"))
+                report = report with { Definition = KeepMeasureLabels(current.Definition, BaseDefinition(ctx, item.Id), report.Definition) };
             var (definition, errors) = AppReportCodec.ToDefinition(report.Definition, lookups);
             if (definition is null) return ServiceResult.Invalid(new Dictionary<string, string[]> { [$"{item.Id}.definition"] = [.. errors] });
             long reportId;
@@ -915,19 +916,36 @@ public sealed class AppUpgrader(
     }
 
     /// <summary>
-    /// 套用新版定義時，新版沒寫名稱、其餘（種類、欄位、條件）和現況相同的量值，保留現況的量值名稱（kr3 審查 R1）：
-    /// 客戶自己補的量值名稱不因套件改了別處（例如圖表種類）而消失；新版有寫名稱就用新版的。
+    /// 套用新版定義時保留客戶自己的量值名稱（kr3 審查 R1、複審 R2）。只保留同時符合下列條件的現況名稱：
+    /// 新版那個量值沒寫名稱；現況有同 Id、種類／欄位／條件都相同的量值；而且現況的名稱**相對基準是客戶新增或改寫的**
+    /// （基準同 Id 的量值沒有名稱、或名稱不同）。名稱和基準一樣＝套件原本就帶、客戶沒動，跟著新版走（新版拿掉就拿掉）。
+    /// 新版有寫名稱就用新版的。<paramref name="baseline"/> 是基準的定義（已正規化的 JSON）；沒有基準時現況名稱一律視為客戶的。
     /// </summary>
-    internal static AppReportDefinition KeepMeasureLabels(AppReportDefinition current, AppReportDefinition incoming)
+    internal static AppReportDefinition KeepMeasureLabels(AppReportDefinition current, JsonNode? baseline, AppReportDefinition incoming)
     {
         static string Shape(AppReportMeasure m) => JsonSerializer.Serialize(m with { Label = null }, TemplateJson.Options);
+        static string? LabelText(JsonNode? label) => label?.ToJsonString();
+        var baseLabels = (baseline?["measures"] as JsonArray ?? []).OfType<JsonObject>()
+            .Where(m => m["id"] is JsonValue)
+            .GroupBy(m => m["id"]!.GetValue<string>())
+            .ToDictionary(g => g.Key, g => LabelText(g.First()["label"]));
+        bool FromCustomer(AppReportMeasure c)
+        {
+            if (baseline is null) return true;
+            var cur = UpgradeItems.Normalize(JsonSerializer.SerializeToNode(c, TemplateJson.Options))?["label"];
+            return !baseLabels.TryGetValue(c.Id, out var b) || b != LabelText(cur);
+        }
         var labels = current.Measures.Where(m => m?.Label is not null).GroupBy(m => m.Id).ToDictionary(g => g.Key, g => g.First());
         return incoming with
         {
             Measures = incoming.Measures.Select(m =>
-                m is { Label: null } && labels.TryGetValue(m.Id, out var c) && Shape(c) == Shape(m) ? m with { Label = c.Label } : m).ToList(),
+                m is { Label: null } && labels.TryGetValue(m.Id, out var c) && Shape(c) == Shape(m) && FromCustomer(c) ? m with { Label = c.Label } : m).ToList(),
         };
     }
+
+    /// <summary>基準裡這個報表的 definition（正規化 JSON）；沒有基準或基準沒有這份報表時 null。</summary>
+    private static JsonNode? BaseDefinition(AppUpgradePreviewer.CompareContext ctx, string itemId) =>
+        ctx.Baseline is not null && ctx.B.TryGetValue(itemId, out var b) ? b.Props.GetValueOrDefault("definition") : null;
 
     /// <summary>
     /// 既有報表：直接寫實體，不經 UpdateReport／SetReportShares（兩者只讓擁有者改）。套用者是系統管理員，不必是擁有者；
