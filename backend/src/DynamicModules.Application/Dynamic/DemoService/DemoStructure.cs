@@ -198,11 +198,15 @@ public sealed class DemoStructure(
     private async Task<ServiceResult?> CreateDashboardsAsync(
         IReadOnlyDictionary<string, long> reportIds, IReadOnlyDictionary<string, long> groupIds, CancellationToken ct)
     {
+        var builtIns = (await reports.ListBuiltInAsync(ct)).ToDictionary(r => r.BuiltInCode!, r => r.Id);
         foreach (var spec in DemoDashboards.All)
         {
             var step = $"建儀表板 {spec.Name.Resolve(I18nText.FallbackLocale)}";
+            // 內建報表由啟動同步建立；缺了就是啟動流程沒跑，停下而不是放一張斷掉的卡片
+            if (spec.Cards.FirstOrDefault(c => c.BuiltInCode is { } code && !builtIns.ContainsKey(code)) is { } missing)
+                return ServiceResult.Invalid(new Dictionary<string, string[]> { ["dashboard"] = [$"{step}：找不到內建報表 {missing.BuiltInCode}"] });
             var layout = new DashboardLayout([.. spec.Cards.Select((c, i) =>
-                new DashboardCard($"c{i + 1}", reportIds[c.ReportName], c.Title, c.Viz, c.X, c.Y, c.W, c.H, c.Options))]);
+                new DashboardCard($"c{i + 1}", c.BuiltInCode is { } code ? builtIns[code] : reportIds[c.ReportName], c.Title, c.Viz, c.X, c.Y, c.W, c.H, c.Options))]);
             var created = await sender.Send(new AdminCreateDashboardRequest(spec.Name, layout), ct);
             if (!created.IsSuccess) return Fail(step, created);
             var assigned = await sender.Send(

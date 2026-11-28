@@ -52,8 +52,12 @@ public sealed class DemoTestHost : IAsyncDisposable
                 : snapshot.PostgresSource is { } source ? await TestDb.CreateAsync(postgresSource: source)
                 : await TestDb.CreateAsync(restore: snapshot.RestoreDatabase),
         };
-        // 快照已含種子與產生的資料，附件檔案跟著複製；沒有快照才種子
-        if (snapshot is null) await SeedData.EnsureSeededAsync(host._db.Context);
+        // 快照已含種子與產生的資料，附件檔案跟著複製；沒有快照才種子。內建報表同正式啟動流程，在種子後同步（Demo 業務儀表板引用它）
+        if (snapshot is null)
+        {
+            await SeedData.EnsureSeededAsync(host._db.Context);
+            await BuiltInReportSync.RunAsync(host._db.Context, (today ?? Today).ToDateTime(new TimeOnly(9, 0)));
+        }
         else snapshot.CopyFilesTo(host._attachmentRoot);
         var services = new ServiceCollection();
         services.AddApplication();
