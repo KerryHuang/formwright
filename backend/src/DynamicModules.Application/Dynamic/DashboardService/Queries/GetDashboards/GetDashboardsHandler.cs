@@ -6,7 +6,7 @@ using MediatR;
 
 namespace DynamicModules.Application.Dynamic.DashboardService.Queries.GetDashboards;
 
-/// <summary>左側清單：指派給我的（依管理員順序）、我自己的、分享給我的報表。管理員也只看自己群組的指派版。</summary>
+/// <summary>左側清單：指派給我的（依管理員順序）、我自己的、分享給我的報表（內建報表不算分享來的）。管理員也只看自己群組的指派版。</summary>
 public class GetDashboardsHandler(IDashboardRepository dashboards, IReportRepository reports, ReportAccess reportAccess)
     : IRequestHandler<GetDashboardsRequest, ServiceResult>
 {
@@ -26,7 +26,7 @@ public class GetDashboardsHandler(IDashboardRepository dashboards, IReportReposi
             assigned.Select(d => new DashboardListItem(d.Id, d.NameI18n, d.Version, personal.ContainsKey(d.Id),
                 personal.TryGetValue(d.Id, out var p) && p.BaseVersion < d.Version)).ToList(),
             mine.Select(d => new MyDashboardItem(d.Id, d.NameI18n)).ToList(),
-            visible.Where(r => r.OwnerUserId != viewer.UserId).OrderBy(r => r.Id)
+            visible.Where(r => r.BuiltInCode is null && r.OwnerUserId != viewer.UserId).OrderBy(r => r.Id)
                 .Select(r => new SharedReportItem(r.Id, r.NameI18n, r.OwnerUserId is null ? "" : names.GetValueOrDefault(r.OwnerUserId, r.OwnerUserId))).ToList()));
     }
 }

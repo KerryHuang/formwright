@@ -8,7 +8,7 @@ using MediatR;
 
 namespace DynamicModules.Application.Dynamic.ReportService.Commands.CopyReport;
 
-/// <summary>被分享者要改就另存一份：定義照抄，擁有者換成自己，不帶分享。</summary>
+/// <summary>被分享者要改就另存一份：定義照抄（含量值名稱），擁有者換成自己，不帶分享。內建報表也走這裡，副本不帶 BuiltInCode、名稱照抄（kr3 Q1）。</summary>
 public class CopyReportHandler(IReportRepository reports, IUnitOfWork uow, IBusinessTime time, ReportAccess access, ReportDefinitionValidator validator)
     : IRequestHandler<CopyReportRequest, ServiceResult>
 {

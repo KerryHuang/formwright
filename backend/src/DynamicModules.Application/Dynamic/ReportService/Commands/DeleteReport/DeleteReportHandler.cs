@@ -14,6 +14,8 @@ public class DeleteReportHandler(IReportRepository reports, IDashboardRepository
     {
         var (report, viewer) = await access.FindAsync(request.Id, ct);
         if (report is null) return ServiceResult.NotFound(ReportRules.ReportNotFound);
+        // 內建報表永遠不刪（看板設計 §8.3），系統管理員也一樣；要在管理員放行之前擋
+        if (report.BuiltInCode is not null) return ServiceResult.Forbidden(MessageRef.Of(MessageText.BuiltInReportNoDelete));
         // 系統管理員可刪有分享的報表（看得到才會走到這裡）；其他人只有擁有者
         if (report.OwnerUserId != viewer.UserId && !viewer.IsAdmin) return ServiceResult.Forbidden();
 

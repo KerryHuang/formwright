@@ -68,6 +68,10 @@ public class ReportsApiTests
         return (await JsonOf(res)).GetProperty("id").GetInt64();
     }
 
+    /// <summary>清單裡的使用者報表（篩掉人人都有的五份內建報表，kr3）。</summary>
+    private static async Task<List<JsonElement>> UserReports(HttpClient c) =>
+        (await JsonOf(await c.GetAsync(Reports))).EnumerateArray().Where(r => !r.GetProperty("builtIn").GetBoolean()).ToList();
+
     private static object Ref(long field, string source = "main", long? via = null) => new { source, fieldId = field, viaFieldId = via };
 
     private static object Count(string id = "n") => new { id, kind = "countMain", field = (object?)null, condition = (object?)null };
@@ -164,7 +168,7 @@ public class ReportsApiTests
         var id = await Create(app.AsUser(), ByStatus(w));
         var sales = app.AsUser("sales01");
 
-        (await JsonOf(await sales.GetAsync(Reports))).GetArrayLength().Should().Be(0);
+        (await UserReports(sales)).Should().BeEmpty();
         (await sales.GetAsync($"{Reports}/{id}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await sales.PutAsJsonAsync($"{Reports}/{id}", new { name = "x", definition = ByStatus(w) })).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await sales.DeleteAsync($"{Reports}/{id}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -536,7 +540,7 @@ public class ReportsApiTests
 
         res.StatusCode.Should().Be(HttpStatusCode.OK);
         TotalOf(await JsonOf(res), "s").Should().Be(7);
-        (await JsonOf(await admin.GetAsync(Reports))).GetArrayLength().Should().Be(0);
+        (await UserReports(admin)).Should().BeEmpty();
     }
 
     [Fact]
@@ -906,16 +910,16 @@ public class ReportsApiTests
     }
 
     [Fact]
-    public async Task List_FreshInstall_Empty_AndCreateThenListShowsOwnerFields()
+    public async Task List_FreshInstall_NoUserReports_AndCreateThenListShowsOwnerFields()
     {
         using var app = new TestApp();
         var w = await MakeWorld(app);
         var admin = app.AsUser();
-        (await JsonOf(await admin.GetAsync(Reports))).GetArrayLength().Should().Be(0);
+        (await UserReports(admin)).Should().BeEmpty();
 
         var id = await Create(admin, ByStatus(w));
 
-        var item = (await JsonOf(await admin.GetAsync(Reports))).EnumerateArray().Single();
+        var item = (await UserReports(admin)).Single();
         item.GetProperty("id").GetInt64().Should().Be(id);
         item.GetProperty("name").GetProperty("zh-TW").GetString().Should().Be("月報");
         item.GetProperty("isOwner").GetBoolean().Should().BeTrue();
@@ -981,7 +985,7 @@ public class ReportsApiTests
         rejected.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await rejected.Content.ReadAsStringAsync()).Should().NotContain($"欄位 {w.Amount}").And.Contain("看不到");
         noRead.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await JsonOf(await app.AsUser("sales01").GetAsync(Reports))).GetArrayLength().Should().Be(2); // 分享來的與先前複製成功的那份
+        (await UserReports(app.AsUser("sales01"))).Should().HaveCount(2); // 分享來的與先前複製成功的那份
     }
 
     private sealed record Customer(string Key, long Title, long Back, long Cust, string CustKey);

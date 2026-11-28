@@ -157,7 +157,7 @@ public class AppV3Tests : IDisposable
         Db(db => db.Set<Workflow>().Count()).Should().Be(1);
         Db(db => db.Set<Conversion>().Count(c => c.Key == "sales-quote-to-order")).Should().Be(1);
         Db(db => db.Set<AppReport>().Count()).Should().Be(1);
-        var report = Db(db => db.Set<Report>().Include(r => r.Shares).Single());
+        var report = Db(db => db.Set<Report>().Where(r => r.BuiltInCode == null).Include(r => r.Shares).Single());
         report.NameI18n.Resolve("zh-TW").Should().Be("報價狀態分布");
         report.Shares.Should().HaveCount(1);
     }
@@ -300,7 +300,7 @@ public class AppV3Tests : IDisposable
         Db(db => db.Set<App>().Count()).Should().Be(0);
         Db(db => db.Set<Module>().Count(m => m.Key.StartsWith("sales-flow"))).Should().Be(0);
         Db(db => db.Set<Conversion>().Count()).Should().Be(0);
-        Db(db => db.Set<Report>().Count()).Should().Be(0);
+        Db(db => db.Set<Report>().Where(r => r.BuiltInCode == null).Count()).Should().Be(0);
         Db(db => db.Set<PermissionGroup>().Count(g => g.Key.StartsWith("g-"))).Should().Be(0);
     }
 
@@ -365,7 +365,7 @@ public class AppV3Tests : IDisposable
         (await _admin.PostAsJsonAsync($"{Apps}/sales-flow/close", new { cascade = false })).StatusCode.Should().Be(HttpStatusCode.OK);
         var res = await _admin.DeleteAsync($"{Apps}/sales-flow?purged=0");
         res.IsSuccessStatusCode.Should().BeTrue(await res.Content.ReadAsStringAsync());
-        Db(db => db.Set<Report>().Count()).Should().Be(0);
+        Db(db => db.Set<Report>().Where(r => r.BuiltInCode == null).Count()).Should().Be(0);
         Db(db => db.Set<Conversion>().Count()).Should().Be(0);
         Db(db => db.Set<Workflow>().Count()).Should().Be(0);
         Db(db => db.Set<AppReport>().Count()).Should().Be(0);
@@ -386,8 +386,8 @@ public class AppV3Tests : IDisposable
         (await blocked.Content.ReadAsStringAsync()).Should().Contain("業務看板");
         var blocker = JsonDocument.Parse(await blocked.Content.ReadAsStringAsync()).RootElement.GetProperty("blockers").EnumerateArray()
             .Single(b => b.GetProperty("kind").GetString() == "dashboard");
-        blocker.GetProperty("reportName").GetString().Should().Be(Db(db => db.Set<Report>().Single(r => r.Id == reportId).NameI18n.Resolve("zh-TW")), "帶出報表名，畫面才寫得出「報表『○○』還在儀表板『△△』上」");
-        Db(db => db.Set<Report>().Count()).Should().BeGreaterThan(0);
+        blocker.GetProperty("reportName").GetString().Should().Be(Db(db => db.Set<Report>().Where(r => r.BuiltInCode == null).Single(r => r.Id == reportId).NameI18n.Resolve("zh-TW")), "帶出報表名，畫面才寫得出「報表『○○』還在儀表板『△△』上」");
+        Db(db => db.Set<Report>().Where(r => r.BuiltInCode == null).Count()).Should().BeGreaterThan(0);
 
         (await _admin.DeleteAsync($"{DashboardTestKit.AdminDashboards}/{dashboard}")).EnsureSuccessStatusCode();
         var ok = await _admin.DeleteAsync($"{Apps}/sales-flow?purged=0");
@@ -409,7 +409,7 @@ public class AppV3Tests : IDisposable
     {
         var filter = """{ "field": { "source": "main", "field": "quote.customerName", "via": null }, "op": "eq", "value": "opt_approved" }""";
         await ImportAndOpen(_admin, AppTestPackagesV3.Sales(reports: ReportWithFilter(filter)), "sales-flow");
-        var definition = Db(db => db.Set<Report>().Select(r => r.DefinitionJson).Single());
+        var definition = Db(db => db.Set<Report>().Where(r => r.BuiltInCode == null).Select(r => r.DefinitionJson).Single());
         definition.Should().Contain("\"opt_approved\"").And.NotMatchRegex("opt_\\d");
     }
 
@@ -418,7 +418,7 @@ public class AppV3Tests : IDisposable
     {
         var filter = """{ "field": { "source": "main", "field": "quote.status", "via": null }, "op": "eq", "value": "opt_approved" }""";
         await ImportAndOpen(_admin, AppTestPackagesV3.Sales(reports: ReportWithFilter(filter)), "sales-flow");
-        Db(db => db.Set<Report>().Select(r => r.DefinitionJson).Single()).Should().MatchRegex("\"opt_\\d+\"");
+        Db(db => db.Set<Report>().Where(r => r.BuiltInCode == null).Select(r => r.DefinitionJson).Single()).Should().MatchRegex("\"opt_\\d+\"");
     }
 
     [Theory]
@@ -447,7 +447,7 @@ public class AppV3Tests : IDisposable
         var customerField = quote.Blocks.SelectMany(b => b.Fields).Single(f => f.Type == FieldType.Reference).Id;
         Db(db =>
         {
-            var report = db.Set<Report>().Single();
+            var report = db.Set<Report>().Where(r => r.BuiltInCode == null).Single();
             var node = System.Text.Json.Nodes.JsonNode.Parse(report.DefinitionJson)!;
             node["filters"] = System.Text.Json.Nodes.JsonNode.Parse(
                 $$"""[ { "field": { "source": "main", "fieldId": {{customerField}}, "viaFieldId": null }, "op": "eq", "value": 123 } ]""");
@@ -517,7 +517,7 @@ public class AppV3Tests : IDisposable
     /// <summary>在已開啟的 sales-flow 報表上換掉篩選（直接寫定義 JSON，模擬使用者在畫面上存的條件）。</summary>
     private void SetReportFilters(string filtersJson) => Db(db =>
     {
-        var report = db.Set<Report>().Single();
+        var report = db.Set<Report>().Where(r => r.BuiltInCode == null).Single();
         var node = System.Text.Json.Nodes.JsonNode.Parse(report.DefinitionJson)!;
         node["filters"] = System.Text.Json.Nodes.JsonNode.Parse(filtersJson);
         report.DefinitionJson = node.ToJsonString();
