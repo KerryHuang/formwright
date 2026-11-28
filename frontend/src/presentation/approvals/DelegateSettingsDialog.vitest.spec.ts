@@ -83,6 +83,16 @@ describe('DelegateSettingsDialog', () => {
     w.unmount();
   });
 
+  it('日期欄是表單同款（輸入框加日曆圖示），不是原生日期欄（#141）', async () => {
+    const w = await mountDialog();
+    for (const id of ['delegate-start', 'delegate-end']) {
+      const input = q(id) as HTMLInputElement;
+      expect(input.type).not.toBe('date');
+      expect(input.closest('.q-field')!.textContent).toContain('event');
+    }
+    w.unmount();
+  });
+
   it('saves the delegate and dates', async () => {
     const w = await mountDialog();
     expect(q('delegate-clear')).toBeNull();   // nothing to clear yet

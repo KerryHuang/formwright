@@ -6,7 +6,8 @@ import { isNestedCondition, pruneCondition } from 'src/domain/dynamic/condition'
 import type { ConditionNode, ModuleSchema } from 'src/domain/dynamic/types';
 import ConditionEditor from './ConditionEditor.vue';
 
-const props = defineProps<{ schema: ModuleSchema; modelValue?: ConditionNode }>();
+/** expanded：一出現就展開（放在工具列的面板裡，不必再點一層）。 */
+const props = defineProps<{ schema: ModuleSchema; modelValue?: ConditionNode; expanded?: boolean }>();
 const emit = defineEmits<{ 'update:modelValue': [value: ConditionNode | undefined] }>();
 const { t } = useI18n();
 
@@ -19,7 +20,7 @@ watch(() => props.modelValue, (v) => { draft.value = v; });
 
 // 沒有任何條件時預設收合，把空間讓給清單；有條件（含稍後才載入的檢視）或使用者手動展開才展開。
 const hasCondition = computed(() => !!pruneCondition(props.modelValue));
-const open = ref(hasCondition.value);
+const open = ref(props.expanded || hasCondition.value);
 watch(hasCondition, (has) => { if (has) open.value = true; });
 
 function apply() {

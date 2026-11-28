@@ -69,11 +69,29 @@ async function rerunLeftover(qc: QueryClient) {
 }
 
 const off = { demoLoginEnabled: false, demoGenerating: false, demoAccounts: [] };
-const on = { demoLoginEnabled: true, demoGenerating: false, demoAccounts: [{ userId: 'sales01', displayName: '業務一' }, { userId: 'floor01', displayName: '現場一' }] };
+const on = { demoLoginEnabled: true, demoGenerating: false, demoAccounts: [{ userId: 'sales01', displayName: '業務一', groups: ['業務', '進銷存查詢組'] }, { userId: 'floor01', displayName: '現場一', groups: [] as string[] }] };
 
 describe('LoginPage', () => {
   beforeEach(() => { vi.clearAllMocks(); });
   afterEach(() => mounted?.unmount());
+
+  it('標題列有品牌圖示、產品名與一句說明（#141）', async () => {
+    await mountPage(off);
+    const brand = q('login-brand')!;
+    expect(brand.textContent).toContain('Formwright');
+    expect(brand.textContent).toContain(zhTW.auth.tagline);
+    expect(brand.querySelector('svg')).not.toBeNull();
+  });
+
+  it('Demo 帳號按鈕等寬格線，第二行是群組名稱；沒有群組只顯示名稱（#141）', async () => {
+    await mountPage(on);
+    const first = q('demo-account-sales01')!;
+    expect(first.textContent).toContain('業務一');
+    expect(q('demo-account-groups-sales01')!.textContent).toBe(['業務', '進銷存查詢組'].join(zhTW.common.listSeparator));
+    expect(q('demo-account-groups-floor01')).toBeNull();
+    expect(first.classList).toContain('full-width');
+    expect([...first.parentElement!.classList]).toEqual(expect.arrayContaining(['col-12', 'col-sm-6']));
+  });
 
   it('failure shows the backend message and stays on the page', async () => {
     const { router } = await mountPage(off, '/dynamic/order');
@@ -181,7 +199,7 @@ describe('LoginPage', () => {
   });
 
   it('demoGenerating shows the hint together with the admin account the backend still lists', async () => {
-    await mountPage({ ...on, demoGenerating: true, demoAccounts: [{ userId: 'admin', displayName: '系統管理員' }] });
+    await mountPage({ ...on, demoGenerating: true, demoAccounts: [{ userId: 'admin', displayName: '系統管理員', groups: [] }] });
     expect(q('demo-generating')!.textContent).toContain(zhTW.auth.demoGenerating);
     expect(q('demo-account-admin')!.textContent).toContain('系統管理員');
   });
@@ -286,7 +304,7 @@ describe('LoginPage 首屏共用啟動那次 auth/options（i4b 計畫判斷 12�
   it('boot＋guard＋登入頁：auth/options 1 次、/me 1 次；產生中每 2 秒輪詢是新請求', async () => {
     vi.useFakeTimers();
     api.getAuthOptions.mockResolvedValueOnce(generating as never)
-      .mockResolvedValueOnce({ ...generating, demoGenerating: false, demoAccounts: [{ userId: 'sales01', displayName: '業務一' }] } as never);
+      .mockResolvedValueOnce({ ...generating, demoGenerating: false, demoAccounts: [{ userId: 'sales01', displayName: '業務一', groups: [] }] } as never);
     await boot();
     expect(api.getAuthOptions).toHaveBeenCalledTimes(1);
     expect(api.getMe).toHaveBeenCalledTimes(1);

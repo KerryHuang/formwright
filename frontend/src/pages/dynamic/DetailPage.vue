@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { useQuasar } from 'quasar';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { useRecordApproval } from 'src/application/dynamic/queries/approval-queries';
 import { useRecordConversions } from 'src/application/dynamic/queries/conversions-queries';
 import { useDeleteRecord, useRecord } from 'src/application/dynamic/queries/records-queries';
 import { useModuleSchema, useRecordScopedSchema } from 'src/application/dynamic/queries/schema-queries';
+import { recordRecentRecord } from 'src/application/dynamic/recent-records';
 import { hasApprovalActions } from 'src/presentation/dynamic/approval/approval-actions';
 import ApprovalHistoryOnly from 'src/presentation/dynamic/approval/ApprovalHistoryOnly.vue';
 import ApprovalPanel from 'src/presentation/dynamic/approval/ApprovalPanel.vue';
@@ -59,6 +60,7 @@ const moduleName = computed(() => resolveI18n(schema.value?.name, locale.value))
 const schemaError = computed(() => (viaGrant.value ? grantSchemaQuery.error.value : schemaQuery.error.value));
 const recordQuery = useRecord(recordId);
 const del = useDeleteRecord();
+const identity = useIdentityStore();
 const confirming = ref(false);
 const blocked = ref<DeleteBlocked | null>(null);
 // Kept across a failed attempt so a resend takes effect once; replaced after a success or a 422 (key used for other content).
@@ -127,7 +129,6 @@ function onSubmitted(outcome: SubmitApprovalResult['outcome']) {
 }
 // On a phone the approval action bar is fixed to the bottom: leave room so the last block is not covered.
 // Then the record's own actions do not open a second bottom bar; they go to a More menu in the top bar instead.
-const identity = useIdentityStore();
 const phone = computed(() => $q.screen.lt.sm);
 const approvalBar = computed(() => phone.value && !schema.value?.readOnly && hasApprovalActions(approvalQuery.data.value?.current ?? null, identity.userId));
 const submitTargets = computed(() => (canSubmit.value ? approvalQuery.data.value?.submitTargets ?? [] : []).filter((to) => stateLabel(to)));
@@ -136,6 +137,10 @@ const submitTargets = computed(() => (canSubmit.value ? approvalQuery.data.value
 // Asked for only where the content below is shown (same conditions as the template chain), and never for a temporary-read grant.
 const contentShown = computed(() => !historyPending.value && !historyOnly.value && !forbidden.value && !schemaMissing.value && !recordMissing.value && !failed.value
   && !!schema.value && !!recordQuery.data.value);
+// 首頁的「最近開過的單據」：單據內容顯示出來才記（刪掉、沒權限、模組對不上的不記）
+watch(() => (contentShown.value ? recordQuery.data.value?.id : undefined), (id) => {
+  if (id !== undefined) recordRecentRecord(identity.userId, moduleKey.value, id);
+}, { immediate: true });
 const conversionsQuery = useRecordConversions(recordId, computed(() => contentShown.value && !grant.value));
 const convertKey = ref<string | null>(null);
 const convertOpen = computed(() => (conversionsQuery.data.value ?? []).find((c) => c.key === convertKey.value));

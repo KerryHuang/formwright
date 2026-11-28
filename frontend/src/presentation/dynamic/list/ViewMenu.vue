@@ -40,7 +40,7 @@ function confirmRemove() {
 </script>
 
 <template>
-  <div class="row items-center q-gutter-sm">
+  <div class="row items-center no-wrap view-menu">
     <q-btn outline no-caps icon="view_list" :label="current ? nameOf(current) : t('dynamic.view.none')" data-testid="view-btn">
       <q-menu>
         <q-list style="min-width: 14rem">
@@ -86,3 +86,11 @@ function confirmRemove() {
     </q-dialog>
   </div>
 </template>
+
+<style scoped>
+/* 清單工具列在手機上讓這顆按鈕縮小：名稱太長就截斷，不把別的按鈕擠到下一列 */
+.view-menu { gap: 8px; min-width: 0; }
+.view-menu :deep([data-testid='view-btn']) { min-width: 0; max-width: 100%; }
+.view-menu :deep([data-testid='view-btn'] .q-btn__content) { flex-wrap: nowrap; min-width: 0; }
+.view-menu :deep([data-testid='view-btn'] .q-btn__content .block) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>

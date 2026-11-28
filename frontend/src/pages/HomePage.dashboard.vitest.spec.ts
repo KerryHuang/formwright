@@ -19,12 +19,11 @@ const mountHome = (w: World = world(), userId = 'u') => mountPage(w, { page: Hom
 afterEach(() => { localStorage.clear(); document.body.innerHTML = ''; });
 
 describe('HomePage with dashboards', () => {
-  it('shows the first dashboard and keeps welcome, apps and entry points', async () => {
+  it('shows the first dashboard and keeps the welcome', async () => {
     await mountHome();
     expect(q('home-dashboard')).not.toBeNull();
     expect(q('dashboard-name')!.textContent).toContain('業務儀表板');
     expect(q('home-welcome')).not.toBeNull();
-    expect(q('home-reports')).not.toBeNull();
   });
 
   it('opens the dashboard the user looked at last', async () => {
@@ -57,7 +56,6 @@ describe('HomePage with dashboards', () => {
     await mountHome(world({ list: { assigned: [], mine: [], sharedReports: [] } }));
     expect(q('home-dashboard')).toBeNull();
     expect(q('home-welcome')).not.toBeNull();
-    expect(q('home-reports')).not.toBeNull();
   });
 
   it('is the normal home when the dashboard list fails to load', async () => {

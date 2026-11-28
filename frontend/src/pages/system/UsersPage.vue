@@ -10,6 +10,7 @@ import { useAuthOptions } from 'src/application/dynamic/queries/auth-queries';
 import { useDepartments, useSetUserDepartment } from 'src/application/dynamic/queries/organization-queries';
 import { useGroups } from 'src/application/dynamic/queries/permissions-queries';
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
+import RowActionMenu, { type RowAction } from 'src/components/framework/RowActionMenu.vue';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import { departmentPath } from 'src/domain/dynamic/organization';
 import { copySystemPrivileges, noSystemPrivileges, sameSystemPrivileges, systemPrivilegeTags } from 'src/domain/dynamic/system-privileges';
@@ -227,6 +228,21 @@ function toggle(u: AdminUser) {
   if (u.isActive) deactivateTarget.value = u;
   else runSetActive(u, true);
 }
+/** 每列的「⋯」：不適用的動作不出現（自己那列不能改 Email、不能重設雙因素）；停用放最後。 */
+function rowActions(u: AdminUser): RowAction[] {
+  const self = u.userId === identity.userId;
+  const list: RowAction[] = [];
+  if (!self) list.push({ label: t('users.setEmail'), testid: `user-email-${u.userId}`, run: () => openEmail(u) });
+  list.push({ label: t('users.resetPassword'), testid: `user-reset-${u.userId}`, run: () => openReset(u) });
+  if (u.twoFactor && u.twoFactor !== 'off' && !self) {
+    list.push({ label: t('users.resetTwoFactor'), testid: `user-reset-2fa-${u.userId}`, run: () => { twoFactorTarget.value = u; } });
+  }
+  list.push({
+    label: u.isActive ? t('users.deactivate') : t('users.activate'), testid: `user-toggle-${u.userId}`,
+    disable: self, negative: u.isActive, run: () => toggle(u),
+  });
+  return list;
+}
 function runSetActive(u: AdminUser, active: boolean) {
   setActive.mutate({ id: u.userId, active }, {
     onSuccess: () => { deactivateTarget.value = null; },
@@ -261,19 +277,7 @@ function runSetActive(u: AdminUser, active: boolean) {
           >
             <template v-for="c in cols" :key="c.name">
               <q-td v-if="c.name === 'actions'" :align="c.align" :class="c.classes" @click.stop>
-                <q-btn
-                  v-if="row.userId !== identity.userId" flat dense color="primary" :label="t('users.setEmail')" :data-testid="`user-email-${row.userId}`"
-                  @click="openEmail(row)"
-                />
-                <q-btn flat dense color="primary" :label="t('users.resetPassword')" :data-testid="`user-reset-${row.userId}`" @click="openReset(row)" />
-                <q-btn
-                  v-if="row.twoFactor && row.twoFactor !== 'off' && row.userId !== identity.userId" flat dense color="primary"
-                  :label="t('users.resetTwoFactor')" :data-testid="`user-reset-2fa-${row.userId}`" @click="twoFactorTarget = row"
-                />
-                <q-btn
-                  flat dense :color="row.isActive ? 'negative' : 'primary'" :label="row.isActive ? t('users.deactivate') : t('users.activate')"
-                  :disable="row.userId === identity.userId" :data-testid="`user-toggle-${row.userId}`" @click="toggle(row)"
-                />
+                <RowActionMenu :testid="`user-more-${row.userId}`" :actions="rowActions(row)" />
               </q-td>
               <q-td v-else-if="c.name === 'systemPrivileges'" :align="c.align" :data-testid="`user-sp-${row.userId}`">
                 <q-badge v-for="tag in sysTags(row)" :key="tag" outline color="primary" class="q-mr-xs" :label="tag" />
@@ -308,19 +312,7 @@ function runSetActive(u: AdminUser, active: boolean) {
                 </q-item>
               </q-list>
               <q-card-actions align="right" @click.stop>
-                <q-btn
-                  v-if="row.userId !== identity.userId" flat dense color="primary" :label="t('users.setEmail')" :data-testid="`user-email-${row.userId}`"
-                  @click="openEmail(row)"
-                />
-                <q-btn flat dense color="primary" :label="t('users.resetPassword')" :data-testid="`user-reset-${row.userId}`" @click="openReset(row)" />
-                <q-btn
-                  v-if="row.twoFactor && row.twoFactor !== 'off' && row.userId !== identity.userId" flat dense color="primary"
-                  :label="t('users.resetTwoFactor')" :data-testid="`user-reset-2fa-${row.userId}`" @click="twoFactorTarget = row"
-                />
-                <q-btn
-                  flat dense :color="row.isActive ? 'negative' : 'primary'" :label="row.isActive ? t('users.deactivate') : t('users.activate')"
-                  :disable="row.userId === identity.userId" :data-testid="`user-toggle-${row.userId}`" @click="toggle(row)"
-                />
+                <RowActionMenu :testid="`user-more-${row.userId}`" :actions="rowActions(row)" />
               </q-card-actions>
             </q-card>
           </div>

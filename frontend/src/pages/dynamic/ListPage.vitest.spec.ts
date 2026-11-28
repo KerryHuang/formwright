@@ -8,7 +8,9 @@ import { createI18n } from 'vue-i18n';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import type { ListView, ModuleSchema, SchemaField } from 'src/domain/dynamic/types';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
+import ColumnChooser from 'src/presentation/dynamic/list/ColumnChooser.vue';
 import FilterPanel from 'src/presentation/dynamic/list/FilterPanel.vue';
+import SortEditor from 'src/presentation/dynamic/list/SortEditor.vue';
 import ExportMenu from 'src/presentation/dynamic/list/ExportMenu.vue';
 import ImportDialog from 'src/presentation/dynamic/list/ImportDialog.vue';
 import ViewMenu from 'src/presentation/dynamic/list/ViewMenu.vue';
@@ -67,6 +69,16 @@ async function mountPage(views: ListView[] = [], queryClient = new QueryClient({
   return w;
 }
 
+type Wrapper = Awaited<ReturnType<typeof mountPage>>;
+/** 篩選面板收在工具列的「篩選」按鈕裡：沒開就先點開。 */
+async function filterPanel(w: Wrapper) {
+  if (!w.findComponent(FilterPanel).exists()) {
+    await w.get('[data-testid="toolbar-filter"]').trigger('click');
+    await flushPromises();
+  }
+  return w.findComponent(FilterPanel);
+}
+
 describe('ListPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -103,7 +115,7 @@ describe('ListPage', () => {
   });
 
   it.each([
-    ['filter', async (w: Awaited<ReturnType<typeof mountPage>>) => { w.findComponent(FilterPanel).vm.$emit('update:modelValue', { all: [{ field: 2, op: 'eq', value: 'x' }] }); }],
+    ['filter', async (w: Awaited<ReturnType<typeof mountPage>>) => { (await filterPanel(w)).vm.$emit('update:modelValue', { all: [{ field: 2, op: 'eq', value: 'x' }] }); }],
     ['keyword', async (w: Awaited<ReturnType<typeof mountPage>>) => { w.findAllComponents(quasar.QInput).find((c) => c.attributes('data-testid') === 'keyword' || c.element.closest('[data-testid="keyword"]') || c.element.querySelector('[data-testid="keyword"]'))!.vm.$emit('update:modelValue', 'zzzz'); }],
   ])('empty because of a %s: says nothing matches, no add button', async (_name, apply) => {
     const w = await mountEmpty();
@@ -125,7 +137,7 @@ describe('ListPage', () => {
   it('does not show the empty state while records are still loading', async () => {
     const w = await mountPage();
     api.getPagedRecords.mockReturnValue(new Promise(() => {}));
-    w.findComponent(FilterPanel).vm.$emit('update:modelValue', { all: [{ field: 2, op: 'eq', value: 'x' }] });
+    (await filterPanel(w)).vm.$emit('update:modelValue', { all: [{ field: 2, op: 'eq', value: 'x' }] });
     await flushPromises();
     expect(w.find('[data-testid="empty-state"]').exists()).toBe(false);
   });
@@ -134,7 +146,7 @@ describe('ListPage', () => {
     const w = await mountEmpty();
     expect(w.find('[data-testid="empty-state"]').exists()).toBe(true);
     api.getPagedRecords.mockRejectedValue({ status: 400, errors: { filter: ['篩選條件不正確'] } });
-    w.findComponent(FilterPanel).vm.$emit('update:modelValue', { all: [{ field: 2, op: 'eq', value: 'x' }] });
+    (await filterPanel(w)).vm.$emit('update:modelValue', { all: [{ field: 2, op: 'eq', value: 'x' }] });
     await flushPromises();
     expect(lastCall().filter).toContain('"x"');
     expect(w.find('[data-testid="empty-state"]').exists()).toBe(false);
@@ -155,12 +167,100 @@ describe('ListPage', () => {
     expect(router.currentRoute.value.fullPath).toBe('/dynamic/m/1');
   });
 
+  describe('工具列單列（#141）', () => {
+    const btn = (w: Wrapper, name: string) => w.get(`[data-testid="toolbar-${name}"]`);
+
+    it('資料表上方只有一列控制：沒有常駐的篩選面板與手風琴，三顆按鈕在關鍵字右邊', async () => {
+      const w = await mountPage();
+      expect(w.findComponent(FilterPanel).exists()).toBe(false);
+      expect(w.findComponent(SortEditor).exists()).toBe(false);
+      expect(w.findComponent(ColumnChooser).exists()).toBe(false);
+      expect(w.findComponent(quasar.QExpansionItem).exists()).toBe(false);
+      expect(btn(w, 'filter').text()).toContain(zhTW.dynamic.filter.title);
+      expect(btn(w, 'sort').text()).toContain(zhTW.dynamic.sort.title);
+      expect(btn(w, 'columns').text()).toContain(zhTW.dynamic.columns.button);
+      const toolbar = w.get('[data-testid="list-toolbar"]').html();
+      const order = ['view-btn', 'keyword', 'toolbar-filter', 'toolbar-sort', 'toolbar-columns', 'new-btn'].map((id) => toolbar.indexOf(id));
+      expect(order).toEqual([...order].sort((a, b) => a - b));
+      expect(order).not.toContain(-1);
+    });
+
+    it('按鈕後面是套用中的篩選條件數與排序欄數；欄位按鈕不顯示數量', async () => {
+      const w = await mountPage([view({
+        isDefault: true, columns: [2, 3], sort: [{ field: 2, order: 'asc' }],
+        filter: { all: [{ field: 2, op: 'eq', value: 'x' }, { field: 3, op: 'eq', value: 'y' }] },
+      })]);
+      expect(btn(w, 'filter').text()).toContain(`${zhTW.dynamic.filter.title} 2`);
+      expect(btn(w, 'sort').text()).toContain(`${zhTW.dynamic.sort.title} 1`);
+      expect(btn(w, 'columns').text()).not.toMatch(/\d/);
+      (await filterPanel(w)).vm.$emit('update:modelValue', undefined);
+      await flushPromises();
+      expect(btn(w, 'filter').text()).not.toMatch(/\d/);
+    });
+
+    it('寬螢幕開下拉面板，改動即時生效、關掉不還原', async () => {
+      const w = await mountPage();
+      await btn(w, 'sort').trigger('click');
+      await flushPromises();
+      expect(w.findComponent(quasar.QMenu).exists()).toBe(true);
+      expect(w.findComponent(quasar.QDialog).findComponent(SortEditor).exists()).toBe(false);
+      w.findComponent(SortEditor).vm.$emit('update:modelValue', [{ field: 2, order: 'desc' }]);
+      await flushPromises();
+      expect(lastCall().sort).toEqual([{ field: 2, order: 'desc' }]);
+      await btn(w, 'sort').trigger('click');
+      await flushPromises();
+      expect(btn(w, 'sort').text()).toContain(`${zhTW.dynamic.sort.title} 1`);
+    });
+
+    it('欄位面板改欄位後清單跟著變', async () => {
+      const w = await mountPage();
+      await btn(w, 'columns').trigger('click');
+      await flushPromises();
+      w.findComponent(ColumnChooser).vm.$emit('update:modelValue', [3]);
+      await flushPromises();
+      expect(w.findAll('th').map((h) => h.text()).join()).not.toContain('甲');
+    });
+
+    it('篩選面板打開時直接展開，不用再點一層', async () => {
+      const w = await mountPage();
+      await filterPanel(w);
+      expect(w.findComponent(quasar.QExpansionItem).props('modelValue')).toBe(true);
+    });
+
+    it('手機開全螢幕對話框，有「完成」可以關閉', async () => {
+      window.innerWidth = 390;
+      window.dispatchEvent(new Event('resize'));
+      await new Promise((r) => setTimeout(r, 250));
+      try {
+        const w = await mountPage();
+        await filterPanel(w);
+        const dialog = w.findAllComponents(quasar.QDialog).find((d) => d.findComponent(FilterPanel).exists())!;
+        expect(dialog.props('maximized')).toBe(true);
+        const done = document.body.querySelector('[data-testid="toolbar-filter-done"]') as HTMLElement;
+        expect(done.textContent).toContain(zhTW.dynamic.toolbar.done);
+        done.click();
+        await flushPromises();
+        expect(dialog.props('modelValue')).toBe(false);
+        w.unmount();
+      } finally {
+        window.innerWidth = 1024;
+        window.dispatchEvent(new Event('resize'));
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    });
+
+    it('沒有套用檢視時檢視按鈕寫「不使用已存檢視」', async () => {
+      const w = await mountPage();
+      expect(w.get('[data-testid="view-btn"]').text()).toContain('不使用已存檢視');
+    });
+  });
+
   it('resets page to 1 when filter changes', async () => {
     const w = await mountPage();
     w.findComponent(quasar.QTable).vm.$emit('update:pagination', { page: 2, rowsPerPage: 20 });
     await flushPromises();
     expect(lastCall().currentPage).toBe(2);
-    w.findComponent(FilterPanel).vm.$emit('update:modelValue', { all: [{ field: 2, op: 'eq', value: 'x' }] });
+    (await filterPanel(w)).vm.$emit('update:modelValue', { all: [{ field: 2, op: 'eq', value: 'x' }] });
     await flushPromises();
     expect(lastCall().currentPage).toBe(1);
     expect(lastCall().filter).toBe('{"all":[{"field":2,"op":"eq","value":"x"}]}');
@@ -286,11 +386,11 @@ describe('ListPage', () => {
     const w = await mountPage();
     api.getPagedRecords.mockResolvedValue({ items: [row], totalCount: 1, currentPage: 1, pagesSize: 20 });
     w.findComponent(quasar.QTable).vm.$emit('update:pagination', { page: 1, rowsPerPage: 20, sortBy: null });
-    w.findComponent(FilterPanel).vm.$emit('update:modelValue', { all: [{ field: 3, op: 'eq', value: 'ok' }] });
+    (await filterPanel(w)).vm.$emit('update:modelValue', { all: [{ field: 3, op: 'eq', value: 'ok' }] });
     await flushPromises();
     expect(w.text()).toContain('列一');
     api.getPagedRecords.mockRejectedValueOnce({ status: 400, errors: { filter: ['欄位 2 未開放篩選'] } });
-    w.findComponent(FilterPanel).vm.$emit('update:modelValue', { all: [{ field: 2, op: 'eq', value: 'x' }] });
+    (await filterPanel(w)).vm.$emit('update:modelValue', { all: [{ field: 2, op: 'eq', value: 'x' }] });
     await flushPromises();
     await new Promise((r) => setTimeout(r, 50));
     expect(document.body.textContent).toContain('欄位 2 未開放篩選');
@@ -301,7 +401,7 @@ describe('ListPage', () => {
   it('switching modules carries no old filter, sort or page and resets state', async () => {
     const w = await mountPage();
     w.findComponent(quasar.QTable).vm.$emit('update:pagination', { page: 3, rowsPerPage: 20 });
-    w.findComponent(FilterPanel).vm.$emit('update:modelValue', { all: [{ field: 2, op: 'eq', value: 'x' }] });
+    (await filterPanel(w)).vm.$emit('update:modelValue', { all: [{ field: 2, op: 'eq', value: 'x' }] });
     await flushPromises();
     await w.get('[data-testid="keyword"]').setValue('abc');
     await new Promise((r) => setTimeout(r, 400));
@@ -336,7 +436,7 @@ describe('ListPage', () => {
         { ...row, id: 2, values: { f_4: 43 }, references: { f_4: { key: '43', state: 'missing' } } },
       ], totalCount: 2, currentPage: 1, pagesSize: 20,
     });
-    w.findComponent(FilterPanel).vm.$emit('update:modelValue', undefined);
+    (await filterPanel(w)).vm.$emit('update:modelValue', undefined);
     await w.findComponent(quasar.QTable).vm.$emit('update:pagination', { page: 1, rowsPerPage: 20, sortBy: 'f_4', descending: false });
     await flushPromises();
     const cells = w.findAll('tbody tr').map((tr) => tr.text());
@@ -365,7 +465,7 @@ describe('ListPage', () => {
       items: ['ok', 'no', 'plain', null].map((v, i) => ({ ...row, id: i + 1, values: { status: v, src: 'tel' } })),
       totalCount: 4, currentPage: 1, pagesSize: 20,
     });
-    w.findComponent(FilterPanel).vm.$emit('update:modelValue', undefined);
+    (await filterPanel(w)).vm.$emit('update:modelValue', undefined);
     await w.findComponent(quasar.QTable).vm.$emit('update:pagination', { page: 1, rowsPerPage: 20, sortBy: 'status', descending: false });
     await flushPromises();
     const chips = w.findAll('tbody [data-testid="status-chip"]');
@@ -383,7 +483,7 @@ describe('ListPage', () => {
     schemaPatch = { blocks: [{ id: 1, label: { 'zh-TW': '區' }, collapsed: false, columns: 2, fields: [field(1, '標題'), field(2, '甲'), code, amount, total, due] }] };
     const w = await mountPage([view({ isDefault: true, columns: [2, 6, 7, 8, 9] })]);
     api.getPagedRecords.mockResolvedValue({ items: [{ ...row, values: { f_2: 'x', no: 'A-1', amt: 10, sum: 77, due: '2026-01-02' } }], totalCount: 1, currentPage: 1, pagesSize: 20 });
-    w.findComponent(FilterPanel).vm.$emit('update:modelValue', undefined);
+    (await filterPanel(w)).vm.$emit('update:modelValue', undefined);
     await w.findComponent(quasar.QTable).vm.$emit('update:pagination', { page: 1, rowsPerPage: 20, sortBy: 'f_2', descending: false });
     await flushPromises();
     expect(w.find('[data-testid="status-chip"]').exists()).toBe(false);
@@ -455,7 +555,7 @@ describe('ListPage', () => {
       const w = await mountPage();
       toggle(w).vm.$emit('update:modelValue', 'pending');
       await flushPromises();
-      w.findComponent(FilterPanel).vm.$emit('update:modelValue', undefined);
+      (await filterPanel(w)).vm.$emit('update:modelValue', undefined);
       await flushPromises();
       expect(lastCall().approval).toBe('pending');
       expect(toggle(w).props('modelValue')).toBe('pending');

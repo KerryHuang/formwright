@@ -33,6 +33,17 @@ export function groupMenu(items: MenuItem[], locale: string): MenuGroup[] {
   return closed.length ? [...open, { key: undefined, title: undefined, items: closed, closed: true }] : open;
 }
 
+/**
+ * 模組鍵 → 要加在名稱旁的積木包名稱（目前語系）。整份選單（不限分組）裡解析後的名稱相同的項目有兩個以上時，
+ * 其中屬於積木包的才有小字；沒有同名、或不屬於任何積木包的不在結果裡。
+ */
+export function appNameHints(items: MenuItem[], locale: string): Map<string, string> {
+  const named = items.map((m) => ({ m, name: resolveI18n(m.name, locale) }));
+  const count = new Map<string, number>();
+  for (const { name } of named) count.set(name, (count.get(name) ?? 0) + 1);
+  return new Map(named.flatMap(({ m, name }) => (count.get(name)! > 1 && m.appName ? [[m.key, resolveI18n(m.appName, locale)] as const] : [])));
+}
+
 export interface SystemLink {
   to: string;
   /** i18n key */
@@ -41,7 +52,7 @@ export interface SystemLink {
   testid: string;
 }
 
-/** 系統管理 entries the signed-in user may see; shared by the side menu and the home page so permissions cannot drift. */
+/** 系統管理 entries the signed-in user may see (the side menu). */
 export function systemLinks(me: Pick<Me, 'isSystemAdmin' | 'designer'> | undefined): SystemLink[] {
   if (!me) return [];
   const links: SystemLink[] = [];

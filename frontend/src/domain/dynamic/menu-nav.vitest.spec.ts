@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BUILTIN_LOCALES } from 'src/i18n/locale';
 import { setLocaleInfos } from 'src/i18n/locale-settings';
-import { groupMenu, systemLinks } from './menu-nav';
+import { appNameHints, groupMenu, systemLinks } from './menu-nav';
 
 const item = (key: string, section?: string, closed?: boolean) =>
   ({ key, name: { 'zh-TW': key }, section: section === undefined ? undefined : { 'zh-TW': section }, closed });
@@ -81,5 +81,33 @@ describe('systemLinks', () => {
     const links = systemLinks(permOnly).map((l) => l.testid);
     expect(links).toContain('designer-menu');
     for (const id of ['users-menu', 'groups-menu', 'apps-menu']) expect(links).not.toContain(id);
+  });
+});
+
+describe('appNameHints 同名模組加積木包名稱', () => {
+  const app = (zh: string, en = zh) => ({ 'zh-TW': zh, 'en-US': en });
+  const m = (key: string, name: Record<string, string>, appName?: Record<string, string>, section?: string) =>
+    ({ key, name, appName, section: section ? { 'zh-TW': section } : undefined });
+
+  it('跨分組同名時，兩邊都帶自己的積木包名稱', () => {
+    const h = appNameHints([
+      m('inv-ship', { 'zh-TW': '出貨單' }, app('進銷存'), '庫存'), m('mes-ship', { 'zh-TW': '出貨單' }, app('MES 生產製造'), '生產'),
+    ], 'zh-TW');
+    expect([...h]).toEqual([['inv-ship', '進銷存'], ['mes-ship', 'MES 生產製造']]);
+  });
+  it('一邊是自己設計的模組（沒有積木包）：有積木包的照樣加，另一個不加', () => {
+    const h = appNameHints([m('inv-ship', { 'zh-TW': '出貨單' }, app('進銷存')), m('mine', { 'zh-TW': '出貨單' })], 'zh-TW');
+    expect([...h]).toEqual([['inv-ship', '進銷存']]);
+  });
+  it('不同名不加', () => {
+    expect(appNameHints([m('a', { 'zh-TW': '報價單' }, app('CRM')), m('b', { 'zh-TW': '訂單' }, app('CRM'))], 'zh-TW').size).toBe(0);
+  });
+  it('以目前語系解析後的名稱判斷，積木包名稱也用目前語系', () => {
+    const items = [
+      m('a', { 'zh-TW': '訂單', 'en-US': 'Orders' }, app('進銷存', 'Inventory')),
+      m('b', { 'zh-TW': '銷售訂單', 'en-US': 'Orders' }, app('生產', 'MES')),
+    ];
+    expect(appNameHints(items, 'zh-TW').size).toBe(0);
+    expect([...appNameHints(items, 'en-US')]).toEqual([['a', 'Inventory'], ['b', 'MES']]);
   });
 });

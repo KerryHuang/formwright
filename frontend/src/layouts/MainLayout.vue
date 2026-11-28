@@ -7,8 +7,8 @@
           v-if="$q.screen.lt.md || collapseDrawer" flat dense round icon="menu" class="q-mr-xs" :aria-label="t('menu.toggle')"
           :aria-expanded="drawerOpen" data-testid="menu-toggle" @click="drawerOpen = !drawerOpen"
         />
-        <q-toolbar-title><router-link to="/" class="brand-link" data-testid="brand" aria-label="Formwright" title="Formwright">
-            <BrandMark /><span class="brand-name">Formwright</span>
+        <q-toolbar-title><router-link to="/" class="brand-link" data-testid="brand" :aria-label="BRAND_NAME" :title="BRAND_NAME">
+            <BrandMark /><span class="brand-name">{{ BRAND_NAME }}</span>
           </router-link></q-toolbar-title>
         <span class="q-mr-sm gt-xs" data-testid="current-user">{{ me?.displayName }}</span>
         <q-btn
@@ -62,7 +62,11 @@
             v-bind="navActive(`/dynamic/${m.key}`)"
           >
             <q-item-section avatar><q-icon :name="m.icon || 'apps'" /></q-item-section>
-            <q-item-section>{{ resolveI18n(m.name, locale) }}</q-item-section>
+            <q-item-section>
+              <q-item-label>{{ resolveI18n(m.name, locale) }}</q-item-label>
+              <!-- 同名模組用積木包名稱區分 -->
+              <q-item-label v-if="menuHints.has(m.key)" caption>{{ menuHints.get(m.key) }}</q-item-label>
+            </q-item-section>
           </q-item>
         </template>
 
@@ -114,9 +118,9 @@ import { useMyMcp, useMyMcpTokens } from 'src/application/dynamic/queries/mcp-qu
 import { useMenu } from 'src/application/dynamic/queries/modules-queries';
 import { useMe, useUsers } from 'src/application/dynamic/queries/permissions-queries';
 import { useBusinessTimeWatch } from 'src/application/dynamic/queries/use-business-time-watch';
-import { recordRecent } from 'src/application/dynamic/recent-modules';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
-import { groupMenu, systemLinks } from 'src/domain/dynamic/menu-nav';
+import { BRAND_NAME } from 'src/domain/brand';
+import { appNameHints, groupMenu, systemLinks } from 'src/domain/dynamic/menu-nav';
 import { formatTime } from 'src/domain/ops/ops-format';
 import LocaleSwitcher from 'src/presentation/locale/LocaleSwitcher.vue';
 import NotificationBell from 'src/presentation/notifications/NotificationBell.vue';
@@ -150,6 +154,7 @@ useBusinessTimeWatch();
 
 const { data: menu } = useMenu();
 const menuGroups = computed(() => groupMenu(menu.value ?? [], locale.value));
+const menuHints = computed(() => appNameHints(menu.value ?? [], locale.value));
 const { data: me } = useMe();
 const links = computed(() => systemLinks(me.value));
 const graceUntil = computed(() => {
@@ -164,18 +169,12 @@ const needsTokenCheck = computed(() => mcp.data.value?.canUse === false && ['dis
 const { data: ownTokens } = useMyMcpTokens(needsTokenCheck);
 const showAiEntry = computed(() => mcp.data.value?.canUse === true || ['demoSite', 'accountBlocked'].includes(mcpReason.value ?? '')
   || (needsTokenCheck.value && (ownTokens.value?.length ?? 0) > 0));
-// 首頁的「最近開過」：每次進到某個模組就記一筆
 const route = useRoute();
 /** 明細、新增、編輯與單張報表是和列表並列的路由，vue-router 不會把列表項目算作用中；改用網址前綴判斷，沿用主題的選中樣式。 */
 const navActive = (to: string) => ({
   active: route.path === to || route.path.startsWith(`${to}/`),
   activeClass: 'q-router-link--active',
 });
-watch(
-  () => [identity.userId, route.params.moduleKey] as const,
-  ([userId, key]) => { if (typeof key === 'string') recordRecent(userId, key); },
-  { immediate: true },
-);
 const { data: users } = useUsers();
 watch(me, (m) => { if (m) identity.setDemoAccount(m.isDemoAccount === true); }, { immediate: true });
 watch(users, (list) => { if (list) identity.setUsers(list); }, { immediate: true });

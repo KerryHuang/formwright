@@ -6,6 +6,7 @@ import {
   useClearMyApprovalDelegate, useMyApprovalDelegate, useSaveMyApprovalDelegate,
 } from 'src/application/dynamic/queries/approval-delegate-queries';
 import { useUsers } from 'src/application/dynamic/queries/permissions-queries';
+import DateSelect from 'src/components/framework/DateSelect.vue';
 import GenericSelect from 'src/components/framework/GenericSelect.vue';
 import { joinList } from 'src/i18n/translate';
 import type { ApiError } from 'src/services/api/http';
@@ -109,15 +110,15 @@ async function remove() {
         </div>
         <div class="row q-col-gutter-sm">
           <div class="col-12 col-sm-6">
-            <q-input
-              v-model="startDate" type="date" stack-label outlined :label="t('approval.delegate.start')" :error="!!errors.startDate"
-              :error-message="errors.startDate" data-testid="delegate-start"
+            <DateSelect
+              :model-value="startDate" :label="t('approval.delegate.start')" :error="errors.startDate" data-testid="delegate-start"
+              @update:model-value="(v) => (startDate = v ?? '')"
             />
           </div>
           <div class="col-12 col-sm-6">
-            <q-input
-              v-model="endDate" type="date" stack-label outlined :label="t('approval.delegate.end')" :error="!!errors.endDate"
-              :error-message="errors.endDate" data-testid="delegate-end"
+            <DateSelect
+              :model-value="endDate" :label="t('approval.delegate.end')" :error="errors.endDate" data-testid="delegate-end"
+              @update:model-value="(v) => (endDate = v ?? '')"
             />
           </div>
         </div>

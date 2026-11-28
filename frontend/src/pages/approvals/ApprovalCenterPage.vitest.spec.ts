@@ -343,6 +343,31 @@ describe('ApprovalCenterPage', () => {
     w.unmount();
   });
 
+  it('起迄是表單同款日期欄：打到一半不送、整日才篩、可清空（#141）', async () => {
+    const { w, router } = await mountPage('/approvals?tab=done', { width: 1366 });
+    const from = () => document.querySelector('[data-testid="approval-filter-from"]') as HTMLInputElement;
+    expect(from().type).not.toBe('date');
+    expect(from().closest('.q-field')!.textContent).toContain('event');
+    const type = async (v: string) => {
+      from().value = v;
+      from().dispatchEvent(new Event('input', { bubbles: true }));
+      await flushPromises();
+      await new Promise((r) => setTimeout(r, 20));
+    };
+    await type('2026-1');
+    expect(router.currentRoute.value.query.from).toBeUndefined();
+    expect(from().value).not.toBe('');
+    await type('2026-11-01');
+    expect(router.currentRoute.value.query.from).toBe('2026-11-01');
+    expect(lists().at(-1)!.params).toMatchObject({ from: '2026-11-01' });
+    (from().closest('.q-field')!.querySelector('.q-field__focusable-action') as HTMLElement).click();
+    await flushPromises();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(router.currentRoute.value.query.from).toBeUndefined();
+    expect(from().value).toBe('');
+    w.unmount();
+  });
+
   it('desktop width keeps the table and has no filter button', async () => {
     const { w } = await mountPage('/approvals', { width: 1366 });
     expect(q('approval-card-5')).toBeNull();

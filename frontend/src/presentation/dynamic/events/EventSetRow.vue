@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
+import DateSelect from 'src/components/framework/DateSelect.vue';
 import SelectNoOption from 'src/components/framework/SelectNoOption.vue';
 import { useSelectFilter } from 'src/components/framework/useSelectFilter';
 import { usesHiddenSource, type SetDraft } from 'src/domain/dynamic/event-draft';
@@ -127,8 +128,8 @@ const setNumber = (v: string | number | null) => change({ value: v === '' || v =
                 :model-value="today" dense :label="t('events.today')" :disable="disabled" :data-testid="id('today')"
                 @update:model-value="(v: boolean) => change({ value: v ? 'today' : null })"
               />
-              <q-input
-                v-if="!today" :model-value="row.value as string" type="date" :label="t('events.value')" :disable="disabled" outlined dense
+              <DateSelect
+                v-if="!today" :model-value="row.value as string | null" :label="t('events.value')" :disable="disabled"
                 :data-testid="id('const')" @update:model-value="(v) => change({ value: v })"
               />
             </template>

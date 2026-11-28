@@ -37,6 +37,35 @@ describe('MainLayout menu', () => {
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   });
 
+  it('同名模組下方顯示積木包名稱小字，不同名的沒有（#141）', async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    useIdentityStore().setSession('admin');
+    const menu = [
+      { key: 'inv-ship', name: { 'zh-TW': '出貨單' }, appName: { 'zh-TW': '進銷存' } },
+      { key: 'mes-ship', name: { 'zh-TW': '出貨單' }, appName: { 'zh-TW': 'MES 生產製造' } },
+      { key: 'mine', name: { 'zh-TW': '出貨單' } },
+      { key: 'inv-item', name: { 'zh-TW': '品項' }, appName: { 'zh-TW': '進銷存' } },
+    ];
+    http.defaults.adapter = async (config) => ({
+      data: config.url === '/me' ? me(true) : config.url === '/menu' ? menu : [], status: 200, statusText: 'OK', headers: {}, config,
+    });
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<i/>' } }, { path: '/dynamic/:moduleKey', component: { template: '<i/>' } }] });
+    const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
+    const w = mount(MainLayout, {
+      global: { plugins: [[quasar.Quasar, { components: quasar }], pinia, router, i18n, [VueQueryPlugin, { queryClient: new QueryClient() }]] },
+    });
+    await flushPromises();
+    const caption = (key: string) => {
+      const c = w.findAll('.q-drawer .q-item').find((i) => i.attributes('href') === `/dynamic/${key}`)!.find('.q-item__label--caption');
+      return c.exists() ? c.text() : undefined;
+    };
+    expect(caption('inv-ship')).toBe('進銷存');
+    expect(caption('mes-ship')).toBe('MES 生產製造');
+    expect(caption('mine')).toBeUndefined();
+    expect(caption('inv-item')).toBeUndefined();
+  });
+
   it('refetches the menu after the session changes user', async () => {
     const pinia = createPinia();
     setActivePinia(pinia);
@@ -256,15 +285,6 @@ describe('MainLayout menu', () => {
     it('看單張報表時「我的報表」是作用中', async () => {
       const { w } = await mountAt('/reports/5');
       expect(w.find('[data-testid="reports-menu"]').classes()).toContain('q-router-link--active');
-    });
-
-    it('打開模組時記下最近開過（依使用者區分）', async () => {
-      localStorage.clear();
-      const { router } = await mountAt('/dynamic/orders');
-      await router.push('/dynamic/crm');
-      await flushPromises();
-      expect(JSON.parse(localStorage.getItem('formwright:recent-modules:admin') ?? '[]')).toEqual(['crm', 'orders']);
-      localStorage.clear();
     });
   });
 

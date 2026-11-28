@@ -9,6 +9,7 @@ import { createMemoryHistory, createRouter } from 'vue-router';
 import type { DynamicRecord, ModuleSchema, SchemaDetail, SchemaField, SchemaPermissions } from 'src/domain/dynamic/types';
 import zhTW from 'shared/i18n/zh-TW/ui.json';
 import { dynamicApi } from 'src/services/api/dynamic-api';
+import { useIdentityStore } from 'src/stores/use-identity-store';
 import DetailPage from './DetailPage.vue';
 import { textWithoutHistory } from 'src/test-utils/page-text';
 
@@ -28,8 +29,10 @@ const schema = (p: Partial<ModuleSchema>): ModuleSchema => ({
 });
 const record: DynamicRecord = { id: 5, moduleKey: 'm', title: '記錄五', values: { f_1: '記錄五', f_2: 'x' } as Record<string, unknown>, ownerUserId: 'a', createdUserId: 'a', createdTime: '', modifiedUserId: 'a', modifiedTime: '', rowVersion: 'v', references: {}, hostKey: null };
 
+let sessionUser: string | undefined;
 async function mountPage(s: ModuleSchema, rec: DynamicRecord = record, tabs: unknown[] = []) {
   setActivePinia(createPinia());
+  if (sessionUser) useIdentityStore().setSession(sessionUser);
   api.getModuleSchema.mockResolvedValue(s);
   api.getRecord.mockResolvedValue(rec);
   api.related.mockResolvedValue(tabs as never);
@@ -56,6 +59,18 @@ describe('DetailPage', () => {
     vi.clearAllMocks();
     document.querySelectorAll('.q-dialog').forEach((el) => el.remove());
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  });
+
+  it('讀到單據後記進最近開過（只存模組鍵與 id）；讀不到就不記（#141）', async () => {
+    localStorage.clear();
+    sessionUser = 'u9';
+    await mountPage(schema({}));
+    expect(JSON.parse(localStorage.getItem('formwright:recent-records:u9')!)).toEqual([{ moduleKey: 'm', recordId: 5 }]);
+    localStorage.clear();
+    await mountPage(schema({}), { ...record, moduleKey: 'other' });
+    expect(localStorage.getItem('formwright:recent-records:u9')).toBeNull();
+    sessionUser = undefined;
+    localStorage.clear();
   });
 
   it('DetailPage hides edit and delete per permissions', async () => {

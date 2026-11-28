@@ -4,6 +4,8 @@ import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthOptions, useDemoLogin, useLogin, useTwoFactorLogin } from 'src/application/dynamic/queries/auth-queries';
+import { BRAND_NAME } from 'src/domain/brand';
+import { joinList } from 'src/i18n/translate';
 import { isTwoFactorChallenge, type AuthUser, type LoginResult, type TwoFactorChallenge } from 'src/domain/dynamic/types';
 import BrandMark from 'src/presentation/brand/BrandMark.vue';
 import LocaleSwitcher from 'src/presentation/locale/LocaleSwitcher.vue';
@@ -91,10 +93,16 @@ const pickDemo = (id: string) => {
 <template>
   <div class="row justify-center q-pa-md">
     <q-card style="width: 360px; max-width: 100%">
-      <q-card-section class="row items-center no-wrap">
-        <BrandMark class="q-mr-sm" style="font-size: 28px" />
-        <div class="text-h6 col">{{ t('auth.loginTitle') }}</div>
-        <LocaleSwitcher />
+      <q-card-section>
+        <div data-testid="login-brand">
+          <div class="row items-center no-wrap">
+            <BrandMark class="q-mr-sm" style="font-size: 28px" />
+            <h1 class="text-h6 col q-my-none">{{ BRAND_NAME }}</h1>
+            <LocaleSwitcher />
+          </div>
+          <div class="text-caption text-muted q-mt-xs">{{ t('auth.tagline') }}</div>
+        </div>
+        <h2 class="text-subtitle2 q-mt-md q-mb-none">{{ t('auth.loginTitle') }}</h2>
       </q-card-section>
       <q-form v-if="challenge" @submit.prevent="submitSecond">
         <q-card-section class="q-gutter-sm" data-testid="login-second-step">
@@ -144,19 +152,22 @@ const pickDemo = (id: string) => {
         <q-card-section>
           <div class="text-subtitle2 q-mb-sm">{{ t('auth.demoTitle') }}</div>
           <div v-if="options.data.value.demoGenerating" class="text-caption" data-testid="demo-generating">{{ t('auth.demoGenerating') }}</div>
-          <div class="q-gutter-xs" data-testid="demo-accounts">
-            <q-btn
-              v-for="a in options.data.value.demoAccounts"
-              :key="a.userId"
-              outline
-              no-caps
-              :label="a.displayName"
-              :data-testid="`demo-account-${a.userId}`"
-              @click="pickDemo(a.userId)"
-            />
+          <div class="row q-col-gutter-sm" data-testid="demo-accounts">
+            <div v-for="a in options.data.value.demoAccounts" :key="a.userId" class="col-12 col-sm-6">
+              <q-btn outline no-caps align="left" class="full-width full-height" :data-testid="`demo-account-${a.userId}`" @click="pickDemo(a.userId)">
+                <div class="full-width text-left demo-account-text">
+                  <div>{{ a.displayName }}</div>
+                  <div v-if="a.groups.length" class="text-caption text-muted" :data-testid="`demo-account-groups-${a.userId}`">{{ joinList(a.groups) }}</div>
+                </div>
+              </q-btn>
+            </div>
           </div>
         </q-card-section>
       </template>
     </q-card>
   </div>
 </template>
+
+<style scoped>
+.demo-account-text { overflow-wrap: anywhere; line-height: 1.4; }
+</style>

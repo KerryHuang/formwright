@@ -74,6 +74,12 @@ const press = async (id: string, key: string) => {
   q(id)!.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
   await flushPromises();
 };
+/** 開某一列的「⋯」選單再點裡面的動作（testid 是 user-<動作>-<帳號>）。 */
+const openMenu = async (userId: string) => { await click(`user-more-${userId}`); await new Promise((r) => setTimeout(r, 20)); await flushPromises(); };
+async function act(id: string) {
+  await openMenu(id.slice(id.lastIndexOf('-') + 1));
+  await click(id);
+}
 async function fill(id: string, value: string) {
   const el = q(id)!;
   el.value = value;
@@ -118,19 +124,36 @@ describe('UsersPage', () => {
     await mountPage(USERS, 820);
     expect(document.body.querySelector('[data-testid^="user-row-"]')).toBeNull();
     expect(q('user-card-sales01')).not.toBeNull();
+    await openMenu('sales01');
     for (const id of ['user-email-sales01', 'user-reset-sales01', 'user-toggle-sales01']) expect(q(id)).not.toBeNull();
+  });
+
+  it.each([[1366], [390]])('%i wide: every row has one ⋯ menu, deactivate last, red and behind a separator (#141)', async (width) => {
+    await mountPage([user('admin', { isSystemAdmin: true }), user('sales01', { twoFactor: 'on' }), user('old01', { isActive: false })], width);
+    expect(q('user-reset-sales01')).toBeNull();   // 動作都收進選單，列上不另外放按鈕
+    await openMenu('sales01');
+    const toggle = q('user-toggle-sales01')!;
+    const items = [...toggle.closest('.q-list')!.children];
+    expect(items.map((el) => el.getAttribute('data-testid'))).toEqual([
+      'user-email-sales01', 'user-reset-sales01', 'user-reset-2fa-sales01', null, 'user-toggle-sales01',
+    ]);
+    expect(items[3]!.classList.contains('q-separator')).toBe(true);
+    expect(toggle.classList.contains('text-negative')).toBe(true);
+    expect(q('user-reset-2fa-sales01')!.classList.contains('text-negative')).toBe(false);
+    await openMenu('old01');
+    expect(q('user-toggle-old01')!.classList.contains('text-negative')).toBe(false);   // 啟用不是危險動作
   });
 
   it('click a row opens the edit dialog; action buttons do not', async () => {
     await mountPage(USERS, 1366);
     expect(q('user-row-sales01')!.classList.contains('row-clickable')).toBe(true);
-    expect(q('user-reset-sales01')!.closest('td')!.classList.contains('users-actions-col')).toBe(true);   // #106 操作欄固定在右側
+    expect(q('user-more-sales01')!.closest('td')!.classList.contains('users-actions-col')).toBe(true);   // #106 操作欄固定在右側
     expect(q('user-edit-sales01')).toBeNull();
-    await click('user-reset-sales01');
+    await act('user-reset-sales01');
     expect(q('user-id')).toBeNull();
     expect(q('user-reset-password')).not.toBeNull();
     await click('user-reset-cancel');
-    await click('user-toggle-old01');
+    await act('user-toggle-old01');
     expect(q('user-id')).toBeNull();
     await click('user-row-sales01');
     expect((q('user-id') as HTMLInputElement).value).toBe('sales01');
@@ -145,7 +168,7 @@ describe('UsersPage', () => {
     await press('user-row-old01', ' ');
     expect((q('user-id') as HTMLInputElement).value).toBe('old01');
     await click('user-cancel');
-    await press('user-reset-sales01', 'Enter');
+    await press('user-more-sales01', 'Enter');
     expect(q('user-id')).toBeNull();
   });
 
@@ -158,7 +181,7 @@ describe('UsersPage', () => {
 
   it('390 wide: action buttons on a card do not open the edit dialog', async () => {
     await mountPage(USERS, 390);
-    await click('user-reset-sales01');
+    await act('user-reset-sales01');
     expect(q('user-id')).toBeNull();
     expect(q('user-reset-password')).not.toBeNull();
   });
@@ -169,9 +192,12 @@ describe('UsersPage', () => {
       user('admin', { isSystemAdmin: true, twoFactor: 'on' }), user('sales01', { twoFactor: 'unreadable' }), user('old01', { twoFactor: 'off' }),
     ]);
     expect(q('user-row-sales01')!.textContent).toContain(zhTW.users.twoFactorStates.unreadable);
-    expect(q('user-reset-2fa-admin')).toBeNull();
-    expect(q('user-reset-2fa-old01')).toBeNull();
-    await click('user-reset-2fa-sales01');
+    for (const id of ['admin', 'old01']) {
+      await openMenu(id);
+      expect(q(`user-reset-${id}`)).not.toBeNull();
+      expect(q(`user-reset-2fa-${id}`)).toBeNull();
+    }
+    await act('user-reset-2fa-sales01');
     expect(api.resetUserTwoFactor).not.toHaveBeenCalled();
     await click('user-2fa-confirm-ok');
     expect(api.resetUserTwoFactor).toHaveBeenCalledWith('sales01');
@@ -269,7 +295,7 @@ describe('UsersPage', () => {
     api.resetUserPassword.mockResolvedValue(undefined as never);
     const w = await mountPage();
     const notify = vi.spyOn(w.vm.$q, 'notify');
-    await click('user-reset-sales01');
+    await act('user-reset-sales01');
     await fill('user-reset-password', '1234567');
     await click('user-reset-submit');
     expect(api.resetUserPassword).not.toHaveBeenCalled();
@@ -282,8 +308,11 @@ describe('UsersPage', () => {
   it('own deactivate button is disabled; deactivating someone else asks first', async () => {
     api.setUserActive.mockResolvedValue(undefined as never);
     await mountPage();
-    expect(q('user-toggle-admin')!.disabled).toBe(true);
-    await click('user-toggle-sales01');
+    await openMenu('admin');
+    expect(q('user-toggle-admin')!.getAttribute('aria-disabled')).toBe('true');
+    await click('user-toggle-admin');
+    expect(q('user-confirm-ok')).toBeNull();
+    await act('user-toggle-sales01');
     expect(api.setUserActive).not.toHaveBeenCalled();
     await click('user-confirm-ok');
     expect(api.setUserActive).toHaveBeenCalledWith('sales01', false);
@@ -292,7 +321,7 @@ describe('UsersPage', () => {
   it('activating an inactive user needs no confirmation', async () => {
     api.setUserActive.mockResolvedValue(undefined as never);
     await mountPage();
-    await click('user-toggle-old01');
+    await act('user-toggle-old01');
     expect(api.setUserActive).toHaveBeenCalledWith('old01', true);
   });
 
@@ -342,20 +371,20 @@ describe('UsersPage', () => {
     it('reset dialog: cleared after cancel, after the dialog asks to close (backdrop/Escape) and after success', async () => {
       api.resetUserPassword.mockResolvedValue(undefined as never);
       const w = await mountPage();
-      await click('user-reset-sales01');
+      await act('user-reset-sales01');
       await fill('user-reset-password', 'password-1');
       await click('user-reset-cancel');
       await settled();
       expect(state(w).resetPassword).toBe('');
 
-      await click('user-reset-sales01');
+      await act('user-reset-sales01');
       await fill('user-reset-password', 'password-2');
       // Backdrop click and Escape both end in QDialog's update:model-value(false)
       w.findAllComponents(quasar.QDialog).find((d) => d.props('modelValue'))!.vm.$emit('update:model-value', false);
       await settled();
       expect(state(w).resetPassword).toBe('');
 
-      await click('user-reset-sales01');
+      await act('user-reset-sales01');
       await fill('user-reset-password', 'password-3');
       await click('user-reset-submit');
       await settled();
@@ -368,7 +397,7 @@ describe('UsersPage', () => {
     async function openReset(pw: string, offline = false) {
       await mountPage();
       if (offline) onlineManager.setOnline(false);
-      await click('user-reset-sales01');
+      await act('user-reset-sales01');
       await fill('user-reset-password', pw);
       await click('user-reset-submit');
     }
@@ -408,7 +437,7 @@ describe('UsersPage', () => {
       try {
         await openReset('s3cret-for-a', true);
         await click('user-reset-cancel');
-        await click('user-reset-old01');
+        await act('user-reset-old01');
         await fill('user-reset-password', 's3cret-for-b');
         onlineManager.setOnline(true);
         await flushPromises();
@@ -658,7 +687,7 @@ describe('UsersPage Email（帳號安全設計 §12）', () => {
     api.resetUserPassword.mockResolvedValue(undefined as never);
     const w = await mountPage([user('admin', { isSystemAdmin: true }), user('ok01', { email: 'ok@example.com', emailVerified: true })]);
     const notify = vi.spyOn(w.vm.$q, 'notify');
-    await click('user-reset-ok01');
+    await act('user-reset-ok01');
     expect(document.body.textContent).toContain('ok@example.com');
     expect(q('user-reset-password')).toBeNull();
     await click('user-reset-submit');
@@ -671,7 +700,7 @@ describe('UsersPage Email（帳號安全設計 §12）', () => {
     const message = '系統目前寄不出信（寄信設定或站台網址還沒設好），不能寄重設連結，請改設暫時密碼';
     api.sendResetLink.mockRejectedValue({ status: 409, code: 'resetLinkMailUnavailable', message });
     await mountPage([user('admin', { isSystemAdmin: true }), user('ok01', { email: 'ok@example.com', emailVerified: true })]);
-    await click('user-reset-ok01');
+    await act('user-reset-ok01');
     await click('user-reset-submit');
     expect(q('user-reset-error')!.textContent).toContain(message);
     expect(q('user-reset-submit')).not.toBeNull();
@@ -681,7 +710,7 @@ describe('UsersPage Email（帳號安全設計 §12）', () => {
     api.getAuthOptions.mockResolvedValue({ passwordMinLength: 10 } as never);
     api.resetUserPassword.mockResolvedValue(undefined as never);
     await mountPage([user('admin', { isSystemAdmin: true, email: 'a@example.com', emailVerified: true }), user('sales01', { email: 'x@example.com', emailVerified: false })]);
-    await click('user-reset-sales01');
+    await act('user-reset-sales01');
     expect(q('user-reset-no-email')).not.toBeNull();
     expect(q('user-reset-mode-link')).toBeNull();
     await fill('user-reset-password', '123456789');
@@ -689,7 +718,7 @@ describe('UsersPage Email（帳號安全設計 §12）', () => {
     expect(api.resetUserPassword).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain(zhTW.users.passwordTooShort.replace('{min}', '10'));
     await click('user-reset-cancel');
-    await click('user-reset-admin');
+    await act('user-reset-admin');
     expect(q('user-reset-mode-link')).toBeNull();
     expect(q('user-reset-self')!.textContent).toBe(zhTW.users.resetSelf);
     expect(q('user-reset-no-email')).toBeNull();
@@ -703,13 +732,13 @@ describe('UsersPage Email（帳號安全設計 §12）', () => {
     expect(q('user-row-sales01')!.textContent).toContain(zhTW.users.emailUnverified);
     expect(q('user-row-ok01')!.textContent).not.toContain(zhTW.users.emailUnverified);
 
-    await click('user-email-sales01');
+    await act('user-email-sales01');
     expect(q('user-email-resend')).not.toBeNull();
     await fill('user-email-input', '  b@example.com ');
     await click('user-email-save');
     expect(api.setUserEmail).toHaveBeenCalledWith('sales01', 'b@example.com');
 
-    await click('user-email-ok01');
+    await act('user-email-ok01');
     expect(q('user-email-resend')).toBeNull();
     await fill('user-email-input', '   ');
     await click('user-email-save');
@@ -717,13 +746,17 @@ describe('UsersPage Email（帳號安全設計 §12）', () => {
   });
 
   it('own row has no set-email action (own email changes go through Account security), at desktop and phone widths', async () => {
-    await mountPage([user('admin', { isSystemAdmin: true }), user('sales01')]);
-    expect(q('user-email-admin')).toBeNull();
-    expect(q('user-email-sales01')).not.toBeNull();
-    mounted!.unmount();
-    await mountPage([user('admin', { isSystemAdmin: true }), user('sales01')], 390);
-    expect(q('user-email-admin')).toBeNull();
-    expect(q('user-email-sales01')).not.toBeNull();
+    for (const width of [1024, 390]) {
+      await mountPage([user('admin', { isSystemAdmin: true }), user('sales01')], width);
+      await openMenu('admin');
+      expect(q('user-reset-admin')).not.toBeNull();
+      expect(q('user-email-admin')).toBeNull();
+      await openMenu('sales01');
+      expect(q('user-email-sales01')).not.toBeNull();
+      mounted!.unmount();
+      mounted = undefined;
+      document.body.innerHTML = '';
+    }
   });
 });
 

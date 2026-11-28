@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { operatorNeedsValue, pruneCondition, serializeFilter } from './condition';
+import { countConditions, operatorNeedsValue, pruneCondition, serializeFilter } from './condition';
 import type { ConditionNode } from './types';
 
 describe('condition', () => {
@@ -53,5 +53,14 @@ describe('condition', () => {
     expect(serializeFilter({ all: [{ field: 0, op: 'eq', value: 1 }] })).toBeUndefined();
     expect(serializeFilter({ all: [{ field: 3, op: 'eq', value: 'a' }, { field: 0, op: 'eq' }] }))
       .toBe('{"all":[{"field":3,"op":"eq","value":"a"}]}');
+  });
+});
+
+describe('countConditions', () => {
+  it('只數填好的條件，巢狀群組算裡面的葉節點', () => {
+    expect(countConditions(undefined)).toBe(0);
+    expect(countConditions({ all: [{ field: 1, op: 'eq', value: '' }] })).toBe(0);
+    expect(countConditions({ field: 1, op: 'isEmpty' })).toBe(1);
+    expect(countConditions({ all: [{ field: 1, op: 'eq', value: 'x' }, { any: [{ field: 2, op: 'eq', value: 'y' }, { field: 3, op: 'eq', value: 'z' }] }, { field: 4, op: 'eq' }] })).toBe(3);
   });
 });

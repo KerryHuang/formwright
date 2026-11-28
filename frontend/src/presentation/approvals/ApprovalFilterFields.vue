@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
+import DateSelect from 'src/components/framework/DateSelect.vue';
 import type { ApprovalInboxFilter, ApprovalInstanceStatus } from 'src/domain/dynamic/approval-types';
 import { INBOX_STATUSES, type ModuleOption } from './inbox-filter';
 
@@ -10,7 +11,11 @@ const { t } = useI18n();
 
 const statusOptions = computed(() => INBOX_STATUSES.map((s) => ({ value: s, label: t(`approval.status.${s}`) })));
 const set = (patch: Partial<ApprovalInboxFilter>) => emit('update:modelValue', { ...props.modelValue, ...patch });
-const text = (v: string | number | null) => (v === null || v === '' ? undefined : String(v));
+// 日期欄是逐字輸入的：打完整一天（或清空）才往外送，打到一半的值不套用
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const setDay = (key: 'from' | 'to', v: string | null) => {
+  if (v === null || DAY.test(v)) set({ [key]: v ?? undefined });
+};
 </script>
 
 <template>
@@ -30,17 +35,15 @@ const text = (v: string | number | null) => (v === null || v === '' ? undefined 
       />
     </div>
     <div class="col-12 col-sm-6 col-md-3">
-      <q-input
-        :model-value="modelValue.from ?? ''" type="date" stack-label outlined dense clearable
-        :label="t('approval.center.filters.from')" data-testid="approval-filter-from"
-        @update:model-value="(v) => set({ from: text(v) })"
+      <DateSelect
+        :model-value="modelValue.from ?? null" :label="t('approval.center.filters.from')" clearable data-testid="approval-filter-from"
+        @update:model-value="(v) => setDay('from', v)"
       />
     </div>
     <div class="col-12 col-sm-6 col-md-3">
-      <q-input
-        :model-value="modelValue.to ?? ''" type="date" stack-label outlined dense clearable
-        :label="t('approval.center.filters.to')" data-testid="approval-filter-to"
-        @update:model-value="(v) => set({ to: text(v) })"
+      <DateSelect
+        :model-value="modelValue.to ?? null" :label="t('approval.center.filters.to')" clearable data-testid="approval-filter-to"
+        @update:model-value="(v) => setDay('to', v)"
       />
     </div>
   </div>

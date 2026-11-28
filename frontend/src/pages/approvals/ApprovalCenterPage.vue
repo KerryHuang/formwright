@@ -8,6 +8,7 @@ import { useApprovalInbox } from 'src/application/dynamic/queries/approval-queri
 import { useMenu } from 'src/application/dynamic/queries/modules-queries';
 import type { ApprovalBox, ApprovalInboxFilter, ApprovalInboxItem, ApprovalInstanceStatus } from 'src/domain/dynamic/approval-types';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
+import { appNameHints } from 'src/domain/dynamic/menu-nav';
 import { isForbidden } from 'src/services/api/http';
 import ApprovalInboxFilters from 'src/presentation/approvals/ApprovalInboxFilters.vue';
 import DelegateBanner from 'src/presentation/approvals/DelegateBanner.vue';
@@ -58,7 +59,11 @@ watch(pageCount, (n) => { if (page.value > n) page.value = n; });
 const loadFailed = computed(() => !!query.error.value && !query.data.value && !(tab.value === 'all' && isForbidden(query.error.value)));
 
 const menu = useMenu();
-const modules = computed(() => (menu.data.value ?? []).map((m) => ({ value: m.key, label: resolveI18n(m.name, locale.value) })));
+// 同名模組在下拉選項後面接積木包名稱，才分得出來
+const modules = computed(() => {
+  const hints = appNameHints(menu.data.value ?? [], locale.value);
+  return (menu.data.value ?? []).map((m) => ({ value: m.key, label: [resolveI18n(m.name, locale.value), hints.get(m.key)].filter(Boolean).join(' · ') }));
+});
 
 function go(patch: Record<string, string | undefined>) {
   page.value = 1;

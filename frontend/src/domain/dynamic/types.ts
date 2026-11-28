@@ -316,6 +316,8 @@ export interface MenuItem {
   section?: I18nText;
   /** The owning app is closed: data stays readable, nothing can be written. */
   closed?: boolean;
+  /** Name of the app (積木包) the module belongs to; absent for modules designed by hand. */
+  appName?: I18nText;
 }
 
 export interface User {
@@ -338,10 +340,15 @@ export type LoginResult = AuthUser | TwoFactorChallenge;
 
 export const isTwoFactorChallenge = (r: LoginResult): r is TwoFactorChallenge => (r as TwoFactorChallenge).twoFactorRequired === true;
 
+export interface DemoAccount extends User {
+  /** 所屬群組的顯示名稱（後端依請求語系解析、已排序） */
+  groups: string[];
+}
+
 export interface AuthOptions {
   demoLoginEnabled: boolean;
   demoGenerating: boolean;
-  demoAccounts: User[];
+  demoAccounts: DemoAccount[];
   /** 語系政策 locale.default 的生效值（登入前就能取） */
   defaultLocale: string;
   /** 語系政策 locale.enabled 的生效值 */

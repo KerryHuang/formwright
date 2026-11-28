@@ -68,6 +68,44 @@ describe('ModuleListPage create dialog', () => {
     w.unmount();
   });
 
+  async function createNamed(w: Awaited<ReturnType<typeof mountPage>>, name: string) {
+    (q('new-module') as HTMLElement).click();
+    await flushPromises();
+    const key = document.body.querySelector('input:not([type=file])') as HTMLInputElement;
+    key.value = 'mine';
+    key.dispatchEvent(new Event('input'));
+    await w.findComponent({ name: 'I18nTextInput' }).vm.$emit('update:modelValue', { 'zh-TW': name });
+    await flushPromises();
+    button('建立').click();
+    await flushPromises();
+  }
+  const existing = (p: Record<string, unknown>) => ({ id: 1, key: 'inv-ship', programCode: 'P', name: { 'zh-TW': '出貨單' }, status: 'Active', version: 1, ...p });
+
+  it.each([['Active'], ['Inactive'], ['Closed']])('和 %s 的模組同名：照樣建立，並提示選單會加積木包名稱（#141）', async (status) => {
+    const w = await mountPage([existing({ status })]);
+    const notify = vi.spyOn(w.vm.$q, 'notify');
+    await createNamed(w, '出貨單');
+    expect(api.createModule).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'warning', message: zhTW.designer.duplicateName.replace('{name}', '出貨單'),
+      attrs: { 'data-testid': 'module-name-duplicate-hint' },
+    }));
+    w.unmount();
+  });
+
+  it.each([
+    ['不同名', { name: { 'zh-TW': '進貨單' } }],
+    ['明細模組', { detailOf: 'po' }],
+    ['草稿', { status: 'Draft' }],
+  ])('%s不提示', async (_label, patch) => {
+    const w = await mountPage([existing(patch)]);
+    const notify = vi.spyOn(w.vm.$q, 'notify');
+    await createNamed(w, '出貨單');
+    expect(api.createModule).toHaveBeenCalledTimes(1);
+    expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'warning' }));
+    w.unmount();
+  });
+
   it('create dialog with extension kind requires host entity', async () => {
     const w = await mountPage();
     await fillExtension(w);

@@ -9,7 +9,7 @@ import { useModuleSchema } from 'src/application/dynamic/queries/schema-queries'
 import {
   pickDefaultView, useCreateView, useDeleteView, useUpdateView, useViews,
 } from 'src/application/dynamic/queries/views-queries';
-import { pruneCondition, serializeFilter } from 'src/domain/dynamic/condition';
+import { countConditions, pruneCondition, serializeFilter } from 'src/domain/dynamic/condition';
 import type { ApprovalListFilter } from 'src/domain/dynamic/approval-types';
 import { resolveI18n } from 'src/domain/dynamic/i18n-text';
 import type { ConditionNode, DynamicRecord, FieldType, I18nText, ListView, PagedResponse, ViewSort } from 'src/domain/dynamic/types';
@@ -23,6 +23,7 @@ import ExportMenu from 'src/presentation/dynamic/list/ExportMenu.vue';
 import FilterPanel from 'src/presentation/dynamic/list/FilterPanel.vue';
 import ImportDialog from 'src/presentation/dynamic/list/ImportDialog.vue';
 import SortEditor from 'src/presentation/dynamic/list/SortEditor.vue';
+import ToolbarPanel from 'src/presentation/dynamic/list/ToolbarPanel.vue';
 import ViewMenu from 'src/presentation/dynamic/list/ViewMenu.vue';
 import EmptyState from 'src/components/framework/EmptyState.vue';
 import ForbiddenNotice from 'src/components/framework/ForbiddenNotice.vue';
@@ -248,24 +249,35 @@ const openRecord = (row: DynamicRecord) => router.push(`/dynamic/${moduleKey.val
     <div v-else-if="notFound" class="text-negative">{{ t('dynamic.moduleNotFound') }}</div>
     <div v-else-if="failed" class="text-negative">{{ t('dynamic.loadFailed') }}</div>
     <template v-else-if="schema">
-      <!-- 標題、檢視、搜尋與新增／匯入／匯出併成一列，窄螢幕自動換行 -->
-      <div class="row items-center q-mb-sm q-gutter-sm">
-        <div class="text-h6">{{ resolveI18n(schema.name, locale) }}</div>
+      <!-- 標題、檢視、搜尋、篩選／排序／欄位與新增／匯入／匯出併成一列；手機上檢視與三顆按鈕一列、關鍵字獨佔一列 -->
+      <div class="row items-center q-mb-sm list-toolbar" data-testid="list-toolbar">
+        <div class="text-h6 list-toolbar__title">{{ resolveI18n(schema.name, locale) }}</div>
         <ViewMenu
-          :views="views" :current="currentView" :modified="modified"
+          class="list-toolbar__view" :views="views" :current="currentView" :modified="modified"
           @select="(id) => applyView(views.find((v) => v.id === id))"
           @save-as="saveAs" @update="updateCurrent" @remove="removeCurrent" @set-default="setDefault"
         />
         <q-input
-          :model-value="q" :placeholder="t('dynamic.view.search')" maxlength="100" debounce="300" clearable outlined dense
-          data-testid="keyword" style="min-width: 14rem" @update:model-value="setQ"
+          :model-value="q" :placeholder="t('dynamic.view.search')" :aria-label="t('dynamic.view.search')" maxlength="100" debounce="300" clearable outlined dense
+          class="list-toolbar__keyword" data-testid="keyword" @update:model-value="setQ"
         >
           <template #prepend><q-icon name="search" /></template>
         </q-input>
-        <q-space />
-        <q-btn v-if="schema.permissions.add" color="primary" icon="add" data-testid="new-btn" :label="t('dynamic.new')" :to="`/dynamic/${moduleKey}/new`" />
-        <q-btn v-if="canImport" outline icon="upload" data-testid="import-btn" :label="t('dynamic.import.title')" @click="importing = true" />
-        <ExportMenu :schema="schema" :query="exportQuery" />
+        <ToolbarPanel icon="filter_list" testid="toolbar-filter" :label="t('dynamic.filter.title')" :count="countConditions(filter)">
+          <FilterPanel :schema="schema" :model-value="filter" expanded @update:model-value="setFilter" />
+        </ToolbarPanel>
+        <ToolbarPanel icon="sort" testid="toolbar-sort" :label="t('dynamic.sort.title')" :count="sort.length">
+          <SortEditor :schema="schema" :model-value="sort" @update:model-value="setSort" />
+        </ToolbarPanel>
+        <ToolbarPanel icon="view_column" testid="toolbar-columns" :label="t('dynamic.columns.button')">
+          <ColumnChooser :schema="schema" :model-value="effectiveColumns" @update:model-value="(v) => (columnIds = v)" />
+        </ToolbarPanel>
+        <q-space class="list-toolbar__space" />
+        <div class="row items-center list-toolbar__actions">
+          <q-btn v-if="schema.permissions.add" color="primary" icon="add" data-testid="new-btn" :label="t('dynamic.new')" :to="`/dynamic/${moduleKey}/new`" />
+          <q-btn v-if="canImport" outline icon="upload" data-testid="import-btn" :label="t('dynamic.import.title')" @click="importing = true" />
+          <ExportMenu :schema="schema" :query="exportQuery" />
+        </div>
       </div>
       <div v-if="schema.readOnly" class="row items-center no-wrap q-mb-sm text-muted" data-testid="closed-banner">
         <q-icon name="lock" class="q-mr-sm" />
@@ -282,13 +294,6 @@ const openRecord = (row: DynamicRecord) => router.push(`/dynamic/${moduleKey.val
           @update:model-value="(v) => setApproval(v as 'all' | ApprovalListFilter)"
         />
       </div>
-      <FilterPanel :schema="schema" :model-value="filter" class="q-mb-sm" @update:model-value="setFilter" />
-      <q-expansion-item dense icon="sort" :label="t('dynamic.sort.title')" class="q-mb-sm">
-        <SortEditor :schema="schema" :model-value="sort" class="q-pa-sm" @update:model-value="setSort" />
-      </q-expansion-item>
-      <q-expansion-item dense icon="view_column" :label="t('dynamic.columns.title')" class="q-mb-sm">
-        <ColumnChooser :schema="schema" :model-value="effectiveColumns" @update:model-value="(v) => (columnIds = v)" />
-      </q-expansion-item>
       <q-table
         flat bordered row-key="id" :rows="pageData?.items ?? []" :columns="columns" :grid="$q.screen.lt.sm"
         :loading="recordsQuery.isFetching.value" :pagination="pagination" :rows-per-page-options="[20]"
@@ -342,3 +347,17 @@ const openRecord = (row: DynamicRecord) => router.push(`/dynamic/${moduleKey.val
     </template>
   </q-page>
 </template>
+
+<style scoped>
+.list-toolbar { gap: 8px; }
+.list-toolbar__keyword { min-width: 14rem; }
+.list-toolbar__actions { gap: 8px; }
+/* 手機（<600）：標題一列；檢視＋篩選／排序／欄位一列；關鍵字獨佔一列；其餘動作排在後面 */
+@media (max-width: 599.98px) {
+  .list-toolbar__title { flex: 0 0 100%; order: -1; }
+  .list-toolbar__view { flex: 1 1 0; }
+  .list-toolbar__keyword { flex: 0 0 100%; order: 1; }
+  .list-toolbar__space { display: none; }
+  .list-toolbar__actions { order: 2; }
+}
+</style>

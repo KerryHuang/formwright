@@ -47,6 +47,17 @@ export function pruneCondition(node?: ConditionNode): ConditionNode | undefined 
   return isComplete(node) ? node : undefined;
 }
 
+/** 填好的條件數（群組裡的葉節點）；沒填完的列不算。 */
+export function countConditions(node?: ConditionNode): number {
+  const count = (n: ConditionNode): number => {
+    if ('all' in n) return n.all.reduce((sum, c) => sum + count(c), 0);
+    if ('any' in n) return n.any.reduce((sum, c) => sum + count(c), 0);
+    return 1;
+  };
+  const pruned = pruneCondition(node);
+  return pruned ? count(pruned) : 0;
+}
+
 export function serializeFilter(node?: ConditionNode): string | undefined {
   const pruned = pruneCondition(node);
   return pruned ? JSON.stringify(pruned) : undefined;

@@ -8,6 +8,7 @@ import { useMe } from 'src/application/dynamic/queries/permissions-queries';
 import { useEntities } from 'src/application/dynamic/queries/relation-queries';
 import { useImportTemplate } from 'src/application/dynamic/queries/templates-queries';
 import { compactI18n, resolveI18n } from 'src/domain/dynamic/i18n-text';
+import { duplicateModuleName } from 'src/domain/dynamic/module-name';
 import type { I18nText } from 'src/domain/dynamic/types';
 import { errorFor, notifyApiError } from 'src/presentation/dynamic/designer/api-error';
 import I18nTextInput from 'src/presentation/dynamic/designer/I18nTextInput.vue';
@@ -97,6 +98,13 @@ const create = useDesignerMutation(
   () => form.value.key,
 );
 
+function warnDuplicateName(name: string) {
+  $q.notify({
+    type: 'warning', message: t('designer.duplicateName', { name }), timeout: 10000, multiLine: true,
+    attrs: { 'data-testid': 'module-name-duplicate-hint' },
+  });
+}
+
 function openDialog() {
   form.value = emptyForm();
   error.value = null;
@@ -108,8 +116,14 @@ async function submit() {
   error.value = null;
   hostError.value = form.value.kind === 'extension' && !form.value.hostEntityKey;
   if (hostError.value) return;
+  // 撞名只提醒、不擋存檔：用送出前的模組清單比對（建立成功後清單會重抓，新模組自己也在裡面）
+  const duplicate = duplicateModuleName(modules.data.value ?? [], form.value.name, locale.value);
   create.mutate(undefined, {
-    onSuccess: () => { dialog.value = false; router.push(`/system/dynamic-modules/${form.value.key}`); },
+    onSuccess: () => {
+      dialog.value = false;
+      if (duplicate) warnDuplicateName(duplicate);
+      router.push(`/system/dynamic-modules/${form.value.key}`);
+    },
     onError: (e) => { error.value = e as unknown as ApiError; notifyFail(e, ['Key', 'Name', 'HostEntityKey', 'Section']); },
   });
 }
