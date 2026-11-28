@@ -1,4 +1,4 @@
-import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
+import { onlineManager, QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import * as quasar from 'quasar';
@@ -20,9 +20,9 @@ const mod = (key: string, name = `name-${key}`, appName?: string) =>
 const record = (moduleKey: string, id: number, title = `title-${id}`) => ({ id, moduleKey, title });
 
 vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
-afterEach(() => localStorage.clear());
+afterEach(() => { localStorage.clear(); onlineManager.setOnline(true); });
 
-async function run(opts: { me?: ReturnType<typeof me>; menu?: unknown[]; recent?: { moduleKey: string; recordId: number }[]; gate?: Promise<void>; menuStatus?: number; approvals?: number; approvalStatus?: number; records?: Record<number, unknown>; recordStatus?: Record<number, number>; summary?: unknown; summaryStatus?: number; dashboards?: { id: number; name: unknown }[] } = {}) {
+async function run(opts: { me?: ReturnType<typeof me>; menu?: unknown[]; recent?: { moduleKey: string; recordId: number }[]; gate?: Promise<void>; menuStatus?: number; approvals?: number; approvalStatus?: number; records?: Record<number, unknown>; recordStatus?: Record<number, number>; summary?: unknown; summaryStatus?: number; dashboards?: { id: number; name: unknown }[]; recordGate?: Promise<void>; queryClient?: QueryClient } = {}) {
   setActivePinia(createPinia());
   useIdentityStore().setSession('u');
   if (opts.recent) localStorage.setItem('formwright:recent-records:u', JSON.stringify(opts.recent));
@@ -48,6 +48,7 @@ async function run(opts: { me?: ReturnType<typeof me>; menu?: unknown[]; recent?
     const rec = /^\/records\/(\d+)$/.exec(config.url ?? '');
     if (rec) {
       const id = Number(rec[1]);
+      if (opts.recordGate) await opts.recordGate;
       if (opts.recordStatus?.[id]) return reject(opts.recordStatus[id]!);
       return { data: opts.records?.[id], status: 200, statusText: 'OK', headers: {}, config };
     }
@@ -71,7 +72,7 @@ async function run(opts: { me?: ReturnType<typeof me>; menu?: unknown[]; recent?
   await router.push('/');
   const i18n = createI18n({ legacy: false, locale: 'zh-TW', messages: { 'zh-TW': zhTW } });
   const w = mount({ render: () => h(quasar.QLayout, null, () => h(quasar.QPageContainer, null, () => h(RouterView))) }, {
-    global: { plugins: [[quasar.Quasar, { components: quasar }], router, i18n, [VueQueryPlugin, { queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]] },
+    global: { plugins: [[quasar.Quasar, { components: quasar }], router, i18n, [VueQueryPlugin, { queryClient: opts.queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false } } }) }]] },
   });
   await flushPromises();
   return { router, w };
@@ -152,6 +153,47 @@ describe('HomePage', () => {
     });
     expect(items(w).map((i) => i.attributes('href'))).toEqual(['/dynamic/a/2']);
     expect(w.find('.q-notification').exists()).toBe(false);
+  });
+
+  it.each([[404], [403]])('快取裡有舊資料也不先顯示：重新驗權中不顯示，回 %s 後照樣不顯示（#141）', async (status) => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // 詳情頁留下的快取，與上一次首頁自己的快取
+    queryClient.setQueryData(['record', 1], record('a', 1, '舊標題'));
+    queryClient.setQueryData(['recent-record', 'a', 1], record('a', 1, '舊標題'));
+    let release!: () => void;
+    const recordGate = new Promise<void>((r) => { release = r; });
+    const { w } = await run({ queryClient, recordGate, menu: [mod('a')], recent: [{ moduleKey: 'a', recordId: 1 }], recordStatus: { 1: status } });
+    expect(w.find('[data-testid="home-recent"]').exists()).toBe(false);
+    expect(w.text()).not.toContain('舊標題');
+    release();
+    await flushPromises();
+    expect(w.find('[data-testid="home-recent"]').exists()).toBe(false);
+    expect(w.text()).not.toContain('舊標題');
+  });
+
+  it('重新取回成功後才顯示，而且是新的標題（#141）', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(['record', 1], record('a', 1, '舊標題'));
+    let release!: () => void;
+    const recordGate = new Promise<void>((r) => { release = r; });
+    const { w } = await run({ queryClient, recordGate, menu: [mod('a')], recent: [{ moduleKey: 'a', recordId: 1 }], records: { 1: record('a', 1, '新標題') } });
+    expect(items(w)).toHaveLength(0);
+    release();
+    await flushPromises();
+    expect(items(w)[0]!.text()).toContain('新標題');
+    expect(w.text()).not.toContain('舊標題');
+  });
+
+  it('離線時回到首頁，查詢暫停，不拿上一次的結果出來顯示（#141）', async () => {
+    const { router, w } = await run({ menu: [mod('a')], recent: [{ moduleKey: 'a', recordId: 1 }], records: { 1: record('a', 1) } });
+    expect(items(w)).toHaveLength(1);
+    await router.push('/reports');
+    await flushPromises();
+    onlineManager.setOnline(false);
+    await router.push('/');
+    await flushPromises();
+    expect(w.find('[data-testid="home-welcome"]').exists()).toBe(true);
+    expect(w.find('[data-testid="home-recent"]').exists()).toBe(false);
   });
 
   it('hides the recent section when nothing was opened, everything is skipped, or storage is unavailable', async () => {
