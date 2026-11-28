@@ -6,8 +6,10 @@ public interface IReportRepository
 {
     /// <summary>追蹤中的報表（含 Shares），供修改或刪除。</summary>
     Task<Report?> GetAsync(long id, CancellationToken ct);
-    /// <summary>該使用者擁有，或分享給 groupIds 任一群組的報表（含 Shares，依 Id、不追蹤）。</summary>
+    /// <summary>內建報表（人人看得到）、該使用者擁有，或分享給 groupIds 任一群組的報表（含 Shares，依 Id、不追蹤）。</summary>
     Task<List<Report>> ListVisibleAsync(string userId, IReadOnlyCollection<long> groupIds, CancellationToken ct);
+    /// <summary>內建報表（BuiltInCode 有值，依 Id、不追蹤）；Demo 卡片依代碼引用用。</summary>
+    Task<List<Report>> ListBuiltInAsync(CancellationToken ct);
     /// <summary>所有至少分享給一個群組的報表（含 Shares，依 Id、不追蹤），系統管理員用。</summary>
     Task<List<Report>> ListSharedAsync(CancellationToken ct);
     /// <summary>是否已有同名報表（不分擁有者），Demo 產生前的衝突檢查用。</summary>

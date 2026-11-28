@@ -5,7 +5,7 @@ namespace DynamicModules.Application.Dynamic.DemoService;
 
 /// <summary>
 /// Demo 的預設指派版儀表板：登入後首頁就有內容。卡片全部引用 <see cref="DemoReports"/> 的示範報表（真實查詢結果），不寫死任何數字。
-/// 業務儀表板給業務主管與業務（同一張，業務只看到自己的訂單所以數字不同）；設備儀表板給保養與現場人員
+/// 業務儀表板給業務主管與業務（同一張，業務只看到自己的訂單所以數字不同），底部放內建報表「各負責人負載」；設備儀表板給保養與現場人員
 /// （保養費用卡片現場人員沒有金額權限，顯示無權限，其他卡片正常）；品質儀表板給品保，生產儀表板給生管與現場，進銷存儀表板給進銷存三個群組。MIS（admin）全部都看得到。
 /// 名稱與卡片標題四語（th、vi 為機器翻譯，待母語者校對）；繁中名稱是衝突檢查的依據（<see cref="DemoPreflight"/>）；順序就是 Sequence。
 /// </summary>
@@ -17,7 +17,10 @@ public static class DemoDashboards
 
     /// <param name="ReportName">引用的報表繁中名稱（<see cref="DemoReports.Spec.Name"/> 或套件報表的名稱）；是引用鍵，不顯示。</param>
     /// <param name="Title">多語卡片標題；null 時顯示報表名稱。</param>
-    public sealed record CardSpec(string ReportName, string Viz, int X, int Y, int W, int H, CardOptions Options, I18nText? Title = null);
+    /// <param name="BuiltInCode">引用內建報表（<see cref="ReportService.BuiltInReports"/> 的代碼）時給它，ReportName 留空；內建報表由啟動同步建立，不是 Demo 產生的。</param>
+    public sealed record CardSpec(string ReportName, string Viz, int X, int Y, int W, int H, CardOptions Options, I18nText? Title = null, string? BuiltInCode = null);
+
+    private static CardSpec BuiltIn(string code, string viz, int x, int y, int w, int h) => new("", viz, x, y, w, h, Plain, null, code);
 
     /// <param name="GroupKeys">指派對象的群組代號（PermissionGroup.Key）；第一個是主要對象。</param>
     public sealed record Spec(I18nText Name, string[] GroupKeys, CardSpec[] Cards);
@@ -38,6 +41,8 @@ public static class DemoDashboards
                 CardOptions.None with { TopN = 5, Cumulative = true }, DemoText.Of("前 5 大客戶（累計占比）", "Top 5 customers (cumulative share)", "ลูกค้า 5 อันดับแรก (สัดส่วนสะสม)", "5 khách hàng hàng đầu (tỷ lệ lũy kế)")),
             new("近 90 天各客戶訂單金額", "table", 0, 6, 4, 4,
                 CardOptions.None with { TopN = 5, SortKey = "amount", SortDesc = true }, DemoText.Of("金額前 5 大客戶", "Top 5 customers by amount", "ลูกค้า 5 อันดับแรกตามยอดเงิน", "5 khách hàng hàng đầu theo giá trị")),
+            // 內建任務報表（kr3 Q4）：業務主管看到整個部門、業務只看到自己，同一張卡片不同數字
+            BuiltIn(ReportService.BuiltInReports.Workload, "bar", 0, 10, 12, 4),
         ]),
         new(DemoText.Of(Equipment, "Equipment & maintenance dashboard", "แดชบอร์ดอุปกรณ์และการบำรุงรักษา", "Bảng điều khiển thiết bị và bảo trì"), ["maint", "floor", "mis"],
         [

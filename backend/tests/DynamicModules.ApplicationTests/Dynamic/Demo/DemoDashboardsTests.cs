@@ -3,6 +3,7 @@ using DynamicModules.Application.Dynamic.DashboardService.Queries.RunCard;
 using DynamicModules.Application.Dynamic.DemoService;
 using DynamicModules.Application.Dynamic.ReportService;
 using DynamicModules.Application.Dynamic.ReportService.Data;
+using DynamicModules.Application.Dynamic.ReportService.Queries.RunReport;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.Policies;
 using DynamicModules.Domain.Reports;
@@ -100,6 +101,44 @@ public class DemoDashboardsTests(DemoGeneratedFixture fx)
         manager.State.Should().Be("ok");
         one.State.Should().Be("ok");
         one.Total!.Values.First().Should().BeLessThan(manager.Total!.Values.First()!.Value);
+    }
+
+    /// <summary>kr3 Q4：業務儀表板底部放內建報表「各負責人負載」；業務主管看到整個部門，業務一只看到自己。</summary>
+    [Fact]
+    public async Task SalesDashboard_BuiltInWorkloadCard_ManagerSeesMoreThanSalesOne()
+    {
+        fx.Generated();
+        var workload = await fx.Host.Db.Context.Set<Report>().AsNoTracking().SingleAsync(r => r.BuiltInCode == BuiltInReports.Workload);
+        var sales = (await Stored()).Single(d => d.NameI18n.Resolve("zh-TW") == DemoDashboards.Sales);
+        var cards = DashboardLayout.Parse(sales.LayoutJson).Cards;
+        var card = cards.Should().ContainSingle(c => c.ReportId == workload.Id).Subject;
+        card.Y.Should().Be(cards.Max(c => c.Y), "放在最底部");
+
+        var manager = await Run("manager01", sales.Id, card.Id);
+        var one = await Run("sales01", sales.Id, card.Id);
+
+        manager.State.Should().Be("ok", manager.Message);
+        one.State.Should().Be("ok", one.Message);
+        one.Total!["total"].Should().BeLessThan(manager.Total!["total"]!.Value);
+        manager.Groups!.Should().HaveCountGreaterThan(1, "部門裡不只一位負責人");
+    }
+
+    /// <summary>kr3 Q5：補了歷史任務後，五份內建報表在 Demo 都有內容（業務主管看）。</summary>
+    [Fact]
+    public async Task BuiltInReports_AllHaveContent_ForSalesManager()
+    {
+        fx.Generated();
+        var builtIns = await fx.Host.Db.Context.Set<Report>().AsNoTracking().Where(r => r.BuiltInCode != null).ToListAsync();
+        builtIns.Should().HaveCount(BuiltInReports.All.Count);
+        foreach (var report in builtIns)
+        {
+            var result = (ReportResult)(await fx.As("manager01", new RunReportRequest(report.Id, null, "zh-TW"))).Data!;
+            result.State.Should().Be("ok", $"{report.BuiltInCode}：{result.Message}");
+            result.Groups!.Should().NotBeEmpty(report.BuiltInCode);
+        }
+        var trend = builtIns.Single(r => r.BuiltInCode == BuiltInReports.Trend);
+        var weeks = ((ReportResult)(await fx.As("manager01", new RunReportRequest(trend.Id, null, "zh-TW"))).Data!).Groups!;
+        weeks.Should().HaveCountGreaterThanOrEqualTo(10, "近 12 週大多有資料");
     }
 
     [Fact]

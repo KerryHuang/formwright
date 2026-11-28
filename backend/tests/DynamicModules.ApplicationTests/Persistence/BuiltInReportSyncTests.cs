@@ -1,6 +1,7 @@
 using DynamicModules.Application.Dynamic.ReportService;
 using DynamicModules.Domain.Entities.Dynamic;
 using DynamicModules.Domain.Reports;
+using DynamicModules.Persistence.Repositories.Dynamic;
 using DynamicModules.Persistence.Seed;
 using DynamicModules.TestSupport;
 using FluentAssertions;
@@ -43,6 +44,8 @@ public class BuiltInReportSyncTests
 
         await BuiltInReportSync.RunAsync(db.Context, T0.AddHours(1));
         (await RowsAsync(db)).Select(r => (r.Id, r.RowVersion, r.ModifiedTime)).Should().Equal(first.Select(r => (r.Id, r.RowVersion, r.ModifiedTime)), "不變不寫");
+        var listed = await new ReportRepository(db.Context).ListBuiltInAsync(CancellationToken.None);
+        listed.Select(r => r.Id).Should().Equal(first.Select(r => r.Id), "Demo 依代碼找內建報表（kr3 Q4）");
     }
 
     [Fact]

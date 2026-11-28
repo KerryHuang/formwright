@@ -27,8 +27,9 @@ public class DemoReportsTests(DemoGeneratedFixture fx)
         ["sales-manager"] = "manager01", ["maint"] = "maint01", ["qa"] = "qa01"
     };
 
+    /// <summary>Demo 產生的報表（不含啟動同步寫入的內建報表，kr3）。</summary>
     private async Task<List<Report>> StoredReports() =>
-        await fx.Host.Db.Context.Set<Report>().AsNoTracking().Include(r => r.Shares).OrderBy(r => r.Id).ToListAsync();
+        await fx.Host.Db.Context.Set<Report>().AsNoTracking().Include(r => r.Shares).Where(r => r.BuiltInCode == null).OrderBy(r => r.Id).ToListAsync();
 
     [Fact]
     public async Task Generate_CreatesReportsForEachScenario_AllStateOk()
@@ -158,10 +159,11 @@ public class DemoReportsTests(DemoGeneratedFixture fx)
     }
 
     [Fact]
-    public async Task FreshInstall_NoReports()
+    public async Task FreshInstall_NoUserReports_OnlyBuiltIns()
     {
         await using var host = await DemoTestHost.CreateAsync();
-        (await host.Db.Context.Set<Report>().CountAsync()).Should().Be(0);
+        (await host.Db.Context.Set<Report>().CountAsync(r => r.BuiltInCode == null)).Should().Be(0);
+        (await host.Db.Context.Set<Report>().Select(r => r.BuiltInCode).ToListAsync()).Should().BeEquivalentTo(BuiltInReports.All.Select(b => b.Code));
     }
 
     [Fact]
