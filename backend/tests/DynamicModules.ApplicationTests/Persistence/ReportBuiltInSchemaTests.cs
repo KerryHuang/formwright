@@ -12,6 +12,11 @@ namespace DynamicModules.ApplicationTests.Persistence;
 [Trait("Category", "Postgres")]
 public class ReportBuiltInSchemaTests
 {
+    /// <summary>外鍵違反：PostgreSQL 是 SqlState 23503，SQLite 是 extended code 787（SQLITE_CONSTRAINT_FOREIGNKEY）。</summary>
+    private static bool IsForeignKeyViolation(System.Data.Common.DbException e) => TestDatabase.IsPostgres
+        ? e.SqlState == "23503"
+        : e is Microsoft.Data.Sqlite.SqliteException { SqliteExtendedErrorCode: 787 };
+
     private static Report Row(string? owner, string? code) => new()
     {
         OwnerUserId = owner, BuiltInCode = code, NameI18n = new I18nText([KeyValuePair.Create("zh-TW", "負載")]),
@@ -73,7 +78,7 @@ public class ReportBuiltInSchemaTests
         // 重建資料表後外鍵仍有效（kr3 審查 Y3）：不存在的報表不能有分享；刪一般報表連帶清掉分享
         await FluentActions.Awaiting(() => db.Context.Database.ExecuteSqlRawAsync(
                 "INSERT INTO \"Dynamic_ReportShare\" (\"ReportId\", \"GroupId\") VALUES ({0}, 8)", id + 1000))
-            .Should().ThrowAsync<System.Data.Common.DbException>("分享的 ReportId 外鍵仍在");
+            .Should().ThrowAsync<System.Data.Common.DbException>().Where(e => IsForeignKeyViolation(e), "分享的 ReportId 外鍵仍在（只認外鍵違反，kr3 複審 Y5）");
         await db.Context.Database.ExecuteSqlRawAsync("DELETE FROM \"Dynamic_Report\" WHERE \"Id\" = {0}", id);
         (await db.Context.Set<ReportShare>().CountAsync()).Should().Be(0, "刪報表連帶刪分享（cascade）");
     }
