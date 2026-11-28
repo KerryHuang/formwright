@@ -88,7 +88,7 @@ public class InventoryPoApprovalScenarioTests(DemoGeneratedFixture fx)
         var export = (AppExportResult)result.Data!;
         export.Warnings.Should().NotContain(w => w.Contains("採購單（流程圖範例）"));
         using var package = System.Text.Json.JsonDocument.Parse(export.File.Content);
-        package.RootElement.GetProperty("formatVersion").GetInt32().Should().Be(10);
+        package.RootElement.GetProperty("formatVersion").GetInt32().Should().Be(11);
         var example = package.RootElement.GetProperty("approvalFlows").EnumerateArray()
             .Single(f => f.GetProperty("code").GetString() == InventoryScenario.GraphExampleKey);
         example.GetProperty("active").GetBoolean().Should().BeFalse();
