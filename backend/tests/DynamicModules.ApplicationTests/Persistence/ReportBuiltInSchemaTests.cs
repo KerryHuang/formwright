@@ -50,7 +50,7 @@ public class ReportBuiltInSchemaTests
         await FluentActions.Awaiting(() => db.Context.SaveForTestsAsync()).Should().ThrowAsync<DbUpdateException>();
     }
 
-    /// <summary>SQLite 改可空會重建資料表：既有報表與它的分享要原樣保留。</summary>
+    /// <summary>SQLite 改可空會重建資料表：既有報表與它的分享要原樣保留，分享的外鍵與 cascade 仍有效。</summary>
     [Fact]
     public async Task ExistingReportsAndShares_SurviveMigration()
     {
@@ -69,5 +69,12 @@ public class ReportBuiltInSchemaTests
         report.Should().Match<Report>(r => r.Id == id && r.OwnerUserId == "sales01" && r.BuiltInCode == null && r.RowVersion == "v");
         report.NameI18n.Resolve("zh-TW").Should().Be("月報");
         report.Shares.Select(s => s.GroupId).Should().Equal(7);
+
+        // 重建資料表後外鍵仍有效（kr3 審查 Y3）：不存在的報表不能有分享；刪一般報表連帶清掉分享
+        await FluentActions.Awaiting(() => db.Context.Database.ExecuteSqlRawAsync(
+                "INSERT INTO \"Dynamic_ReportShare\" (\"ReportId\", \"GroupId\") VALUES ({0}, 8)", id + 1000))
+            .Should().ThrowAsync<System.Data.Common.DbException>("分享的 ReportId 外鍵仍在");
+        await db.Context.Database.ExecuteSqlRawAsync("DELETE FROM \"Dynamic_Report\" WHERE \"Id\" = {0}", id);
+        (await db.Context.Set<ReportShare>().CountAsync()).Should().Be(0, "刪報表連帶刪分享（cascade）");
     }
 }
