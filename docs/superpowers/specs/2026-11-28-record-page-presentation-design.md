@@ -1,5 +1,5 @@
 # 單據頁呈現：找不到頁、數字對齊、狀態章、唯讀欄位（ux1 #136）
-> 實作前檢查：✅ 2026-11-28（內容 49e52a4f）
+> 實作前檢查：✅ 2026-11-28（內容 f5afa449）
 
 來源：2026-11-27 全站 UI／UX 審查 P07、P12、P14；票 #136。受眾：一般（小企業老闆與行政）。
 
@@ -32,6 +32,7 @@ DetailPage 與 FormPage 原本的四行 `text-negative`（`ForbiddenNotice`、`m
 
 - `{module}` 是模組名（`moduleName`），只有 schema 讀得到時才有。
 - 無權限、載入失敗的返回鈕：schema 讀得到（模組名已知、`schema.permissions` 存在）→「回到{module}列表」；讀不到 →「回到首頁」。
+- 單據 404 而 schema 讀取失敗、模組名未知時：「找不到這筆資料」＋「回到首頁」（鍵 `dynamic.unavailable.fallbackModule`）。實作時補的邊界。
 - FormPage 的無權限另分兩種標題：新增時「沒有權限新增{module}」、編輯時「沒有權限編輯{module}」（`lacksPermission` 來自已讀到的 schema，所以模組名一定已知，返回列表）。
 - i18n 新鍵放 `dynamic.unavailable.*`，四語都要；舊鍵 `dynamic.recordNotFound`、`dynamic.moduleNotFound`、`dynamic.forbidden` 其他頁面還在用，**不刪不改**。
 
@@ -55,6 +56,8 @@ DetailPage 與 FormPage 原本的四行 `text-negative`（`ForbiddenNotice`、`m
   - 單據詳情的狀態欄值（`DynamicDetail.vue`）。
   - 單據詳情標題列，接在既有的簽核章旁邊（`RecordHeaderBar` 的 `#badge` slot），讓捲動後也看得到狀態。
 - `data-testid="status-chip"`；章本身是文字，不做成可點。
+- 手機寬度的標題列章跟著內容捲動（`#badge` slot 在手機本來就不在固定列裡，和簽核章相同）；桌機與平板固定。實作時裁決，不另改版面。
+- 「指令台」風格原本列表上依流程階段上色的 `status-dot`（起始灰、進行中黃、唯讀綠）由狀態章取代，避免兩個圓點；顏色改由選項設定決定，符合本票要求。實作時裁決。
 
 ## 4. 唯讀欄位（P14）
 
