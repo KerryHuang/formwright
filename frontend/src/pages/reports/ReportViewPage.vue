@@ -30,8 +30,9 @@ const forbidden = computed(() => isForbidden(report.error.value));
 const notFound = computed(() => (report.error.value as ApiError | null)?.status === 404);
 const detail = computed(() => report.data.value);
 const me = useMe();
-// 系統管理員可刪所有共用報表（spec §7）；編輯與分享仍限擁有者
-const canDelete = computed(() => !!detail.value && (detail.value.isOwner || !!me.data.value?.isSystemAdmin));
+// 系統管理員可刪所有共用報表（spec §7）；編輯與分享仍限擁有者；內建報表誰都不能刪（看板設計 §8.3）
+const canDelete = computed(() => !!detail.value && !detail.value.builtIn && (detail.value.isOwner || !!me.data.value?.isSystemAdmin));
+const ownerName = computed(() => (detail.value?.builtIn ? t('reports.builtIn.owner') : detail.value?.ownerName ?? ''));
 
 // 條件：被遮蔽的只知道有條件，看不到內容
 const filters = computed<ReportFilter[]>(() => [
@@ -113,7 +114,7 @@ function doDelete() {
       <div class="row items-center q-mb-md q-gutter-x-sm">
         <q-btn flat dense icon="arrow_back" to="/reports" :aria-label="t('reports.back')" />
         <div class="text-h6" data-testid="report-name">{{ resolveI18n(detail.name, locale) }}</div>
-        <span v-if="!detail.isOwner" class="text-caption text-muted" data-testid="report-owner">{{ t('reports.ownedBy', { name: detail.ownerName }) }}</span>
+        <span v-if="!detail.isOwner" class="text-caption text-muted" data-testid="report-owner">{{ t('reports.ownedBy', { name: ownerName }) }}</span>
         <q-space />
         <q-btn v-if="detail.isOwner" outline dense no-caps :label="t('reports.edit')" :to="`/reports/${detail.id}/edit`" data-testid="report-edit" />
         <q-btn v-if="detail.isOwner" outline dense no-caps :label="t('reports.share')" data-testid="report-share" @click="shareOpen = true" />
@@ -130,6 +131,10 @@ function doDelete() {
         </span>
         <q-btn v-if="canDelete" outline dense no-caps color="negative" :label="t('reports.delete')" data-testid="report-delete" @click="confirmDelete = true" />
       </div>
+      <div v-if="detail.builtIn && detail.description" class="text-body2 text-muted q-mb-sm" data-testid="report-description">
+        {{ resolveI18n(detail.description, locale) }}
+      </div>
+      <div v-if="detail.builtIn" class="text-caption text-muted q-mb-sm" data-testid="builtin-readonly-hint">{{ t('reports.builtIn.readonlyHint') }}</div>
       <div v-if="copyError" class="text-negative q-mb-sm" data-testid="copy-error">{{ copyError }}</div>
       <div v-if="exportError" class="text-negative q-mb-sm" data-testid="export-error">{{ exportError }}</div>
 

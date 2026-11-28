@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ModuleCatalog, ReportFieldRef } from 'src/domain/dynamic/report-types';
 import { findEntry, listFields, refKey, valueText } from '../report-catalog';
-import { addMeasure, CONDITION_KINDS, operatorsOf, removeGroup, removeMeasure, type DesignerState, type Unavailable } from './designer-state';
+import { resolveI18n } from 'src/domain/dynamic/i18n-text';
+import { addMeasure, clearStaleLabels, CONDITION_KINDS, measureConditionKeys, operatorsOf, removeGroup, removeMeasure, type DesignerState, type Unavailable } from './designer-state';
 import FilterRow from './FilterRow.vue';
 
 const props = defineProps<{ state: DesignerState; catalog: ModuleCatalog; unavailable: Unavailable }>();
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const s = props.state;
+// 量值名稱：條件改了就清掉（kr3 Q3）
+watch(() => measureConditionKeys(s), (_now, before) => clearStaleLabels(s, before));
 
 const entries = computed(() => listFields(props.catalog, s.child, t('reports.titleField')));
 const choice = (e: { ref: ReportFieldRef; label: string }) => ({ value: refKey(e.ref), label: e.label });
@@ -62,7 +65,8 @@ const measureText = (i: number) => {
   const cond = c
     ? `${fieldText(c.field)} ${t(`dynamic.op.${c.op}`, c.op)} ${valueText(c.value, findEntry(entries.value, c.field)?.field, t('reports.inactiveMark'), { yes: t('reports.designer.yes'), no: t('reports.designer.no') })}`.trim()
     : '';
-  return [t(`reports.designer.kind.${m.kind}`, m.kind), m.field ? fieldText(m.field) : '', cond].filter(Boolean).join(' ');
+  const auto = [t(`reports.designer.kind.${m.kind}`, m.kind), m.field ? fieldText(m.field) : '', cond].filter(Boolean).join(' ');
+  return m.label ? `${resolveI18n(m.label, locale.value)}（${auto}）` : auto;
 };
 </script>
 

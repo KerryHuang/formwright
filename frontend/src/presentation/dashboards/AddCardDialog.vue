@@ -37,7 +37,7 @@ async function pick(id: number) {
             <q-item-section avatar><q-radio :model-value="reportId" :val="r.id" dense @update:model-value="pick(r.id)" /></q-item-section>
             <q-item-section>
               <q-item-label>{{ resolveI18n(r.name, locale) }}</q-item-label>
-              <q-item-label caption>{{ r.isOwner ? t('reports.mine') : r.ownerName }}</q-item-label>
+              <q-item-label caption>{{ r.builtIn ? t('reports.builtIn.owner') : r.isOwner ? t('reports.mine') : r.ownerName }}</q-item-label>
             </q-item-section>
           </q-item>
         </q-list>

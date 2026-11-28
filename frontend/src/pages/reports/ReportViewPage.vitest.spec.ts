@@ -113,6 +113,27 @@ describe('ReportViewPage', () => {
     expect(q('report-share')).toBeNull();
   });
 
+  // kr3：內建報表不能改、刪、分享（系統管理員也一樣），只能另存；標題下顯示說明，擁有者顯示「系統」
+  it('built-in report: admin sees only save as copy, the description and the read-only hint', async () => {
+    await mountPage({
+      ...DETAIL(false), ownerName: '', builtIn: true, builtInCode: 'task-ontime',
+      description: { 'zh-TW': '分母是期間內完成、而且有到期日的任務。' },
+    }, true);
+    expect(q('report-delete')).toBeNull();
+    expect(q('report-edit')).toBeNull();
+    expect(q('report-share')).toBeNull();
+    expect(q('report-copy')).not.toBeNull();
+    expect(q('report-description')!.textContent).toContain('分母是期間內完成、而且有到期日的任務。');
+    expect(q('report-owner')!.textContent).toContain('系統');
+    expect(q('builtin-readonly-hint')!.textContent).toContain('內建報表不能修改');
+  });
+
+  it('a normal report shows no description and no read-only hint', async () => {
+    await mountPage(DETAIL(false));
+    expect(q('report-description')).toBeNull();
+    expect(q('builtin-readonly-hint')).toBeNull();
+  });
+
   it('copy 403 explains the same as 400', async () => {
     await mountPage(DETAIL(false));
     api.copyReport.mockRejectedValue({ status: 403 });

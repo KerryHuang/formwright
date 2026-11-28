@@ -60,6 +60,22 @@ export function toDefinition(s: DesignerState): ReportDefinition {
   };
 }
 
+/** 每個量值條件的快照（以量值 Id 為鍵），給 {@link clearStaleLabels} 比對用。 */
+export function measureConditionKeys(s: DesignerState): Record<string, string> {
+  return Object.fromEntries(s.measures.map((m) => [m.id, JSON.stringify(m.condition ?? null)]));
+}
+
+/**
+ * 量值名稱（kr3 Q3）只保留、不提供編輯：設計器裡量值的種類與欄位加了就不能改，只有條件能改；條件跟快照不同時名稱不再名符其實，
+ * 清掉退回自動欄名。快照裡沒有的量值（剛加的）不動。
+ */
+export function clearStaleLabels(s: DesignerState, before: Record<string, string>) {
+  for (const m of s.measures) {
+    const was = before[m.id];
+    if (m.label && was !== undefined && was !== JSON.stringify(m.condition ?? null)) delete m.label;
+  }
+}
+
 /** 運算子取自 shared/filter-operators.json；日期結果的公式與彙總用 `:date` 版本。 */
 export function operatorsOf(f: Pick<CatalogField, 'type' | 'isDate'>): FilterOperator[] {
   const table = sharedOperators as Record<string, FilterOperator[]>;

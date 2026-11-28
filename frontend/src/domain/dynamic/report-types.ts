@@ -52,12 +52,18 @@ export interface ReportItem {
   isOwner: boolean;
   sharedGroupIds: number[];
   mainModuleKey: string;
+  /** 內建報表（看板設計 §8.3、kr3）：人人看得到，不能改、刪、分享，可另存；ownerName 是空字串，畫面顯示「系統」。 */
+  builtIn?: boolean;
+  builtInCode?: string | null;
+  /** 內建報表的四語說明（後端目錄提供）；一般報表為 null。 */
+  description?: I18nText | null;
 }
 
 export interface ReportFieldRef { source: string; fieldId: number; viaFieldId?: number | null }
 /** hidden 為 true 時觀看者看不到條件值（後端遮蔽），沒有 value。 */
 export interface ReportFilter { field: ReportFieldRef; op: string; value?: unknown; hidden?: boolean }
-export interface ReportMeasure { id: string; kind: string; field?: ReportFieldRef | null; condition?: ReportFilter | null }
+/** label 是量值的自訂名稱（kr3）：內建報表帶、另存照抄；設計器只保留不提供編輯，條件改了就清掉（Q3）。 */
+export interface ReportMeasure { id: string; kind: string; field?: ReportFieldRef | null; condition?: ReportFilter | null; label?: I18nText }
 export interface ReportChild { moduleKey: string; linkFieldId: number }
 export interface ReportSort { key: string; desc: boolean }
 export interface ReportDefinition {
