@@ -294,6 +294,20 @@ describe('AppsPage', () => {
     expect(q('app-upgrade')).toBeNull();
   });
 
+  // 按鈕層級（積木包用詞設計 §3）：開啟／重新開啟是主要實心，刪除是紅框，檢視更新是主色文字鈕，關閉是一般文字色外框（不能像停用）
+  it('button hierarchy: review update is a flat primary button, close is an outline in the normal text color', async () => {
+    const upgrade = { toVersion: '1.3.0', masters: [] };
+    await mountPage([pkg('b', 'Open', { upgrade }), pkg('c', 'Closed'), pkg('a', null)], [app('b', 'Open'), app('c', 'Closed')]);
+    const classes = (id: string) => [...q(id)!.classList];
+    expect(classes('app-upgrade')).toEqual(expect.arrayContaining(['q-btn--flat', 'text-primary']));
+    expect(classes('app-upgrade')).not.toContain('q-btn--outline');
+    expect(classes('app-close')).toEqual(expect.arrayContaining(['q-btn--outline', 'text-default']));
+    expect(classes('app-close')).not.toContain('disabled');
+    expect(classes('app-open')).toEqual(expect.arrayContaining(['q-btn--standard', 'bg-primary']));
+    expect(classes('app-reopen')).toEqual(expect.arrayContaining(['q-btn--standard', 'bg-primary']));
+    expect(classes('app-delete')).toEqual(expect.arrayContaining(['q-btn--outline', 'text-negative']));
+  });
+
   it('delete button only on closed rows for system admins', async () => {
     const rows = [pkg('a', null), pkg('b', 'Open'), pkg('c', 'Closed')];
     const apps = [app('b', 'Open'), app('c', 'Closed')];

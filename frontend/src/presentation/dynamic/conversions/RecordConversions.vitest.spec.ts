@@ -15,7 +15,7 @@ const api = vi.mocked(dynamicApi);
 
 const blocked: RecordConversion = {
   key: 'q2o', name: { 'zh-TW': '報價轉訂單' }, targetModuleKey: 'order', targetName: { 'zh-TW': '訂單' },
-  allowed: false, reason: '應用程式已關閉，資料唯讀', targets: [{ id: 9, title: 'SO-1', moduleKey: 'order' }], lines: [],
+  allowed: false, reason: '積木包已關閉，資料唯讀', targets: [{ id: 9, title: 'SO-1', moduleKey: 'order' }], lines: [],
 };
 
 async function mountList(closed: boolean) {
@@ -35,7 +35,7 @@ describe('RecordConversions', () => {
 
   it('shows why a conversion is unavailable', async () => {
     const w = await mountList(false);
-    expect(w.find('[data-testid="convert-reason-q2o"]').text()).toContain('應用程式已關閉');
+    expect(w.find('[data-testid="convert-reason-q2o"]').text()).toContain('積木包已關閉');
   });
 
   it('does not repeat the closed-app reason the page banner already shows, but keeps the converted documents', async () => {

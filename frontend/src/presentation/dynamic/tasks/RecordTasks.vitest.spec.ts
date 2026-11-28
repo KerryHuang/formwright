@@ -25,7 +25,7 @@ async function mountBlock(props: { closed: boolean }, items: unknown[], canAdd =
     if (c.url === '/records/9/tasks' && c.method === 'post') return taskWire({ id: 50 });
     if (c.url === '/records/9/task-rules/k/apply') return applyFails ? new HttpFail(409, { message: '條件不符' }) : { items: [], canAdd, manualRules };
     if (c.method === 'patch' && patchHandler) return patchHandler(c);
-    if (c.method === 'patch') return patchFails ? new HttpFail(409, { message: '應用程式已關閉' }) : taskWire({ status: 'done' });
+    if (c.method === 'patch') return patchFails ? new HttpFail(409, { message: '積木包已關閉' }) : taskWire({ status: 'done' });
     return [];
   });
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:p(.*)*', component: { render: () => null } }] });
@@ -126,7 +126,7 @@ describe('RecordTasks', () => {
     const notify = vi.spyOn(w.vm.$q, 'notify');
     await w.get('[data-testid="task-check-5"]').trigger('click');
     await flushPromises();
-    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ type: 'negative', message: '應用程式已關閉' }));
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ type: 'negative', message: '積木包已關閉' }));
     w.unmount();
   });
 

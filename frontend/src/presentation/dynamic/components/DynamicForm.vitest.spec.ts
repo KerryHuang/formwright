@@ -110,7 +110,7 @@ describe('DynamicForm', () => {
     it('shows the field read-only with the closed app named in its block', async () => {
       const w = mountForm({ schema: s, mode: 'edit', record });
       await flushPromises();
-      expect(w.find('[data-testid="app-closed-lock"]').text()).toContain('「客戶關係」應用程式已關閉');
+      expect(w.find('[data-testid="app-closed-lock"]').text()).toContain('「客戶關係」積木包已關閉');
       const dyn = w.findAllComponents({ name: 'DynamicField' }).find((c) => (c.props('field') as SchemaField).id === 3)!;
       expect(dyn.props('readonly')).toBe(true);
     });

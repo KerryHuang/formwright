@@ -359,12 +359,12 @@ describe('TaskDialog', () => {
   it('撤回留言失敗時跳出錯誤提示', async () => {
     const w = await mountDialog({
       comments: [commentWire({ id: 8, canWithdraw: true })],
-      withdrawFail: new HttpFail(409, { message: '應用程式已關閉' }),
+      withdrawFail: new HttpFail(409, { message: '積木包已關閉' }),
     });
     const notify = vi.spyOn(w.vm.$q, 'notify');
     body().querySelector<HTMLElement>('[data-testid="comment-withdraw-8"]')!.click();
     await flushPromises();
-    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ type: 'negative', message: '應用程式已關閉' }));
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ type: 'negative', message: '積木包已關閉' }));
     w.unmount();
   });
 

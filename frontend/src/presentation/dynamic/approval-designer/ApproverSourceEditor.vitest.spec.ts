@@ -177,14 +177,14 @@ describe('ApproverSourceEditor', () => {
 
     it('shows the unmatched notice with group names', async () => {
       const w = await mountEditor(skipped);
-      expect(w.find('[data-testid="source-unmatched-groups"]').text()).toBe('開啟套件時略過的群組：採購組、財務組。執行時由備援簽核人頂替，會簽仍要湊滿這些席位。');
+      expect(w.find('[data-testid="source-unmatched-groups"]').text()).toBe('開啟積木包時略過的群組：採購組、財務組。執行時由備援簽核人頂替，會簽仍要湊滿這些席位。');
       expect(w.find('[data-testid="source-unmatched-candidates"]').exists()).toBe(false);
       w.unmount();
     });
 
     it('shows the candidates notice', async () => {
       const w = await mountEditor({ source: 'userField', fieldId: 9, candidateGroupIds: [], candidatesUnmatched: true });
-      expect(w.find('[data-testid="source-unmatched-candidates"]').text()).toBe('開啟套件時略過了候選群組，這個來源執行時一律由備援簽核人頂替。');
+      expect(w.find('[data-testid="source-unmatched-candidates"]').text()).toBe('開啟積木包時略過了候選群組，這個來源執行時一律由備援簽核人頂替。');
       expect(w.find('[data-testid="source-unmatched-groups"]').exists()).toBe(false);
       w.unmount();
     });
@@ -199,7 +199,7 @@ describe('ApproverSourceEditor', () => {
 
     it('remove asks for confirmation and clears both flags', async () => {
       const w = await mountEditor({ ...skipped, candidatesUnmatched: true });
-      expect(w.find('[data-testid="source-unmatched-remove"]').attributes('aria-label')).toBe('移除開啟套件時略過的群組');
+      expect(w.find('[data-testid="source-unmatched-remove"]').attributes('aria-label')).toBe('移除開啟積木包時略過的群組');
       await w.find('[data-testid="source-unmatched-remove"]').trigger('click');
       await flushPromises();
       expect(w.emitted('update:modelValue')).toBeUndefined();

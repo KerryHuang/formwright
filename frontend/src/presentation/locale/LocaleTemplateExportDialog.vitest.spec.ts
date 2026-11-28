@@ -311,15 +311,15 @@ describe('LocaleTemplateExportDialog 設計資料與格式（i4e）', () => {
     expect(q('export-scope-design')).toBeNull();
   });
 
-  it('勾設計資料：取範圍、選應用程式與模組、Excel 格式，參數一起送出', async () => {
+  it('勾設計資料：取範圍、選積木包與模組、Excel 格式，參數一起送出', async () => {
     const w = await mountDialog(LOCALES[2]!);
     q('export-scope-design')!.click();
     await tick();
     expect(scopeCalls()).toHaveLength(1);
-    // 下拉順序：原文語系、參考語系、應用程式、模組
+    // 下拉順序：原文語系、參考語系、積木包、模組
     const selects = () => w.findAllComponents(quasar.QSelect);
     const appOptions = selects()[2]!.props('options') as { value: string; label: string }[];
-    expect(appOptions.map((o) => o.label)).toEqual(['全部', '客戶關係', '不屬於應用程式的']);
+    expect(appOptions.map((o) => o.label)).toEqual(['全部', '客戶關係', '不屬於積木包的']);
     selects()[2]!.vm.$emit('update:modelValue', 'crm');
     await tick();
     expect((selects()[3]!.props('options') as { label: string }[]).map((o) => o.label)).toEqual(['全部模組', '訂單']);
@@ -330,7 +330,7 @@ describe('LocaleTemplateExportDialog 設計資料與格式（i4e）', () => {
     expect(templateCalls()[0]!.params).toMatchObject({ scopes: ['ui', 'server', 'designData'], designApp: 'crm', designModule: '3', format: 'xlsx' });
   });
 
-  it('換應用程式時清掉已選的模組；「不屬於應用程式的」只列沒綁定的模組', async () => {
+  it('換積木包時清掉已選的模組；「不屬於積木包的」只列沒綁定的模組', async () => {
     const w = await mountDialog(LOCALES[2]!);
     q('export-scope-design')!.click();
     await tick();

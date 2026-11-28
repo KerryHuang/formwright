@@ -169,7 +169,7 @@ describe('ApprovalCenterPage', () => {
 
   it('closed module row shows the closed badge', async () => {
     const { w } = await mountPage('/approvals', { items: [item({ moduleClosed: true })] });
-    expect(q('approval-closed-5')!.textContent).toContain('應用程式已關閉');
+    expect(q('approval-closed-5')!.textContent).toContain('積木包已關閉');
     w.unmount();
   });
 

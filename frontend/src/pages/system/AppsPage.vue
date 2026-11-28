@@ -176,10 +176,10 @@ const reopen = (key: string) => reopenApp.mutate(key, {
                 {{ t(`apps.status.${p.status ?? 'none'}`) }}
               </q-badge>
               <q-btn v-if="canWrite && !p.status" color="primary" dense no-caps :label="t('apps.open')" data-testid="app-open" @click="startOpen(p)" />
-              <q-btn v-if="canWrite && p.status === 'Open' && appByKey.get(p.id)" outline dense no-caps :label="t('apps.close')" data-testid="app-close" @click="closing = appByKey.get(p.id)!" />
+              <q-btn v-if="canWrite && p.status === 'Open' && appByKey.get(p.id)" outline dense no-caps class="text-default" :label="t('apps.close')" data-testid="app-close" @click="closing = appByKey.get(p.id)!" />
               <q-btn v-if="canWrite && p.status === 'Closed'" color="primary" dense no-caps :label="t('apps.reopen')" data-testid="app-reopen" @click="reopen(p.id)" />
               <q-btn v-if="canDeleteApp && p.status === 'Closed' && appByKey.get(p.id)" outline color="negative" dense no-caps :label="t('apps.delete.button')" data-testid="app-delete" @click="deleting = appByKey.get(p.id)!" />
-              <q-btn v-if="canUpgrade && p.status === 'Open' && p.upgrade" outline color="primary" dense no-caps :label="t('apps.upgrade.open')"
+              <q-btn v-if="canUpgrade && p.status === 'Open' && p.upgrade" flat color="primary" dense no-caps :label="t('apps.upgrade.open')"
                 :to="`/system/apps/${encodeURIComponent(p.id)}/upgrade`" data-testid="app-upgrade" />
             </div>
           </q-item-section>

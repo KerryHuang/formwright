@@ -101,6 +101,11 @@
   color: var(--t-muted) !important;
 }
 
+/* 一般文字色：Quasar 側欄區塊（q-item__section--side）把字染灰，次要但可按的按鈕要拉回來，才不像停用 */
+.text-default {
+  color: var(--t-text) !important;
+}
+
 /* Quasar 元件內部自己帶的灰字（例如表格分頁按鈕的 text-grey-8），深色下對比不足。
    狀態章除外：那裡的色名是選項設定的顏色（只畫圓點、邊框與淡色底，不當字色），要保留各自的色盤值 */
 .text-grey:not(.status-chip),

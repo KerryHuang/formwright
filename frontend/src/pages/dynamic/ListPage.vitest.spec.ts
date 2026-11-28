@@ -314,6 +314,7 @@ describe('ListPage', () => {
     schemaPatch = { readOnly: true, permissions: { ...schema.permissions, add: false, edit: false, delete: false } };
     const w = await mountPage();
     expect(w.find('[data-testid="closed-banner"]').text()).toContain(zhTW.dynamic.closedBanner);
+    expect(w.find('[data-testid="closed-banner"]').text()).toContain('這個積木包已關閉');
     expect(w.find('[data-testid="new-btn"]').exists()).toBe(false);
   });
 
